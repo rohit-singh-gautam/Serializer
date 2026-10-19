@@ -468,6 +468,7 @@ TEST(constructor_initialization, owner_parameter_defaults_preserve_existing_wire
   auto first = rohit::serializer::deserialize_exact<owner, rohit::serializer::json>(input);
   const owner second{};
   first.extent.width = 67;
+  EXPECT_EQ(first.extent.width, 67u);
   EXPECT_EQ(second.a, 0u);
   EXPECT_EQ(second.extent.width, 3u);
   EXPECT_EQ(second.extent.height, 4u);

@@ -1,5 +1,11 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.8.0** enables XML support by default in CMake and the vcpkg
+manifest. Provide libxml2, or explicitly select `-DSERIALIZER_WITH_XML=OFF`.
+Previously configured caches retain their saved selection; change it explicitly
+when upgrading. XML entry points are generated automatically for declarations
+with XML mappings or an associated XSD.
+
 Language **1.20.0**, compiler/runtime **2.7.0**, adds schema-first XML authoring
 and C++ declarative package generation. Use one `using schema "local.xsd";`
 inside the application namespace to bind authored models, or import the supported
@@ -11,7 +17,7 @@ See [XSD rules](../serialization/xsd_tooling.md) and
 for syntax, compilation and backend limits.
 
 Generated C++ managed identities use compact varints by default in native binary
-output, independently of their default `uint32` memory width. Use `[managed]
+output, independently of their default `uint32` memory width. Use `[managed]` with
 `id_encoding = fixed` for fixed payloads. See the
 [persistent-ID migration guide](persistent_id_migration.md) for regeneration and
 existing-document steps, and the

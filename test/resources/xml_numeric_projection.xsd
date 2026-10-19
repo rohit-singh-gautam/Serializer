@@ -1,0 +1,115 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:serializer:numeric-projection"
+           targetNamespace="urn:serializer:numeric-projection">
+  <xs:element name="qname_sample">
+    <xs:complexType><xs:sequence><xs:element name="value" type="xs:QName" form="qualified"/></xs:sequence></xs:complexType>
+  </xs:element>
+  <xs:simpleType name="Integer">
+    <xs:restriction base="xs:positiveInteger"><xs:enumeration value="42"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="Decimal">
+    <xs:restriction base="xs:decimal"><xs:enumeration value="1"/></xs:restriction>
+  </xs:simpleType>
+  <xs:element name="sample">
+    <xs:complexType>
+      <xs:attribute name="integer" type="t:Integer" use="required"/>
+      <xs:attribute name="decimal" type="t:Decimal" use="required"/>
+      <xs:attribute name="fixed" type="xs:integer" use="required" fixed="1"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:simpleType name="NaNFloat">
+    <xs:restriction base="xs:float"><xs:enumeration value="NaN"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="NaNDouble">
+    <xs:restriction base="xs:double"><xs:enumeration value="NaN"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="FloatEnum">
+    <xs:restriction base="xs:float"><xs:enumeration value="0.1"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="DoubleEnum">
+    <xs:restriction base="xs:double"><xs:enumeration value="0.1"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="FloatMinInclusive">
+    <xs:restriction base="xs:float"><xs:minInclusive value="0.1000000005"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="FloatMaxInclusive">
+    <xs:restriction base="xs:float"><xs:maxInclusive value="0.1000000005"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="FloatMinExclusive">
+    <xs:restriction base="xs:float"><xs:minExclusive value="0.1000000005"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="FloatMaxExclusive">
+    <xs:restriction base="xs:float"><xs:maxExclusive value="0.1000000005"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="DoubleMinInclusive">
+    <xs:restriction base="xs:double"><xs:minInclusive value="0.100000000000000001"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="DoubleMaxInclusive">
+    <xs:restriction base="xs:double"><xs:maxInclusive value="0.100000000000000001"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="DoubleMinExclusive">
+    <xs:restriction base="xs:double"><xs:minExclusive value="0.100000000000000001"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="DoubleMaxExclusive">
+    <xs:restriction base="xs:double"><xs:maxExclusive value="0.100000000000000001"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="FloatNaNMinInclusive">
+    <xs:restriction base="xs:float"><xs:minInclusive value="NaN"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="FloatNaNMaxInclusive">
+    <xs:restriction base="xs:float"><xs:maxInclusive value="NaN"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="FloatNaNMinExclusive">
+    <xs:restriction base="xs:float"><xs:minExclusive value="NaN"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="FloatNaNMaxExclusive">
+    <xs:restriction base="xs:float"><xs:maxExclusive value="NaN"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="Empty">
+    <xs:restriction base="xs:string"><xs:length value="0"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="FloatUpperOrEmpty">
+    <xs:union memberTypes="t:FloatMaxExclusive t:Empty"/>
+  </xs:simpleType>
+  <xs:simpleType name="DoubleUpperOrEmpty">
+    <xs:union memberTypes="t:DoubleMaxExclusive t:Empty"/>
+  </xs:simpleType>
+  <xs:element name="floating_sample">
+    <xs:complexType>
+      <xs:attribute name="float_nan_enum" type="t:NaNFloat"/>
+      <xs:attribute name="double_nan_enum" type="t:NaNDouble"/>
+      <xs:attribute name="float_nan_fixed" type="xs:float" fixed="NaN"/>
+      <xs:attribute name="double_nan_fixed" type="xs:double" fixed="NaN"/>
+      <xs:attribute name="float_enum" type="t:FloatEnum"/>
+      <xs:attribute name="double_enum" type="t:DoubleEnum"/>
+      <xs:attribute name="float_min_inclusive" type="t:FloatMinInclusive"/>
+      <xs:attribute name="float_max_inclusive" type="t:FloatMaxInclusive"/>
+      <xs:attribute name="float_min_exclusive" type="t:FloatMinExclusive"/>
+      <xs:attribute name="float_max_exclusive" type="t:FloatMaxExclusive"/>
+      <xs:attribute name="double_min_inclusive" type="t:DoubleMinInclusive"/>
+      <xs:attribute name="double_max_inclusive" type="t:DoubleMaxInclusive"/>
+      <xs:attribute name="double_min_exclusive" type="t:DoubleMinExclusive"/>
+      <xs:attribute name="double_max_exclusive" type="t:DoubleMaxExclusive"/>
+      <xs:attribute name="nan_min_inclusive" type="t:FloatNaNMinInclusive"/>
+      <xs:attribute name="nan_max_inclusive" type="t:FloatNaNMaxInclusive"/>
+      <xs:attribute name="nan_min_exclusive" type="t:FloatNaNMinExclusive"/>
+      <xs:attribute name="nan_max_exclusive" type="t:FloatNaNMaxExclusive"/>
+      <xs:attribute name="float_union" type="t:FloatUpperOrEmpty"/>
+      <xs:attribute name="double_union" type="t:DoubleUpperOrEmpty"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:simpleType name="TwoDigitInteger">
+    <xs:restriction base="xs:int"><xs:pattern value="[0-9]{2}"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="FloatList">
+    <xs:list itemType="xs:float"/>
+  </xs:simpleType>
+  <xs:simpleType name="PatternList">
+    <xs:restriction base="t:FloatList"><xs:pattern value="1\.00 2\.00"/></xs:restriction>
+  </xs:simpleType>
+  <xs:element name="pattern_sample">
+    <xs:complexType>
+      <xs:attribute name="value" type="t:TwoDigitInteger" use="required"/>
+      <xs:attribute name="values" type="t:PatternList"/>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

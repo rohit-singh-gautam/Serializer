@@ -7,6 +7,10 @@ description: "Use Serializer as a state framework when creating or changing sche
 
 [Documentation index](../../../docs/README.md)
 
+Use the [central pending backlog](../../../docs/xml_pending.md) for every documented
+remaining requirement and proposal. Design guides retain contracts and rationale;
+check the backlog's backend scope and executed evidence before claiming completion.
+
 Serializer â€” **State Framework** combines multi-language generated codecs and
 schema evolution with C++ application-state management. Choose ordinary generated
 models for data exchange or the managed runtime for editable C++ models. Native
@@ -42,6 +46,16 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
+Compiler/runtime **2.8.0** retains schema language **1.20.0** and enables XML
+support by default in CMake and the vcpkg manifest. Supply libxml2, or explicitly
+select `-DSERIALIZER_WITH_XML=OFF` for a build without it. Existing caches retain
+their previous selection. Inline XML declarations and fixed-XSD associations
+already enable generated XML entry points automatically. Python adds OPC package
+facades and richer XML bindings; consult the backend-specific contract and
+executed checks before assuming parity. The
+[2.8 verification record](../../../docs/verification/verification-opc-backends-2026-10-19.md)
+identifies the selected OPC edition, Core schema fixture and actual backend checks.
+
 Compiler/runtime **2.7.0**, language **1.20.0**, adds schema-authored XML mappings,
 inline fixed-XSD association and reviewable XSD declaration import. Prefer one
 namespace `using schema "local.xsd";` for compatible application-authored models,
@@ -55,12 +69,12 @@ and [XSD contract](../../../docs/serialization/xsd_tooling.md). Imported declara
 do not imply arbitrary XSD coverage or identical native layouts to authored models.
 Both editor packages use **2.0.5**.
 
-Use C++ language-1.20 `package` declarations to generate complete OPC assembly
+Use language-1.20 `package` declarations for C++ or Python to generate complete OPC assembly
 and typed loading, sharing the runtime's cumulative budget, cancellation and
 optional deadline. Keep models borrowed for synchronous Save and supply domain
 validation before typed publication. Read
 [package declarations and limits](../../../docs/serialization/xml_packages.md#declarative-c-package-profiles).
-Package/compression parity outside C++, tree-free XML and broader XSD constructs
+Package/compression parity across the remaining backends, tree-free XML and broader XSD constructs
 remain pending; unsupported rich backend combinations must reject explicitly.
 Do not infer complete 3MF or full-standard OPC conformance from a package round trip.
 Ordinary native schemas must retain their output/layout and runtime efficiency.
@@ -98,8 +112,9 @@ member/base IDs and document/owner/generation identity. Bind live owners explici
 load owners before resolving decoded addresses. Shared C++ bindings retain the
 whole storage owner. Read the backend's lvalue/weak/scope/boxed-owner lifetime
 contract; bindings add no synchronization or automatic object-graph persistence.
-Address codecs cover JSON and the three native binary protocols; optional XML
-generation currently rejects typed references and translators consistently in every backend.
+Address codecs cover JSON and the three native binary protocols; XML generation
+still rejects durable address fields. Current C++ XML supports selected value
+projections and scoped translator output under the XML/package contract below.
 That language release used editor packages 2.0.3.
 Owners and targets must satisfy the supported ordinary owning/public projection
 subset; diagnose unsupported managed, collection-element, optional/variant,
@@ -127,12 +142,16 @@ every selected output and verify the application's external XML contract.
 Use [pinned XSD bundles and tools](../../../docs/serialization/xsd_tooling.md)
 for local import/include allowlists, SHA-256 identity, dependency tracking,
 supported nested complex types, export and directional reader compatibility.
-Facets, identity constraints and richer models still reject; runtime providers
-do not inherit the compiler bundle resolver.
+Use the scoped C++/Python rich subset for supported facets, unions, patterns,
+static complex-content extension and restricted repeated choices. General XSD
+and identity constraints remain unsupported; runtime providers do not inherit
+the compiler bundle resolver. Validate original input lexical values before
+native conversion; canonical output must independently satisfy any pattern.
 
 Select `[output] protocols = binary_none` or `--protocols binary_none` to restrict
-native formats across all backends; defaults remain all formats. XML stays
-independently opt-in. Shared runtime helpers may remain in generated source;
+native formats across all backends; defaults remain all formats. XML support is
+built by default; XML generation is selected by XML declarations, XSD association
+or explicit configuration. Shared runtime helpers may remain in generated source;
 selection does not promise complete code removal. C++ ZIP64, explicitly bounded
 nonseekable spooling, caller-authored transactional OPC loads, opaque extension
 policies and canonical ordering are documented in the
@@ -140,18 +159,18 @@ policies and canonical ordering are documented in the
 share the package budget explicitly. Compression cancellation hooks borrow a named
 callable that must outlive the operation or streaming encoder; see the
 [compression guide](../../../docs/serialization/compression.md).
-These additions do not implement backend
-package/compression parity, generated profiles or managed document-sidecar recovery;
+Generated package profiles are available in C++ and Python. Remaining backend
+package/compression parity and managed document-sidecar recovery are pending;
 keep [remaining coverage](../../../docs/xml_pending.md) explicit.
 
 For an OPC-based format, follow the
 [OPC/3MF authoring requirements and restricted build example](../../../docs/design/opc_3mf_support.md).
 The application defines payload models, XML mappings, content types, relationship
-roles and domain validation. The C++ OPC runtime generates/parses standard
+roles and domain validation. C++ and generated Python OPC support generate/parse standard
 `[Content_Types].xml` and `.rels`; do not require application schemas for that
-infrastructure. Use C++ generated package declarations or explicit builders for
+infrastructure. Use C++/Python generated package declarations or C++ builders for
 the application's declared profile, and do not describe the restricted mesh
-example as a complete 3MF reader. Keep non-C++ profile parity pending. When an
+example as a complete 3MF reader. Keep the other nine outputs' profile parity pending. When an
 external XSD is available, bind its supported subset through `using schema` or
 `[xml] xsd = path`, or import declarations first. Match expanded names and retain
 existing native member IDs; do not infer stable wire identity from declaration
@@ -1266,6 +1285,11 @@ runtime linkage, and the C++20 minimum. CMake 4.0+ is required; keep a newer C++
 mode if the application already uses one. Source dependencies build the generator
 as needed; installed packages use their installed executable. `SERIALIZER_INSTALL`
 controls installation and defaults off when Serializer is embedded.
+Installed discovery resolves enabled runtime-provider dependencies even for
+`LANGUAGES NONE` generation consumers. On multiarch Linux, provide their selected
+toolchain's library-architecture/search prefixes as described in the
+[CMake guide](../../../docs/guides/cmake_integration.md); a compiler-only package
+component remains pending.
 The generation helpers link the permissively licensed runtime rather than the
 GPL compiler API library. Keep `Serializer::serializer_lib` only for deliberate
 compiler/parser API use; building or running the GPL generator as a build tool

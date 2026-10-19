@@ -15,6 +15,7 @@ wire records but do not have equivalent native managed engines.
 
 [Project website](https://www.singh.org.in/serializer.html) ·
 [Documentation index](docs/README.md) ·
+[Pending requirements](docs/xml_pending.md) ·
 [Serialization quick start](#get-started) ·
 [State-management quick start](docs/managed/getting_started.md) ·
 [Feature status](docs/project/feature_status.md)
@@ -35,11 +36,20 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.7.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.8.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.20.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+XML support is enabled by default in CMake and the vcpkg manifest; use
+`-DSERIALIZER_WITH_XML=OFF` for a build without it. Existing CMake caches retain
+their previous selection until explicitly changed. XML declarations and supplied
+XSDs automatically enable generated XML entry points. Release **2.8.0** also adds
+Python OPC package facades and richer C++/Python XML bindings, including the
+supported published Core 1.4 XSD subset. See the
+[current executed checks](docs/verification/verification-opc-backends-2026-10-19.md); qualification and
+remaining backend work are tracked in [the backlog](docs/xml_pending.md).
 
 Compiler/runtime **2.7.0**, language **1.20.0**, adds inline XML defaults and field
 exceptions, `using schema "local.xsd";`, and reviewable XSD declaration import.
@@ -584,8 +594,8 @@ explicitly select `read_policy::flexible` after regenerating their classes.
 
 ## Build and test
 
-Fresh builds enable managed history, journaling, collaboration, SIMD, and all
-compression backends. Zstandard, LZ4, and zlib are required; the repository vcpkg
+Fresh builds enable managed history, journaling, collaboration, SIMD, XML, and all
+compression backends. Libxml2, Zstandard, LZ4, and zlib are required; the repository vcpkg
 manifest acquires them through its default features. Existing caches retain their
 settings; use `-U SERIALIZER_BUILD_MANAGED -U SERIALIZER_WITH_*` to adopt the new
 defaults, or set each option explicitly.

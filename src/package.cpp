@@ -98,9 +98,11 @@ std::uint32_t zip32(std::uint64_t value) {
 }
 
 // Validate logical archive names without interpreting them as operating-system paths.
-void validate_zip_name(std::string_view name, bool utf8 = true) {
+void validate_zip_name(std::string_view name, bool utf8 = true, bool opc_names = false) {
+  const auto forbidden = opc_names ? std::string_view{"\\\0", 2U}
+                                   : std::string_view{"\\:\0", 3U};
   if (name.empty() || name.size() > zip16_limit || name.front() == '/' ||
-      name.find_first_of("\\:\0", 0, 3) != std::string_view::npos) {
+      name.find_first_of(forbidden) != std::string_view::npos) {
     throw error{error_code::invalid_name, "Invalid ZIP entry name"};
   }
   for (std::size_t begin = 0; begin < name.size();) {
@@ -385,7 +387,12 @@ buffer_reservation::~buffer_reservation() { budget_.reserved_buffer_bytes_ -= by
 
 // Borrow the destination while preserving caller-supplied operation accounting.
 zip_writer::zip_writer(std::ostream& output, std::shared_ptr<budget> shared)
-    : output_{output}, budget_{shared ? std::move(shared) : std::make_shared<budget>()} {}
+    : zip_writer{output, std::move(shared), false} {}
+
+// The OPC builder opts into URI colons without weakening ordinary ZIP path validation.
+zip_writer::zip_writer(std::ostream& output, std::shared_ptr<budget> shared, bool opc_names)
+    : output_{output}, budget_{shared ? std::move(shared) : std::make_shared<budget>()},
+      opc_names_{opc_names} {}
 
 // Enforce archive/I/O bounds before every bounded native stream write.
 void zip_writer::append(std::span<const std::uint8_t> bytes) {
@@ -412,7 +419,7 @@ void zip_writer::add(std::string_view name, std::span<const std::uint8_t> bytes,
   if (finished_ || failed_) {
     throw error{error_code::invalid_state, "ZIP writer is finished or failed"};
   }
-  validate_zip_name(name);
+  validate_zip_name(name, true, opc_names_);
   validate_features(utf8_flag, static_cast<std::uint16_t>(options.method));
   if (std::any_of(entries_.begin(), entries_.end(), [name](const auto& item) {
         return item.name == name;
@@ -720,6 +727,11 @@ std::vector<std::uint8_t> zip_reader::read_at(std::uint64_t offset, std::size_t 
 
 // Index directory/local headers and validate extents without expanding unrelated entries.
 zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared, input_options options)
+    : zip_reader{input, std::move(shared), std::move(options), false} {}
+
+// OPC logical names remain inert archive identifiers, including URI-permitted colons.
+zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
+    input_options options, bool opc_names)
     : input_{&input}, budget_{shared ? std::move(shared) : std::make_shared<budget>()} {
   std::istream::pos_type end{-1};
   try {
@@ -867,7 +879,7 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared, inpu
     }
     const std::string name{reinterpret_cast<const char*>(header.data() + central_header_bytes),
                            name_size};
-    validate_zip_name(name, (flags & utf8_flag) != 0);
+    validate_zip_name(name, (flags & utf8_flag) != 0, opc_names);
     if (find(name)) {
       throw error{error_code::duplicate_name, "Duplicate ZIP entry", name};
     }
@@ -883,7 +895,9 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared, inpu
     }
     entries_.push_back({name, static_cast<zip_method>(method), compressed, expanded,
         read_integer<std::uint32_t>(header, 16), flags, header_offset, 0,
-        compressed_narrow == zip32_limit || expanded_narrow == zip32_limit});
+        compressed_narrow == zip32_limit || expanded_narrow == zip32_limit,
+        static_cast<std::uint8_t>(read_integer<std::uint16_t>(header, 4) >> 8U),
+        read_integer<std::uint32_t>(header, 38)});
     position += central_header_bytes + variable_size;
   }
   if (position != directory.size()) {

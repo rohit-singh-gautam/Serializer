@@ -1,5 +1,8 @@
 # Managed capabilities and mandatory identity
 
+Remaining capability/engine work is tracked under **MG01–MG02** in
+[the central pending backlog](../xml_pending.md#managed-state-and-storage).
+
 Current C++ representation: managed schema classes carry `persistent_id` directly
 by default. Separate ID-free values/storage wrappers in the illustrations below
 require `[managed] separate_values = true`; see the [runtime contract](cpp_runtime.md).

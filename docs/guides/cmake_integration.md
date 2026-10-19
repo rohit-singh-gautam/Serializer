@@ -62,10 +62,10 @@ with `[output] language = cpp,java`. Schema paths use `.serializer`, and every
 schema starts with a supported language header; use `serializer version 1.3.0;`
 for inferred arrays and typed magic. The original `1` header remains an exact
 alias for `1.0.0`. The installed package supports
-`find_package(Serializer 2.1.1 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
+`find_package(Serializer 2.8.0 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
 newer compatible release within the same major version. See
 [compiler and schema versioning](command_line.md).
-The 2.1.1 package uses `SameMajorVersion` discovery and rejects 1.x requests.
+The package uses `SameMajorVersion` discovery and rejects 1.x requests.
 Update a versioned consumer to `find_package(Serializer 2.0 CONFIG REQUIRED)`;
 existing unversioned discovery remains valid. Regenerate through the consumer's
 build rules, and distribute the default separate-header bundle or select
@@ -87,6 +87,16 @@ For languages other than Go, the default builds the compiler from this checkout.
 `SERIALIZER_EXAMPLE_USE_INSTALLED=ON` and `CMAKE_PREFIX_PATH` to reuse a package.
 See [all-language example builds](../../example/README.md#build-an-individual-example-with-cmake)
 for SDK requirements and selected-language options.
+
+Installed package discovery currently resolves the enabled runtime providers even
+when a project uses `LANGUAGES NONE` solely for source generation. On multiarch
+Linux, such a project may need explicit provider search prefixes or the selected
+toolchain's `CMAKE_LIBRARY_ARCHITECTURE`; CMake normally detects that suffix while
+enabling a compiled language. The installed-example test forwards the parent
+toolchain's detected value rather than enabling C++ in the Python consumer.
+A compiler-only package discovery interface remains **BE04** in the
+[central backlog](../xml_pending.md); the current package does not expose that
+component.
 
 Go examples are native modules and can be built without CMake. With the
 installed `serializer` CLI on `PATH`, run `go generate .`, `go build -o build/ .`,
@@ -114,15 +124,19 @@ features through `VCPKG_MANIFEST_FEATURES`. Cached values are preserved; reset
 for their exported runtime target. See [compression](../serialization/compression.md) for targets,
 limits, and supported format profiles. Missing enabled dependencies are errors.
 
-XML is separately opt-in: `SERIALIZER_WITH_XML=ON` requires the
-`LibXml2::LibXml2` CMake target. With vcpkg also select
-`-DVCPKG_MANIFEST_FEATURES=xml`. This enables the compiler's fixed-XSD binder and
+XML is enabled by default: `SERIALIZER_WITH_XML=ON` requires the
+`LibXml2::LibXml2` CMake target. The vcpkg manifest includes the `xml` feature by
+default. Set `SERIALIZER_WITH_XML=OFF` to disable it; existing caches retain their
+previous selection until explicitly changed. This enables the compiler's fixed-XSD binder and
 the C++ XML runtime; generated outputs use their documented language providers.
 `SERIALIZER_BUILD_XML_EXAMPLES=ON` builds the C++ XML and ZIP/OPC example and
 requires XML plus zlib. The [all-language XML runner](../../example/xml/README.md)
 builds every selected generated backend using its native SDK.
 With XML enabled, `SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES=ON` also registers
-the configured and fixed-XSD XML exchange matrices and Kotlin private-field probe.
+the configured and fixed-XSD XML exchange matrices, Kotlin private-field probe,
+and the Python rich XML, repeated-choice and Core consumer suites. The rich/Core
+pattern checks need Python's optional `lxml` provider; the 2.8 qualification
+record names the version actually executed.
 When native tests are enabled,
 it adds the typed XML probes; Python's runtime-XSD probe requires the pinned
 `lxml` dependency from
@@ -145,7 +159,7 @@ configuration, then uses CMake's `--clean-first` before building.
 | Git | `clean` and `rebuild`, which remove untracked and ignored files repository-wide; no CMake installation is needed for `clean`. |
 | CMake 4.0+ | Every source build; CTest is included with CMake. |
 | Zstandard, LZ4, and zlib CMake packages | Default runtime build; the repository vcpkg manifest acquires them automatically. Disable individual backends with `SERIALIZER_WITH_*=OFF`. |
-| libxml2 CMake package | `SERIALIZER_WITH_XML=ON` (default OFF); select vcpkg feature `xml` or supply `CMAKE_PREFIX_PATH`. |
+| libxml2 CMake package | Default XML-enabled build; the vcpkg manifest includes `xml`, or supply `CMAKE_PREFIX_PATH`. Disable with `SERIALIZER_WITH_XML=OFF`. |
 | C++20 compiler and standard library | Library, schema compiler, and C++ consumers; the selected compiler must support the target architecture. |
 | Native build tool | GNU Make for `make all`; Ninja for the Linux and Windows presets; MSBuild/Visual Studio C++ tools or another configured generator for the Windows wrapper. |
 | PowerShell | Windows `make.ps1` wrapper. |

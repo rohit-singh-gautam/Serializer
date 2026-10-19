@@ -25,8 +25,12 @@ struct scalar_facets {
   bool finite{};
   std::string lexical_kind{};
   std::vector<std::string> patterns{};
+  // Restrictions intersect groups; alternatives within one restriction's group form a union.
+  std::vector<std::vector<std::string>> pattern_groups{};
   std::string list_item_kind{};
   std::vector<xml::name> qname_enumeration{};
+  // Union branches are independent complete lexical contracts, never intersected facets.
+  std::vector<scalar_facets> union_members{};
   // Compare the static validation contract without inspecting generated model values.
   bool operator==(const scalar_facets&) const = default;
 };
@@ -52,10 +56,21 @@ struct field {
   bool value_projection{};
   std::optional<xml::name> qname_default{}, qname_fixed{};
 };
-// A singleton choice constrains the presence of its explicitly optional alternatives.
+// One choice branch retains the occurrence interval for a known field or positioned wildcard.
+struct choice_branch {
+  const member* source{};
+  std::optional<std::size_t> wildcard_index{};
+  std::size_t minimum{1U};
+  std::optional<std::size_t> maximum{1U};
+};
+// Singleton choices use optional alternatives; repeated groups retain their full branch contract.
 struct choice_group {
   std::vector<const member*> alternatives{};
   std::size_t minimum{1U}, maximum{1U};
+  bool repeated{};
+  std::size_t before_field{};
+  std::optional<std::size_t> max_repetitions{1U};
+  std::vector<choice_branch> branches{};
 };
 // Wildcards retain their namespace/process contract instead of silently deleting foreign content.
 struct wildcard {
@@ -65,6 +80,7 @@ struct wildcard {
   std::size_t minimum{1U};
   std::optional<std::size_t> maximum{1U};
   std::size_t before_field{};
+  std::optional<std::string> target_namespace{};
 };
 // One complete generated XML contract, independent of other format layouts.
 struct record {
@@ -95,6 +111,28 @@ struct schema_bundle {
   std::vector<document> documents{};
   std::string identity{};
 };
+// Resolve a simple declaration once for both native type selection and generated validation.
+struct scalar_type {
+  xml::name primitive{};
+  scalar_facets facets{};
+};
+[[nodiscard]] scalar_type resolve_scalar_type(const schema_bundle& bundle,
+                                             const xml::element& source);
+// Preserve the defining document when expanding inherited or grouped declarations.
+struct schema_component {
+  const schema_bundle::document* owner{};
+  const xml::element* node{};
+};
+struct complex_content {
+  bool mixed{};
+  std::vector<schema_component> children{};
+};
+// Expand static complex-type extension and attribute groups without changing qualified identities.
+[[nodiscard]] complex_content expand_complex_type(const schema_bundle& bundle,
+    const schema_bundle::document& owner, const xml::element& source);
+// Resolve a model group to its original compositor, retaining its qualification defaults.
+[[nodiscard]] schema_component resolve_model_group(const schema_bundle& bundle,
+    const schema_bundle::document& owner, const xml::element& reference);
 // Resolve only a bounded local bundle; importer mode performs its own exact subset checks.
 [[nodiscard]] std::shared_ptr<const schema_bundle> read_schema_bundle(
     const std::filesystem::path& path, bool optimized_subset = true);

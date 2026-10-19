@@ -7,11 +7,12 @@
   "default-features": [
     "compression-zstd",
     "compression-lz4",
-    "compression-zlib"
+    "compression-zlib",
+    "xml"
   ],
   "features": {
     "xml": {
-      "description": "Optional XML parser and trusted XSD validator",
+      "description": "XML parser and trusted XSD validator (enabled by default)",
       "dependencies": [{ "name": "libxml2", "default-features": false }]
     },
     "compression-zstd": {

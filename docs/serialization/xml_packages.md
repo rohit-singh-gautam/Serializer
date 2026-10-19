@@ -1,8 +1,8 @@
 # XML, compression streams and packages
 
-Compiler/runtime **2.7.0**, schema language **1.20.0**. Baseline XML generation
+Compiler/runtime **2.8.0**, schema language **1.20.0**. Baseline XML generation
 covers all output languages; the stream and package API examples below use C++20.
-Richer XML mappings and generated OPC profiles currently have C++ support;
+Richer XML mappings and generated OPC profiles have C++ and Python support;
 unsupported backend combinations reject before output publication. Existing
 native wire formats and managed journals are unchanged.
 See [remaining work](../xml_pending.md) and the [full design](../design/xml_support.md).
@@ -19,12 +19,17 @@ owning model
 
 ## Enable XML
 
-Build with `SERIALIZER_WITH_XML=ON`; the default is OFF. This requires
-`LibXml2::LibXml2`. With the repository vcpkg manifest, select the optional `xml`
-feature as well. Its minimal libxml2 dependency omits optional encoding backends.
+XML support is enabled by default (`SERIALIZER_WITH_XML=ON`) and requires
+`LibXml2::LibXml2`. The repository vcpkg manifest includes the `xml` feature by
+default. Its minimal libxml2 dependency omits optional encoding backends.
 Public Serializer headers do not expose libxml2 headers. Installed CMake packages
 discover the dependency and export the `SERIALIZER_WITH_XML` target capability.
 Libxml2 uses the [MIT license](https://gnome.pages.gitlab.gnome.org/libxml2/).
+
+Use `-DSERIALIZER_WITH_XML=OFF` for a build without XML support. Existing build
+caches retain their selection; set `-DSERIALIZER_WITH_XML=ON` explicitly when
+upgrading a cache which previously disabled it. Both root build wrappers use this
+same CMake default.
 
 Inline XML declarations enable generation automatically. Select `[xml] enabled =
 false` only to deliberately omit those XML entry points; a package declaration
@@ -162,8 +167,9 @@ user-declared/external entities and non-1.0 XML are rejected. Predefined entitie
 and character references are supported.
 Bundled parsers load no XML external resources; caller-supplied validators must
 enforce the same rule. Namespace identity uses URI plus local
-name. Rewriting does not preserve comments, prefixes, processing instructions,
-QName-valued text or lexical formatting; this is a typed data mapping.
+name. Rewriting does not preserve comments, prefixes, processing instructions or
+lexical formatting. QName-valued fields need the explicit namespace-aware
+adapters described below; ordinary strings do not retain QName semantics.
 Schema-location hints do not select a validator. The strict generated mapping
 rejects undeclared attributes, including unbound `xsi:schemaLocation` hints.
 
@@ -181,21 +187,21 @@ occurrence constraints. Do not repeat its attribute decisions in configuration;
 member renames may associate different model names. Changing the XSD requires
 regeneration and recompilation; CLI depfiles include it.
 
-The optimized subset accepts bounded local XSD 1.0 import/include bundles,
-inline/named root complex types, nested named complex record bindings with global
-roots, singleton nested sequences, primitive typed elements/attributes, global
-references and facet-free primitive simple aliases. The
-[XSD tooling guide](xsd_tooling.md) defines the exact resolver, bundle identity,
-export and compatibility contract. Unsupported declarations, facets, identity
-constraints and conflicting bindings fail generation. No runtime XSD files or
-general validator calls are required by the generated default path.
+The common baseline accepts bounded local XSD 1.0 import/include bundles,
+inline/named root complex types, nested record bindings, singleton nested
+sequences, primitive typed elements/attributes, global references and facet-free
+primitive simple aliases. C++ and Python additionally support the richer facets,
+lists, unions, extensions and restricted choices in the
+[XSD tooling guide](xsd_tooling.md). Unsupported declarations, identity constraints
+and conflicting bindings fail generation. No runtime XSD files or general
+whole-document validator calls are required by the generated default path;
+patterns use the selected backend's XSD regular-expression provider.
 
-Primitive bindings are `string`, `boolean`, signed/unsigned 8–64-bit integers,
-`float` and `double`. XSD-bound enums, constrained custom simple types,
-defaults/fixed values and facets are rejected; annotations are ignored as metadata.
-One fixed XSD bundle applies to the
-complete generation unit: each emitted class needs a compatible global root
-declaration; there is no per-class XSD-file selection.
+Primitive bindings include `string`, `boolean`, signed/unsigned 8–64-bit integers,
+`float` and `double`. Arbitrary-precision numeric imports retain lexical strings.
+Annotations do not become application fields. One fixed XSD bundle applies to
+the complete generation unit; nested records can bind compatible named or
+unambiguous anonymous complex types without their own global element.
 
 To allow an explicit prepared validator, generate with `runtime_xsd = true` and
 `validation_scope = input`, `output` or `both` (default: `input`).
@@ -303,7 +309,7 @@ Applications supply payload models and package vocabulary; they do not need
 `.serializer` schemas for the standard content-type or relationship metadata.
 The [OPC/3MF authoring requirements](../design/opc_3mf_support.md) distinguish
 remaining generic capabilities from application work and show a restricted schema
-and current build workflow. C++ declarative profiles are described below.
+and current build workflow. C++ and Python declarative profiles are described below.
 
 ```cpp
 package::opc_writer document{output};
@@ -319,10 +325,17 @@ document.finish();
 This is a documented OPC subset, not complete Office/OpenXML support. Part URIs
 and decoded escapes use the ASCII subset; Unicode part naming is unsupported.
 Equivalent case/escape identities and ancestor/descendant part collisions are
-rejected. Internal query/fragment targets are unsupported.
+rejected. Internal query/fragment selectors are retained while existence checks
+resolve their underlying part; applications interpret the selectors.
 Applications supply vocabulary rules, expected types/root names, relationship
 cardinalities, payload key/reference checks and business validation. The library
 checks archive/metadata integrity, relationship uniqueness and target existence.
+The selected edition is ECMA-376 Part 2, fifth edition (December 2021), with
+Part 3 fifth-edition Relationships preprocessing. OPC maps physical ZIP files to
+logical parts: directory/non-file records and ASCII names outside the PartName
+grammar are excluded, their payloads still undergo bounded integrity checks, and
+relationships cannot resolve to them. They are not retained as unknown parts.
+The general ZIP reader keeps its separate filename policy.
 
 ## Caller-authored aggregate profiles
 
@@ -426,10 +439,11 @@ Serializer source. See [XSD binding/import](xsd_tooling.md) for associations,
 limits and backend restrictions. Importing model declarations is a separate CLI
 operation; the binding directive alone does not create classes.
 
-C++ additionally supports typed lexical lists, QName/prefix-list context,
-supported scalar facets/defaults, singleton choices and declared foreign XML
-extensions. These richer contracts reject on backends that cannot enforce them.
-Preservation adds an XML-only one-pointer `xml_extensions` slot only when requested;
+C++ and Python additionally support typed lexical lists, QName/prefix-list
+context, supported scalar facets/defaults, unions, patterns, restricted repeated
+choices and declared foreign XML extensions. These richer contracts reject on
+backends that cannot enforce them. C++ preservation adds an XML-only one-pointer
+`xml_extensions` slot only when requested;
 its opaque storage allocates on the first retained unknown value. Use `.get()`
 to test whether storage exists and `.value()` to inspect retained data.
 QName/prefix-list mappings similarly retain only their needed namespace bindings.
@@ -493,9 +507,47 @@ opaque parts and links after editing; finalization revalidates their targets.
 
 The runtime writes `[Content_Types].xml` and scoped `.rels` automatically.
 Applications do not define Serializer schemas for these infrastructure files.
-Package declarations do not add geometry or format-specific validation and are
-currently C++ only. Other-language package generation rejects explicitly; baseline
-XML generation across all outputs remains available independently.
+Package declarations do not add geometry or format-specific validation. Python
+uses the same declarations with the API below. Other-language package generation
+rejects explicitly; baseline XML generation across all outputs remains available
+independently.
+
+## Declarative Python package profiles
+
+Generate the same declaration using `--language python --python.output files.py`.
+The standard-library implementation includes ZIP32/ZIP64, DEFLATE, OPC metadata,
+typed aggregate loading, opaque-part preservation and staged full-file Save:
+
+```python
+from files import FilesArchive, FilesModel, BinaryPart
+
+model = FilesModel()
+model.label = "example"
+value = FilesArchive.Input(
+    main=model,
+    attachments=[BinaryPart(b"payload", "/Attachments/data.bin", "application/octet-stream")],
+)
+FilesArchive.save("example.package", value)
+loaded = FilesArchive.load("example.package")
+assert loaded.value.main.label == "example"
+```
+
+The facade also supplies `encode(input)`, `write(stream, input)` and
+`load(bytes_or_path_or_stream)`. `PackageLimits` and `PackageBudget` share
+cumulative XML/ZIP accounting, cancellation and an optional monotonic deadline.
+An optional `validate(candidate, budget)` callback rejects domain-invalid data
+before publication. Pass retained `loaded.extensions` as `Input.extensions` to
+preserve permitted unknown parts and links after editing. External targets remain
+inert. Save rereads its staged candidate before replacement; a failure after
+replacement reports `publication_uncertain`.
+
+The richer Python XML subset includes scalar facets/defaults/fixed values,
+typed lists, QName/prefix bindings, unions, supported repeated choices and
+positioned lax/skip extensions. XSD patterns use the optional `lxml` provider; a requested pattern
+without that provider rejects explicitly. Unsupported content models still
+reject during generation. Python/container/provider allocations are not a hard
+process-memory bound. Check the [central backlog](../xml_pending.md) for remaining
+backend and provider qualification.
 
 ## Shared XML/package operation context
 
@@ -506,6 +558,14 @@ bridge these checks to their single `package::budget`; nested XML operations do
 not start a fresh cumulative budget. `package::limits::deadline` is optional.
 Direct builder callbacks can use `budget.xml_context()` for the same composition.
 The borrowed context and callback captures must outlive the synchronous operation.
+
+Ordinary XML input remains UTF-8. C++ and Python OPC infrastructure metadata additionally
+accepts BOM-marked UTF-16 in either byte order; its declaration must be absent or
+identify `UTF-16`. Unsupported/conflicting encodings reject, and generated output
+remains UTF-8. C++ direct raw parsing can select
+`operation_context.input_encoding = input_encoding_policy::utf8_or_utf16`.
+Raw parsing can also opt into `allow_mixed_content`; this retains ordered text
+segments for infrastructure processing and does not relax typed field readers.
 
 The current XML path still builds bounded trees and stages complete encoded parts.
 Borrowed model inputs avoid duplicate owning models, but do not promise zero-copy

@@ -1,5 +1,12 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.8.0** enables XML support by default and adds Python OPC
+profiles and richer C++/Python XSD checks. Schema language remains **1.20.0**;
+existing native payloads, IDs and managed journal formats are unchanged.
+XML input encoding, lexical validation and OPC physical-to-logical mapping follow
+the [backend contract](xml_packages.md). These additions do not change ZIP or OPC
+wire standards. See the [2.8 migration notes](../../migration.md#compilerruntime-280).
+
 Compiler/runtime **2.7.0**, schema language **1.20.0**, adds XML authoring and XSD
 declaration import plus C++ package generation. XML annotations do not renumber
 native fields or add package metadata to native payloads. Imported declarations

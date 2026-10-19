@@ -2,6 +2,10 @@
 
 [Documentation index](../README.md)
 
+Use [the central pending backlog](../xml_pending.md) for all outstanding work,
+stable requirement IDs and completion evidence. These design documents retain
+contracts and rationale, rather than separate completion lists.
+
 These documents preserve design reasoning and implementation requests. Their
 status differs: the dimension specification has implementation evidence, XML and
 multipart packages have implementation subsets and pending gates, paged indexing remains proposed, and the repository

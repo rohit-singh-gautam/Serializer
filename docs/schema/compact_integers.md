@@ -97,7 +97,10 @@ acceptance; consider the application's value contract separately.
 ## Proposed signed and floating encodings
 
 These names describe possible follow-up formats and are **not implemented
-schema keywords**:
+schema keywords**.
+
+Their implementation status and completion requirements are tracked as **SC01**
+in [the central backlog](../xml_pending.md#compiler-and-backend-proposals).
 
 | Proposed name | Encoding | Tradeoff |
 | --- | --- | --- |

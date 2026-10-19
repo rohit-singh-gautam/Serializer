@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -19,6 +20,18 @@
 namespace rohit::serializer::writer::xml_binding {
 namespace {
 constexpr std::string_view xsd_namespace{"http://www.w3.org/2001/XMLSchema"};
+// Split XML Schema list-valued attributes using only XML whitespace characters.
+std::vector<std::string_view> lexical_words(std::string_view text) {
+  constexpr std::string_view whitespace{" \t\r\n"};
+  std::vector<std::string_view> result;
+  auto start = text.find_first_not_of(whitespace);
+  while (start != std::string_view::npos) {
+    const auto end = text.find_first_of(whitespace, start);
+    result.push_back(text.substr(start, end == std::string_view::npos ? text.size() - start : end - start));
+    start = end == std::string_view::npos ? end : text.find_first_not_of(whitespace, end);
+  }
+  return result;
+}
 // Borrow one unqualified XSD attribute, without conflating prefixed attributes.
 std::string_view attribute(const xml::element& node, std::string_view key) {
   for (const auto& value : node.attributes) {
@@ -32,22 +45,35 @@ bool has_attribute(const xml::element& node, std::string_view key) {
     return value.qualified_name.namespace_uri.empty() && value.qualified_name.local == key;
   });
 }
+// XML Schema boolean metadata accepts both standardized true lexical spellings.
+bool true_attribute(const xml::element& node, std::string_view key) {
+  auto value = attribute(node, key);
+  constexpr std::string_view whitespace{" \t\r\n"};
+  const auto first = value.find_first_not_of(whitespace);
+  if (first == std::string_view::npos) { return false; }
+  value = value.substr(first, value.find_last_not_of(whitespace) - first + 1U);
+  return value == "true" || value == "1";
+}
 // Resolve QName-valued schema attributes using preserved in-scope namespace declarations.
 xml::name resolve(const xml::element& node, std::string_view value) {
   const auto colon = value.find(':');
   const auto prefix = colon == std::string_view::npos ? std::string{} : std::string{value.substr(0, colon)};
   const auto found = node.namespace_bindings.find(prefix);
+  const bool predefined = prefix == "xml";
   if (value.empty() || colon == 0U || (colon != std::string_view::npos &&
-      (colon + 1U == value.size() || found == node.namespace_bindings.end() ||
+      (colon + 1U == value.size() || (!predefined && found == node.namespace_bindings.end()) ||
        value.find(':', colon + 1U) != std::string_view::npos))) {
     throw std::invalid_argument{"Invalid or unbound XSD QName: " + std::string{value}};
   }
   xml::name result{std::string{value.substr(colon == std::string_view::npos ? 0U : colon + 1U)},
-                   found == node.namespace_bindings.end() ? std::string{} : found->second};
+                   predefined ? "http://www.w3.org/XML/1998/namespace" :
+                       found == node.namespace_bindings.end() ? std::string{} : found->second};
   xml::element check{}; check.qualified_name = {result.local, ""};
   (void)xml::write(check);
   return result;
 }
+// Parse cardinalities before provider projection so large finite bounds retain exact semantics.
+std::size_t occurrence(std::string_view text, std::size_t fallback);
 // Reject every construct/attribute whose semantics the generated subset cannot completely enforce.
 void inspect(const xml::element& node) {
   if (node.qualified_name.namespace_uri != xsd_namespace) {
@@ -55,6 +81,24 @@ void inspect(const xml::element& node) {
   }
   const auto& kind = node.qualified_name.local;
   if (kind == "annotation") { return; }
+  if (node.text.find_first_not_of(" \t\r\n") != std::string::npos) {
+    throw std::invalid_argument{"Significant text outside XSD annotation is unsupported"};
+  }
+  for (const auto* key : {"mixed", "abstract"}) {
+    if (!has_attribute(node, key)) { continue; }
+    const auto words = lexical_words(attribute(node, key));
+    if (words.size() != 1U || (words.front() != "true" && words.front() != "false" &&
+        words.front() != "1" && words.front() != "0")) {
+      throw std::invalid_argument{"Invalid XSD boolean metadata"};
+    }
+  }
+  if (has_attribute(node, "minOccurs") || has_attribute(node, "maxOccurs")) {
+    const auto minimum = occurrence(attribute(node, "minOccurs"), 1U);
+    const auto maximum = attribute(node, "maxOccurs");
+    if (maximum != "unbounded" && minimum > occurrence(maximum, 1U)) {
+      throw std::invalid_argument{"XSD occurrence interval is empty"};
+    }
+  }
   if (kind == "schema") {
     for (const auto* key : {"elementFormDefault", "attributeFormDefault"}) {
       const auto form = attribute(node, key);
@@ -62,19 +106,33 @@ void inspect(const xml::element& node) {
         throw std::invalid_argument{"Invalid XSD qualification default"};
       }
     }
+    for (const auto* key : {"blockDefault", "finalDefault"}) {
+      const auto words = lexical_words(attribute(node, key));
+      for (const auto word : words) {
+        const bool final = key == std::string_view{"finalDefault"};
+        if ((word == "#all" && words.size() == 1U) || word == "extension" || word == "restriction" ||
+            (final && (word == "list" || word == "union")) || (!final && word == "substitution")) { continue; }
+        throw std::invalid_argument{"Invalid XSD schema derivation default"};
+      }
+    }
   }
   const std::map<std::string, std::set<std::string>> accepted{
-      {"schema", {"targetNamespace", "elementFormDefault", "attributeFormDefault", "version", "id"}},
+      {"schema", {"targetNamespace", "elementFormDefault", "attributeFormDefault", "version", "id", "blockDefault", "finalDefault"}},
       {"include", {"schemaLocation", "id"}}, {"import", {"namespace", "schemaLocation", "id"}},
       {"element", {"name", "type", "ref", "minOccurs", "maxOccurs", "form", "id", "default", "fixed"}},
       {"attribute", {"name", "type", "ref", "use", "form", "id", "default", "fixed"}},
       {"simpleType", {"name", "id"}}, {"restriction", {"base", "id"}},
-      {"complexType", {"name", "id"}}, {"sequence", {"id"}},
+      {"complexType", {"name", "id", "mixed", "abstract", "block", "final"}},
+      {"sequence", {"id", "minOccurs", "maxOccurs"}},
       {"choice", {"id", "minOccurs", "maxOccurs"}},
-      {"simpleContent", {"id"}}, {"extension", {"base", "id"}},
+      {"simpleContent", {"id"}}, {"complexContent", {"id", "mixed"}},
+      {"extension", {"base", "id"}},
+      {"group", {"id", "name", "ref", "minOccurs", "maxOccurs"}},
+      {"attributeGroup", {"id", "name", "ref"}},
       {"any", {"id", "namespace", "processContents", "minOccurs", "maxOccurs"}},
       {"anyAttribute", {"id", "namespace", "processContents"}},
-      {"list", {"id", "itemType"}}, {"pattern", {"id", "value", "fixed"}},
+      {"list", {"id", "itemType"}}, {"union", {"id", "memberTypes"}},
+      {"pattern", {"id", "value", "fixed"}},
       {"enumeration", {"id", "value"}}, {"minInclusive", {"id", "value", "fixed"}},
       {"maxInclusive", {"id", "value", "fixed"}}, {"minExclusive", {"id", "value", "fixed"}},
       {"maxExclusive", {"id", "value", "fixed"}}, {"length", {"id", "value", "fixed"}},
@@ -85,6 +143,8 @@ void inspect(const xml::element& node) {
     throw std::invalid_argument{"Unsupported optimized XSD construct: " + kind};
   }
   for (const auto& item : node.attributes) {
+    if (kind == "schema" && item.qualified_name ==
+        xml::name{"lang", "http://www.w3.org/XML/1998/namespace"}) { continue; }
     if (!item.qualified_name.namespace_uri.empty() || !allowed->second.contains(item.qualified_name.local)) {
       throw std::invalid_argument{"Unsupported optimized XSD attribute: " + item.qualified_name.local};
     }
@@ -205,17 +265,44 @@ void validate_bundle(const schema_bundle& bundle) {
                            const xml::element& source, bool global) -> xml::element {
     auto node = source;
     node.children.clear();
+    // Grammar inspection has already rejected significant structural text. The projection
+    // rebuilds children and omits annotation bodies, so source mixed-text slots cannot survive.
+    node.text.clear();
+    node.text_segments.clear();
     if (node.qualified_name.local == "annotation") { return node; }
+    // libxml2 reserves INT_MAX internally and rejects that valid finite XSD maximum.
+    // This projection checks grammar only; binding and generated checks retain original bounds.
+    constexpr auto maximum_provider_occurrence =
+        static_cast<std::size_t>(std::numeric_limits<int>::max()) - 1U;
+    const auto maximum = attribute(source, "maxOccurs");
+    if (!maximum.empty() && maximum != "unbounded" && occurrence(maximum, 1U) > maximum_provider_occurrence) {
+      set_attribute(node, "maxOccurs", "unbounded");
+    }
+    // Canonical spellings avoid a provider rejection of otherwise legal whitespace-collapsed booleans.
+    for (const auto* key : {"mixed", "abstract"}) {
+      if (has_attribute(source, key)) { set_attribute(node, key, true_attribute(source, key) ? "true" : "false"); }
+    }
     node.namespace_bindings["xs"] = std::string{xsd_namespace};
     node.namespace_bindings["b"] = std::string{closed_namespace};
     if (global && !attribute(source, "name").empty()) {
       set_attribute(node, "name", prefixes.at(document.target) + std::string{attribute(source, "name")});
     }
-    for (const auto* key : {"type", "base", "ref"}) {
-      if (attribute(source, key).empty()) { continue; }
-      const auto name = resolve(source, attribute(source, key));
-      if (name.namespace_uri == xsd_namespace) { set_attribute(node, key, "xs:" + name.local); }
-      else {
+    if (global && (source.qualified_name.local == "complexType" || source.qualified_name.local == "simpleType") &&
+        !has_attribute(source, "final") && !attribute(document.root, "finalDefault").empty()) {
+      std::string derivations;
+      for (const auto value : lexical_words(attribute(document.root, "finalDefault"))) {
+        const bool complex = source.qualified_name.local == "complexType";
+        if (value == "#all" || value == "restriction" || (complex && value == "extension") ||
+            (!complex && (value == "list" || value == "union"))) {
+          if (!derivations.empty()) { derivations += ' '; }
+          derivations += value;
+        }
+      }
+      set_attribute(node, "final", std::move(derivations));
+    }
+    const auto rewrite_name = [&](const xml::name& name) {
+      if (name.namespace_uri == xsd_namespace) { return "xs:" + name.local; }
+      {
         const bool imported = std::any_of(document.root.children.begin(), document.root.children.end(), [&](const auto& child) {
           return child.qualified_name.local == "import" && attribute(child, "namespace") == name.namespace_uri;
         });
@@ -224,8 +311,20 @@ void validate_bundle(const schema_bundle& bundle) {
         }
         const auto prefix = prefixes.find(name.namespace_uri);
         if (prefix == prefixes.end()) { throw std::invalid_argument{"XSD QName references an unbundled namespace"}; }
-        set_attribute(node, key, "b:" + prefix->second + name.local);
+        return "b:" + prefix->second + name.local;
       }
+    };
+    for (const auto* key : {"type", "base", "ref", "itemType"}) {
+      if (attribute(source, key).empty()) { continue; }
+      set_attribute(node, key, rewrite_name(resolve(source, attribute(source, key))));
+    }
+    if (!attribute(source, "memberTypes").empty()) {
+      std::string members;
+      for (const auto value : lexical_words(attribute(source, "memberTypes"))) {
+        if (!members.empty()) { members += ' '; }
+        members += rewrite_name(resolve(source, value));
+      }
+      set_attribute(node, "memberTypes", std::move(members));
     }
     const bool is_attribute = source.qualified_name.local == "attribute";
     if (!global && (is_attribute || source.qualified_name.local == "element") &&
@@ -282,7 +381,13 @@ std::shared_ptr<const schema_bundle> load_bundle(const std::filesystem::path& pa
       throw std::length_error{"XSD bundle document/depth limit exceeded"};
     }
     auto bytes = read_schema(file, remaining_bytes);
-    auto tree = xml::parse(bytes);
+    // Documentation may interleave text and markup; grammar inspection still rejects significant
+    // text and foreign nodes outside annotations, while the parser retains all byte budgets.
+    xml::operation_context annotation_context;
+    annotation_context.allow_mixed_content = true;
+    annotation_context.unknown_fields = xml::unknown_policy::preserve;
+    annotation_context.permits_namespace = [](std::string_view uri) { return uri != xsd_namespace; };
+    auto tree = xml::parse(bytes, {}, &annotation_context);
     if (optimized_subset) { inspect(tree); }
     if (tree.qualified_name != xml::name{"schema", std::string{xsd_namespace}}) {
       throw std::invalid_argument{"XSD root must be xs:schema"};
@@ -332,7 +437,19 @@ std::shared_ptr<const schema_bundle> load_bundle(const std::filesystem::path& pa
     identity_input += std::to_string(document.bytes.size()) + ":" + document.bytes;
   }
   result->identity = rohit::digest_to_hex(rohit::make_digest<rohit::digest_algorithm::sha256>(identity_input));
-  if (optimized_subset) { validate_bundle(*result); }
+  if (optimized_subset) {
+    // Check alias fan-out before handing unions to the provider, which may eagerly expand them.
+    const auto check_unions = [&](auto&& self, const xml::element& node) -> void {
+      if (node.qualified_name.local == "annotation") { return; }
+      if (node.qualified_name.local == "simpleType" && std::any_of(node.children.begin(), node.children.end(),
+          [](const auto& child) { return child.qualified_name.local == "union"; })) {
+        (void)resolve_scalar_type(*result, node);
+      }
+      for (const auto& child : node.children) { self(self, child); }
+    };
+    for (const auto& document : result->documents) { check_unions(check_unions, document.root); }
+    validate_bundle(*result);
+  }
   return result;
 }
 // Return whether the member has a supported scalar/record type and unambiguous presence.
@@ -381,13 +498,23 @@ struct scalar_resolution {
 
 // Resolve bounded aliases, inline simple types and list item types without fetching any schema.
 scalar_resolution resolve_scalar(const schema_bundle& bundle, const xml::element& source) {
-  scalar_resolution result;
+  constexpr std::size_t maximum_type_depth{64U};
+  constexpr std::size_t maximum_union_members{1024U};
+  constexpr std::size_t maximum_facet_bytes{16U * 1024U * 1024U};
+  std::size_t remaining_union_members{maximum_union_members};
+  std::size_t remaining_facet_bytes{maximum_facet_bytes};
   std::set<std::pair<std::string, std::string>> active;
-  const auto apply = [&](const xml::element& restriction) {
+  const auto apply = [&](scalar_resolution& result, const xml::element& restriction) {
     std::vector<std::string> enumeration;
+    std::vector<std::string> patterns;
     for (const auto& facet : restriction.children) {
       const auto& kind = facet.qualified_name.local;
-      const auto value = std::string{attribute(facet, "value")};
+      const auto raw_value = attribute(facet, "value");
+      if (raw_value.size() > remaining_facet_bytes) {
+        throw std::length_error{"XSD scalar facet expansion byte limit exceeded"};
+      }
+      remaining_facet_bytes -= raw_value.size();
+      const auto value = std::string{raw_value};
       if (kind == "minInclusive") { result.facets.min_inclusive = value; }
       else if (kind == "maxInclusive") { result.facets.max_inclusive = value; }
       else if (kind == "minExclusive") { result.facets.min_exclusive = value; }
@@ -397,10 +524,16 @@ scalar_resolution resolve_scalar(const schema_bundle& bundle, const xml::element
       else if (kind == "maxLength") { result.facets.max_length = occurrence(value, 0U); }
       else if (kind == "whiteSpace") { result.facets.whitespace = value; }
       else if (kind == "enumeration") { enumeration.push_back(value); }
-      else if (kind == "pattern") { result.facets.patterns.push_back(value); }
+      else if (kind == "pattern") { patterns.push_back(value); }
       else if (kind != "annotation" && kind != "simpleType") {
         throw std::invalid_argument{"Unsupported optimized XSD scalar facet: " + kind};
       }
+    }
+    if (!patterns.empty()) {
+      if (!result.facets.patterns.empty()) {
+        result.facets.pattern_groups.push_back(std::move(result.facets.patterns));
+      }
+      result.facets.patterns = std::move(patterns);
     }
     if (!enumeration.empty()) {
       result.facets.enumeration = std::move(enumeration);
@@ -415,51 +548,87 @@ scalar_resolution resolve_scalar(const schema_bundle& bundle, const xml::element
     }
   };
   const auto walk = [&](auto&& self, const xml::element& node,
-                        std::optional<xml::name> selected = std::nullopt) -> void {
+                        std::optional<xml::name> selected, std::size_t depth) -> scalar_resolution {
+    if (depth > maximum_type_depth) { throw std::length_error{"XSD simple type nesting limit exceeded"}; }
     const xml::element* simple{};
-    if (node.qualified_name.local == "simpleType") { simple = &node; }
-    else {
+    if (!selected && node.qualified_name.local == "simpleType") { simple = &node; }
+    else if (!selected) {
       for (const auto& child : node.children) {
         if (child.qualified_name.local == "simpleType") { simple = &child; }
       }
     }
     if (!simple) {
       const auto type = selected ? *selected : resolve(node, attribute(node, "type"));
-      if (type.namespace_uri == xsd_namespace) { result.primitive = type; return; }
+      if (type.namespace_uri == xsd_namespace) {
+        scalar_resolution result{type, {}};
+        result.facets.lexical_kind = type.local;
+        if (type.local == "NMTOKENS") {
+          result.primitive.local = "string";
+          result.facets.lexical_kind = "string";
+          result.facets.list_item_kind = "NMTOKEN";
+          result.facets.min_length = 1U;
+        }
+        if (type.local != "string") {
+          result.facets.whitespace = type.local == "normalizedString" ? "replace" : "collapse";
+        }
+        return result;
+      }
       if (!active.emplace(type.namespace_uri, type.local).second) {
         throw std::invalid_argument{"Cyclic XSD simple type restriction"};
       }
-      simple = declaration(bundle, "simpleType", type).second;
+      const auto* definition = declaration(bundle, "simpleType", type).second;
+      auto result = self(self, *definition, std::nullopt, depth + 1U);
+      active.erase({type.namespace_uri, type.local});
+      return result;
     }
     for (const auto& child : simple->children) {
       const auto& kind = child.qualified_name.local;
       if (kind == "restriction") {
         const auto base = attribute(child, "base");
-        if (base.empty()) { self(self, child); }
-        else { self(self, child, resolve(child, base)); }
-        apply(child);
-        return;
+        auto result = self(self, child, base.empty() ? std::optional<xml::name>{} : resolve(child, base), depth + 1U);
+        apply(result, child);
+        return result;
       }
       if (kind == "list") {
         const auto item = resolve(child, attribute(child, "itemType"));
         if (item.namespace_uri != xsd_namespace) {
           throw std::invalid_argument{"XSD list item restrictions need separate per-item facet metadata"};
         }
-        self(self, child, item);
+        auto result = self(self, child, item, depth + 1U);
         result.facets.list_item_kind = result.primitive.local;
         result.primitive = {"string", std::string{xsd_namespace}};
         result.facets.whitespace = "collapse";
-        return;
+        result.facets.lexical_kind = "string";
+        return result;
+      }
+      if (kind == "union") {
+        scalar_resolution result{{"string", std::string{xsd_namespace}}, {}};
+        result.facets.lexical_kind = "string";
+        result.facets.whitespace = "collapse";
+        const auto append = [&](scalar_resolution branch) {
+          if (remaining_union_members == 0U) {
+            throw std::length_error{"XSD union expansion member limit exceeded"};
+          }
+          --remaining_union_members;
+          result.facets.union_members.push_back(std::move(branch.facets));
+        };
+        for (const auto type : lexical_words(attribute(child, "memberTypes"))) {
+          append(self(self, child, resolve(child, type), depth + 1U));
+        }
+        for (const auto& member : child.children) {
+          if (member.qualified_name.local == "simpleType") {
+            append(self(self, member, std::nullopt, depth + 1U));
+          }
+        }
+        if (result.facets.union_members.empty()) {
+          throw std::invalid_argument{"XSD union requires at least one simple member type"};
+        }
+        return result;
       }
     }
-    throw std::invalid_argument{"XSD simple types require supported restriction or list content"};
+    throw std::invalid_argument{"XSD simple types require supported restriction, list or union content"};
   };
-  walk(walk, source);
-  result.facets.lexical_kind = result.primitive.local;
-  if (result.primitive.local != "string" && result.facets.whitespace.empty()) {
-    result.facets.whitespace = result.primitive.local == "normalizedString" ? "replace" : "collapse";
-  }
-  return result;
+  return walk(walk, source, std::nullopt, 0U);
 }
 // Select the scalar/record leaf type beneath one optional or collection modifier.
 const type_name& leaf(const member& source) {
@@ -480,6 +649,71 @@ const type_name& leaf(const member& source) {
 std::shared_ptr<const schema_bundle> read_schema_bundle(const std::filesystem::path& path,
                                                        bool optimized_subset) {
   return load_bundle(path, optimized_subset);
+}
+
+// Share the complete lexical contract with the importer instead of resolving aliases twice.
+scalar_type resolve_scalar_type(const schema_bundle& bundle, const xml::element& source) {
+  auto result = resolve_scalar(bundle, source);
+  return {std::move(result.primitive), std::move(result.facets)};
+}
+
+// Retain the model group's defining namespace defaults when expanding a local reference.
+schema_component resolve_model_group(const schema_bundle& bundle,
+    const schema_bundle::document& owner, const xml::element& reference) {
+  const auto name = attribute(reference, "ref");
+  const auto selected = name.empty()
+      ? std::pair{&owner, &reference} : declaration(bundle, "group", resolve(reference, name));
+  const xml::element* compositor{};
+  for (const auto& child : selected.second->children) {
+    if (child.qualified_name.local == "annotation") { continue; }
+    if (compositor || (child.qualified_name.local != "sequence" && child.qualified_name.local != "choice")) {
+      throw std::invalid_argument{"XSD model groups require one supported sequence or choice"};
+    }
+    compositor = &child;
+  }
+  if (!compositor) { throw std::invalid_argument{"XSD model group has no compositor"}; }
+  return {selected.first, compositor};
+}
+
+// Expand static inheritance and attribute groups while keeping original nodes alive in the bundle.
+complex_content expand_complex_type(const schema_bundle& bundle,
+    const schema_bundle::document& owner, const xml::element& source) {
+  complex_content result;
+  std::set<const xml::element*> active;
+  constexpr std::size_t maximum_expansion_depth{64U};
+  const auto expand = [&](auto&& self, const schema_bundle::document& document,
+                          const xml::element& node, std::size_t depth) -> void {
+    if (depth > maximum_expansion_depth || !active.insert(&node).second) {
+      throw std::invalid_argument{"Cyclic or excessively nested XSD complex content"};
+    }
+    const auto& kind = node.qualified_name.local;
+    if ((kind == "complexType" || kind == "complexContent") && true_attribute(node, "mixed")) {
+      result.mixed = true;
+    }
+    for (const auto& child : node.children) {
+      const auto& child_kind = child.qualified_name.local;
+      if (child_kind == "annotation") { continue; }
+      if (child_kind == "attributeGroup") {
+        const auto reference = attribute(child, "ref");
+        if (reference.empty()) { throw std::invalid_argument{"Local XSD attribute groups require ref"}; }
+        const auto selected = declaration(bundle, "attributeGroup", resolve(child, reference));
+        self(self, *selected.first, *selected.second, depth + 1U);
+      } else if (child_kind == "complexContent") {
+        self(self, document, child, depth + 1U);
+      } else if (kind == "complexContent" && child_kind == "extension") {
+        const auto selected = declaration(bundle, "complexType", resolve(child, attribute(child, "base")));
+        self(self, *selected.first, *selected.second, depth + 1U);
+        self(self, document, child, depth + 1U);
+      } else if (kind == "complexContent" && child_kind == "restriction") {
+        throw std::invalid_argument{"XSD complex-content restrictions require an explicit projected model"};
+      } else {
+        result.children.push_back({&document, &child});
+      }
+    }
+    active.erase(&node);
+  };
+  expand(expand, owner, source, 0U);
+  return result;
 }
 
 // Scan compiler metadata only; schemas without XML declarations keep the original codec selection.
@@ -535,7 +769,7 @@ void validate_options(const std::vector<std::unique_ptr<syntax_node>>& statement
           if (node->type == object_type::class_type && !owner.reference) {
             validate_backend(bindings.bind(owner), language);
           }
-        } else if (node->type == object_type::package_type && language != "cpp") {
+        } else if (node->type == object_type::package_type && language != "cpp" && language != "python") {
           throw std::invalid_argument{"Generated OPC package profiles are not implemented for " +
                                       std::string{language}};
         }
@@ -759,13 +993,31 @@ record schema::bind(const class_node& source) const {
       throw std::invalid_argument{"Explicit text/wrapper mappings cannot override a fixed XSD contract"};
     }
     const auto [complex_document, complex] = record_type(*bundle_, result.root);
+    if (true_attribute(*complex, "abstract")) {
+      throw std::invalid_argument{"Abstract XSD complex types require dynamic type selection"};
+    }
+    const auto content = expand_complex_type(*bundle_, *complex_document, *complex);
     const auto& target = complex_document->target;
-    result.root.namespace_uri = target;
+    if (result.root.namespace_uri.empty()) {
+      std::optional<std::string> root_namespace;
+      for (const auto& document : bundle_->documents) {
+        for (const auto& node : document.root.children) {
+          if (node.qualified_name.local != "element" || attribute(node, "name") != result.root.local) { continue; }
+          if (root_namespace && *root_namespace != document.target) {
+            throw std::invalid_argument{"XSD root element namespace is ambiguous"};
+          }
+          root_namespace = document.target;
+        }
+      }
+      // The global element's namespace is independent of the namespace defining its complex type.
+      result.root.namespace_uri = root_namespace.value_or(target);
+    }
     std::vector<field> ordered{};
     std::set<const member*> bound{};
     const auto bind_field = [&](const xml::element& occurrence_node, bool is_attribute,
-                                bool in_choice = false) {
-      auto* owner = complex_document;
+                                bool in_choice = false,
+                                const schema_bundle::document* defining_document = nullptr) {
+      auto* owner = defining_document ? defining_document : complex_document;
       auto* selected = &occurrence_node;
       const bool referenced = !attribute(*selected, "ref").empty();
       if (referenced) {
@@ -775,9 +1027,18 @@ record schema::bind(const class_node& source) const {
       }
       const auto& node = *selected;
       const auto local = attribute(node, "name");
-      const auto candidate = std::find_if(result.fields.begin(), result.fields.end(), [&](const auto& value) {
-        return value.qualified_name.local == local;
+      const auto form = attribute(node, "form");
+      const bool qualified = referenced || form == "qualified" ||
+          (form.empty() && attribute(owner->root, is_attribute ? "attributeFormDefault" : "elementFormDefault") == "qualified");
+      const auto uri = qualified ? owner->target : std::string{};
+      const auto local_matches = std::count_if(result.fields.begin(), result.fields.end(), [&](const auto& value) {
+        return !value.text && value.qualified_name.local == local;
       });
+      const auto matches = [&](const auto& value) {
+        return !value.text && value.qualified_name.local == local &&
+            (local_matches == 1 || (value.qualified_name.namespace_uri == uri && value.attribute == is_attribute));
+      };
+      const auto candidate = std::find_if(result.fields.begin(), result.fields.end(), matches);
       if (candidate == result.fields.end() || !bound.insert(candidate->source).second) {
         throw std::invalid_argument{"XSD member binding is missing or ambiguous: " + std::string{local}};
       }
@@ -786,10 +1047,10 @@ record schema::bind(const class_node& source) const {
         throw std::invalid_argument{"Configured XML attribute conflicts with XSD"};
       }
       field.attribute = is_attribute;
-      const auto form = attribute(node, "form");
-      const bool qualified = referenced || form == "qualified" ||
-          (form.empty() && attribute(owner->root, is_attribute ? "attributeFormDefault" : "elementFormDefault") == "qualified");
-      field.qualified_name.namespace_uri = qualified ? owner->target : "";
+      if (std::count_if(result.fields.begin(), result.fields.end(), matches) != 1) {
+        throw std::invalid_argument{"XSD expanded member identity is ambiguous: " + std::string{local}};
+      }
+      field.qualified_name.namespace_uri = uri;
       const auto& source_type = leaf(*field.source);
       const std::map<std::string, std::string> primitive_types{{"string", "string"}, {"boolean", "bool"},
           {"byte", "int8"}, {"unsignedByte", "uint8"}, {"short", "int16"}, {"unsignedShort", "uint16"},
@@ -851,9 +1112,11 @@ record schema::bind(const class_node& source) const {
       }
       ordered.push_back(std::move(field));
     };
-    const auto add_wildcard = [&](const xml::element& node, bool is_attribute) {
+    const auto add_wildcard = [&](const xml::element& node, bool is_attribute,
+                                  const schema_bundle::document* owner) {
       wildcard value;
       value.attribute = is_attribute;
+      value.target_namespace = owner->target;
       if (!attribute(node, "namespace").empty()) { value.namespace_rule = attribute(node, "namespace"); }
       if (!attribute(node, "processContents").empty()) { value.process_contents = attribute(node, "processContents"); }
       value.minimum = is_attribute ? 0U : occurrence(attribute(node, "minOccurs"), 1U);
@@ -864,40 +1127,120 @@ record schema::bind(const class_node& source) const {
           [](const auto& field) { return !field.attribute && !field.text; }));
       result.wildcards.push_back(std::move(value));
     };
-    const auto bind_choice = [&](const xml::element& node) {
+    const auto aggregate_maximum = [](std::optional<std::size_t> branch,
+                                       std::optional<std::size_t> repetitions) {
+      if (!branch || !repetitions || (*branch != 0U &&
+          *repetitions > std::numeric_limits<std::size_t>::max() / *branch)) {
+        return std::optional<std::size_t>{};
+      }
+      return std::optional<std::size_t>{*branch * *repetitions};
+    };
+    const auto bind_choice = [&](const xml::element& node, const schema_bundle::document* owner) {
       choice_group group;
       group.minimum = occurrence(attribute(node, "minOccurs"), 1U);
-      group.maximum = occurrence(attribute(node, "maxOccurs"), 1U);
-      if (group.minimum > 1U || group.maximum != 1U) {
-        throw std::invalid_argument{"Repeated XSD choices require ordered variant mapping"};
+      const auto maximum = attribute(node, "maxOccurs");
+      group.max_repetitions = maximum == "unbounded" ? std::optional<std::size_t>{}
+          : std::optional{occurrence(maximum, 1U)};
+      group.maximum = group.max_repetitions.value_or(std::numeric_limits<std::size_t>::max());
+      group.repeated = group.max_repetitions != std::optional<std::size_t>{1U};
+      group.before_field = static_cast<std::size_t>(std::count_if(ordered.begin(), ordered.end(),
+          [](const auto& value) { return !value.attribute && !value.text; }));
+      const auto known_branches = std::count_if(node.children.begin(), node.children.end(),
+          [](const auto& value) { return value.qualified_name.local == "element"; });
+      for (const auto& child : node.children) {
+        const auto child_maximum = attribute(child, "maxOccurs");
+        if (child.qualified_name.local == "any" || child_maximum == "unbounded" ||
+            occurrence(child_maximum, 1U) != 1U) { group.repeated = true; }
+      }
+      if (group.repeated && known_branches > 1) {
+        throw std::invalid_argument{"Repeated XSD choices with multiple known branches require ordered variant storage"};
       }
       for (const auto& child : node.children) {
         if (child.qualified_name.local == "annotation") { continue; }
-        if (child.qualified_name.local != "element") {
-          throw std::invalid_argument{"XSD choice branches require singleton elements"};
+        choice_branch branch;
+        branch.minimum = occurrence(attribute(child, "minOccurs"), 1U);
+        const auto branch_maximum = attribute(child, "maxOccurs");
+        branch.maximum = branch_maximum == "unbounded" ? std::optional<std::size_t>{}
+            : std::optional{occurrence(branch_maximum, 1U)};
+        if (child.qualified_name.local == "any") {
+          branch.wildcard_index = result.wildcards.size();
+          add_wildcard(child, false, owner);
+          auto& wildcard = result.wildcards.back();
+          wildcard.minimum = 0U;
+          wildcard.maximum = aggregate_maximum(branch.maximum, group.max_repetitions);
+          wildcard.before_field = group.before_field;
+        } else if (child.qualified_name.local == "element") {
+          bind_field(child, false, true, owner);
+          auto& value = ordered.back();
+          if (group.repeated && !value.repeated) {
+            throw std::invalid_argument{"Repeated XSD choices require collection storage for their known branch"};
+          }
+          branch.source = value.source;
+          if (group.repeated) {
+            value.min_occurs = 0U;
+            value.max_occurs = aggregate_maximum(branch.maximum, group.max_repetitions);
+          } else if (value.repeated || value.max_occurs != std::optional<std::size_t>{1U}) {
+            throw std::invalid_argument{"Singleton XSD choices require singleton optional fields"};
+          }
+          group.alternatives.push_back(value.source);
+        } else {
+          throw std::invalid_argument{"XSD choices require direct element or wildcard branches"};
         }
-        bind_field(child, false, true);
-        if (ordered.back().repeated || ordered.back().max_occurs != std::optional<std::size_t>{1U}) {
-          throw std::invalid_argument{"XSD choice branches require singleton fields"};
-        }
-        group.alternatives.push_back(ordered.back().source);
+        group.branches.push_back(std::move(branch));
       }
       result.choices.push_back(std::move(group));
     };
-    const auto bind_sequence = [&](auto&& self, const xml::element& sequence) -> void {
+    const auto bind_sequence = [&](auto&& self, const xml::element& sequence,
+                                   const schema_bundle::document* owner) -> void {
+      if (occurrence(attribute(sequence, "minOccurs"), 1U) != 1U ||
+          occurrence(attribute(sequence, "maxOccurs"), 1U) != 1U) {
+        throw std::invalid_argument{"Optional or repeated XSD sequences require grouped occurrence storage"};
+      }
       for (const auto& child : sequence.children) {
-        if (child.qualified_name.local == "element") { bind_field(child, false); }
-        else if (child.qualified_name.local == "sequence") { self(self, child); }
-        else if (child.qualified_name.local == "choice") { bind_choice(child); }
-        else if (child.qualified_name.local == "any") { add_wildcard(child, false); }
+        if (child.qualified_name.local == "element") { bind_field(child, false, false, owner); }
+        else if (child.qualified_name.local == "sequence") { self(self, child, owner); }
+        else if (child.qualified_name.local == "choice") { bind_choice(child, owner); }
+        else if (child.qualified_name.local == "group") {
+          if (occurrence(attribute(child, "minOccurs"), 1U) != 1U ||
+              occurrence(attribute(child, "maxOccurs"), 1U) != 1U) {
+            throw std::invalid_argument{"Optional or repeated XSD model groups require grouped occurrence storage"};
+          }
+          const auto selected = resolve_model_group(*bundle_, *owner, child);
+          if (selected.node->qualified_name.local == "choice") { bind_choice(*selected.node, selected.owner); }
+          else { self(self, *selected.node, selected.owner); }
+        }
+        else if (child.qualified_name.local == "any") { add_wildcard(child, false, owner); }
         else if (child.qualified_name.local != "annotation") { throw std::invalid_argument{"Unsupported optimized XSD sequence"}; }
       }
     };
-    for (const auto& node : complex->children) {
-      if (node.qualified_name.local == "sequence") { bind_sequence(bind_sequence, node); }
-      else if (node.qualified_name.local == "choice") { bind_choice(node); }
-      else if (node.qualified_name.local == "attribute") { bind_field(node, true); }
-      else if (node.qualified_name.local == "anyAttribute") { add_wildcard(node, true); }
+    if (content.mixed) {
+      if (std::any_of(content.children.begin(), content.children.end(), [](const auto& component) {
+            const auto& kind = component.node->qualified_name.local;
+            return kind != "attribute" && kind != "anyAttribute";
+          })) { throw std::invalid_argument{"Mixed XSD content with child particles requires ordered text storage"}; }
+      const auto text = std::find_if(result.fields.begin(), result.fields.end(), [](const auto& value) { return value.text; });
+      if (text == result.fields.end() || leaf(*text->source).name != "string" || !bound.insert(text->source).second) {
+        throw std::invalid_argument{"Text-only mixed XSD content requires one explicitly mapped string text field"};
+      }
+      auto value = *text;
+      value.facets.lexical_kind = "string";
+      ordered.push_back(std::move(value));
+    }
+    for (const auto& component : content.children) {
+      const auto& node = *component.node;
+      const auto* owner = component.owner;
+      if (node.qualified_name.local == "sequence") { bind_sequence(bind_sequence, node, owner); }
+      else if (node.qualified_name.local == "choice") { bind_choice(node, owner); }
+      else if (node.qualified_name.local == "group") {
+        if (occurrence(attribute(node, "minOccurs"), 1U) != 1U || occurrence(attribute(node, "maxOccurs"), 1U) != 1U) {
+          throw std::invalid_argument{"Optional or repeated XSD model groups require grouped occurrence storage"};
+        }
+        const auto selected = resolve_model_group(*bundle_, *owner, node);
+        if (selected.node->qualified_name.local == "choice") { bind_choice(*selected.node, selected.owner); }
+        else { bind_sequence(bind_sequence, *selected.node, selected.owner); }
+      }
+      else if (node.qualified_name.local == "attribute") { bind_field(node, true, false, owner); }
+      else if (node.qualified_name.local == "anyAttribute") { add_wildcard(node, true, owner); }
       else if (node.qualified_name.local == "simpleContent") {
         for (const auto& extension : node.children) {
           if (extension.qualified_name.local == "annotation") { continue; }
@@ -914,9 +1257,11 @@ record schema::bind(const class_node& source) const {
           auto value = *text;
           value.facets = resolved.facets;
           ordered.push_back(std::move(value));
-          for (const auto& child : extension.children) {
-            if (child.qualified_name.local == "attribute") { bind_field(child, true); }
-            else if (child.qualified_name.local == "anyAttribute") { add_wildcard(child, true); }
+          const auto attributes = expand_complex_type(*bundle_, *owner, extension);
+          for (const auto& item : attributes.children) {
+            const auto& child = *item.node;
+            if (child.qualified_name.local == "attribute") { bind_field(child, true, false, item.owner); }
+            else if (child.qualified_name.local == "anyAttribute") { add_wildcard(child, true, item.owner); }
             else if (child.qualified_name.local != "annotation") {
               throw std::invalid_argument{"Unsupported XSD simpleContent extension child"};
             }
@@ -980,9 +1325,86 @@ std::string schema::bundle_identity() const {
   return bundle_ ? bundle_->identity : std::string{};
 }
 
-// Keep existing scalar/record XML parity while fencing features implemented only by C++.
+// Reject unsupported value-space contracts before selecting a backend's implemented XML subset.
 void validate_backend(const record& contract, std::string_view language) {
-  if (language == "cpp") { return; }
+  const auto namespace_value = [&](auto&& self, const scalar_facets& facets) -> bool {
+    return facets.lexical_kind == "QName" || facets.list_item_kind == "QName" ||
+        !facets.qname_enumeration.empty() ||
+        std::any_of(facets.union_members.begin(), facets.union_members.end(),
+            [&](const auto& member) { return self(self, member); });
+  };
+  const auto check_unions = [&](auto&& self, const scalar_facets& facets) -> void {
+    if (facets.list_item_kind == "QName" && !facets.enumeration.empty()) {
+      throw std::invalid_argument{"XSD QName list enumeration requires expanded item identities"};
+    }
+    if (!facets.union_members.empty() &&
+        (!facets.enumeration.empty() || !facets.qname_enumeration.empty())) {
+      throw std::invalid_argument{"XSD union enumeration requires selected-member value identities"};
+    }
+    for (const auto& alternative : facets.union_members) { self(self, alternative); }
+  };
+  for (const auto& field : contract.fields) {
+    check_unions(check_unions, field.facets);
+    if (!field.facets.union_members.empty() && field.fixed_value) {
+      throw std::invalid_argument{"XSD union fixed values require selected-member value identities"};
+    }
+    if (!field.facets.union_members.empty() && field.default_value &&
+        namespace_value(namespace_value, field.facets)) {
+      throw std::invalid_argument{"XSD QName union defaults require expanded schema-scope identities"};
+    }
+  }
+  if (language == "cpp") {
+    for (const auto& field : contract.fields) {
+      if (!field.attribute && !field.text && !field.facets.union_members.empty() &&
+          namespace_value(namespace_value, field.facets)) {
+        throw std::invalid_argument{"C++ QName child values require per-field expanded namespace identities"};
+      }
+    }
+    return;
+  }
+  if (language == "python") {
+    for (const auto& choice : contract.choices) {
+      if (choice.repeated) {
+        if (choice.alternatives.size() != 1U) {
+          throw std::invalid_argument{"Repeated XML choices require one typed branch for python"};
+        }
+        const auto selected = std::find_if(contract.fields.begin(), contract.fields.end(), [&](const auto& field) {
+          return field.source == choice.alternatives.front();
+        });
+        if (selected == contract.fields.end() || !selected->repeated || selected->attribute ||
+            selected->text || selected->wrapper) {
+          throw std::invalid_argument{"Repeated XML choices require one unwrapped repeated field for python"};
+        }
+      }
+    }
+    for (const auto& wildcard : contract.wildcards) {
+      if (wildcard.attribute && wildcard.process_contents == "strict") {
+        throw std::invalid_argument{"Strict XML attribute wildcards are not implemented for python"};
+      }
+    }
+    const std::set<std::string> kinds{"", "string", "normalizedString", "token", "anyURI", "boolean",
+        "byte", "unsignedByte", "short", "unsignedShort", "int", "unsignedInt", "long", "unsignedLong",
+        "integer", "positiveInteger", "negativeInteger", "nonPositiveInteger", "nonNegativeInteger",
+        "float", "double", "decimal", "QName", "language", "Name", "NCName", "NMTOKEN", "NMTOKENS",
+        "ID", "IDREF", "ENTITY", "IDREFS", "ENTITIES"};
+    const auto check = [&](auto&& self, const scalar_facets& facets) -> void {
+      if (!kinds.contains(facets.lexical_kind) || !kinds.contains(facets.list_item_kind)) {
+        throw std::invalid_argument{"XML lexical type is not implemented for python"};
+      }
+      for (const auto& alternative : facets.union_members) { self(self, alternative); }
+    };
+    for (const auto& value : contract.fields) {
+      if (value.value_projection) {
+        throw std::invalid_argument{"XML value projections are not implemented for python"};
+      }
+      if (value.facets.list_item_kind == "QName" &&
+          (value.fixed_value || !value.facets.enumeration.empty())) {
+        throw std::invalid_argument{"QName list fixed/enumeration values require expanded item identities"};
+      }
+      check(check, value.facets);
+    }
+    return;
+  }
   if (!contract.choices.empty() || !contract.wildcards.empty() ||
       (contract.unknown && *contract.unknown != xml_unknown_policy::reject)) {
     throw std::invalid_argument{"XML choices, wildcards and extension policies are not implemented for " +
@@ -1053,6 +1475,45 @@ std::vector<compatibility_diagnostic> compare_contracts(const record& previous, 
     (void)value; result.push_back({key, "Current contract removes a field"});
   }
   if (previous_elements != current_elements) { result.push_back({{}, "Element sequence order changed"}); }
+  const auto same_choices = [&] {
+    if (previous.choices.size() != current.choices.size()) { return false; }
+    for (std::size_t index{}; index < previous.choices.size(); ++index) {
+      const auto& before = previous.choices[index];
+      const auto& after = current.choices[index];
+      if (before.minimum != after.minimum || before.maximum != after.maximum ||
+          before.repeated != after.repeated || before.before_field != after.before_field ||
+          before.max_repetitions != after.max_repetitions || before.branches.size() != after.branches.size() ||
+          before.alternatives.size() != after.alternatives.size()) { return false; }
+      for (std::size_t branch{}; branch < before.branches.size(); ++branch) {
+        const auto& left = before.branches[branch];
+        const auto& right = after.branches[branch];
+        if (left.minimum != right.minimum || left.maximum != right.maximum ||
+            left.wildcard_index != right.wildcard_index || (left.source == nullptr) != (right.source == nullptr) ||
+            (left.source && left.source->name != right.source->name)) { return false; }
+      }
+      for (std::size_t alternative{}; alternative < before.alternatives.size(); ++alternative) {
+        if (before.alternatives[alternative]->name != after.alternatives[alternative]->name) { return false; }
+      }
+    }
+    return true;
+  };
+  if (!same_choices()) { result.push_back({{}, "Choice occurrence or branch contract changed"}); }
+  const auto same_wildcards = [&] {
+    if (previous.wildcards.size() != current.wildcards.size()) { return false; }
+    for (std::size_t index{}; index < previous.wildcards.size(); ++index) {
+      const auto& before = previous.wildcards[index];
+      const auto& after = current.wildcards[index];
+      if (before.attribute != after.attribute || before.namespace_rule != after.namespace_rule ||
+          before.process_contents != after.process_contents || before.minimum != after.minimum ||
+          before.maximum != after.maximum || before.before_field != after.before_field ||
+          before.target_namespace.value_or(previous.root.namespace_uri) !=
+              after.target_namespace.value_or(current.root.namespace_uri)) { return false; }
+    }
+    return true;
+  };
+  if (!same_wildcards() || previous.unknown != current.unknown) {
+    result.push_back({{}, "Wildcard or unknown-extension policy changed"});
+  }
   return result;
 }
 
@@ -1098,6 +1559,9 @@ std::string schema::export_xsd(const std::vector<const class_node*>& sources) co
     auto sequence = node("sequence");
     std::vector<xml::element> attributes{};
     for (const auto& value : records[index].fields) {
+      if (!value.facets.union_members.empty() || !value.facets.pattern_groups.empty()) {
+        throw std::invalid_argument{"XSD export of union or inherited pattern contracts requires nested simple-type export"};
+      }
       if (value.text || value.wrapper) { throw std::invalid_argument{"XSD export of text/wrapper mappings is not yet supported"}; }
       if (!value.qualified_name.namespace_uri.empty() && value.qualified_name.namespace_uri != target) {
         throw std::invalid_argument{"XSD export of imported field namespaces requires a separate bundle"};

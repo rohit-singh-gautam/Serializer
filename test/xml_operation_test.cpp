@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -16,6 +17,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -41,6 +43,168 @@ struct temporary_file {
   ~temporary_file() { std::error_code ignored; std::filesystem::remove(path, ignored); }
 };
 } // namespace
+
+// Provider grammar, invalid inputs and independent concurrent executions retain XSD semantics.
+TEST(xml_operation, prepared_patterns_use_xsd_grammar_and_independent_execution_state) {
+  if (!xml::available()) {
+    EXPECT_THROW((void)xml::prepared_pattern{"a"}, std::runtime_error);
+    return;
+  }
+  const xml::prepared_pattern consonants{"[a-z-[aeiou]]+"};
+  EXPECT_TRUE(consonants.matches("rhythm"));
+  EXPECT_FALSE(consonants.matches("schema"));
+  const xml::prepared_pattern categories{R"(\p{L}{2}\p{Nd}{2})"};
+  EXPECT_TRUE(categories.matches("\xc3\xa9\xce\xa9" "12"));
+  EXPECT_FALSE(categories.matches("ab1"));
+  EXPECT_THROW((void)xml::prepared_pattern{"["}, std::invalid_argument);
+  EXPECT_THROW((void)consonants.matches(std::string{"a\0b", 3U}), std::invalid_argument);
+  xml::limits small{};
+  small.max_input_bytes = 1U;
+  EXPECT_THROW((void)(xml::prepared_pattern{"ab", small}), std::length_error);
+  EXPECT_THROW((void)consonants.matches("bc", small), std::length_error);
+  xml::operation_context interrupted{};
+  interrupted.is_cancelled = [] { return true; };
+  EXPECT_THROW((void)(xml::prepared_pattern{"a", {}, &interrupted}), std::runtime_error);
+  EXPECT_THROW((void)consonants.matches("b", {}, &interrupted), std::runtime_error);
+  auto moved = xml::prepared_pattern{"x"};
+  const auto selected = std::move(moved);
+  EXPECT_TRUE(selected.matches("x"));
+  EXPECT_THROW((void)moved.matches("x"), std::logic_error);
+  std::atomic<bool> matched{true};
+  std::array<std::thread, 4U> workers;
+  for (auto& worker : workers) {
+    worker = std::thread{[&] {
+      for (std::size_t iteration{}; iteration < 100U; ++iteration) {
+        if (!consonants.matches("bcdf") || consonants.matches("aeiou")) { matched = false; }
+      }
+    }};
+  }
+  for (auto& worker : workers) { worker.join(); }
+  EXPECT_TRUE(matched.load());
+}
+
+// Union branches retain XML Schema lexical spaces, including unbounded numeric sign constraints.
+TEST(xml_operation, validates_language_unicode_names_and_unbounded_numeric_lexical_values) {
+  const xml::element scope{};
+  for (const auto value : {"en", "en-US", "abcdefgh-12345678"}) {
+    EXPECT_NO_THROW(xml::validate_lexical_value(value, "language", scope));
+  }
+  for (const auto value : {"", "1en", "en-", "en--US", "abcdefghi", "en-123456789", "en_US"}) {
+    EXPECT_THROW(xml::validate_lexical_value(value, "language", scope), std::invalid_argument);
+  }
+  EXPECT_NO_THROW(xml::validate_lexical_value("184467440737095516160000", "positiveInteger", scope));
+  EXPECT_NO_THROW(xml::validate_lexical_value("-0", "nonNegativeInteger", scope));
+  EXPECT_NO_THROW(xml::validate_lexical_value("-0001", "negativeInteger", scope));
+  EXPECT_NO_THROW(xml::validate_lexical_value("+000", "nonPositiveInteger", scope));
+  EXPECT_NO_THROW(xml::validate_lexical_value("+.25", "decimal", scope));
+  EXPECT_NO_THROW(xml::validate_lexical_value("1.", "decimal", scope));
+  EXPECT_THROW(xml::validate_lexical_value("0", "positiveInteger", scope), std::invalid_argument);
+  EXPECT_THROW(xml::validate_lexical_value("-0", "negativeInteger", scope), std::invalid_argument);
+  EXPECT_THROW(xml::validate_lexical_value("+1", "nonPositiveInteger", scope), std::invalid_argument);
+  EXPECT_THROW(xml::validate_lexical_value("1e2", "decimal", scope), std::invalid_argument);
+  EXPECT_THROW(xml::validate_lexical_value("1.0", "integer", scope), std::invalid_argument);
+  EXPECT_TRUE(xml::lexical_lists_equal("en-US fr", "en-US\tfr", "language", scope));
+  EXPECT_FALSE(xml::lexical_lists_equal("en-US fr", "en-US FR", "language", scope));
+  if (xml::available()) {
+    EXPECT_NO_THROW(xml::validate_lexical_value("\xc3\xa9" "clair", "NCName", scope));
+    EXPECT_NO_THROW(xml::validate_lexical_value("prefix:local", "Name", scope));
+    EXPECT_NO_THROW(xml::validate_lexical_value("9:token", "NMTOKEN", scope));
+    EXPECT_THROW(xml::validate_lexical_value("prefix:local", "ID", scope), std::invalid_argument);
+    EXPECT_THROW(xml::validate_lexical_value("9token", "IDREF", scope), std::invalid_argument);
+    for (const auto kind : {"Name", "NCName", "ID", "IDREF", "ENTITY", "NMTOKEN"}) {
+      EXPECT_TRUE(xml::lexical_lists_equal("one two", "one\ttwo", kind, scope));
+      EXPECT_FALSE(xml::lexical_lists_equal("one two", "one TWO", kind, scope));
+    }
+  }
+}
+
+// Raw-tree opt-in retains mixed text order while ordinary and typed XML contracts remain strict.
+TEST(xml_operation, raw_mixed_content_is_explicit_and_schema_annotations_remain_validated) {
+  if (!xml::available()) { GTEST_SKIP(); }
+  constexpr std::string_view source{"<r>before<a/>after</r>"};
+  EXPECT_THROW((void)xml::parse(source), std::invalid_argument);
+  xml::operation_context context{};
+  context.allow_mixed_content = true;
+  const auto tree = xml::parse(source, {}, &context);
+  ASSERT_EQ(tree.text_segments.size(), 2U);
+  EXPECT_EQ(tree.text, "beforeafter");
+  EXPECT_EQ(xml::parse(xml::write(tree, {}, &context), {}, &context).text, "beforeafter");
+  xml::field_reader reader{tree, true, &context};
+  std::string value;
+  EXPECT_THROW(reader.text_value(value), std::invalid_argument);
+  constexpr std::string_view annotated_schema =
+      "<xs:schema xmlns:xs='http://www.w3.org/2001/XMLSchema' xmlns:h='urn:html'>"
+      "<xs:annotation><xs:documentation>Direct <h:em>inline</h:em> text.</xs:documentation>"
+      "</xs:annotation><xs:element name='r' type='xs:string'/></xs:schema>";
+  const xml::prepared_schema schema{annotated_schema};
+  EXPECT_NO_THROW(schema.validate("<r>value</r>"));
+  EXPECT_THROW((void)xml::prepared_schema{
+      "<xs:schema xmlns:xs='http://www.w3.org/2001/XMLSchema'>unexpected text</xs:schema>"},
+      std::invalid_argument);
+}
+
+// Pattern callbacks see original spelling/defaults and exact child scope before numeric conversion.
+TEST(xml_operation, field_callbacks_validate_raw_numeric_spelling_before_conversion) {
+  if (!xml::available()) { GTEST_SKIP(); }
+  const xml::lexical_validator validator = [](std::string_view text, const xml::element& scope,
+      xml::operation_context* operation) {
+    if (!operation) { throw std::logic_error{"Lexical callback lost its operation"}; }
+    if (scope.qualified_name.local == "v" && scope.namespace_bindings.at("p") != "urn:child") {
+      throw std::logic_error{"Lexical callback lost its original child scope"};
+    }
+    operation->consume(xml::operation_resource::work_units, text.size());
+    if (text.find('.') != std::string_view::npos) {
+      throw std::invalid_argument{"Original numeric pattern rejects a decimal point"};
+    }
+  };
+  xml::operation_context context{};
+  double value = 42.0;
+  const auto text = xml::parse("<r>1.</r>");
+  xml::field_reader legacy{text, true};
+  legacy.text_value(value);
+  EXPECT_EQ(value, 1.0);
+  value = 42.0;
+  xml::field_reader checked{text, true, &context};
+  EXPECT_THROW(checked.text_value(value, validator), std::invalid_argument);
+  EXPECT_EQ(value, 42.0);
+  std::vector<double> values{9.0};
+  const auto list = xml::parse("<r>1. 2</r>");
+  xml::field_reader list_reader{list, true, &context};
+  EXPECT_THROW(list_reader.list_text_value(values, validator), std::invalid_argument);
+  EXPECT_EQ(values, std::vector<double>{9.0});
+  const auto attributes = xml::parse("<r a='1.' list='1. 2'/>");
+  xml::field_reader attribute_reader{attributes, false, &context};
+  EXPECT_THROW(attribute_reader.attribute_value({"a", {}}, value, {}, validator), std::invalid_argument);
+  EXPECT_THROW(attribute_reader.list_attribute_value({"list", {}}, values, {}, validator), std::invalid_argument);
+  const auto empty = xml::parse("<r/>");
+  xml::field_reader defaults{empty, false, &context};
+  EXPECT_THROW(defaults.attribute_value({"absent", {}}, value, "1.", validator), std::invalid_argument);
+  std::optional<std::vector<double>> optional_list{};
+  EXPECT_THROW(defaults.list_attribute_value({"absent", {}}, optional_list, "1. 2", validator),
+      std::invalid_argument);
+  EXPECT_FALSE(optional_list);
+  const auto children = xml::parse(
+      "<r xmlns:p='urn:root'><v xmlns:p='urn:child'>1</v><v xmlns:p='urn:child'>1.</v></r>");
+  xml::field_reader child_reader{children, false, &context};
+  std::array<double, 2U> fixed{20.0, 20.0};
+  EXPECT_THROW(child_reader.child_value({"v", {}}, fixed, {}, validator), std::invalid_argument);
+  EXPECT_EQ(fixed[0U], 1.0);
+  EXPECT_EQ(fixed[1U], 20.0);
+  const auto default_child = xml::parse("<r><v xmlns:p='urn:child'/></r>");
+  xml::field_reader default_reader{default_child, false, &context};
+  std::optional<double> optional_value{20.0};
+  EXPECT_THROW(default_reader.child_value({"v", {}}, optional_value, "1.", validator), std::invalid_argument);
+  EXPECT_EQ(optional_value, 20.0);
+  const auto wrapper = xml::parse("<r><items xmlns:p='urn:child'><v>1.</v></items></r>");
+  xml::field_reader wrapper_reader{wrapper, false, &context};
+  EXPECT_THROW(wrapper_reader.wrapped_child_value({"items", {}}, {"v", {}}, values, validator),
+      std::invalid_argument);
+  const auto valid = xml::parse("<r a='1' list='1 2'/>");
+  xml::field_reader valid_reader{valid, false, &context};
+  EXPECT_NO_THROW(valid_reader.attribute_value({"a", {}}, value, {}, validator));
+  EXPECT_NO_THROW(valid_reader.list_attribute_value({"list", {}}, values, {}, validator));
+  EXPECT_EQ(values, (std::vector<double>{1.0, 2.0}));
+}
 
 // XML parsing must poll within one large provider token instead of waiting for its closing tag.
 TEST(xml_operation, interrupts_large_token_at_bounded_input_callbacks) {
@@ -206,6 +370,46 @@ TEST(xml_operation, fixed_numeric_lists_and_exact_integer_facets) {
   EXPECT_LT(xml::compare_numeric_values("-1.01", "-1"), 0);
   EXPECT_GT(xml::compare_numeric_values("0.0001", "0"), 0);
   EXPECT_THROW((void)xml::compare_numeric_values("NaN", "1"), std::invalid_argument);
+}
+
+// Floating facets compare rounded IEEE values; integer/decimal facets keep exact lexical ordering.
+TEST(xml_operation, floating_bounds_use_the_declared_xsd_value_width) {
+  xml::scalar_constraints constraints{};
+  constraints.lexical_kind = "float";
+  constraints.lexical_max_exclusive = "0.1000000005";
+  EXPECT_THROW(xml::validate_scalar_constraints("0.1", constraints), std::invalid_argument);
+  EXPECT_NO_THROW(xml::validate_scalar_constraints("0.09999999", constraints));
+  constraints.lexical_max_exclusive.reset();
+  constraints.lexical_min_exclusive = "0.0999999995";
+  EXPECT_THROW(xml::validate_scalar_constraints("0.1", constraints), std::invalid_argument);
+  constraints = {};
+  constraints.lexical_kind = "double";
+  constraints.lexical_max_exclusive = "0.1000000000000000005";
+  EXPECT_THROW(xml::validate_scalar_constraints("0.1", constraints), std::invalid_argument);
+  constraints.lexical_max_exclusive.reset();
+  constraints.lexical_max_inclusive = "INF";
+  EXPECT_NO_THROW(xml::validate_scalar_constraints("INF", constraints));
+  EXPECT_THROW(xml::validate_scalar_constraints("NaN", constraints), std::invalid_argument);
+  constraints.lexical_max_inclusive = "NaN";
+  EXPECT_NO_THROW(xml::validate_scalar_constraints("NaN", constraints));
+  EXPECT_THROW(xml::validate_scalar_constraints("0", constraints), std::invalid_argument);
+  constraints.lexical_max_inclusive.reset();
+  constraints.lexical_min_inclusive = "NaN";
+  EXPECT_NO_THROW(xml::validate_scalar_constraints("NaN", constraints));
+  EXPECT_THROW(xml::validate_scalar_constraints("INF", constraints), std::invalid_argument);
+  constraints.lexical_min_inclusive.reset();
+  constraints.lexical_max_exclusive = "NaN";
+  EXPECT_THROW(xml::validate_scalar_constraints("NaN", constraints), std::invalid_argument);
+  EXPECT_THROW(xml::validate_scalar_constraints("0", constraints), std::invalid_argument);
+  constraints.lexical_max_exclusive.reset();
+  constraints.lexical_max_inclusive = "-0";
+  EXPECT_NO_THROW(xml::validate_scalar_constraints("+0", constraints));
+  constraints.lexical_max_inclusive.reset();
+  constraints.lexical_max_exclusive = "0";
+  EXPECT_THROW(xml::validate_scalar_constraints("-0", constraints), std::invalid_argument);
+  constraints.lexical_kind = "decimal";
+  constraints.lexical_max_exclusive = "0.1000000005";
+  EXPECT_NO_THROW(xml::validate_scalar_constraints("0.1", constraints));
 }
 
 // String facets count Unicode scalar values and apply the selected XML whitespace policy.

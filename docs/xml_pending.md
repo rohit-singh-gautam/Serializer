@@ -1,6 +1,162 @@
-# XML and package work still pending
+# Pending requirements across Serializer
 
-Current source **2.7.0**, schema language **1.20.0**. Earlier **2.4.0**
+This is the authoritative backlog for pending requirements documented anywhere
+under `docs/`. Its existing filename is retained so earlier links keep working.
+It covers XML/XSD/OPC and 3MF, managed state and identity, migrations, compiler and
+backend proposals, storage adapters, and remaining qualification/distribution work.
+Design documents retain contracts and rationale; their remaining work is tracked
+here rather than in independent completion lists.
+
+## How to read this backlog
+
+- **Pending** means implementation or a required verification result is missing.
+- **In progress** means source work has started; it is not yet a verified feature.
+- **Qualification pending** means an implementation exists but the stated check
+  has not been completed for the specified backend, provider or platform.
+- **Proposal** records a documented extension, not an accepted implementation
+  commitment or an addition to the active OPC/backend completion task.
+- **External** requires a separately authorized publication, remote change or
+  external verification. Local packaging does not complete that work.
+
+Do not turn every occurrence of the word `pending` into a new task: pending
+transactions/outboxes are runtime states, and dated verification records describe
+their original runs. Explicit format restrictions remain restrictions unless a
+document proposes extending them. A new completion claim needs a source revision,
+selected backend/provider/platform and executed evidence. Keep the original task
+IDs below; close only the scope actually checked.
+
+| Find pending work | Section |
+| --- | --- |
+| OPC/3MF design requirements `OPC-R01`–`OPC-R13` | [OPC and 3MF](#opc-and-3mf-requirements) |
+| XML/XSD, compression and package work in every language | [XML and package backlog](#xml-and-package-backlog), [per-language work units](#work-units-capped-at-five-hours) |
+| Native managed references, imports, editing previews and recovery | [Managed references and migration](#managed-references-and-migration) |
+| Broader managed-state proposals and mostly-disk indexes | [Managed state and storage](#managed-state-and-storage) |
+| Compiler/language/backend extension proposals | [Compiler and backend proposals](#compiler-and-backend-proposals) |
+| Platform, provider, performance and external release checks | [Qualification and distribution](#qualification-and-distribution) |
+
+## OPC and 3MF requirements
+
+These preserve the IDs from the
+[OPC/3MF design](design/opc_3mf_support.md#generic-framework-status-and-remaining-requirements).
+The C++ checkpoint provides useful implementations, not complete OPC-standard or
+official 3MF Core conformance. Application geometry and manufacturing rules remain
+application responsibilities; this table tracks generic Serializer work and
+qualification of the selected profile.
+
+| ID | Remaining requirement and completion evidence | Status at the verified checkpoint |
+| --- | --- | --- |
+| OPC-R01 | Complete qualified attributes, QName values and prefix lists in each backend; test equivalent prefixes, shadowing, Unicode names and regenerated declarations. | C++/Python subsets checked. C++ child-local/shadowed QName bindings need per-field storage; unrepresentable inputs fail. Backend parity pending. |
+| OPC-R02 | Port namespace-aware reject/skip/preserve slots, exact wildcard positions/counts and required-capability handling; unknown core names must still reject. | C++/Python positioned-extension subsets checked; broader preservation and remaining-backend qualification pending. |
+| OPC-R03 | Complete lexical lists, exact scalar facets, patterns and union branches without duplicate application INI field inventories; qualify value-space boundaries and malformed lexemes. | C++/Python rich subsets checked. Outer union enumeration/fixed values, namespace-dependent union defaults, QName-list enumeration/fixed values and C++ union-QName scalar children reject explicitly. Broader numeric boundary/provider and other-emitter coverage pending. |
+| OPC-R04 | Support the required repeated/grouped choices and ordered heterogeneous content, preserving interleaving and occurrence semantics. | C++/Python one-typed-branch repeated choices plus foreign slots checked against 1,275 independent oracle inputs. Multiple typed branches, grouped choices and broader ordered content remain pending. |
+| OPC-R05 | Import and bind the selected official 3MF Core XSD bundle, including its imported XML vocabulary and required scalar/content constructs; unsupported external schemas must reject precisely. | Pinned Core 1.4 plus W3C XML bundle import/binding and C++/Python authored-model consumers pass. Independent official 3MF corpus/application conformance remains pending. |
+| OPC-R06 | Complete generated profile/reference checks, supported target modes, vocabulary/type dispatch and fixed/default/runtime codec selection; failures publish no aggregate/file. | C++ typed XML/opaque roles checked; remaining profile contracts pending. |
+| OPC-R07 | Implement ZIP/OPC metadata, reader/writer, shared limits, preservation and full-Save APIs for every generated language, with independent producer/consumer tests. | C++ and Python checked subsets; Python package suite passes 11 cases. Other nine backends, broad corpus and provider/resource parity remain pending. |
+| OPC-R08 | Pin and qualify the supported OPC edition and URI/content-type/relationship contracts, including escaped/equivalent names, relative targets, collisions, metadata names and target modes. Cover required metadata encodings (including UTF-16) and Relationships markup-compatibility processing. | ECMA-376 Part 2 fifth edition selected; C++/Python metadata UTF-16, Relationships MCE and physical ZIP item mapping checked. Full Annex B/pass-through corpus and Python Unicode authority IRI coverage remain pending. |
+| OPC-R09 | Measure large-model CPU, peak memory, encoded/generated-code size and cancellation/provider behavior. Qualify supported platforms with the actual XML/compression providers enabled. | Broad performance/provider/platform qualification pending. |
+| OPC-R10 | Qualify value-reference/scoped-projection XML in the remaining backends, preserving source lifetime and avoiding owning payload copies; separately define any durable-address XML contract. | C++ borrowed/shared/scoped output checked; broader backend/stress coverage pending. |
+| OPC-R11 | Carry one cumulative operation context through generated codecs, XML, compression, ZIP, references, preservation and publication; test bounds, cancellation and deadlines across backends/providers. | C++ subset checked; backend and large-input propagation pending. |
+| OPC-R12 | Broaden fixed-XSD association/import/export, local bundle resolution and ambiguity diagnostics while preserving explicit native member IDs and reviewed schema evolution. | Inline binding/import baseline checked in eleven SDKs; broader XSD constructs pending. |
+| OPC-R13 | Retain one-source authoring: derive mapping from XSD or inline defaults/exceptions; qualify new/renamed-field and ambiguous-association workflows as coverage broadens. | Existing minimum-coding subset checked; residual association work belongs to OPC-R12. |
+
+The independent official 3MF application/corpus checks belong to OPC-R05/R09;
+an ordinary XML exchange or tetrahedron export cannot close those gates. Optional
+OPC core-property/signature adapters are separately proposed work below.
+OPC-R06 also retains automatic retargeting of preserved links when a fixed-name
+typed role was loaded from another path; current Save uses its declared canonical
+name and fails if retained links would dangle. Patterned numeric values retain
+their native value, so canonical output must independently satisfy the pattern;
+automatic lexical-format selection is not implemented.
+OPC-R03 also retains C++ floating conversion edge parity: native conversion
+currently rejects out-of-range inputs, including underflow-to-zero lexemes that
+XSD can round to zero. Checked width-aware facet comparisons do not close that gap.
+
+## Managed references and migration
+
+The implementation/ownership contracts remain in
+[managed entity references](design/managed_entity_references.md),
+[state registries](managed/state_registry.md),
+[local collaboration](managed/local_collaboration.md) and the
+[persistent-ID migration guide](guides/persistent_id_migration.md).
+Identical document/object IDs at all collaborators are mandatory; translated-ID
+operation is not a proposed alternative.
+
+| ID | Remaining requirement and completion evidence | Status |
+| --- | --- | --- |
+| MR01 | Broaden native identity/reference lifecycle, corruption, resource and fault tests across allocation, complete-candidate validation, deletion, Undo/Redo, persistence and collaboration. | Qualification pending beyond the checked C++ profiles. |
+| MR02 | Broaden independent-import ownership/external-mapping failures, editable child moves/retirement, preview resource failures and journal/acceptance faults; preserve IDs and atomic publication. | Qualification pending; core import/edit/preview paths are implemented and checked. |
+| MR03 | Define and qualify managed token codecs for other generated outputs; keep these distinct from full native managed engines. Resolve currently rejected recursive generic/reference combinations only under an explicit supported contract. | Pending extension; native engine work is MG01. |
+| MIG01 | Qualify the ID converter against separately produced older compiler artifacts, beyond independent fixed-wire fixtures and current supported containers. | Qualification pending. |
+| MIG02 | Add explicitly selected migrations for other historical layouts/container versions and collaboration client checkpoints/outboxes/epochs when required; preserve exact identity, lease state and retries. | Proposal; current tool rejects unsupported containers. |
+| MIG03 | Define any journal/database-sink migration/rebaseline adapter separately from managed-save/raw-model conversion and test recovery after interrupted publication. | Proposal; current conversion is offline and explicit. |
+
+Fixed/compact ID conversion for supported managed saves and all three raw binary
+formats is already checked. Normal `load` must not acquire automatic detection or
+compatibility conversion as a consequence of this backlog.
+
+## Managed state and storage
+
+These proposals are collected from the managed design documents; recording them
+here does not claim they exist or make them prerequisites for ordinary codecs.
+
+| ID | Remaining requirement / proposal and completion evidence | Source and status |
+| --- | --- | --- |
+| MG01 | Implement native managed engines for selected non-C++ backends: ownership, immutable reads, transactions, identity, history, journals and collaboration under native lifetime/error/concurrency contracts. | [Language bindings](managed/language_bindings.md); proposal. |
+| MG02 | Define versioned feature selectors/exclusions and complete component combinations, including history-policy conversion and mandatory identity/authorization rules. | [Capabilities](managed/capabilities.md), [managed state](managed/managed_state.md); proposal. |
+| MG03 | Implement inherited authorization policies, editable/read-only subtree exceptions and separate structural/policy permissions; enforce the same boundary at edit, import and authority acceptance. | [Authorization](managed/authorization.md), [managed state](managed/managed_state.md#authorization-on-the-design-hierarchy); proposal beyond existing policy hooks. |
+| MG04 | Define branch merging, conflict/dependency policies and retained-history/collaboration delta integration; qualify retries and invariant validation before publication. | [Managed state](managed/managed_state.md#branch-merging), [state enhancements](managed/state_enhancements.md); proposal. |
+| MG05 | Extend distributed transport/session, presence/lock-cache and fault/reconnect qualification without weakening strict native identity or authority ownership. | [Collaboration](managed/collaboration.md), [implemented runtime](managed/collaboration_runtime.md); qualification/proposed extensions. |
+| MG06 | Define distributed commits and external file/network effects, including durable intent, reconciliation and failure semantics. Authentication and business-side effects remain application services. | [Managed state](managed/managed_state.md#distributed-transactions); proposal. |
+| MG07 | Provide allocator-aware payload containers/decoding and hard peak-allocation hooks; distinguish admission estimates from measured process peaks. | [Ownership/allocation](managed/history.md#ownership-and-custom-allocation), [state enhancements](managed/state_enhancements.md); proposal beyond current PMR/admission hooks. |
+| MG08 | Define supported managed packed/view/recursive/Protobuf and broader inheritance/editor contracts, preserving explicit rejection until real code and qualification exist. | [C++ runtime](managed/cpp_runtime.md), [generics](schema/generics.md), [state enhancements](managed/state_enhancements.md); proposed extensions. |
+| MG09 | Define field-level merging inside managed variants, virtual/abstract/override edit dispatch and portable owned/borrowed method or typed-error contracts. | [State enhancements](managed/state_enhancements.md#remaining-work); proposal. |
+| MG10 | Extend projection/dependency notification policies and compact nested identity/history records where proposed; measure retained/deleted-entity costs and edit latency. | [Identity/history](managed/history.md), [data structures](managed/data_structures.md); proposal beyond checked callbacks and snapshots. |
+| PG01 | Implement the proposed page store/cache, persistent index keys, dirty-page writeback/recovery, bounded construction and corruption handling before claiming a mostly-disk index. | [Paged indexing](design/paged_indexing.md); proposal. |
+| PG02 | Add lazy value/storage loading and the proposed paged capability selectors only after index/page lifetime and recovery contracts are implemented and measured. | [Paged indexing](design/paged_indexing.md); later proposal. |
+| DB01 | Implement and qualify an explicit database document/journal sink adapter with ownership, transactions, schema mapping and failure/recovery semantics. Guidance for external databases is not an implemented adapter. | [Database integration](guides/database_integration.md#proposed-document-sink-boundary); proposal. |
+
+The XML/ZIP/OPC document-state bridge retains its existing detailed **D01–D21**
+tasks below; it is not supplied by native save migration or ordinary full Save.
+
+## Compiler and backend proposals
+
+| ID | Remaining requirement / proposal and completion evidence | Source and status |
+| --- | --- | --- |
+| SC01 | Define proposed `compact_zigzag`, `compact_float16`, `compact_bfloat16`, `compact_float32` and `compact_scaled`, including rounding, overflow, NaN/infinity and signed zero, before adding schema keywords or wire values. | [Compact encodings](schema/compact_integers.md#proposed-signed-and-floating-encodings); proposal. |
+| SC02 | Broaden default-value validation, preserve useful input/member positions in diagnostics and define bit-field support with wire/compatibility tests. | [Feature roadmap](project/feature_status.md#other-roadmap-items); proposal. |
+| SC03 | Extend currently unsupported generic-function calls/defaults and fixed-array initializer/Protobuf combinations with explicit portable contracts and actual SDK checks. | [Generics](schema/generics.md); proposed extensions. |
+| BE01 | Implement native-backend separate-file layout where currently unavailable; preserve naming, dependency includes/modules and editor navigation. | [Native languages](languages/native_languages.md); pending extension. |
+| BE02 | Define and implement Java packed output and the proposed stream/channel, native-acceleration and output-buffer-reuse APIs, with ownership/resource tests. | [Java output](languages/java.md#defaults-and-unsupported-schema-features); proposed extensions. |
+| BE03 | Qualify borrowed/mapped-view platform, lifetime, allocation and performance boundaries; broader formats require their own mapping contract. | [Views](serialization/views.md); qualification/proposed extensions. |
+| BE04 | Add compiler-only installed CMake discovery so source-generation consumers need not resolve unused runtime-provider packages; preserve normal runtime exports and relocatable/cross-toolchain lookup. | [CMake integration](guides/cmake_integration.md); pending extension. Current `LANGUAGES NONE` consumers on multiarch Linux may need provider search prefixes or their selected toolchain's library architecture. |
+| OPC-OPT01 | Define reusable OPC core-property models/adapters if selected; applications supply property values. | [OPC design](design/opc_3mf_support.md); optional proposal. |
+| OPC-OPT02 | Define a signature/canonicalization/trust provider and independently qualify editing/signed-package behavior before claiming signature support. | [OPC design](design/opc_3mf_support.md); optional proposal. |
+| OPC-OPT03 | Define any outer package/Pack-IRI addressing API separately from internal part resolution; distinguish optional non-ASCII naming, interleaving and growth hints from mandatory selected-edition requirements. | [OPC design](design/opc_3mf_support.md); optional extension/edition qualification. |
+
+## Qualification and distribution
+
+| ID | Remaining check and evidence required | Status / source |
+| --- | --- | --- |
+| QA01 | Replay changed contracts on other supported platforms and remaining provider combinations with real SDKs; retain exact versions, configurations and failures. | Windows full-provider, Linux XML/zlib and minimal-OFF checks pass for the 2.8 checkpoint. Linux Zstandard/LZ4 and broader platform/provider qualification remain pending. |
+| QA02 | Execute the independent XML/XSD/ZIP/OPC/3MF corpus, malformed-input/fault/resource cases and cross-language exchanges for each newly implemented slice. | Qualification pending; per-language Q01–Q08 and G01–G09 below retain detailed gates. |
+| QA03 | Measure throughput, allocations/peak memory, encoded size and generated-code size against reproducible workloads/baselines; preserve ordinary non-OPC paths. | Qualification pending; code equality is not a universal performance result. |
+| QA04 | Qualify current editor-host behavior where a dated record identifies only shared/provider/native-interpreter checks; keep packaged/listing versions and all supported navigation synchronized when changed. | [Editor navigation](editors/editor_navigation.md), [qualification records](verification/README.md); qualification pending. |
+| REL01 | Verify actual upstream package/Marketplace contents and installed consumers independently of current source/local packages. | [Distribution](project/distribution.md), [repository specification](design/repository_extensions_vcpkg_spec.md); external qualification. |
+| REL02 | Publish prepared releases, VSIX/listing updates, GitHub metadata or upstream package-port changes only when separately authorized. Preserve stable package/extension identities. | [Repository specification](design/repository_extensions_vcpkg_spec.md); external, not authorized by this backlog. |
+
+Historical reports under `verification/` retain their original results and limits.
+Their old unrun checks do not override a later passing result for the same exact
+contract. Use this backlog and the newest applicable evidence together.
+
+## XML and package backlog
+
+Compiler/runtime **2.8.0**, schema language **1.20.0**, adds checked C++/Python
+rich XML and Core consumers, Python OPC profiles and XML enabled by default.
+The [2.8 verification record](verification/verification-opc-backends-2026-10-19.md)
+records focused/SDK checks, 171/171 Windows and 170/170 Linux native tests, plus
+the current minimal installed-package checks and their provider limits.
+The earlier **2.7.0** checkpoint remains recorded independently.
+Earlier **2.4.0**
 qualification remains linked below; it does not qualify newly changed code.
 Read the [implemented APIs](serialization/xml_packages.md),
 [examples](../example/xml/README.md) and [complete requirements](design/xml_support.md).
@@ -18,22 +174,23 @@ OPC aggregate loading, extension policies and canonical ordering. These are
 increments toward this specification. The remaining requirements below still
 prevent calling the complete feature finished.
 
-The 2.7.0 implementation adds the following checked slices. General completion
-still requires the remaining backend and release gates; a C++ result does not
-close another backend's task.
+The following slices form the implemented baseline. Each verification record
+names its executed revision; the remaining-work column reflects the 2.8 scope.
+General completion still requires the remaining backend and release gates;
+a C++ result does not close another backend's task.
 
 | Addition | Implemented and checked | Still pending |
 | --- | --- | --- |
 | Schema-first XML | Inline namespace/class defaults and field exceptions; relative `using schema`; parser version/include checks. | Broader vocabulary and ambiguous association tooling. |
 | XSD declaration import | Real CLI import, stable explicit member IDs, dependency tracking, protected existing source; automatic and manual examples pass all eleven SDKs and 264 XML exchanges. | Arbitrary XSD content models, identity constraints, chameleon includes, portable pattern compilation and schema migration automation. |
-| Rich XSD/XML | C++ generated scalar facets/defaults, singleton choices, typed lists, QName/prefix context and declared foreign extension tests pass. Unsupported non-C++ rich contracts reject before publication. | Equivalent rich emitters and qualification in the other outputs. |
-| Generated packages | C++ declaration generates borrowed-input Save and owning typed load; dynamic attachments and shared-limit tests pass. Existing independent ZIP/OPC interoperability checks pass. | Other-language package facades, declarative payload reference checks, target-mode/profile selection and broad corpus/performance qualification. |
-| Operation context | C++ runtime shared allocation/work, cancellation, deadlines and preservation tests pass; generated package XML uses the same budget. | Full backend propagation and large-model/provider qualification. |
+| Rich XSD/XML | C++/Python supported facets/defaults, patterns/unions, restricted repeated choices, typed lists, QName/prefix context, positioned foreign extensions and Core consumers pass. | Equivalent rich emitters in the other nine outputs, broader numeric/QName/content-model and provider qualification. |
+| Generated packages | C++/Python declarations generate Save and owning typed load; dynamic attachments, integrity, preservation and shared-limit tests pass. Independent ZIP/OPC interchange checks pass. | Other nine language facades, declarative payload reference checks, target-mode/profile selection and broad corpus/performance qualification. |
+| Operation context | C++/Python shared XML/package accounting, cancellation, deadlines and preservation tests pass. | Remaining-backend propagation and large-model/provider qualification. |
 | Ordinary native path | All eleven ordinary generated outputs are byte-identical to the captured 2.6.0 baseline fixture. | Broader repeatable throughput/peak-memory measurements; source equality is not a universal performance claim. |
-| Windows native checkpoint | Full XML/managed/provider-enabled `make.ps1 test` passes 169/169 CTests; minimal installed header/provider checks also pass. | Latest Linux full build/test, broad performance and complete OPC/3MF qualification. |
+| Native checkpoint | Windows full-provider 171/171 and Linux XML/zlib 170/170 CTests pass; minimal installed header/provider checks also pass. | Other platforms/provider combinations, broad performance and complete OPC/3MF qualification. |
 
 See [the new XSD examples](../example/xsd/README.md) and
-[the current verification record](verification/verification-opc-xsd-2026-10-19.md).
+[the earlier authoring record](verification/verification-opc-xsd-2026-10-19.md).
 
 **Coverage rule:** general formats/features must support every generated language.
 A missing backend remains pending. Only inherently language-specific features,
@@ -48,27 +205,27 @@ ordinary owning model
         |
         +-- compression / ZIP / OPC
                 |
-                +-- C++ implementation
+                +-- C++ / Python package implementations
                 +-- other backend parity
 ```
 
 | Area | Remaining requirement |
 | --- | --- |
 | XML performance | Tree-free token codecs; measured CPU, memory, encoded and generated-code size. Current mapping is static; several backends retain bounded trees. |
-| XML vocabulary | `xsi:nil`, general ordered mixed content, maps/variants, and non-C++ namespace-aware unknown-extension policies. C++ foreign extension retention is an explicit bounded subset, not general mixed-content modeling. |
-| XSD compilation | Broader facets/pattern dialect, complex-content derivation, repeated/grouped choices, chameleon includes and identity constraints. Port the richer C++ subset to every emitter. Unsupported constructs/backends fail generation. |
-| XSD tooling | Extend export to text/wrappers/enums/foreign field namespaces and choice/wildcard contracts. Expand bundle/tool stress and platform qualification. Changing a fixed schema still requires regeneration; differing imported source requires review. |
+| XML vocabulary | `xsi:nil`, general ordered mixed content, maps/variants, and namespace-aware unknown-extension policies beyond C++/Python. Foreign extension retention is a bounded subset, not general mixed-content modeling. |
+| XSD compilation | General facets/derivations, multiple-typed-branch or grouped choices, chameleon includes and identity constraints; precise union/QName limits are listed above. Port the richer C++/Python subset to other emitters. Unsupported constructs/backends fail generation. |
+| XSD tooling | Extend export to text/wrappers/enums/foreign field namespaces, choice/wildcard, union and inherited pattern-group contracts. Expand bundle/tool stress and platform qualification. Changing a fixed schema still requires regeneration; differing imported source requires review. |
 | Schema-first authoring | Broaden the implemented inline association and declaration importer beyond its checked subset. Preserve authored behavior and native ordering through reviewed schema evolution. |
 | Runtime XSD | Qualify prepared providers, limits and concurrency on every backend. Align output/input namespace-declaration accounting across adapters. Some outputs use an explicit caller-prepared validator interface. No automatic remote schema loading. |
 | Model coverage | Generics, inheritance, managed/view/revision/magic/digest mappings require explicit XML contracts. |
 | Referenced XML output | C++ borrowed/shared value and scoped projection tests pass. Broaden their stress/resource qualification and add other-backend support without duplicate owning payloads. Durable field-address XML requires an explicit contract and remains rejected. |
 | Compression parity | Whole-object stream wrappers and identical framing/error/limit contracts for every output; optional Zstandard/LZ4 providers where absent. |
-| Package parity | ZIP/OPC source/sink APIs, metadata, shared budgets and full-Save guarantees across outputs. Current package implementation is C++. |
+| Package parity | ZIP/OPC source/sink APIs, metadata, shared budgets and full-Save guarantees beyond the implemented C++/Python subsets. |
 | ZIP extensions | Broaden large-archive, stress and provider coverage beyond the bounded C++ ZIP64/spooling cases checked on Windows/Linux; tighten peak-memory/cancellation guarantees and implement other backend paths. Unsupported features keep failing explicitly. |
-| Typed profiles | Broaden the implemented C++ package declaration with pipeline/runtime selection, vocabulary profiles and generated payload reference checks before publication; implement other backends. |
-| Typed package loading | Port generated transactional profiles and automatic codec/reference budgets beyond C++. Caller-authored callbacks must explicitly compose their selected codecs with the shared context. |
-| Complete-operation context | Port the implemented C++ shared XML/package context and deadline across outputs; qualify projection/compression/provider cancellation latency and resource boundaries on large inputs. |
-| Preservation | Broaden C++ XML/package policy and collision qualification and implement equivalent policies on every backend. No signature or lexical-preservation claim. |
+| Typed profiles | Broaden C++/Python declarations with pipeline/runtime selection, vocabulary profiles and generated payload reference checks before publication; implement other backends. |
+| Typed package loading | Port generated transactional profiles and automatic codec/reference budgets beyond C++/Python. Caller-authored callbacks must explicitly compose their selected codecs with the shared context. |
+| Complete-operation context | Port shared XML/package accounting/deadlines beyond C++/Python; qualify projection/compression/provider cancellation latency and resource boundaries on large inputs. Provider-internal allocations/calls are not hard peak or preemption guarantees. |
+| Preservation | Broaden C++/Python XML/package policy and collision qualification and implement equivalent policies on every backend. No signature or lexical-preservation claim. |
 | Reproducibility | Extend independently checked canonical ordering/metadata policies across backends; compressed byte identity depends on provider/version/options. |
 | HTML | Separate HTML syntax/adapter. XML-form XHTML is limited by the implemented XML vocabulary; mixed-content XHTML is not supported. |
 

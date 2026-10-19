@@ -168,6 +168,11 @@ if(EXAMPLE_PYTHON)
   file(WRITE "${example_cache}"
     "set(CMAKE_PREFIX_PATH [==[${prefix};${DEPENDENCY_PREFIXES}]==] CACHE STRING \"Installed example dependency prefixes\")\n"
     "set(Python3_EXECUTABLE [==[${EXAMPLE_PYTHON}]==] CACHE FILEPATH \"Verified Python interpreter\")\n")
+  # LANGUAGES NONE consumers retain the selected toolchain's detected multiarch search suffix.
+  if(LIBRARY_ARCHITECTURE)
+    file(APPEND "${example_cache}"
+      "set(CMAKE_LIBRARY_ARCHITECTURE [==[${LIBRARY_ARCHITECTURE}]==] CACHE STRING \"Selected toolchain library architecture\")\n")
+  endif()
   if(CMAKE_HOST_WIN32)
     # Installed compiler generation also needs the selected compression runtime DLLs.
     foreach(dependency_prefix IN ITEMS "${prefix}" ${DEPENDENCY_PREFIXES})

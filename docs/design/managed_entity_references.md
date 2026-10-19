@@ -19,15 +19,18 @@ the target entity type, ownership endpoints, reference constraints, deletion
 policy and the desired import operation. It supplies values and uses the native
 registry; it should not need a second identity allocator or object repository.
 
-| Capability | Current implementation | Required addition |
-| --- | --- | --- |
-| Native identity | Managed occurrences carry document-local `persistent_id`; C++ `managed_ref<T>` reuses it with document/type scope. | Broader lifecycle/fault qualification. |
-| Typed lookup | `registry.reference<T>(id)` and `resolve(token)` check scope/type; complete candidates validate declared references before publication. | Broader corruption/resource and collaboration qualification. |
-| Ordinary field/value references | Durable field addresses and inline borrowed/shared/weak values support ordinary owning data under their documented restrictions. | They do not supply managed entity identity or a typed managed relationship. |
-| Collaboration | Native range reservations preserve identical document/object IDs; offline edits, exhaustion, journal restart and deleted-ID rejection are checked. | Broader distributed transport and fault qualification; no translated-ID operating mode. |
-| Independent import | `import_storage` allocates fresh IDs and rewrites declared internal tokens; unmapped foreign external targets reject. | Broader ownership/external-mapping fault qualification. |
-| Existing-entity edits | Generated `apply_editable` retains the entity ID and reconciles owned children through ordinary native transactions. | Broader ownership/move and failure qualification. |
-| Editing preview | `preview`, `working`, `cancel` and `accept_preview` share the accepted root and check the exact base. New IDs pass through the source allocator before exposure. | Broader resource/fault qualification. |
+Remaining work and qualification are tracked only in the
+[central backlog, MR01–MR03 and MG05](../xml_pending.md#managed-references-and-migration).
+
+| Capability | Current implementation |
+| --- | --- |
+| Native identity | Managed occurrences carry document-local `persistent_id`; C++ `managed_ref<T>` reuses it with document/type scope. |
+| Typed lookup | `registry.reference<T>(id)` and `resolve(token)` check scope/type; complete candidates validate declared references before publication. |
+| Ordinary field/value references | Durable field addresses and inline borrowed/shared/weak values support ordinary owning data under their documented restrictions; they do not supply managed entity identity. |
+| Collaboration | Native range reservations preserve identical document/object IDs; offline edits, exhaustion, journal restart and deleted-ID rejection are checked. No translated-ID operating mode exists. |
+| Independent import | `import_storage` allocates fresh IDs and rewrites declared internal tokens; unmapped foreign external targets reject. |
+| Existing-entity edits | Generated `apply_editable` retains the entity ID and reconciles owned children through ordinary native transactions. |
+| Editing preview | `preview`, `working`, `cancel` and `accept_preview` share the accepted root and check the exact base. New IDs pass through the source allocator before exposure. |
 
 The registry is a rebuildable view of a selected native snapshot, not another
 allocator. Its present catalog costs and lifetime rules remain those in the

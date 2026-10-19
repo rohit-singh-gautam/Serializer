@@ -136,6 +136,9 @@ struct zip_entry {
   std::uint64_t header_offset_bytes{};
   std::uint64_t data_offset_bytes{};
   bool zip64_sizes{};
+  // APPNOTE central-directory metadata; attributes remain host-defined and are never OS permissions.
+  std::uint8_t creator_system{};
+  std::uint32_t external_attributes{};
 };
 
 struct input_options {
@@ -154,6 +157,10 @@ class zip_writer {
   std::uint64_t offset_bytes_{};
   bool finished_{};
   bool failed_{};
+  bool opc_names_{};
+  friend class opc_writer;
+  // OPC URI segments permit colons; this policy is unavailable to ordinary archive callers.
+  zip_writer(std::ostream& output, std::shared_ptr<budget> shared, bool opc_names);
   // Append archive bytes in bounded batches and mark fallible sink failures.
   void append(std::span<const std::uint8_t> bytes);
 public:
@@ -184,6 +191,10 @@ class zip_reader {
   std::shared_ptr<budget> budget_;
   std::vector<zip_entry> entries_{};
   std::uint64_t archive_bytes_{};
+  friend class opc_reader;
+  // Apply the OPC part-URI naming policy only while indexing an OPC physical package.
+  zip_reader(std::istream& input, std::shared_ptr<budget> shared,
+             input_options options, bool opc_names);
   // Read an exactly bounded archive range and preserve structured I/O failures.
   [[nodiscard]] std::vector<std::uint8_t> read_at(std::uint64_t offset, std::size_t count);
 public:
@@ -222,7 +233,7 @@ struct relationship {
 };
 
 // Resolve one OPC internal URI reference without filesystem access or repeated decoding.
-// Returned part names use a leading slash; root traversal and fragments are rejected.
+// Query/fragment components identify the whole part; dot segments follow RFC 3986.
 [[nodiscard]] std::string resolve_target(std::string_view source, std::string_view target);
 
 // A standard OPC builder generates infrastructure XML through Serializer's XML

@@ -1,0 +1,43 @@
+serializer version 1.20.0;
+
+namespace xml_numeric_projection {
+  using schema "xml_numeric_projection.xsd";
+
+  class qname_sample {
+    public string value (1);
+  }
+
+  class sample {
+    public string integer (1);
+    public string decimal (2);
+    public string fixed (3);
+  }
+
+  class floating_sample {
+    public optional<float> float_nan_enum (1);
+    public optional<double> double_nan_enum (2);
+    public optional<float> float_nan_fixed (3);
+    public optional<double> double_nan_fixed (4);
+    public optional<float> float_enum (5);
+    public optional<double> double_enum (6);
+    public optional<float> float_min_inclusive (7);
+    public optional<float> float_max_inclusive (8);
+    public optional<float> float_min_exclusive (9);
+    public optional<float> float_max_exclusive (10);
+    public optional<double> double_min_inclusive (11);
+    public optional<double> double_max_inclusive (12);
+    public optional<double> double_min_exclusive (13);
+    public optional<double> double_max_exclusive (14);
+    public optional<float> nan_min_inclusive (15);
+    public optional<float> nan_max_inclusive (16);
+    public optional<float> nan_min_exclusive (17);
+    public optional<float> nan_max_exclusive (18);
+    public optional<string> float_union (19);
+    public optional<string> double_union (20);
+  }
+
+  class pattern_sample {
+    public int32 value (1);
+    public optional<array<float>> values (2) xml(attribute, list);
+  }
+}

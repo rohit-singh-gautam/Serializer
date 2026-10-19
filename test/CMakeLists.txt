@@ -116,9 +116,10 @@ endif()
 add_test(NAME managed_reference_codegen_test COMMAND managed_reference_codegen_test)
 
 if(SERIALIZER_WITH_XML)
+  include("${CMAKE_CURRENT_SOURCE_DIR}/xml_core_test.cmake")
   add_executable(xsd_import_test xsd_import_test.cpp)
   target_link_libraries(xsd_import_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
-  add_executable(xml_operation_test xml_operation_test.cpp)
+  add_executable(xml_operation_test xml_operation_test.cpp xml_contract_test.cpp)
   target_link_libraries(xml_operation_test PRIVATE Serializer::runtime GTest::gtest_main)
   foreach(opc_test IN ITEMS xsd_import_test xml_operation_test)
     if(MSVC)
@@ -513,11 +514,11 @@ if(SERIALIZER_BUILD_MANAGED)
   serializer_add_migration_tool(TARGET managed_migration_tool
     SCHEMA resources/managed_migration.serializer ROOT migration_example::document
     CONFIG resources/managed_migration_direct32.ini
-    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_migration_tool")
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/managed_migration_tool")
   add_executable(managed_migration_fixture managed_migration_fixture.cpp)
   serializer_generate(TARGET managed_migration_fixture
     SCHEMAS resources/managed_migration.serializer CONFIG resources/managed_migration_direct32.ini
-    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_migration_fixture")
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/managed_migration_fixture")
   target_link_libraries(managed_migration_fixture PRIVATE Serializer::managed)
   foreach(migration_target IN ITEMS managed_migration_tool managed_migration_fixture)
     if(MSVC)
@@ -942,6 +943,7 @@ if(SERIALIZER_INSTALL AND NOT CMAKE_CROSSCOMPILING)
       "-DWITH_zlib=${SERIALIZER_WITH_ZLIB}" "-DDEPENDENCY_PREFIXES=${CMAKE_PREFIX_PATH}"
       "-DGENERATOR=${CMAKE_GENERATOR}" "-DPLATFORM=${CMAKE_GENERATOR_PLATFORM}"
       "-DGENERATOR_INSTANCE=${CMAKE_GENERATOR_INSTANCE}" "-DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+      "-DLIBRARY_ARCHITECTURE=${CMAKE_LIBRARY_ARCHITECTURE}"
       "-DEXAMPLE_PYTHON=${serializer_installed_example_python}"
       -P "${CMAKE_CURRENT_SOURCE_DIR}/install_package.cmake")
 endif()
@@ -1063,7 +1065,8 @@ if(SERIALIZER_WITH_XML)
   add_test(NAME xml_projection_test COMMAND xml_projection_test)
 
   add_executable(xml_rich_test xml_rich_test.cpp)
-  serializer_generate(TARGET xml_rich_test SCHEMAS resources/xml_rich.serializer
+  serializer_generate(TARGET xml_rich_test
+    SCHEMAS resources/xml_rich.serializer resources/xml_numeric_projection.serializer
     CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_rich.ini"
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_rich")
   target_link_libraries(xml_rich_test PRIVATE Serializer::runtime GTest::gtest_main)
@@ -1095,6 +1098,21 @@ if(SERIALIZER_WITH_XML)
   endif()
   add_test(NAME xml_schema_test COMMAND xml_schema_test)
   if(Python3_Interpreter_FOUND)
+    add_test(NAME python_package_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_package_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_package")
+    if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
+      add_test(NAME python_xml_choice_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_xml_choice_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_choice")
+      # This opt-in SDK qualification requires Python's lxml XSD provider.
+      add_test(NAME python_xml_rich_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_xml_rich_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_rich")
+      add_test(NAME python_3mf_core_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_3mf_core_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_3mf_core")
+    endif()
     add_test(NAME xsd_import_cli_test
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xsd_import_cli_test.py"
         "$<TARGET_FILE:serializer>" "${CMAKE_CURRENT_BINARY_DIR}")
@@ -1124,7 +1142,7 @@ if(SERIALIZER_WITH_XML)
   add_executable(xml_shapes_cpp xml_shapes_test.cpp)
   serializer_generate(TARGET xml_shapes_cpp SCHEMAS resources/xml_shapes/model.serializer
     CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_shapes/options.ini"
-    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_shapes_cpp")
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/xml_shapes_cpp")
   target_link_libraries(xml_shapes_cpp PRIVATE Serializer::runtime)
   if(MSVC)
     target_compile_options(xml_shapes_cpp PRIVATE /W4 /WX)

@@ -16,6 +16,7 @@
 #if SERIALIZER_HAS_XML
 #include <libxml/parser.h>
 #include <libxml/xmlreader.h>
+#include <libxml/xmlregexp.h>
 #include <libxml/xmlschemas.h>
 #include <libxml/tree.h>
 #endif
@@ -72,6 +73,10 @@ void check_text(std::string_view value, operation_context* context = nullptr) {
 }
 // Build deterministic output without permitting intermediate escaped output beyond its limit.
 class document_writer {
+  // One mutable encoding pass owns its output and never copies its borrowed operation context.
+  document_writer(const document_writer&) = delete;
+  // An encoding pass cannot replace its output/operation ownership with another writer's state.
+  document_writer& operator=(const document_writer&) = delete;
   limits bounds_;
   operation_context* context_{};
   std::string bytes_{};
@@ -151,7 +156,8 @@ class document_writer {
       consume(name_bytes_, uri.size(), bounds_.max_name_bytes);
       retained_prefixes_.insert(prefix);
     }
-    if (!node.children.empty() && !detail::trim(node.text).empty() && node.text_segments.empty()) {
+    if (!node.children.empty() && !detail::trim(node.text).empty() && node.text_segments.empty() &&
+        !(context_ && context_->allow_mixed_content)) {
       throw std::invalid_argument{"XML mixed content is unsupported"};
     }
     std::size_t segment_bytes{}, previous_child{};
@@ -298,6 +304,72 @@ void check_encoding(std::string_view bytes) {
     throw std::invalid_argument{"XML input must declare UTF-8 encoding"};
   }
 }
+// Inspect only the encoding declaration in original UTF-16 units; never transcode or rewrite input.
+void check_utf16_encoding(std::string_view bytes, bool little_endian, operation_context* context) {
+  if (bytes.size() % 2U != 0U) { throw std::invalid_argument{"Truncated UTF-16 XML input"}; }
+  bytes.remove_prefix(2U);
+  const auto units = bytes.size() / 2U;
+  const auto unit = [&](std::size_t index) {
+    const auto first = static_cast<unsigned char>(bytes[index * 2U]);
+    const auto second = static_cast<unsigned char>(bytes[index * 2U + 1U]);
+    return little_endian ? static_cast<unsigned int>(first) | (static_cast<unsigned int>(second) << 8U)
+                         : (static_cast<unsigned int>(first) << 8U) | static_cast<unsigned int>(second);
+  };
+  const auto matches = [&](std::size_t position, std::string_view expected) {
+    if (position > units || expected.size() > units - position) { return false; }
+    for (std::size_t index{}; index < expected.size(); ++index) {
+      if (unit(position + index) != static_cast<unsigned char>(expected[index])) { return false; }
+    }
+    return true;
+  };
+  const auto whitespace = [](unsigned int value) {
+    return value == ' ' || value == '\t' || value == '\r' || value == '\n';
+  };
+  if (!matches(0U, "<?xml") || units <= 5U || !whitespace(unit(5U))) { return; }
+  std::size_t declaration_end = units, encoding = units;
+  for (std::size_t index = 5U; index < units; ++index) {
+    if (context && index % 4096U == 0U) { context->check(); }
+    if (matches(index, "?>")) { declaration_end = index; break; }
+    if (matches(index, "encoding")) { encoding = index + std::string_view{"encoding"}.size(); }
+  }
+  if (encoding >= declaration_end) { return; }
+  while (encoding < declaration_end && whitespace(unit(encoding))) { ++encoding; }
+  if (encoding == declaration_end || unit(encoding++) != '=') {
+    throw std::invalid_argument{"Malformed XML encoding declaration"};
+  }
+  while (encoding < declaration_end && whitespace(unit(encoding))) { ++encoding; }
+  if (encoding == declaration_end || (unit(encoding) != '\'' && unit(encoding) != '"')) {
+    throw std::invalid_argument{"Malformed XML encoding declaration"};
+  }
+  const auto quote = unit(encoding++);
+  constexpr std::string_view expected{"utf-16"};
+  if (expected.size() >= declaration_end - encoding) {
+    throw std::invalid_argument{"XML input must declare UTF-16 encoding"};
+  }
+  for (const auto value : expected) {
+    auto actual = unit(encoding++);
+    if (actual >= 'A' && actual <= 'Z') { actual += 'a' - 'A'; }
+    if (actual != static_cast<unsigned char>(value)) {
+      throw std::invalid_argument{"XML input must declare UTF-16 encoding"};
+    }
+  }
+  if (unit(encoding) != quote) { throw std::invalid_argument{"XML input must declare UTF-16 encoding"}; }
+}
+// Only OPC's explicit policy enables provider auto-detection, restricted to XML UTF-16 signatures.
+const char* provider_encoding(std::string_view bytes, operation_context* context) {
+  const bool little_endian = bytes.starts_with("\xff\xfe");
+  const bool big_endian = bytes.starts_with("\xfe\xff");
+  if (!little_endian && !big_endian) { check_encoding(bytes); return "UTF-8"; }
+  if (!context || context->input_encoding != input_encoding_policy::utf8_or_utf16) {
+    throw std::invalid_argument{"XML input must use UTF-8 encoding"};
+  }
+  // UCS-4 signatures share a UTF-16 BOM prefix but are not permitted OPC infrastructure encodings.
+  if (bytes.size() >= 4U && bytes[2U] == '\0' && bytes[3U] == '\0') {
+    throw std::invalid_argument{"XML UTF-32 input is unsupported"};
+  }
+  check_utf16_encoding(bytes, little_endian, context);
+  return nullptr;
+}
 // Keep libxml diagnostics local and return errors through typed exceptions.
 void discard_error(void*, const char*, ...) {}
 // Reject XSD reference constructs recursively before libxml's schema loader can fetch anything.
@@ -441,6 +513,35 @@ int compare_numeric_values(std::string_view left, std::string_view right) {
   return first.negative ? -order : order;
 }
 
+namespace {
+// Round both the instance and facet into the selected XSD floating value space before comparison.
+template <typename Value> void validate_floating_bounds(std::string_view text,
+    const scalar_constraints& constraints) {
+  Value value{};
+  detail::read_scalar(text, value);
+  const auto bound = [](std::string_view lexical) {
+    Value result{};
+    detail::read_scalar(lexical, result);
+    return result;
+  };
+  // XSD 1.0 treats NaN as equal to itself, while it remains unordered with every other value.
+  const auto inclusive = [value](Value limit, bool minimum) {
+    return (std::isnan(value) && std::isnan(limit)) || (minimum ? value >= limit : value <= limit);
+  };
+  if ((constraints.finite && !std::isfinite(value)) ||
+      (constraints.lexical_min_inclusive && !inclusive(bound(*constraints.lexical_min_inclusive), true)) ||
+      (constraints.lexical_max_inclusive && !inclusive(bound(*constraints.lexical_max_inclusive), false)) ||
+      (constraints.lexical_min_exclusive && !(value > bound(*constraints.lexical_min_exclusive))) ||
+      (constraints.lexical_max_exclusive && !(value < bound(*constraints.lexical_max_exclusive))) ||
+      (constraints.min_inclusive && !inclusive(static_cast<Value>(*constraints.min_inclusive), true)) ||
+      (constraints.max_inclusive && !inclusive(static_cast<Value>(*constraints.max_inclusive), false)) ||
+      (constraints.min_exclusive && !(value > static_cast<Value>(*constraints.min_exclusive))) ||
+      (constraints.max_exclusive && !(value < static_cast<Value>(*constraints.max_exclusive)))) {
+    throw std::invalid_argument{"XML scalar floating numeric facet failed"};
+  }
+}
+} // namespace
+
 // Validate supported facets without locale-dependent parsing or byte-count/character confusion.
 void validate_scalar_constraints(std::string_view text, const scalar_constraints& constraints,
     operation_context* context) {
@@ -473,6 +574,16 @@ void validate_scalar_constraints(std::string_view text, const scalar_constraints
             return normalized == normalize_whitespace(candidate, constraints.whitespace);
           })) {
     throw std::invalid_argument{"XML scalar enumeration facet failed"};
+  }
+  const bool numeric_constraints = constraints.finite || constraints.min_inclusive || constraints.max_inclusive ||
+      constraints.min_exclusive || constraints.max_exclusive || constraints.lexical_min_inclusive ||
+      constraints.lexical_max_inclusive || constraints.lexical_min_exclusive || constraints.lexical_max_exclusive;
+  if (constraints.lexical_kind == "float" || constraints.lexical_kind == "double") {
+    if (numeric_constraints) {
+      if (constraints.lexical_kind == "float") { validate_floating_bounds<float>(normalized, constraints); }
+      else { validate_floating_bounds<double>(normalized, constraints); }
+    }
+    return;
   }
   if ((constraints.lexical_min_inclusive && compare_numeric_values(normalized, *constraints.lexical_min_inclusive) < 0) ||
       (constraints.lexical_max_inclusive && compare_numeric_values(normalized, *constraints.lexical_max_inclusive) > 0) ||
@@ -587,6 +698,65 @@ void validate_lexical_value(std::string_view text, std::string_view kind, const 
     check_text(text, context); return;
   }
   if (kind == "QName") { (void)resolve_qname(text, scope); return; }
+  if (kind == "language") {
+    std::size_t group{};
+    bool first = true;
+    for (std::size_t index{}; index < text.size(); ++index) {
+      if (context && index % 4096U == 0U) { context->check(); }
+      const auto byte = text[index];
+      if (byte == '-') {
+        if (group == 0U) { throw std::invalid_argument{"Invalid XSD language value"}; }
+        group = 0U;
+        first = false;
+      } else {
+        const bool alpha = (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z');
+        if ((!alpha && (first || byte < '0' || byte > '9')) || ++group > 8U) {
+          throw std::invalid_argument{"Invalid XSD language value"};
+        }
+      }
+    }
+    if (group == 0U) { throw std::invalid_argument{"Invalid XSD language value"}; }
+    return;
+  }
+  if (kind == "Name" || kind == "NCName" || kind == "ID" || kind == "IDREF" ||
+      kind == "ENTITY" || kind == "NMTOKEN") {
+#if SERIALIZER_HAS_XML
+    check_text(text, context);
+    if (context) { context->consume(operation_resource::allocation_bytes, text.size() + 1U); }
+    const std::string terminated{text};
+    const auto* value = reinterpret_cast<const xmlChar*>(terminated.c_str());
+    const auto status = kind == "Name" ? xmlValidateName(value, 0)
+        : kind == "NMTOKEN" ? xmlValidateNMToken(value, 0) : xmlValidateNCName(value, 0);
+    if (context) { context->check(); }
+    if (status != 0) { throw std::invalid_argument{"Invalid XSD name lexical value"}; }
+    return;
+#else
+    throw std::runtime_error{"XSD name validation requires the XML provider"};
+#endif
+  }
+  if (kind == "integer" || kind == "positiveInteger" || kind == "nonNegativeInteger" ||
+      kind == "negativeInteger" || kind == "nonPositiveInteger" || kind == "decimal") {
+    std::size_t position = !text.empty() && (text.front() == '+' || text.front() == '-') ? 1U : 0U;
+    std::size_t digits{};
+    bool decimal{};
+    bool nonzero{};
+    for (; position < text.size(); ++position) {
+      if (context && position % 4096U == 0U) { context->check(); }
+      const auto byte = text[position];
+      if (byte >= '0' && byte <= '9') { ++digits; nonzero = nonzero || byte != '0'; }
+      else if (kind == "decimal" && byte == '.' && !decimal) { decimal = true; }
+      else { throw std::invalid_argument{"Invalid unbounded XSD numeric lexical value"}; }
+    }
+    if (digits == 0U) { throw std::invalid_argument{"Empty XSD numeric lexical value"}; }
+    const bool negative = text.front() == '-';
+    if ((kind == "positiveInteger" && (negative || !nonzero)) ||
+        (kind == "nonNegativeInteger" && negative && nonzero) ||
+        (kind == "negativeInteger" && (!negative || !nonzero)) ||
+        (kind == "nonPositiveInteger" && !negative && nonzero)) {
+      throw std::invalid_argument{"XSD integer sign constraint failed"};
+    }
+    return;
+  }
   if (kind == "boolean") { bool value{}; detail::read_scalar(text, value); }
   else if (kind == "byte") { std::int8_t value{}; detail::read_scalar(text, value); }
   else if (kind == "unsignedByte") { std::uint8_t value{}; detail::read_scalar(text, value); }
@@ -630,10 +800,12 @@ bool lexical_equal(std::string_view first, std::string_view second, std::string_
     return left == right;
   }
   if (kind == "QName") { return resolve_qname(first, scope) == resolve_qname(second, scope); }
-  if (kind == "string" || kind == "normalizedString" || kind == "token" || kind == "anyURI") {
+  if (kind.empty() || kind == "string" || kind == "normalizedString" || kind == "token" || kind == "anyURI") {
     return first == second;
   }
   validate_lexical_value(first, kind, scope); validate_lexical_value(second, kind, scope);
+  if (kind == "language" || kind == "Name" || kind == "NCName" || kind == "ID" ||
+      kind == "IDREF" || kind == "ENTITY" || kind == "NMTOKEN") { return first == second; }
   return compare_numeric_values(first, second) == 0;
 }
 } // namespace
@@ -878,13 +1050,13 @@ element parse(std::string_view document, limits bounds, operation_context* conte
   }
 #if SERIALIZER_HAS_XML
   if (context) { context->check(); }
-  check_encoding(document);
+  const auto* encoding = provider_encoding(document, context);
   std::optional<checked_input> input{};
   if (context) { input.emplace(checked_input{document, *context, {}}); }
   const auto reader = std::unique_ptr<xmlTextReader, decltype(&xmlFreeTextReader)>{
-      context ? xmlReaderForIO(&checked_input::read, nullptr, &*input, nullptr, "UTF-8",
+      context ? xmlReaderForIO(&checked_input::read, nullptr, &*input, nullptr, encoding,
                          XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING) :
-                xmlReaderForMemory(document.data(), static_cast<int>(document.size()), nullptr, "UTF-8",
+                xmlReaderForMemory(document.data(), static_cast<int>(document.size()), nullptr, encoding,
                          XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING), &xmlFreeTextReader};
   if (input && input->failure) { std::rethrow_exception(input->failure); }
   if (!reader) { throw std::invalid_argument{"Cannot create XML reader"}; }
@@ -940,6 +1112,7 @@ element parse(std::string_view document, limits bounds, operation_context* conte
       }
       check_name(node->qualified_name.local);
       const bool opaque = (!opaque_stack.empty() && opaque_stack.back()) ||
+          (context && context->allow_mixed_content) ||
           (context && context->unknown_fields != unknown_policy::reject && context->permits_namespace &&
            !node->qualified_name.namespace_uri.empty() &&
            node->qualified_name.namespace_uri != result.qualified_name.namespace_uri &&
@@ -1021,6 +1194,67 @@ std::string write(const element& document, limits bounds, operation_context* con
   return document_writer{bounds, context}.encode(document);
 }
 
+struct prepared_pattern::implementation {
+#if SERIALIZER_HAS_XML
+  std::unique_ptr<xmlRegexp, decltype(&xmlRegFreeRegexp)> expression{nullptr, &xmlRegFreeRegexp};
+#endif
+};
+
+// Use the provider's XML Schema grammar, including Unicode categories and class subtraction.
+prepared_pattern::prepared_pattern(std::string_view expression, limits bounds,
+    operation_context* context) {
+#if SERIALIZER_HAS_XML
+  if (expression.size() > bounds.max_input_bytes || expression.size() > bounds.max_text_bytes ||
+      expression.size() >= static_cast<std::size_t>(INT_MAX)) {
+    throw std::length_error{"XML pattern input limit exceeded"};
+  }
+  check_text(expression, context);
+  if (context) {
+    context->consume(operation_resource::work_units, expression.size());
+    context->consume(operation_resource::allocation_bytes, sizeof(implementation) + expression.size() + 1U);
+  }
+  const std::string terminated{expression};
+  auto prepared = std::make_unique<implementation>();
+  prepared->expression.reset(xmlRegexpCompile(reinterpret_cast<const xmlChar*>(terminated.c_str())));
+  if (context) { context->check(); }
+  if (!prepared->expression) { throw std::invalid_argument{"Invalid XML Schema regular expression"}; }
+  implementation_ = std::move(prepared);
+#else
+  (void)expression; (void)bounds; (void)context;
+  throw std::runtime_error{"XML pattern support was not enabled in this Serializer runtime"};
+#endif
+}
+
+prepared_pattern::~prepared_pattern() = default;
+prepared_pattern::prepared_pattern(prepared_pattern&&) noexcept = default;
+prepared_pattern& prepared_pattern::operator=(prepared_pattern&&) noexcept = default;
+
+// xmlRegexpExec allocates its execution counters/rollback state per call and reads the automaton.
+bool prepared_pattern::matches(std::string_view value, limits bounds,
+    operation_context* context) const {
+#if SERIALIZER_HAS_XML
+  if (!implementation_) { throw std::logic_error{"Moved-from prepared XML pattern"}; }
+  if (value.size() > bounds.max_input_bytes || value.size() > bounds.max_text_bytes ||
+      value.size() >= static_cast<std::size_t>(INT_MAX)) {
+    throw std::length_error{"XML pattern value limit exceeded"};
+  }
+  check_text(value, context);
+  if (context) {
+    context->consume(operation_resource::work_units, value.size());
+    context->consume(operation_resource::allocation_bytes, value.size() + 1U);
+  }
+  const std::string terminated{value};
+  const auto result = xmlRegexpExec(implementation_->expression.get(),
+      reinterpret_cast<const xmlChar*>(terminated.c_str()));
+  if (context) { context->check(); }
+  if (result < 0) { throw std::runtime_error{"XML Schema regular expression evaluation failed"}; }
+  return result == 1;
+#else
+  (void)value; (void)bounds; (void)context;
+  throw std::runtime_error{"XML pattern support was not enabled in this Serializer runtime"};
+#endif
+}
+
 struct prepared_schema::implementation {
 #if SERIALIZER_HAS_XML
   std::unique_ptr<xmlSchema, decltype(&xmlSchemaFree)> schema{nullptr, &xmlSchemaFree};
@@ -1029,7 +1263,9 @@ struct prepared_schema::implementation {
 
 prepared_schema::prepared_schema(std::string_view xsd, limits bounds) {
 #if SERIALIZER_HAS_XML
-  const auto tree = parse(xsd, bounds);
+  operation_context schema_context{};
+  schema_context.allow_mixed_content = true;
+  const auto tree = parse(xsd, bounds, &schema_context);
   check_schema_references(tree);
   const auto context = std::unique_ptr<xmlSchemaParserCtxt, decltype(&xmlSchemaFreeParserCtxt)>{
       xmlSchemaNewMemParserCtxt(xsd.data(), static_cast<int>(xsd.size())), &xmlSchemaFreeParserCtxt};
@@ -1058,7 +1294,8 @@ void prepared_schema::validate(std::string_view document, limits bounds, operati
   if (operation) { operation->consume(operation_resource::work_units, document.size()); }
   if (!implementation_) { throw std::logic_error{"Moved-from prepared XML schema"}; }
   const auto tree = std::unique_ptr<xmlDoc, decltype(&xmlFreeDoc)>{
-      xmlReadMemory(document.data(), static_cast<int>(document.size()), nullptr, "UTF-8",
+      xmlReadMemory(document.data(), static_cast<int>(document.size()), nullptr,
+                    provider_encoding(document, operation),
                     XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING), &xmlFreeDoc};
   const auto context = std::unique_ptr<xmlSchemaValidCtxt, decltype(&xmlSchemaFreeValidCtxt)>{
       xmlSchemaNewValidCtxt(implementation_->schema.get()), &xmlSchemaFreeValidCtxt};

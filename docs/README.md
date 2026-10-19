@@ -8,6 +8,7 @@ indexes below link to the full reference and recorded verification.
 | Define models and exchange data | [C++ usage guide](guides/usage.md) | [Schema examples](schema/schema_examples.md), [language outputs](languages/README.md) |
 | Add generation to a build | [CMake integration](guides/cmake_integration.md) | [Build and generation](guides/build_and_generation.md), [compiler options](guides/command_line.md) |
 | Author an OPC-based format such as 3MF | [Current XML/OPC APIs](serialization/xml_packages.md) | [Responsibilities, requirements and restricted schema/build example](design/opc_3mf_support.md) |
+| Find any documented pending requirement | [Central pending backlog](xml_pending.md) | Stable task IDs, implementation/proposal status, source contracts and verification gates |
 | Evolve stored data | [Payload versioning](schema/versioning.md) | [Schema compatibility](schema/schema_evolution.md), [wire contract](serialization/wire_format.md) |
 | Edit application state with undo and recovery | [Managed-state quick start](managed/getting_started.md) | [C++ runtime](managed/cpp_runtime.md), [journaling](managed/journal.md), [local collaboration](managed/local_collaboration.md) |
 | Set up schema editing and navigation | [Editor extensions](editors/editor_extension.md) | [Navigation coverage](editors/editor_navigation.md), [generated-header IntelliSense](editors/intellisense.md) |
@@ -31,7 +32,9 @@ indexes below link to the full reference and recorded verification.
 ## Status and examples
 
 The [feature-status reference](project/feature_status.md) distinguishes implemented
-behavior from proposals. Native managed engines currently run in C++; other
+behavior from proposals. All current pending requirements are consolidated in
+[the central backlog](xml_pending.md); design documents retain their rationale
+and contracts. Native managed engines currently run in C++; other
 languages can exchange managed records. Managed design documents retain their
 individual implementation boundaries. Design specifications and dated reports
 should be read with the current API guides and the versions they identify.

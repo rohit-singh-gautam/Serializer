@@ -19,17 +19,22 @@ def _xml_check_text(value):
 
 class _XmlBudget:
     """Bound a complete tree before retaining model or parser text and nodes."""
-    def __init__(self, limits=None):
+    def __init__(self, limits=None, context=None):
         """Copy a validated immutable per-operation logical resource policy."""
         self.limits = limits or Limits()
+        self.context = context
         self.nodes, self.text_bytes, self.attributes = 0, 0, 0
+        self.fragments = 0
     def node(self, name, depth):
         """Charge a node and its expanded name before adding descendants."""
         if depth > self.limits.max_depth or self.nodes >= self.limits.max_elements:
             raise ValueError('XML node or depth limit exceeded')
         self.nodes += 1
+        if self.context is not None:
+            self.context.consume('work_units', 1)
+            self.context.consume('decoder_allocation_bytes', 64)
         self.text(name)
-        return [name, {}, [], '']
+        return [name, {}, [], '', {}, []]
     def text(self, value):
         """Charge cumulative UTF-8 text, names, namespaces and attribute values."""
         _xml_check_text(value)
@@ -37,20 +42,24 @@ class _XmlBudget:
         if size > self.limits.max_string_bytes - self.text_bytes:
             raise ValueError('XML text limit exceeded')
         self.text_bytes += size
+        if self.context is not None:
+            self.context.consume('work_units', size)
+            self.context.consume('decoder_allocation_bytes', size)
         return value
 
 def _xml_name(uri, local):
     """Construct an expanded name independent of a document prefix."""
     return '{' + uri + '}' + local if uri else local
 
-def _xml_parse(data, limits=None):
+def _xml_parse(data, limits=None, context=None, original_size=None):
     """Parse exactly one bounded UTF-8 XML1.0 document without DTD/entity resolution."""
-    budget = _XmlBudget(limits)
-    if not isinstance(data, (bytes, bytearray)) or len(data) > budget.limits.max_bytes:
+    budget = _XmlBudget(limits, context)
+    if not isinstance(data, (bytes, bytearray)) or (len(data) if original_size is None else original_size) > budget.limits.max_bytes:
         raise ValueError('XML byte limit exceeded')
-    data.decode('utf-8', 'strict')
+    if data[:2] in (b'\xff\xfe', b'\xfe\xff') or b'\x00' in data[:4]:
+        raise ValueError('XML1.0 UTF-8 required')
     parser = _xml_expat.ParserCreate(encoding='UTF-8', namespace_separator='\x1f')
-    stack, roots = [], []
+    stack, roots, scopes, declarations = [], [], [], {}
     attributes = 0
     def expanded(value):
         """Normalize provider namespace names to the generated expanded-name spelling."""
@@ -64,17 +73,29 @@ def _xml_parse(data, limits=None):
         if version != '1.0' or (encoding and encoding.lower().replace('-', '') != 'utf8'):
             raise ValueError('XML1.0 UTF-8 required')
     def namespace(prefix, uri):
-        """Charge declarations even though fixed typed mappings need no retained prefix map."""
+        """Bound each declaration before retaining the prefix map used by lexical QName values."""
         nonlocal attributes
         attributes += 1
         if attributes > budget.limits.max_elements:
             raise ValueError('XML attribute limit exceeded')
         budget.text(prefix or '')
         budget.text(uri or '')
+        declarations[prefix or ''] = uri or ''
     def start(name, attrs):
         """Bound each element/attribute before linking it into the owning tree."""
         nonlocal attributes
         node = budget.node(expanded(name), len(stack) + 1)
+        inherited = scopes[-1] if scopes else {'xml': 'http://www.w3.org/XML/1998/namespace'}
+        for prefix, uri in inherited.items():
+            budget.text(prefix)
+            budget.text(uri)
+        if context is not None:
+            context.consume('decoder_allocation_bytes', 64 * (len(inherited) + len(declarations)))
+        scope = dict(inherited)
+        scope.update(declarations)
+        declarations.clear()
+        node[4] = scope
+        scopes.append(scope)
         attributes += len(attrs)
         if attributes > budget.limits.max_elements:
             raise ValueError('XML attribute limit exceeded')
@@ -89,14 +110,21 @@ def _xml_parse(data, limits=None):
         """Retain only cumulatively bounded character data."""
         budget.text(value)
         if stack:
-            stack[-1][3] += value
+            if value:
+                budget.fragments += 1
+                if budget.fragments > budget.limits.max_elements:
+                    raise ValueError('XML text fragment limit exceeded')
+                if context is not None: context.consume('decoder_allocation_bytes', 64)
+                stack[-1][5].append((len(stack[-1][2]), value))
         elif value.strip(' \t\r\n'):
             raise ValueError('XML text outside root')
     def end(name):
-        """Reject mixed content before publishing the complete parsed tree."""
+        """Join bounded character fragments while retaining their semantic mixed-content positions."""
         node = stack.pop()
-        if node[2] and node[3].strip(' \t\r\n'):
-            raise ValueError('XML mixed content is unsupported')
+        if context is not None:
+            context.consume('decoder_allocation_bytes', sum(len(value.encode('utf-8')) for unused, value in node[5]))
+        node[3] = ''.join(value for unused, value in node[5])
+        scopes.pop()
     parser.XmlDeclHandler = declaration
     parser.StartNamespaceDeclHandler = namespace
     parser.StartElementHandler, parser.EndElementHandler = start, end
@@ -105,7 +133,11 @@ def _xml_parse(data, limits=None):
     parser.EntityDeclHandler = prohibited
     parser.ExternalEntityRefHandler = prohibited
     parser.SetParamEntityParsing(_xml_expat.XML_PARAM_ENTITY_PARSING_NEVER)
-    parser.Parse(data, True)
+    for offset in range(0, len(data), 65536):
+        if context is not None:
+            context.consume('work_units', min(65536, len(data) - offset))
+        parser.Parse(memoryview(data)[offset:offset + 65536], False)
+    parser.Parse(b'', True)
     if len(roots) != 1 or stack:
         raise ValueError('XML requires exactly one root')
     return roots[0]
@@ -135,16 +167,14 @@ def _xml_scalar(value, kind, width=0, unsigned=False, encode=False):
     if kind == 'integer':
         if not _XML_INTEGER.fullmatch(value):
             raise ValueError('Invalid XML integer')
-        return _bounds(int(value), width, unsigned)
-    if value in ('INF', '-INF', 'NaN'):
-        result = {'INF': _math.inf, '-INF': -_math.inf, 'NaN': _math.nan}[value]
-    else:
-        if not _XML_NUMBER.fullmatch(value):
-            raise ValueError('Invalid XML floating value')
-        result = float(value)
-        if not _math.isfinite(result):
-            raise ValueError('XML floating value overflows model')
-    return _FLOAT.unpack(_FLOAT.pack(result))[0] if kind == 'float' else result
+        negative = value.startswith('-')
+        digits = value[1:] if value[0] in '+-' else value
+        digits = digits.lstrip('0') or '0'
+        if len(digits) > len(str(1 << (width * 8))):
+            raise ValueError('XML integer overflows model')
+        number = int(digits)
+        return _bounds(-number if negative else number, width, unsigned)
+    return _xml_floating(value, kind)
 
 def _xml_enum(value, names, enumeration):
     """Reject undeclared enum ordinals before indexing the fixed schema name table."""
@@ -162,6 +192,8 @@ def _xml_attribute(node, name, value, budget):
     """Add one bounded fixed attribute without losing its namespace identity."""
     if budget.attributes >= budget.limits.max_elements:
         raise ValueError('XML attribute limit exceeded')
+    if name in node[1]:
+        raise ValueError('Duplicate XML attribute')
     budget.attributes += 1
     node[1][budget.text(name)] = budget.text(value)
 
@@ -207,9 +239,9 @@ class _XmlFields:
         if len(self.used) != len(self.node[1]) or self.next != len(self.node[2]):
             raise ValueError('Unexpected XML attribute or child')
 
-def _xml_write(root, limits):
+def _xml_write(root, limits, context=None):
     """Emit one deterministic escaped UTF-8 document within the complete byte bound."""
-    prefixes, parts, size = {}, [], 0
+    prefixes, parts, size, reserved = {}, [], 0, set()
     def uri_name(name):
         """Split only compiler-generated expanded names."""
         if name.startswith('{'):
@@ -218,18 +250,28 @@ def _xml_write(root, limits):
         return '', name
     def inspect(node):
         """Collect only namespace URIs used by fixed element/attribute identities."""
+        reserved.update(node[4])
+        for child in node[2]:
+            inspect(child)
+    def collect(node):
+        """Avoid every retained lexical QName prefix when allocating element-name presentation prefixes."""
         for name in [node[0], *node[1]]:
             uri, local = uri_name(name)
             if uri and uri not in prefixes:
-                prefixes[uri] = 'xml' if uri == 'http://www.w3.org/XML/1998/namespace' else 'n' + str(len(prefixes))
+                index = len(prefixes)
+                while 'n' + str(index) in reserved: index += 1
+                prefixes[uri] = 'xml' if uri == 'http://www.w3.org/XML/1998/namespace' else 'n' + str(index)
         for child in node[2]:
-            inspect(child)
+            collect(child)
     def append(text):
         """Check encoded length before retaining an escaped output fragment."""
         nonlocal size
         size += len(text.encode('utf-8'))
         if size > limits.max_bytes:
             raise ValueError('XML output byte limit exceeded')
+        if context is not None:
+            context.consume('work_units', len(text))
+            context.check_buffer(size * 2)
         parts.append(text)
     def escaped(text, attribute=False):
         """Preserve normalized XML whitespace through explicit character references."""
@@ -251,19 +293,31 @@ def _xml_write(root, limits):
             for uri, prefix in prefixes.items():
                 if prefix != 'xml':
                     append(' xmlns:' + prefix + '="'); escaped(uri, True); append('"')
+        for prefix, uri in node[4].items():
+            if prefix != 'xml':
+                append(' xmlns' + (':' + prefix if prefix else '') + '="'); escaped(uri, True); append('"')
         for name, value in node[1].items():
             append(' ' + qualified(name) + '="'); escaped(value, True); append('"')
         if not node[2] and not node[3]:
             append('/>'); return
-        append('>'); escaped(node[3])
-        for child in node[2]:
-            emit(child)
+        append('>')
+        if node[5]:
+            text = {}
+            for position, value in node[5]: text.setdefault(position, []).append(value)
+            for position in range(len(node[2]) + 1):
+                for value in text.get(position, ()): escaped(value)
+                if position < len(node[2]): emit(node[2][position])
+        else:
+            escaped(node[3])
+            for child in node[2]: emit(child)
         append('</' + qualified(node[0]) + '>')
     inspect(root)
+    collect(root)
     emit(root, True)
     return ''.join(parts).encode('utf-8')
 
-class XmlSchema:
+)xmlpython"
+R"xmlpython(class XmlSchema:
     """Optional prepared runtime XSD1.0 validator; constructing it requires lxml."""
     def __init__(self, xsd, limits=None):
         """Compile a trusted standalone schema; external schema references are prohibited."""
@@ -281,10 +335,12 @@ class XmlSchema:
             raise RuntimeError('Runtime XML schema validation requires lxml') from error
         self._provider = etree
         self._schema = etree.XMLSchema(etree.fromstring(xsd, etree.XMLParser(resolve_entities=False, load_dtd=False, no_network=True)))
-    def validate(self, data, limits=None):
+    def validate(self, data, limits=None, context=None):
         """Validate changing values using a prepared schema after bounded secure XML parsing."""
-        _xml_parse(data, limits)
+        _xml_parse(data, limits, context)
+        if context is not None: context.consume('decoder_allocation_bytes', len(data) * 2)
         tree = self._provider.fromstring(data, self._provider.XMLParser(resolve_entities=False, load_dtd=False, no_network=True))
         if not self._schema.validate(tree):
             raise ValueError('XML does not satisfy the selected XSD')
+        if context is not None: context.check()
 )xmlpython"

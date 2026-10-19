@@ -267,18 +267,15 @@ runtime extent checks rather than fixed-length tuple types.
 
 ## Remaining work
 
-Native managed engines outside C++, complete retained
-history/collaboration delta integration, hard peak allocation hooks,
-collaboration checkpoint/outbox migrations, conditional packed/view/recursive/
-Protobuf schemas, schema feature selectors/history-policy conversions and database
-journal adapters remain
-separate implementation/qualification items. This page must be updated as those
-items land; generated codecs or standalone patch APIs do not prove them.
+The authoritative remaining requirements are **MG01–MG10**, **MIG01–MIG03** and
+**DB01** in [the central backlog](../xml_pending.md#managed-state-and-storage).
+Generated codecs and standalone patch APIs do not prove those broader engines
+or adapters.
 
 Managed variant collaboration currently merges/replaces the alternative as an
-atomic value; field-level merging inside an alternative remains future work.
+atomic value.
 Alternative handles are conservatively invalidated by a whole-value replacement.
 Managed edit methods support ordinary dispatch; virtual/abstract/override edit
 contracts are rejected. Ordinary behavior interfaces remain available. Method parameters/results use
-existing backend ownership and error conventions; new portable owned/borrowed
-annotations or typed-error contracts are not implemented.
+existing backend ownership and error conventions. Extensions to these contracts
+are tracked under **MG09**.

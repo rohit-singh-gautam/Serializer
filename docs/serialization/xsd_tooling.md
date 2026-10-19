@@ -1,11 +1,11 @@
 # Fixed XSD bundles and contract tools
 
-Compiler/runtime **2.7.0**, schema language **1.20.0**, adds inline schema binding
-and declaration import. Serializer compiles a supported fixed XSD subset into
-generated XML mappings. The primitive/ordinary-record baseline is available in
-all eleven outputs; richer contracts are currently C++ only and other backends
-reject them explicitly. The compiler's XML provider must be enabled. Bundle
-processing happens during generation; generated codecs do not load these files.
+Compiler/runtime **2.8.0** retains schema language **1.20.0**. Serializer compiles
+a supported fixed XSD subset into generated XML mappings. The primitive/ordinary
+record baseline generates in all eleven outputs; rich scalar and content
+contracts have C++ and Python implementations. Other outputs reject unsupported
+rich combinations before publication. Bundle processing happens during generation
+with the compiler's XML provider enabled; generated codecs do not load these files.
 
 ```ini
 [xml]
@@ -32,29 +32,75 @@ input identity, not XML canonicalization or a signature. `bundle_sha256` pins it
 a mismatch fails generation. `--verbose` prints the actual identity. Generated
 depfiles include every transitive XSD source.
 
-The baseline supports global elements/attributes, named complex types, inline
-complex roots, supported primitive aliases, global declaration references and
-nested singleton sequences. A nested class can bind its named complex type
-without inventing a global element; a uniquely named anonymous local complex
-type can also bind. Ambiguous associations reject. Each defining schema retains
-its own element/attribute qualification defaults.
+The compiler/importer supports global element/attribute references, named and
+inline complex types, primitive aliases, builtin scalar lists, simple unions
+with independently retained branch restrictions, singleton sequences, unit
+occurrence model groups and attribute groups, static `complexContent` extension,
+and `simpleContent` extension. Mixed complex types support scalar text plus
+attributes without child particles. A nested class can bind a named or
+unambiguous anonymous complex type without its own global element. Defining
+document qualification defaults and wildcard target namespaces remain distinct
+from an element's global root namespace.
 
-The C++ path additionally retains numeric inclusive/exclusive restrictions,
-enumerations, lengths, whitespace rules, default/fixed values, singleton element
-choices, simple-content text extensions, builtin scalar lists and wildcard
-contracts. QName identity and list adapters use explicit XML mappings. These
-contracts must be enforceable by the selected emitter: retaining compiler
-metadata alone does not imply that every content model or XSD pattern can be
-generated. Unsupported patterns, repeated/grouped choices, `all`, identity
-constraints, complex-content inheritance and ambiguous anonymous associations
-still fail. Custom restricted list item types reject until per-item and
-container constraints have separate complete support. The complete official
-3MF XSD and arbitrary XSD 1.0 are not supported.
+C++ and Python enforce supported numeric bounds, Unicode/list lengths,
+whitespace, enumeration/default/fixed values, XSD patterns and union branches,
+singleton choices, and a repeated-choice subset with one typed repeated branch
+plus positioned foreign wildcard content. Exact branch/group occurrence limits
+and interleaving are retained. Multiple known branches in a repeated choice,
+grouped choice branches, optional/repeated sequences or model groups, general
+mixed child/text content, `complexContent` restriction, `all`, identity constraints,
+dynamic/abstract type selection and restricted list item types remain unsupported.
+
+Readers validate patterned numeric/list fields against the original XML lexical
+value after XSD whitespace normalization and before native conversion. Writers
+validate their emitted canonical spelling. A valid integer input `01` can decode
+to native `1` yet fail output when a two-digit pattern rejects canonical `1`;
+original numeric spelling is not retained. Numeric enumeration/fixed/bound checks
+compare in the declared value space, including float/double width and XSD 1.0 NaN
+rules. C++ patterns use libxml2; Python patterns require the optional `lxml`
+provider. Provider calls are cooperative boundaries, not internally preemptible
+operations or a hard process-memory guarantee.
+C++ native floating conversion still rejects out-of-range lexical values,
+including underflow-to-zero inputs that XSD can round to zero. Complete floating
+conversion edge parity remains **OPC-R03**, separately from the checked facet
+comparison rules.
+
+Outer union enumeration/fixed constraints and namespace-dependent union defaults
+reject until selected-member/schema-scope identities are represented. QName-list
+enumeration rejects at every union depth; QName-list fixed values also reject.
+C++ union-QName scalar children reject. Existing plain QName child generation
+remains accepted, but child-local/shadowed bindings that cannot be represented
+by the owning record's namespace map reject during loading. Ordinary QName
+attributes/text retain their supported context/default behavior; complete C++
+per-field prefix preservation remains **OPC-R01**.
+
+The pinned [official Core 1.4 fixture](../../test/resources/3mf_core_1_4/README.md)
+includes the local W3C XML vocabulary, language-or-empty union, numeric/matrix/color
+patterns, text metadata and repeated resources choice. Its import/binding and
+generated-consumer checks qualify this compiler/XML subset. They do not establish
+all 3MF package, geometry, resource, extension or application rules, or arbitrary
+XSD 1.0 support.
+
+The compiler validates a temporary closed grammar projection with libxml2.
+Provider-unrepresentable finite `maxOccurs` values become `unbounded` only in that
+projection, after strict numeric parsing and original interval checks. Native
+metadata and generated validators retain the exact original limits. Checked
+`mixed`/`abstract` booleans are canonicalized for the provider; annotation bodies
+and structural whitespace are omitted from the rebuilt projection. Original
+parsed sources, bytes and SHA-256 identity remain unchanged. This grammar-checking
+superset does not replace native occurrence checks. Other facet/provider limits
+are not silently widened. Scalar resolution bounds depth to 64, expanded union
+members to 1,024 and copied facet values to 16 MiB per resolution.
 
 Runtime XSD providers are a separate optional API; the fixed compiler bundle
 resolver does not enable runtime imports or remote loading. Qualification of
-the new inputs and selected SDKs is pending until the current verification run
-completes; historical baseline checks do not qualify these additions.
+the earlier 2.7 subset is recorded in the
+[2.7 checkpoint record](../verification/verification-opc-xsd-2026-10-19.md).
+The [2.8 backend record](../verification/verification-opc-backends-2026-10-19.md)
+records the new rich/Core checks and the status of full native qualification.
+Remaining constructs and backend/provider checks are tracked under **OPC-R03–R05**,
+**OPC-R12** and the XSD work units in [the central backlog](../xml_pending.md).
+Historical baseline checks do not qualify later additions.
 
 ## Bind an existing model in its schema
 
@@ -85,7 +131,7 @@ For a contract authored without XSD, use namespace/class defaults such as
 `xml(namespace("urn:orders"), scalars(attribute));` and field exceptions such as
 `xml(element)`, `xml(text)`, `xml(name("item"))` or
 `xml(attribute, namespace("http://www.w3.org/XML/1998/namespace"), name("lang"))`.
-Explicit `list`, `qname` and `prefix_list` adapters are currently C++ only.
+Explicit `list`, `qname` and `prefix_list` adapters have C++ and Python support.
 Class INI mappings remain compatible and merge nonempty overrides over inherited
 defaults; an explicit empty reset through a legacy class INI entry is not
 represented. A field's inline namespace override can explicitly be empty.
@@ -123,7 +169,7 @@ records the complete pinned XSD graph. Import is separate from ordinary
 
 The [automatic and optional hand-authored examples](../../example/xsd/README.md)
 generate and compile the same primitive contract in all eleven languages. Rich
-C++ feature checks and other-backend rejection are separate from that baseline;
+C++/Python feature checks and other-backend rejection are separate from that baseline;
 an imported model is not an OPC package or a 3MF conformance claim.
 
 ## Export and compare bound contracts
@@ -138,7 +184,8 @@ Native code output is optional for this command. Export supports scalar fields,
 attributes, optional/repeated occurrence intervals and nested ordinary records in
 one namespace, including supported scalar facets, builtin lists and default/fixed
 values. The exported XSD is compiled before publication. Unsupported enum, text,
-wrapper, choice/wildcard or foreign-field-namespace exports reject. Export does
+wrapper, choice/wildcard, union, inherited pattern-group or foreign-field-namespace
+exports reject. Import/binding support does not imply export parity. Export does
 not infer types from sample XML; declaration import is the separate command
 above. See the [authoring contract](../design/opc_3mf_support.md#schema-first-authoring-and-declaration-import).
 

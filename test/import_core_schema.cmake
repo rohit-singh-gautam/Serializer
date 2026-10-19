@@ -1,0 +1,22 @@
+# Regenerate only the build-owned imported Core schema; source models are never replaced.
+foreach(required IN ITEMS COMPILER BINARY_DIRECTORY SOURCE_XSD)
+  if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
+    message(FATAL_ERROR "Missing ${required} for Core schema import")
+  endif()
+endforeach()
+file(REAL_PATH "${BINARY_DIRECTORY}" binary_root)
+set(generated_directory "${binary_root}/xml_core_generated")
+file(MAKE_DIRECTORY "${generated_directory}")
+file(REAL_PATH "${generated_directory}" generated_directory)
+cmake_path(IS_PREFIX binary_root "${generated_directory}" NORMALIZE inside_binary_root)
+if(NOT inside_binary_root)
+  message(FATAL_ERROR "Generated Core schema escapes its build directory")
+endif()
+set(generated_schema "${generated_directory}/core.serializer")
+file(REMOVE "${generated_schema}")
+execute_process(COMMAND "${COMPILER}" --import-xsd "${SOURCE_XSD}"
+  --namespace core_model --root model --output "${generated_schema}"
+  --depfile "${generated_schema}.d" RESULT_VARIABLE import_status)
+if(NOT import_status EQUAL 0)
+  message(FATAL_ERROR "Official Core schema import failed: ${import_status}")
+endif()

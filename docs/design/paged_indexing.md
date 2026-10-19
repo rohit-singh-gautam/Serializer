@@ -1,5 +1,8 @@
 # Low-memory paged indexing
 
+Implementation work is tracked as **PG01–PG02** in
+[the central pending backlog](../xml_pending.md#managed-state-and-storage).
+
 Status: research and proposed design, reviewed on **2026-10-11**. Serializer does
 not implement a paged index, lazy managed storage, or a database adapter. The
 candidate systems below implement disk-backed indexing themselves; they are not

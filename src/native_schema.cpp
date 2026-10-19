@@ -217,6 +217,10 @@ void schema::collect(const std::vector<std::unique_ptr<syntax_node>>& values,
       throw std::invalid_argument{"Native type name collision: " + name};
     }
     names.emplace(value.get(), name);
+    if (value->type == object_type::package_type) {
+      packages.push_back(static_cast<const package_node*>(value.get()));
+      continue;
+    }
     nodes.push_back(value.get());
   }
 }

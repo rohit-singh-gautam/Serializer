@@ -12,6 +12,7 @@ namespace rohit::serializer::writer::native {
 // Shared, validated schema metadata for the additional native generators.
 struct schema {
   std::vector<const syntax_node*> nodes{};
+  std::vector<const package_node*> packages{};
   std::vector<native_code_block> preambles{};
   std::map<const syntax_node*, std::string> names{};
   std::map<std::string, std::size_t> keys{};

@@ -1,5 +1,28 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.8.0
+
+XML support is now enabled by default in CMake and the repository's vcpkg
+manifest. Provide libxml2, or explicitly configure
+`-DSERIALIZER_WITH_XML=OFF` for a build without XML. Existing CMake caches retain
+their previous value; set `-DSERIALIZER_WITH_XML=ON` to enable a previously disabled
+build. To omit unused vcpkg dependencies, set
+`VCPKG_MANIFEST_NO_DEFAULT_FEATURES=ON` and select the compression features you
+retain through `VCPKG_MANIFEST_FEATURES`.
+
+Schema language remains **1.20.0**. Existing native schema identities and wire
+formats are unchanged by this release. XML declarations and XSD association
+already select XML generation automatically; ordinary schemas keep their existing
+native output selection. Require `find_package(Serializer 2.8 CONFIG REQUIRED)`
+for generated Python OPC profiles and the new XML contracts. Rebuild clients of
+the XML operation context, ZIP entry metadata and compiler binding structures,
+which gained members. ZIP entry metadata now exposes its central-directory
+creator system and external attributes; OPC uses them to exclude non-file items
+from logical parts while still validating their payload integrity.
+Read the [backend contracts](docs/serialization/xml_packages.md) and
+[remaining qualification](docs/xml_pending.md) before assuming complete OPC,
+3MF or backend parity.
+
 ## Compiler/runtime 2.7.0
 
 Select language **1.20.0** for inline XML defaults/overrides, `using schema` and

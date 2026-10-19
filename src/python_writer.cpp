@@ -11,6 +11,8 @@
 #include "reference_portable_writer.hpp"
 #include "comparison_writer.hpp"
 #include "xml_schema.hpp"
+#include "python_package_writer.hpp"
+#include "python_xml_writer.hpp"
 
 #include <functional>
 #include <algorithm>
@@ -30,6 +32,15 @@ constexpr std::string_view runtime =
 constexpr std::string_view xml_runtime =
 #include "python_xml_runtime.inc"
     ;
+constexpr std::string_view package_runtime =
+#include "python_package_runtime.inc"
+    ;
+constexpr std::string_view package_mce_runtime =
+#include "python_package_mce_runtime.inc"
+    ;
+constexpr std::string_view xml_rich_runtime =
+#include "python_xml_rich_runtime.inc"
+    ;
 constexpr std::string_view keywords =
     " False None True and as assert async await break class continue def del elif else except "
     "finally for from global if import in is lambda nonlocal not or pass raise return try while "
@@ -45,8 +56,9 @@ class python_emitter {
   bool dynamic_first{};
   // Resolve the scalar/record beneath a supported optional or repeated XML field.
   const type_name& xml_leaf(const member& value) const {
-    const auto& selected = value.type_name_list.front();
-    return selected.is_optional() || selected.is_sequence() ? selected.arguments.front() : selected;
+    const auto* selected = &value.type_name_list.front();
+    while (selected->is_optional() || selected->is_sequence()) { selected = &selected->arguments.front(); }
+    return *selected;
   }
   // Convert one XML scalar using exact generated type and numeric bounds.
   std::string xml_scalar(const type_name& value, const std::string& expression, bool encoding) const {
@@ -72,7 +84,9 @@ class python_emitter {
     };
     // Generated methods and authored members use the same Python class namespace.
     const auto reject_method = [&](const std::string& selected) {
-      if (selected == "encode_xml" || selected == "decode_xml" || selected == "_xml_node" || selected == "_xml_from_node") {
+      if (selected == "encode_xml" || selected == "decode_xml" || selected == "_xml_node" || selected == "_xml_from_node" ||
+          selected == "_srl_xml_state" || selected == "xml_bind_namespace" || selected == "_xml_rules" ||
+          selected == "_xml_record" || selected == "_xml_choices") {
         throw std::invalid_argument{"Python XML method collides with declared member: " + selected};
       }
     };
@@ -84,29 +98,64 @@ class python_emitter {
     for (const auto& conversion : value.conversions) {
       reject_method(field(conversion.name, conversion.access));
     }
-    open("def encode_xml(self, limits=None, schema=None)");
+    line("_xml_rules = (");
+    ++indent;
+    for (const auto& item : contract.fields) { line(python_xml::field(item, xml_leaf(*item.source)) + ','); }
+    --indent;
+    line(")");
+    line("_xml_record = " + python_xml::record(contract));
+    std::string choices{"_xml_choices = ("};
+    for (const auto& choice : contract.choices) {
+      if (choice.repeated) { continue; }
+      choices += "((";
+      for (const auto* alternative : choice.alternatives) { choices += quote(field(alternative->name, alternative->access)) + ','; }
+      const auto empty = std::any_of(choice.branches.begin(), choice.branches.end(),
+          [](const auto& branch) { return branch.minimum == 0U; });
+      choices += "), " + std::to_string(empty ? 0U : choice.minimum) + ", " + std::to_string(choice.maximum) + "),";
+    }
+    line(choices + ")");
+    if (python_xml::needs_state(contract)) {
+      open("def xml_bind_namespace(self, prefix, uri)");
+      line("\"\"\"Bind XML-only QName/prefix-list presentation without adding native wire fields.\"\"\"");
+      line("_xml_bind_namespace(self, prefix, uri)");
+      --indent;
+    }
+    open("def encode_xml(self, limits=None, schema=None, context=None)");
     line("\"\"\"Encode one complete XML document with fixed generated mapping.\"\"\"");
-    line("budget = _XmlBudget(limits)");
-    line("data = _xml_write(self._xml_node(" + expanded(contract.root) + ", budget, 1), budget.limits)");
+    line("budget = _XmlBudget(limits, context)");
+    line("data = _xml_write(self._xml_node(" + expanded(contract.root) + ", budget, 1), budget.limits, context)");
     if (!model.xml.runtime_xsd) { line("if schema is not None: raise ValueError('Runtime XSD was not enabled during generation')"); }
-    else if (model.xml.validation_scope != "input") { line("if schema is not None: schema.validate(data, budget.limits)"); }
+    else if (model.xml.validation_scope != "input") { line("if schema is not None: schema.validate(data, budget.limits, context)"); }
     line("return data"); --indent;
     line("@classmethod");
-    open("def decode_xml(cls, data, limits=None, schema=None)");
+    open("def decode_xml(cls, data, limits=None, schema=None, context=None)");
     line("\"\"\"Return a fresh model after exact XML shape and optional XSD validation.\"\"\"");
     if (!model.xml.runtime_xsd) { line("if schema is not None: raise ValueError('Runtime XSD was not enabled during generation')"); }
-    else if (model.xml.validation_scope != "output") { line("if schema is not None: schema.validate(data, limits)"); }
-    line("node = _xml_parse(data, limits)");
+    else if (model.xml.validation_scope != "output") { line("if schema is not None: schema.validate(data, limits, context)"); }
+    line("node = _xml_parse(data, limits, context)");
     line("if node[0] != " + expanded(contract.root) + ": raise ValueError('Unexpected XML root or namespace')");
-    line("return cls._xml_from_node(node)"); --indent;
+    line("return cls._xml_from_node(node, context)"); --indent;
     open("def _xml_node(self, name, budget, depth)");
     line("\"\"\"Populate the statically bound XML tree under a shared document budget.\"\"\"");
     line("node = budget.node(name, depth)");
+    line("state = _xml_state_open(self, node, budget)");
+    line("extension_cursor = [0]");
+    line("_xml_choices(self, self._xml_choices)");
+    std::size_t xml_index{};
+    std::size_t xml_position{};
     for (const auto& item : contract.fields) {
       const auto& source_field = *item.source;
       const auto& leaf = xml_leaf(source_field);
       const auto access = "self." + field(source_field.name, source_field.access);
       const bool optional = source_field.type_name_list.front().is_optional();
+      const auto* container = &source_field.type_name_list.front();
+      if (container->is_optional()) { container = &container->arguments.front(); }
+      const bool typed_list = item.list && (container->is_sequence() || source_field.modifier == member::modifier_type::array);
+      const auto rule = "self._xml_rules[" + std::to_string(xml_index++) + "]";
+      const auto position = std::to_string(xml_position);
+      if (!item.attribute && !item.text) {
+        line("_xml_extension_children(node, state, extension_cursor, " + std::to_string(xml_position++) + ", 0, budget, depth)");
+      }
       std::string selected = access;
       if (item.wrapper) {
         line("wrapper = budget.node(" + expanded(*item.wrapper) + ", depth + 1)");
@@ -115,54 +164,96 @@ class python_emitter {
       const auto parent = item.wrapper ? std::string{"wrapper"} : std::string{"node"};
       const auto child_depth = item.wrapper ? "depth + 2" : "depth + 1";
       if (optional) { line("if not isinstance(" + access + ", tuple) or len(" + access + ") > 1: raise ValueError('Invalid XML optional')"); open("if " + access); selected += "[0]"; }
-      if (item.repeated) {
+      if (item.repeated && !item.list) {
         line("if len(" + access + ") < " + std::to_string(item.min_occurs) +
              (item.max_occurs ? " or len(" + access + ") > " + std::to_string(*item.max_occurs) : "") + ": raise ValueError('XML field occurrence mismatch')");
         if (source_field.fixed_extent) { line("if len(" + access + ") != " + std::to_string(source_field.fixed_extent) + ": raise ValueError('XML fixed extent mismatch')"); }
-        open("for item in " + access); selected = "item";
+        open("for srl_item_index, item in enumerate(" + access + ")"); selected = "item";
+        if (!item.wrapper) {
+          line("if srl_item_index: _xml_extension_children(node, state, extension_cursor, " + position + ", srl_item_index, budget, depth, len(" + access + "))");
+        }
       }
+      const auto lexical = [&] {
+        const auto raw = typed_list ? "' '.join(" + xml_scalar(leaf, "srl_item", true) + " for srl_item in " + selected + ")" :
+            xml_scalar(leaf, selected, true);
+        return "_xml_checked(" + raw + ", " + rule + ", node[4], budget.context)";
+      };
       if (item.text) {
-        line("node[3] = budget.text(" + xml_scalar(leaf, selected, true) + ")");
+        line("node[3] = budget.text(" + lexical() + ")");
       } else if (item.attribute) {
-        line("_xml_attribute(node, " + expanded(item.qualified_name) + ", " + xml_scalar(leaf, selected, true) + ", budget)");
+        line("_xml_attribute(node, " + expanded(item.qualified_name) + ", " + lexical() + ", budget)");
       } else if (leaf.type == object_type::class_type) {
         line(parent + "[2].append(" + selected + "._xml_node(" + expanded(item.qualified_name) + ", budget, " + child_depth + "))");
       } else {
         line("child = budget.node(" + expanded(item.qualified_name) + ", " + child_depth + ")");
-        line("child[3] = budget.text(" + xml_scalar(leaf, selected, true) + ")");
+        line("child[3] = budget.text(" + lexical() + ")");
         line(parent + "[2].append(child)");
       }
-      if (item.repeated) { --indent; }
+      if (item.repeated && !item.list) {
+        --indent;
+        if (!item.wrapper) {
+          line("if " + access + ": _xml_extension_children(node, state, extension_cursor, " + position + ", len(" + access + "), budget, depth, len(" + access + "))");
+        }
+      }
       if (optional) { --indent; }
     }
+    line("_xml_extension_children(node, state, extension_cursor, " + std::to_string(xml_position) + ", 0, budget, depth)");
+    line("if state is not None and extension_cursor[0] != len(state[2]): raise ValueError('Invalid XML extension position')");
+    line("_xml_extensions_validate(node, self._xml_record, budget.context)");
     line("return node"); --indent;
-    line("@classmethod"); open("def _xml_from_node(cls, node)");
+    line("@classmethod"); open("def _xml_from_node(cls, node, context=None)");
     line("\"\"\"Read exact generated members into an unpublished owning candidate.\"\"\"");
-    line("fields, result = _XmlFields(node, " + std::string{std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& item) { return item.text; }) ? "True" : "False"} + "), cls()");
+    line("fields, result = _XmlFieldsRich(node, " + std::string{std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& item) { return item.text; }) ? "True" : "False"} + ", cls._xml_record, context), cls()");
+    xml_index = 0;
     for (const auto& item : contract.fields) {
       const auto& source_field = *item.source;
       const auto& leaf = xml_leaf(source_field);
       const bool optional = source_field.type_name_list.front().is_optional();
+      const auto* container = &source_field.type_name_list.front();
+      if (container->is_optional()) { container = &container->arguments.front(); }
+      const bool typed_list = item.list && (container->is_sequence() || source_field.modifier == member::modifier_type::array);
+      const auto rule = "cls._xml_rules[" + std::to_string(xml_index++) + "]";
       const auto access = "result." + field(source_field.name, source_field.access);
       const auto read_value = [&](const std::string& expression) {
-        return leaf.type == object_type::class_type ? model.names.at(leaf.resolved_node) + "._xml_from_node(" + expression + ")" :
-            xml_scalar(leaf, item.attribute || item.text ? expression : "_xml_read_scalar(" + expression + ")", false);
+        if (leaf.type == object_type::class_type) {
+          return model.names.at(leaf.resolved_node) + "._xml_from_node(" + expression + ", context)";
+        }
+        auto text = item.attribute || item.text ? expression : "_xml_read_scalar(" + expression + ")";
+        if (!item.attribute && (item.default_value || item.fixed_value)) {
+          text = "(" + text + " or " + quote(item.fixed_value ? *item.fixed_value : *item.default_value) + ")";
+        }
+        const auto scope = item.attribute || item.text ? "node[4]" : expression + "[4]";
+        auto checked = "_xml_checked(" + text + ", " + rule + ", " + scope + ", context)";
+        if (item.qname || item.prefix_list || item.facets.list_item_kind == "QName") {
+          checked = "_xml_promote_lexical(" + checked + ", " + rule + ", " + scope + ", node[4])";
+        }
+        return typed_list ? "[" + xml_scalar(leaf, "srl_item", false) + " for srl_item in _xml_tokens(" + checked + ")]" :
+            xml_scalar(leaf, checked, false);
       };
       if (item.text) {
         line(access + " = " + read_value("fields.text()"));
       } else if (item.attribute) {
-        line("text = fields.attribute(" + expanded(item.qualified_name) + ", " + (optional ? "True" : "False") + ")");
+        line("text = fields.attribute(" + expanded(item.qualified_name) + ", " + (optional || item.default_value || item.fixed_value ? "True" : "False") + ")");
+        if (item.default_value || item.fixed_value) {
+          const auto qualified = item.qname_fixed ? item.qname_fixed : item.qname_default;
+          const auto fallback = qualified ? "_xml_qualify_qname(" + python_xml::name(*qualified) + ", node[4])" :
+              quote(item.fixed_value ? *item.fixed_value : *item.default_value);
+          line("if text is None: text = " + fallback);
+        }
         line(access + " = " + (optional ? "() if text is None else (" + read_value("text") + ",)" : read_value("text")));
       } else {
         line("children = fields." + std::string{item.wrapper ? "wrapped(" + expanded(*item.wrapper) + ", " : "children("} + expanded(item.qualified_name) + ", " + std::to_string(item.min_occurs) + ", " +
             (item.max_occurs ? std::to_string(*item.max_occurs) : "None") + ")");
-        if (item.repeated) {
+        if (item.repeated && !item.list) {
           if (source_field.fixed_extent) { line("if len(children) != " + std::to_string(source_field.fixed_extent) + ": raise ValueError('XML fixed extent mismatch')"); }
           line(access + " = [" + read_value("child") + " for child in children]");
         } else { line(access + " = " + (optional ? "() if not children else (" + read_value("children[0]") + ",)" : read_value("children[0]"))); }
       }
     }
-    line("fields.finish()"); line("return result"); --indent;
+    line("fields.finish()");
+    line("_xml_choices(result, cls._xml_choices)");
+    if (python_xml::needs_state(contract)) { line("result._srl_xml_state = fields.state()"); }
+    line("return result"); --indent;
   }
   // Restrict protocol tests to fields whose schema explicitly requests native exclusions.
   std::string omitted_condition(const std::vector<std::string>& formats, std::string_view owner) {
@@ -1001,6 +1092,8 @@ class python_emitter {
               owner.reference->mode != reference_declaration::mode_type::shared;
         })) { slots += "\"__weakref__\", "; }
     if (value.reference) { slots += "\"_srl_reference\", "; }
+    const bool xml_state = model.xml.enabled && !value.reference && python_xml::needs_state(xml_contract.bind(value));
+    if (xml_state) { slots += "\"_srl_xml_state\", "; }
     for (const auto& f : fields) {
       slots += quote(f.first) + ", ";
     }
@@ -1018,6 +1111,7 @@ class python_emitter {
     }
     if (external_behavior) { line("self._srl_behavior = None"); }
     if (value.reference) { line("self._srl_reference = None"); }
+    if (xml_state) { line("self._srl_xml_state = None"); }
     --indent;
     output += reference_support::portable_methods(value, name, "python",
         [&](const auto& item) { return type(item); },
@@ -1209,7 +1303,15 @@ public:
   std::string generate() {
     behavior::require_unique_free_names(model.nodes, "python", [&](const auto& node) { return snake(model.names.at(&node)); });
     line("from abc import ABC as _ABC, abstractmethod as _abstractmethod");
-    if (model.xml.enabled) { output += xml_runtime; }
+    if (!model.packages.empty()) {
+      for (const auto& [node, selected] : model.names) {
+        static_cast<void>(node);
+        validate_identifier(selected, " PackageLimits PackageBudget PackageError PackageRelationship "
+            "BinaryPart ModelPart PreservedExtensions ExtensionPolicy PackageResult ");
+      }
+    }
+    if (model.xml.enabled) { output += xml_runtime; output += xml_rich_runtime; }
+    if (!model.packages.empty()) { output += package_runtime; output += package_mce_runtime; }
     output += behavior::helpers("python", arithmetic_helpers);
     output += behavior::helpers_predicate("python", arithmetic_helpers);
     output += behavior::helpers_typed("python", arithmetic_helpers);
@@ -1250,6 +1352,21 @@ public:
       }
       --indent;
       line(names + ")");
+    }
+    if (model.xml.enabled) {
+      for (const auto* node : model.nodes) {
+        if (node->type != object_type::class_type) { continue; }
+        const auto& selected = static_cast<const class_node&>(*node);
+        if (selected.reference) { continue; }
+        const auto root = xml_contract.bind(selected).root;
+        line("_XML_TYPES[" + quote(root.namespace_uri.empty() ? root.local : "{" + root.namespace_uri + "}" + root.local) + "] = " + model.names.at(node));
+      }
+    }
+    for (const auto* package : model.packages) {
+      output += package_codegen::python(*package, model.names.at(package),
+          [&](const auto& selected) { return type(selected); },
+          [&](const auto selected) { return field(selected); },
+          [&](const auto selected) { return quote(selected); });
     }
     return output;
   }

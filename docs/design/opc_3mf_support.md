@@ -4,8 +4,8 @@
 [Implemented APIs](../serialization/xml_packages.md) · [Pending work](../xml_pending.md)
 
 Status: implemented subsets and remaining requirements, **19 October 2026**.
-The source release is compiler/runtime **2.7.0**, schema language **1.20.0**.
-The C++ OPC builder and declarative package facade exist; complete 3MF support
+The source release is compiler/runtime **2.8.0**, schema language **1.20.0**.
+The C++ OPC builder and C++/Python declarative package facades exist; complete 3MF support
 and cross-language package parity remain pending. Current source qualification
 is separate from the historically checked manual example.
 
@@ -13,7 +13,7 @@ The name of the standard is **Open Packaging Conventions (OPC)**. OPC provides
 package infrastructure; the application defines its payload vocabulary. A
 `3mf.serializer` file describes application models for XML parts. Applications
 do **not** need separate Serializer schemas for `[Content_Types].xml` or `.rels`.
-The current C++ OPC runtime generates and parses that infrastructure.
+C++ and generated Python OPC support generate and parse that infrastructure.
 
 ## Responsibility boundaries
 
@@ -68,9 +68,10 @@ conformance. Their exact contracts are in the
 | Opaque extensions | Explicit reject/skip/preserve policies for unknown whole parts and relationships, with required-capability predicates. |
 | Bounded access and full Save | Shared package budgets, selective part reads, explicit bounded nonseekable spooling and staged `save_opc_file`. |
 
-Current OPC URI handling is a documented ASCII subset. Unicode part naming and
-internal query/fragment targets are unsupported. These are general OPC coverage
-limits; do not describe them as required by every 3MF workflow. Opaque part
+Current OPC part-name handling is a documented ASCII subset; Unicode part naming
+is unsupported. Internal query/fragment selectors are retained and their
+underlying part is checked; applications interpret the selectors. The selected
+OPC edition permits ASCII-only part-name implementations. Opaque part
 preservation does not preserve unknown XML inside a rewritten known model part.
 
 Optional reusable models/adapters for OPC core properties or digital signatures
@@ -84,25 +85,14 @@ treated as implemented by this example.
 
 ## Generic framework status and remaining requirements
 
-The IDs below refine the existing
-[PKG01–PKG09 requirements](xml_support.md#pkg01-named-parts-and-standard-metadata).
-They do not transfer application vocabulary or geometry ownership to Serializer.
-
-| ID | Capability and current status | Author impact and acceptance condition |
-| --- | --- | --- |
-| OPC-R01 | **Partial (C++):** attribute namespaces, QName/prefix values | Direct configuration must express qualified attributes, QName values and prefix lists with retained namespace bindings. Check equivalent prefix spellings, prefix shadowing and output declarations. A reduced supported XSD can already derive a foreign attribute namespace; raw XML trees retain namespace context. |
-| OPC-R02 | **Partial (C++):** declared XML extension policies | Generated readers must support namespace-aware skip/reject and optional retention slots. Preserve placement and QName context when requested. Unknown data in the core vocabulary must not become silently accepted. The application supplies supported/required capabilities. |
-| OPC-R03 | **Partial (C++):** lexical lists and scalar constraints | Support explicit list-in-one-attribute mappings and checked lexical conversion hooks. Verify length, whitespace, finite/range and pattern boundaries. String fields with application parsing/checking remain a current workaround. |
-| OPC-R04 | **Partial (C++):** singleton XML choices | Supported singleton choices use optional alternatives with generated presence checks. Repeated heterogeneous choices and arbitrary grouped content models remain pending. |
-| OPC-R05 | **Partial (C++):** broader fixed-XSD binding | Accept the selected supported bundle's choices, defaults, facets and extension constructs, or reject them before output publication. The complete official 3MF XSD is outside the current subset. Direct XSD binding is optional; runtime validation does not expand generated vocabulary. |
-| OPC-R06 | **Partial (C++):** generated XML/opaque OPC profiles | Resolve declared models, codecs, media types, roles, target modes and cardinalities during generation. Generated Save/load must call the same package runtime, validate references before publication and charge one cumulative budget automatically. Caller-authored C++ callbacks already provide a manual route. |
-| OPC-R07 | **Pending:** cross-language package parity | Implement and qualify equivalent ZIP/OPC metadata, I/O, error, limit, preservation and full-Save contracts for every generated output. Generated XML availability alone does not supply an OPC implementation. |
-| OPC-R08 | **Partial:** documented OPC edition/subset and URI coverage | Document and independently qualify the chosen standard contract; extend currently unsupported URI forms where that contract requires them. Include escaped/equivalent names, relative targets, collisions and reserved metadata names. |
-| OPC-R09 | **Pending:** large-model and provider qualification | Measure XML/ZIP CPU, peak memory and generated-code size; qualify bounded streaming and cancellation on realistic meshes. Current XML trees and complete-part staging can dominate memory. Existing Linux checkpoint builds disabled zlib and therefore did not qualify Linux DEFLATE. |
-| OPC-R10 | **Checked subset (C++):** XML value-reference/translator export | Supported borrowed/shared payload and scoped projection output passes generated XML checks without first materializing an owning payload copy. Broader ownership/backend and stress qualification remains pending. Source lifetime, address stability and synchronization remain application obligations; bounded codec/compression scratch is still required. |
-| OPC-R11 | **Partial (C++):** shared generated operation context | Propagate cumulative budgets, XML depth/size checks, cancellation and caller-selected deadlines through projection, XML, compression, ZIP, references and staged publication. Nested calls must not reset cumulative limits. The C++ context now connects XML and package accounting/cancellation, with a caller-selected deadline; other backends remain pending. |
-| OPC-R12 | **Implemented subset:** inline XSD binding and declaration import | Accept one fixed XSD bundle as the source of XML placement/names/constraints, with explicit bindings only for ambiguity or intentional host-name differences. Offer an importer that emits reviewable `.serializer` declarations, XML bindings and stable native member identities. Language 1.20 provides inline binding and CLI import for the supported subset; rich bindings are guarded by backend. |
-| OPC-R13 | **Implemented subset:** inline XML defaults and exceptions | Do not require a second handwritten list of ordinary field names in INI. Derive placement from a supplied XSD, or declare XML defaults/exception metadata with the owning `.serializer` declarations. Test that adding or renaming a field requires no parallel INI field-list edit; explicit cross-schema associations remain necessary where identities differ or are ambiguous. |
+The authoritative status, remaining requirements and completion evidence for
+**OPC-R01–OPC-R13** are consolidated in
+[the central pending backlog](../xml_pending.md#opc-and-3mf-requirements).
+Those IDs refine the existing
+[PKG01–PKG09 contracts](xml_support.md#pkg01-named-parts-and-standard-metadata).
+This document retains responsibility boundaries, design rationale and examples;
+it does not maintain a second completion list. Application vocabulary and geometry
+remain application responsibilities.
 
 OPC-R10 extends the existing [value-reference](../schema/value_references.md)
 and [scoped-translator](../schema/references.md) contracts to XML. C++ generated
@@ -159,7 +149,8 @@ layouts after field reordering.
 The generated source retains one source-relative `using schema` dependency and
 explicit field-name/namespace bindings, so its host identifiers need not match
 the external XML spelling. Primitive aliases, named and unique anonymous nested
-records, supported scalar lists and singleton choices have import metadata;
+records, supported lists/unions, static complex-content extensions and restricted
+repeated choices have import metadata;
 unsupported or ambiguous contracts reject. Arbitrary-precision numeric XSD types
 remain lexical strings rather than being silently narrowed to machine integers.
 
@@ -232,11 +223,12 @@ reset of inherited values; a field namespace override can be explicitly empty.
 
 The [automatic and optional manual examples](../../example/xsd/README.md) exercise
 the same primitive/ordinary-record XSD baseline in all eleven outputs. Richer
-facets/defaults, singleton choices, wildcard extension rules, typed lists and
-QName/prefix context currently have C++ implementations; unsupported backend
-combinations fail instead of generating weaker validation. Patterns, repeated
-heterogeneous choices, complex-content inheritance and the complete official
-3MF XSD remain outside the implemented subset. See the precise
+facets/defaults, patterns, unions, restricted repeated choices, wildcard extension
+rules, typed lists and QName/prefix context have C++ and Python implementations;
+unsupported backend combinations fail instead of generating weaker validation.
+The pinned official Core 1.4 XSD can be imported and bound. General heterogeneous
+choices, arbitrary XSD and complete 3MF application validation remain outside
+this subset. See the precise
 [fixed-XSD tooling contract](../serialization/xsd_tooling.md).
 
 The ordinary-record XSD examples pass all eleven current SDKs: 22 builds and 264
@@ -654,18 +646,22 @@ not a promise that every reported failure leaves the old file. `write` targets a
 borrowed stream and can leave a partial prefix on failure. Native Serializer
 history, journals and session/outbox state are not inserted into the package.
 
-The current generated facade is C++ only and XML-typed. Other backends reject
-package declarations explicitly; OPC-R07 remains pending. General codec/profile
+The generated facade supports C++ and Python and is XML-typed. Other backends reject
+package declarations explicitly; broader OPC-R07 parity remains pending. General codec/profile
 selection and additional standard OPC services remain separate work. For a 3MF
 profile, declare its actual model MIME, StartPart role, expected XML root and
 supported resource/extension rules. This generic package example does not supply
 those domain contracts or prove 3MF conformance.
 
-The current C++ XML subset rejects XSD patterns before output publication.
+The C++/Python XML subset checks supported XSD patterns through its selected
+provider. Typed numeric/list input checks use the original normalized lexical
+value; output checks use canonical spelling and can reject when that spelling
+does not satisfy the pattern. Original numeric formatting is not retained.
 Wildcards enforce namespace, position and occurrence policy; `lax`/`skip` foreign
 content can use declared extension slots, while `strict` foreign data rejects
 until known-schema dispatch exists. QName enums/defaults use expanded identity;
-QName-list constraints remain separate pending work. Required capabilities always
+QName-list enumeration/fixed constraints and selected union/QName combinations
+remain explicitly rejected as listed in the XSD tooling contract. Required capabilities always
 need the declared vocabulary's checks. No lexical XML or signature preservation
 is implied.
 
@@ -700,10 +696,13 @@ optional unit/type attributes. The retained local log is
 
 The manual example's source-dependency CMake route was reviewed but not separately
 built. At that historical check, the available 2.6.0 binary had XML disabled.
-Current 2.7 XSD and package implementations have the separate
-[qualification record](../verification/verification-opc-xsd-2026-10-19.md); those
-checks do not replace the manual example's recorded scope. Official 3MF XSD/corpus
-validation and independent 3MF application interoperability were not run. Neither
+The 2.7 XSD and package implementations have their separate
+[qualification record](../verification/verification-opc-xsd-2026-10-19.md). The
+[2.8 backend record](../verification/verification-opc-backends-2026-10-19.md)
+adds the pinned official Core schema import/binding and C++/Python generated
+consumer checks; neither record replaces this manual example's historical scope.
+The independent official 3MF corpus and 3MF application interoperability remain
+unqualified. Neither
 this mesh example nor the checked generated-package subset establishes complete
 OPC or 3MF conformance. The historically checked manual code fences are unchanged.
 

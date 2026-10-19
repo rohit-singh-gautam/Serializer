@@ -3,8 +3,8 @@
 Status: implementation specification and remaining requirements, **2026-10-17**.
 Compiler/runtime **2.4.0**, schema language **1.17.0**. See the
 [implemented API and exact subset](../serialization/xml_packages.md),
-[generated-language examples](../../example/xml/README.md) and concise
-[pending report](../xml_pending.md). XML generation now covers all output
+[generated-language examples](../../example/xml/README.md) and the
+[central pending backlog](../xml_pending.md). XML generation now covers all output
 backends; compression streams and ZIP/OPC have a C++ implementation. Cross-language
 parity and qualification remain completion gates. Examples marked **proposed**
 remain design sketches, not accepted syntax or options.
@@ -17,7 +17,7 @@ increments do not complete all phases of this specification.
 
 The [OPC/3MF authoring requirements](opc_3mf_support.md) refine the generic
 package requirements with an application/framework responsibility table, a
-restricted current schema/build route and explicitly proposed generated bindings.
+restricted manual schema/build route and the supported declarative C++ bindings.
 
 [XML and XSD](#recommended-scope) ·
 [Multipart packages and OPC](#multipart-packages-and-opc) ·
@@ -629,8 +629,8 @@ Avoid combined codec identities such as `json_gzip` or `xml_zip`.
 | gzip | Implemented C++ single-member whole-message compression. |
 | zlib / raw DEFLATE | Implemented C++; distinct framing choices. |
 | Zstandard / LZ4 frame | Implemented C++ whole-message compression. |
-| ZIP stored / DEFLATE | C++ named-entry archive input/output; cross-language parity pending. |
-| OPC | C++ package profile over ZIP; selected XML metadata and arbitrary part bytes. Broader parity pending. |
+| ZIP stored / DEFLATE | C++ named-entry archive input/output and generated Python package support; broader parity pending. |
+| OPC | C++ and generated Python profiles over ZIP; selected XML metadata and arbitrary part bytes. Broader parity pending. |
 | Whole-object compression streams | C++ composable output wrappers and bounded whole-message input wrappers; other backends pending. |
 | Brotli / XZ / bzip2 | Not bundled; caller-written custom backends are possible. |
 

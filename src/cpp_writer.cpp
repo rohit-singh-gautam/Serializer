@@ -2505,7 +2505,7 @@ public:
     if (contract.unknown || !contract.wildcards.empty()) { reserved_xml_names.insert("xml_operation_context"); }
     if (contract.unknown == xml_unknown_policy::preserve) { reserved_xml_names.insert("xml_extensions"); }
     if (std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) {
-          return field.qname || field.prefix_list || field.facets.list_item_kind == "QName";
+          return field.qname || field.prefix_list || xml_facet_uses_namespace(field.facets);
         })) { reserved_xml_names.insert("xml_namespace_bindings"); }
     if (reserved_xml_names.contains(type_name(object.name))) {
       throw std::invalid_argument{"XML generated API conflicts with owning class name: " + object.name};
@@ -2535,14 +2535,135 @@ public:
     }
   }
 
+  // Keep the namespace context needed by any lexical branch, including nested QName unions.
+  static bool xml_facet_uses_namespace(const xml_binding::scalar_facets& facets) {
+    return facets.lexical_kind == "QName" || facets.list_item_kind == "QName" ||
+        !facets.qname_enumeration.empty() ||
+        std::any_of(facets.union_members.begin(), facets.union_members.end(), xml_facet_uses_namespace);
+  }
+
+  // String-projected arbitrary-precision numbers still compare in their XSD numeric value space.
+  static bool xml_numeric_value_space(std::string_view kind) {
+    constexpr std::array kinds{"decimal", "integer", "positiveInteger", "negativeInteger",
+        "nonPositiveInteger", "nonNegativeInteger", "byte", "unsignedByte", "short", "unsignedShort",
+        "int", "unsignedInt", "long", "unsignedLong", "float", "double"};
+    return std::find(kinds.begin(), kinds.end(), kind) != kinds.end();
+  }
+
+  // Numeric/list patterns constrain original XML spelling, before native decoding normalizes it.
+  static bool xml_needs_raw_validation(const xml_binding::field& field) {
+    const auto patterns = [&](auto&& self, const xml_binding::scalar_facets& facets) -> bool {
+      return !facets.patterns.empty() || !facets.pattern_groups.empty() ||
+          std::any_of(facets.union_members.begin(), facets.union_members.end(),
+              [&](const auto& member) { return self(self, member); });
+    };
+    const auto* leaf = &field.source->type_name_list.front();
+    while (leaf->is_optional() || leaf->is_sequence()) { leaf = &leaf->arguments.front(); }
+    return patterns(patterns, field.facets) && (field.list || leaf->name != "string");
+  }
+
+  // Emit immutable recursive union/pattern metadata once; model instances retain no validation tables.
+  std::string write_xml_lexical_contract(rohit::type_check::output_buffer auto& output,
+      const xml_binding::scalar_facets& facets, std::string_view suffix = {}) {
+    const auto contract = local_name("xml_lexical_contract" + std::string{suffix});
+    std::vector<std::string> members;
+    for (const auto& alternative : facets.union_members) {
+      const auto branch_suffix = std::string{suffix} + "_" + std::to_string(members.size());
+      members.push_back(write_xml_lexical_contract(output, alternative, branch_suffix));
+    }
+    const auto union_name = contract + "_members";
+    if (!members.empty()) {
+      output.write("      static const ::std::array<::rohit::serializer::xml::lexical_contract, ",
+          members.size(), "> ", union_name, "{{");
+      for (std::size_t index{}; index < members.size(); ++index) {
+        if (index) { output.write(", "); }
+        output.write(members[index]);
+      }
+      output.write("}};\n");
+    }
+    const auto enumeration = contract + "_enumeration";
+    if (!facets.enumeration.empty()) {
+      output.write("      static constexpr ::std::array<::std::string_view, ", facets.enumeration.size(),
+          "> ", enumeration, "{{");
+      for (std::size_t index{}; index < facets.enumeration.size(); ++index) {
+        if (index) { output.write(", "); }
+        output.write(xml_string(facets.enumeration[index]));
+      }
+      output.write("}};\n");
+    }
+    const auto qnames = contract + "_qnames";
+    if (!facets.qname_enumeration.empty()) {
+      output.write("      static const ::std::array<::rohit::serializer::xml::name, ",
+          facets.qname_enumeration.size(), "> ", qnames, "{{");
+      for (std::size_t index{}; index < facets.qname_enumeration.size(); ++index) {
+        if (index) { output.write(", "); }
+        const auto& name = facets.qname_enumeration[index];
+        output.write("{", xml_string(name.local), ", ", xml_string(name.namespace_uri), "}");
+      }
+      output.write("}};\n");
+    }
+    auto groups = facets.pattern_groups;
+    if (!facets.patterns.empty()) { groups.push_back(facets.patterns); }
+    const auto pattern_groups = contract + "_pattern_groups";
+    std::vector<std::string> pattern_names;
+    for (const auto& group : groups) {
+      const auto patterns = contract + "_pattern_alternatives_" + std::to_string(pattern_names.size());
+      pattern_names.push_back(patterns);
+      output.write("      static const ::std::array<::rohit::serializer::xml::lexical_pattern_matcher, ",
+          group.size(), "> ", patterns, "{{\n");
+      for (const auto& pattern : group) {
+        output.write("        +[](::std::string_view value, ::rohit::serializer::xml::operation_context* context) {\n"
+            "          static const ::rohit::serializer::xml::prepared_pattern pattern{", xml_string(pattern), "};\n"
+            "          return pattern.matches(value, {}, context);\n        },\n");
+      }
+      output.write("      }};\n");
+    }
+    if (!pattern_names.empty()) {
+      output.write("      static const ::std::array<::rohit::serializer::xml::lexical_pattern_group, ",
+          pattern_names.size(), "> ", pattern_groups, "{{");
+      for (std::size_t index{}; index < pattern_names.size(); ++index) {
+        if (index) { output.write(", "); }
+        output.write("{", pattern_names[index], "}");
+      }
+      output.write("}};\n");
+    }
+    output.write("      static const auto ", contract, " = [] {\n"
+        "        ::rohit::serializer::xml::lexical_contract rule{};\n"
+        "        rule.kind = ", xml_string(facets.lexical_kind), ";\n"
+        "        rule.constraints.lexical_kind = ", xml_string(facets.lexical_kind), ";\n");
+    for (const auto& [key, bound] : std::initializer_list<std::pair<std::string_view, const std::optional<std::string>*>>{
+        {"lexical_min_inclusive", &facets.min_inclusive}, {"lexical_max_inclusive", &facets.max_inclusive},
+        {"lexical_min_exclusive", &facets.min_exclusive}, {"lexical_max_exclusive", &facets.max_exclusive}}) {
+      if (*bound) { output.write("        rule.constraints.", key, " = ", xml_string(**bound), ";\n"); }
+    }
+    for (const auto& [key, bound] : std::initializer_list<std::pair<std::string_view, const std::optional<std::size_t>*>>{
+        {"length", &facets.length}, {"min_length", &facets.min_length}, {"max_length", &facets.max_length}}) {
+      if (*bound) { output.write("        rule.constraints.", key, " = ", **bound, "U;\n"); }
+    }
+    if (!facets.whitespace.empty()) {
+      output.write("        rule.constraints.whitespace = ::rohit::serializer::xml::whitespace_policy::", facets.whitespace, ";\n");
+    }
+    if (facets.finite) { output.write("        rule.constraints.finite = true;\n"); }
+    if (!facets.list_item_kind.empty()) {
+      output.write("        rule.constraints.list_length = true;\n        rule.list_item_kind = ",
+          xml_string(facets.list_item_kind), ";\n");
+    }
+    if (!members.empty()) { output.write("        rule.union_members = ", union_name, ";\n"); }
+    if (!facets.enumeration.empty()) { output.write("        rule.enumeration = ", enumeration, ";\n"); }
+    if (!facets.qname_enumeration.empty()) { output.write("        rule.qname_enumeration = ", qnames, ";\n"); }
+    if (!groups.empty()) { output.write("        rule.pattern_groups = ", pattern_groups, ";\n"); }
+    output.write("        return rule;\n      }();\n");
+    return contract;
+  }
+
   // Emit only selected scalar checks; ordinary models and XML records without facets add none.
   void write_xml_value_checks(rohit::type_check::output_buffer auto& output,
       const xml_binding::field& field, std::string_view node, std::string_view context, bool input) {
     const auto& facets = field.facets;
     if (input && field.value_projection) { return; }
-    if (!facets.patterns.empty()) {
-      throw std::invalid_argument{"XSD pattern facets require a supported portable pattern compiler"};
-    }
+    if (input && xml_needs_raw_validation(field)) { return; }
+    const bool advanced = !facets.union_members.empty() || !facets.patterns.empty() ||
+        !facets.pattern_groups.empty();
     const bool constraints = facets.min_inclusive || facets.max_inclusive || facets.min_exclusive ||
         facets.max_exclusive || facets.length || facets.min_length || facets.max_length ||
         !facets.enumeration.empty() || facets.finite;
@@ -2550,8 +2671,11 @@ public:
     const auto& leaf_type = source_type.is_optional() || source_type.is_sequence() ?
         source_type.arguments.front() : source_type;
     const bool string = leaf_type.name == "string";
-    const bool lexical = field.qname || field.prefix_list || !facets.list_item_kind.empty();
-    if (!constraints && !lexical && !field.fixed_value &&
+    const bool numeric_string = string && xml_numeric_value_space(facets.lexical_kind);
+    const bool scalar_value_space = numeric_string || (!string && !facets.lexical_kind.empty());
+    const bool lexical = field.qname || field.prefix_list || !facets.list_item_kind.empty() ||
+        !facets.lexical_kind.empty();
+    if (!constraints && !lexical && !advanced && !field.fixed_value &&
         !(input && string && !facets.whitespace.empty())) { return; }
     const auto member = "this->" + member_name(*field.source);
     auto value = member;
@@ -2566,15 +2690,35 @@ public:
       value = "srl_xml_projected";
     }
     if (input && string && !facets.whitespace.empty()) {
+      output.write("      if (", context, ") { ", context,
+          "->consume(::rohit::serializer::xml::operation_resource::allocation_bytes, (", value, ").size()); }\n");
       output.write("      ", value, " = ::rohit::serializer::xml::normalize_whitespace(", value,
           ", ::rohit::serializer::xml::whitespace_policy::", facets.whitespace, ");\n");
     }
     const auto text = local_name("xml_lexical");
-    output.write("      const auto ", text, " = ::rohit::serializer::xml::",
-        std::string_view{field.list ? "format_list" : "detail::scalar_text"}, "(", value, ");\n");
+    if (field.list) {
+      output.write("      const auto ", text, " = ::rohit::serializer::xml::format_list(",
+          value, ", ", context, ");\n");
+    } else if (string) {
+      output.write("      const ::std::string_view ", text, "{", value, "};\n");
+    } else {
+      output.write("      const auto ", text, " = ::rohit::serializer::xml::detail::scalar_text(", value, ");\n");
+    }
+    if (advanced) {
+      const auto selected = write_xml_lexical_contract(output, facets);
+      output.write("      ::rohit::serializer::xml::validate_lexical_contract(", text, ", ", selected,
+          ", ", node, ", ", context, ");\n");
+    } else if (!facets.lexical_kind.empty() && facets.list_item_kind.empty() &&
+        !field.qname && !field.prefix_list) {
+      output.write("      ::rohit::serializer::xml::validate_lexical_value(", text, ", ",
+          xml_string(facets.lexical_kind), ", ", node, ", ", context, ");\n");
+    }
     if (constraints) {
       const auto check = local_name("xml_facets");
       output.write("      ::rohit::serializer::xml::scalar_constraints ", check, "{};\n");
+      if (!facets.lexical_kind.empty()) {
+        output.write("      ", check, ".lexical_kind = ", xml_string(facets.lexical_kind), ";\n");
+      }
       for (const auto& [key, bound] : std::initializer_list<std::pair<std::string_view, const std::optional<std::string>*>>{
           {"lexical_min_inclusive", &facets.min_inclusive}, {"lexical_max_inclusive", &facets.max_inclusive},
           {"lexical_min_exclusive", &facets.min_exclusive}, {"lexical_max_exclusive", &facets.max_exclusive}}) {
@@ -2587,7 +2731,7 @@ public:
       if (!facets.whitespace.empty()) { output.write("      ", check, ".whitespace = ::rohit::serializer::xml::whitespace_policy::", facets.whitespace, ";\n"); }
       if (!facets.list_item_kind.empty()) { output.write("      ", check, ".list_length = true;\n"); }
       if (facets.finite) { output.write("      ", check, ".finite = true;\n"); }
-      if (!facets.enumeration.empty() && string && !field.qname && facets.list_item_kind.empty()) {
+      if (!facets.enumeration.empty() && string && !numeric_string && !field.qname && facets.list_item_kind.empty()) {
         output.write("      static constexpr ::std::array<::std::string_view, ", facets.enumeration.size(), "> srl_xml_enum{{");
         for (std::size_t index{}; index < facets.enumeration.size(); ++index) {
           if (index) { output.write(", "); } output.write(xml_string(facets.enumeration[index]));
@@ -2616,7 +2760,11 @@ public:
     if (!facets.list_item_kind.empty()) {
       output.write("      ::rohit::serializer::xml::validate_lexical_list(", text, ", ", xml_string(facets.list_item_kind), ", ", node, ", ", context, ");\n");
     }
-    if (field.fixed_value && !field.qname && !field.list && facets.list_item_kind.empty()) {
+    if (field.fixed_value && scalar_value_space && !field.qname && !field.list && facets.list_item_kind.empty()) {
+      output.write("      if (!::rohit::serializer::xml::lexical_lists_equal(", text, ", ",
+          xml_string(*field.fixed_value), ", ", xml_string(facets.lexical_kind), ", ", node,
+          ")) { throw ::std::invalid_argument{\"XML fixed numeric value differs\"}; }\n");
+    } else if (field.fixed_value && !field.qname && !field.list && facets.list_item_kind.empty()) {
       output.write("      ::std::remove_cvref_t<decltype(", value, ")> srl_xml_fixed{};\n"
           "      ::rohit::serializer::xml::detail::read_scalar(", xml_string(*field.fixed_value), ", srl_xml_fixed);\n");
       if (string && !facets.whitespace.empty()) {
@@ -2643,7 +2791,7 @@ public:
       }
       output.write(") { throw ::std::invalid_argument{\"XML list enumeration facet failed\"}; }\n");
     }
-    if (!facets.enumeration.empty() && !string && facets.list_item_kind.empty()) {
+    if (!facets.enumeration.empty() && !string && !scalar_value_space && facets.list_item_kind.empty()) {
       output.write("      bool srl_xml_allowed = false;\n");
       for (const auto& allowed : facets.enumeration) {
         output.write("      { ::std::remove_cvref_t<decltype(", value, ")> srl_xml_candidate{};\n"
@@ -2651,6 +2799,15 @@ public:
             "        srl_xml_allowed = srl_xml_allowed || ", value, " == srl_xml_candidate; }\n");
       }
       output.write("      if (!srl_xml_allowed) { throw ::std::invalid_argument{\"XML numeric enumeration facet failed\"}; }\n");
+    }
+    if (!facets.enumeration.empty() && scalar_value_space && !field.qname && facets.list_item_kind.empty()) {
+      output.write("      if (");
+      for (std::size_t index{}; index < facets.enumeration.size(); ++index) {
+        if (index) { output.write(" && "); }
+        output.write("!::rohit::serializer::xml::lexical_lists_equal(", text, ", ",
+            xml_string(facets.enumeration[index]), ", ", xml_string(facets.lexical_kind), ", ", node, ")");
+      }
+      output.write(") { throw ::std::invalid_argument{\"XML numeric enumeration facet failed\"}; }\n");
     }
     if (field.value_projection) { output.write("      });\n"); }
     if (source_type.is_optional() || field.repeated) { output.write("      }\n"); }
@@ -2664,7 +2821,7 @@ public:
     const bool preserve = !output_only && contract.unknown == xml_unknown_policy::preserve;
     const bool policy = contract.unknown || !contract.wildcards.empty();
     const bool namespaces = std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) {
-      return field.qname || field.prefix_list || field.facets.list_item_kind == "QName";
+      return field.qname || field.prefix_list || xml_facet_uses_namespace(field.facets);
     });
     const auto qualified = [&](const xml::name& name) {
       return "::rohit::serializer::xml::name{" + xml_string(name.local) + ", " + xml_string(name.namespace_uri) + "}";
@@ -2674,8 +2831,61 @@ public:
     const auto budget = local_name("xml_budget");
     const auto context = local_name("xml_context");
     const auto value_scope = namespaces ? local_name("xml_value_scope") : node;
+    std::vector<std::string> repeated_choices(contract.choices.size());
+    for (std::size_t index{}; index < contract.choices.size(); ++index) {
+      if (contract.choices[index].repeated) {
+        repeated_choices[index] = local_name("xml_repeated_choice_" + std::to_string(index));
+      }
+    }
+    const auto choice_known = [&](const xml_binding::choice_group& choice) {
+      const xml_binding::field* selected{};
+      std::size_t branch_index{};
+      for (std::size_t index{}; index < choice.branches.size(); ++index) {
+        const auto& branch = choice.branches[index];
+        if (!branch.source) { continue; }
+        if (selected) { throw std::invalid_argument{"Repeated XML choices need an ordered representation for multiple known branches"}; }
+        const auto found = std::find_if(contract.fields.begin(), contract.fields.end(), [&](const auto& field) {
+          return field.source == branch.source;
+        });
+        if (found == contract.fields.end() || !found->repeated || found->attribute || found->text || found->wrapper) {
+          throw std::invalid_argument{"Repeated XML choice requires one unwrapped repeated field"};
+        }
+        selected = &*found;
+        branch_index = index;
+      }
+      if (!selected) { throw std::invalid_argument{"Repeated XML choice has no typed branch"}; }
+      return std::pair{selected, branch_index};
+    };
+    // Keep branch bounds distinct from the containing choice's repetition interval.
+    const auto write_choice_contracts = [&] {
+      for (std::size_t index{}; index < contract.choices.size(); ++index) {
+        const auto& choice = contract.choices[index];
+        if (!choice.repeated) { continue; }
+        output.write("    static const ::std::array<::rohit::serializer::xml::choice_branch_contract, ",
+            choice.branches.size(), "> ", repeated_choices[index], "{{\n");
+        for (const auto& branch : choice.branches) {
+          if (branch.source) {
+            const auto selected = choice_known(choice).first;
+            output.write("      {", qualified(selected->qualified_name), ", false, {}, {}, ");
+          } else {
+            if (!branch.wildcard_index || *branch.wildcard_index >= contract.wildcards.size()) {
+              throw std::invalid_argument{"Repeated XML choice wildcard has no namespace contract"};
+            }
+            const auto& wildcard = contract.wildcards[*branch.wildcard_index];
+            output.write("      {{}, true, ", xml_string(wildcard.namespace_rule), ", ",
+                xml_string(wildcard.target_namespace.value_or(contract.root.namespace_uri)), ", ");
+          }
+          output.write(branch.minimum, "U, ");
+          if (branch.maximum) { output.write(*branch.maximum, "U"); }
+          else { output.write("::std::nullopt"); }
+          output.write("},\n");
+        }
+        output.write("    }};\n");
+      }
+    };
     const auto write_choices = [&] {
       for (const auto& choice : contract.choices) {
+        if (choice.repeated) { continue; }
         output.write("    { const ::std::size_t srl_xml_choice_count = ");
         for (std::size_t index{}; index < choice.alternatives.size(); ++index) {
           if (index) { output.write(" + "); }
@@ -2683,7 +2893,9 @@ public:
         }
         if (choice.alternatives.empty()) { output.write("0U"); }
         output.write(";\n      if (");
-        if (choice.minimum) { output.write("srl_xml_choice_count < ", choice.minimum, "U || "); }
+        const bool can_be_empty = std::any_of(choice.branches.begin(), choice.branches.end(),
+            [](const auto& branch) { return branch.minimum == 0U; });
+        if (choice.minimum && !can_be_empty) { output.write("srl_xml_choice_count < ", choice.minimum, "U || "); }
         output.write("srl_xml_choice_count > ", choice.maximum,
             "U) { throw ::std::invalid_argument{\"XML choice occurrence failed\"}; } }\n");
       }
@@ -2728,7 +2940,14 @@ public:
       if (output_only) { output.write("    }\n"); }
     }
     write_choices();
+    write_choice_contracts();
     for (const auto& field : contract.fields) {
+      for (std::size_t index{}; index < contract.choices.size(); ++index) {
+        const auto& choice = contract.choices[index];
+        if (choice.repeated && choice_known(choice).first->source == field.source) {
+          output.write("    const auto ", repeated_choices[index], "_begin = ", node, ".children.size();\n");
+        }
+      }
       write_xml_value_checks(output, field, node, budget + ".context()", false);
       if (field.repeated) {
         const auto size = "this->" + member_name(*field.source) + ".size()";
@@ -2749,6 +2968,24 @@ public:
         output.write("    ::rohit::serializer::xml::", std::string_view{field.attribute ? (field.list ? "add_list_attribute" : "add_attribute") : "add_child"},
                      "(", node, ", ", qualified(field.qualified_name), ", this->", member_name(*field.source), ", ", budget, ");\n");
       }
+      for (std::size_t index{}; index < contract.choices.size(); ++index) {
+        const auto& choice = contract.choices[index];
+        if (choice.repeated && choice_known(choice).first->source == field.source) {
+          output.write("    const auto ", repeated_choices[index], "_end = ", node, ".children.size();\n");
+        }
+      }
+    }
+    for (std::size_t index{}; index < contract.choices.size(); ++index) {
+      const auto& choice = contract.choices[index];
+      if (!choice.repeated) { continue; }
+      const auto branch = choice_known(choice).second;
+      output.write("    ::rohit::serializer::xml::validate_repeated_choice_output(",
+          repeated_choices[index], "_begin, ", repeated_choices[index], "_end, ", branch, "U, ", choice.before_field, "U, ",
+          std::string_view{preserve ? "&xml_extensions.value()" : "nullptr"}, ", ",
+          repeated_choices[index], ", ", choice.minimum, "U, ");
+      if (choice.max_repetitions) { output.write(*choice.max_repetitions, "U"); }
+      else { output.write("::std::nullopt"); }
+      output.write(", ", budget, ".context());\n");
     }
     if (preserve) {
       output.write("    auto* srl_xml_extension_context = ", budget, ".context();\n"
@@ -2760,7 +2997,7 @@ public:
         output.write("    static constexpr ::std::array<::rohit::serializer::xml::extension_rule, ", contract.wildcards.size(), "> srl_xml_output_rules{{\n");
         for (const auto& wildcard : contract.wildcards) {
           output.write("      {", std::string_view{wildcard.attribute ? "true" : "false"}, ", ", xml_string(wildcard.namespace_rule),
-              ", ", xml_string(contract.root.namespace_uri), ", ", std::string_view{wildcard.process_contents == "strict" ? "true" : "false"}, ", ", wildcard.minimum, "U, ");
+              ", ", xml_string(wildcard.target_namespace.value_or(contract.root.namespace_uri)), ", ", std::string_view{wildcard.process_contents == "strict" ? "true" : "false"}, ", ", wildcard.minimum, "U, ");
           if (wildcard.maximum) { output.write(*wildcard.maximum, "U"); } else { output.write("::std::nullopt"); }
           output.write(", ", wildcard.before_field, "U},\n");
         }
@@ -2817,7 +3054,7 @@ public:
       output.write("    static constexpr ::std::array<::rohit::serializer::xml::extension_rule, ", contract.wildcards.size(), "> srl_xml_rules{{\n");
       for (const auto& wildcard : contract.wildcards) {
         output.write("      {", std::string_view{wildcard.attribute ? "true" : "false"}, ", ", xml_string(wildcard.namespace_rule),
-            ", ", xml_string(contract.root.namespace_uri), ", ", std::string_view{wildcard.process_contents == "strict" ? "true" : "false"}, ", ", wildcard.minimum, "U, ");
+            ", ", xml_string(wildcard.target_namespace.value_or(contract.root.namespace_uri)), ", ", std::string_view{wildcard.process_contents == "strict" ? "true" : "false"}, ", ", wildcard.minimum, "U, ");
         if (wildcard.maximum) { output.write(*wildcard.maximum, "U"); } else { output.write("::std::nullopt"); }
         output.write(", ", wildcard.before_field, "U},\n");
       }
@@ -2832,17 +3069,66 @@ public:
     if (object.reference) {
       output.write("    [[maybe_unused]] auto srl_reference_previous_binding = ::std::move(srl_reference_binding_);\n");
     }
+    write_choice_contracts();
+    std::size_t raw_field_index{};
     for (const auto& field : contract.fields) {
+      const auto raw = xml_needs_raw_validation(field);
+      const auto validator = local_name("xml_raw_validator_" + std::to_string(raw_field_index++));
+      if (raw) {
+        output.write("    const auto ", validator,
+            " = +[](::std::string_view srl_raw_text, const ::rohit::serializer::xml::element& srl_raw_scope, "
+            "::rohit::serializer::xml::operation_context* srl_raw_context) {\n");
+        const auto selected = write_xml_lexical_contract(output, field.facets);
+        output.write("      ::rohit::serializer::xml::validate_lexical_contract(srl_raw_text, ", selected,
+            ", srl_raw_scope, srl_raw_context);\n");
+        if (field.fixed_value) {
+          const auto& kind = field.facets.list_item_kind.empty() ?
+              field.facets.lexical_kind : field.facets.list_item_kind;
+          output.write("      if (!::rohit::serializer::xml::lexical_lists_equal(srl_raw_text, ",
+              xml_string(*field.fixed_value), ", ", xml_string(kind),
+              ", srl_raw_scope)) { throw ::std::invalid_argument{\"XML fixed value differs\"}; }\n");
+        }
+        output.write("    };\n");
+      }
+      for (std::size_t index{}; index < contract.choices.size(); ++index) {
+        const auto& choice = contract.choices[index];
+        if (choice.repeated && choice_known(choice).first->source == field.source) {
+          output.write("    const auto ", repeated_choices[index], "_begin = ", reader, ".child_position();\n");
+        }
+      }
       if (field.text) {
-        output.write("    ", reader, std::string_view{field.list ? ".list_text_value(this->" : ".text_value(this->"}, member_name(*field.source), ");\n");
+        output.write("    ", reader, std::string_view{field.list ? ".list_text_value(this->" : ".text_value(this->"}, member_name(*field.source));
+        if (raw) { output.write(", ", validator); }
+        output.write(");\n");
       } else if (field.wrapper) {
-        output.write("    ", reader, ".wrapped_child_value(", qualified(*field.wrapper), ", ", qualified(field.qualified_name), ", this->", member_name(*field.source), ");\n");
+        output.write("    ", reader, ".wrapped_child_value(", qualified(*field.wrapper), ", ", qualified(field.qualified_name), ", this->", member_name(*field.source));
+        if (raw) { output.write(", ", validator); }
+        output.write(");\n");
       } else {
         output.write("    ", reader, std::string_view{field.attribute ? (field.list ? ".list_attribute_value(" : ".attribute_value(") : ".child_value("},
                      qualified(field.qualified_name), ", this->", member_name(*field.source));
         const auto default_value = field.fixed_value ? field.fixed_value : field.default_value;
         if (default_value && !field.qname) { output.write(", ::std::string_view{", xml_string(*default_value), "}"); }
+        else if (raw) { output.write(", {}"); }
+        if (raw) { output.write(", ", validator); }
         output.write(");\n");
+      }
+      if (!field.attribute && !field.text &&
+          (field.qname || field.prefix_list || field.facets.list_item_kind == "QName")) {
+        const auto write_projection_check = [&](const std::string& children) {
+          output.write("    ::rohit::serializer::xml::validate_child_namespace_projection(", children,
+              ", ", qualified(field.qualified_name), ", ", value_scope, ", ",
+              std::string_view{field.facets.list_item_kind == "QName" ? "true" : "false"}, ", ",
+              std::string_view{field.prefix_list ? "true" : "false"}, ", ",
+              std::string_view{field.default_value || field.fixed_value ? "true" : "false"}, ", ", context, ");\n");
+        };
+        if (field.wrapper) {
+          const auto wrapper_scope = validator + "_scope";
+          output.write("    for (const auto& ", wrapper_scope, " : ", node, ".children) {\n"
+              "      if (", wrapper_scope, ".qualified_name == ", qualified(*field.wrapper), ") {\n");
+          write_projection_check(wrapper_scope + ".children");
+          output.write("      }\n    }\n");
+        } else { write_projection_check(node + ".children"); }
       }
       if (field.qname && (field.qname_default || field.qname_fixed)) {
         const auto& default_name = field.qname_fixed ? *field.qname_fixed : *field.qname_default;
@@ -2852,6 +3138,16 @@ public:
             "(" + value + " && " + value + "->empty())") : value + ".empty()";
         output.write("    if (", empty, ") { ", value, " = ::rohit::serializer::xml::qualify_qname(",
             qualified(default_name), ", ", value_scope, "); }\n");
+      }
+      for (std::size_t index{}; index < contract.choices.size(); ++index) {
+        const auto& choice = contract.choices[index];
+        if (!choice.repeated || choice_known(choice).first->source != field.source) { continue; }
+        output.write("    ::rohit::serializer::xml::validate_repeated_choice(::std::span{", node,
+            ".children}.subspan(", repeated_choices[index], "_begin, ", reader, ".child_position() - ",
+            repeated_choices[index], "_begin), ", repeated_choices[index], ", ", choice.minimum, "U, ");
+        if (choice.max_repetitions) { output.write(*choice.max_repetitions, "U"); }
+        else { output.write("::std::nullopt"); }
+        output.write(", ", context, ");\n");
       }
       write_xml_value_checks(output, field, value_scope, context, true);
       if (field.repeated && (field.min_occurs > 0U || field.max_occurs)) {
@@ -3994,7 +4290,9 @@ public:
     if (!managed_.empty()) { out_stream.write("#include <rohit/managed.hpp>\n#include <optional>\n"); }
     else if (managed_.has_references()) { out_stream.write("#include <rohit/managed_reference.hpp>\n"); }
     if (protobuf_enabled) { out_stream.write("#include <rohit/protobuf.hpp>\n"); }
-    if (xml_options_.enabled) { out_stream.write("#include <rohit/xml.hpp>\n"); }
+    if (xml_options_.enabled) {
+      out_stream.write("#include <rohit/xml.hpp>\n#include <rohit/xml_lexical_contract.hpp>\n#include <rohit/xml_choice_contract.hpp>\n");
+    }
     if (package_codegen::contains(statements)) {
       out_stream.write("#include <rohit/opc_generated.hpp>\n#include <limits>\n#include <span>\n");
     }

@@ -58,6 +58,7 @@ struct element {
 
 enum class operation_resource { allocation_bytes, work_units, preserved_bytes };
 enum class unknown_policy { reject, skip, preserve };
+enum class input_encoding_policy { utf8_only, utf8_or_utf16 };
 
 // An opt-in, caller-owned context follows one XML/package operation. It is not thread-safe.
 // Callbacks and the context must outlive every borrowed generated decoder or builder.
@@ -70,6 +71,10 @@ struct operation_context {
   std::function<bool(std::string_view)> permits_namespace{};
   // Optional namespace context for output-only borrowed projections; the caller retains ownership.
   const std::map<std::string, std::string>* namespace_bindings{};
+  // UTF-16 input requires its XML byte-order mark; output remains deterministic UTF-8.
+  input_encoding_policy input_encoding{input_encoding_policy::utf8_only};
+  // Raw-tree clients may retain ordered mixed text; typed field readers remain strict.
+  bool allow_mixed_content{false};
   // Check cancellation and the monotonic deadline without resetting cumulative counters.
   void check() const;
   // Check interruption and charge before retaining storage or performing bounded work.
@@ -77,6 +82,9 @@ struct operation_context {
   // Select a deadline relative to now; nonpositive durations expire immediately.
   void set_timeout(std::chrono::steady_clock::duration duration);
 };
+
+// Inspect original text with its lexical namespace scope before any typed scalar/list conversion.
+using lexical_validator = void (*)(std::string_view, const element&, operation_context*);
 
 // Preserve semantic XML extensions in one explicitly selected record, not lexical formatting.
 struct extension_store {
@@ -164,6 +172,8 @@ struct scalar_constraints {
   bool finite{};
   bool list_length{};
   whitespace_policy whitespace{whitespace_policy::preserve};
+  // Select the XSD float/double value space for bounds; empty preserves exact decimal comparison.
+  std::string_view lexical_kind{};
 };
 
 // Normalize XML whitespace without locale-dependent character classification.
@@ -215,11 +225,34 @@ struct limits {
 // Parse exactly one UTF-8 XML 1.0 document; reject DTDs, entities, mixed content and excess budgets.
 [[nodiscard]] element parse(std::string_view document, limits bounds = {});
 // Apply caller-selected cumulative budgets, interruption and extension policy while parsing.
+// An explicit context may additionally permit BOM-marked UTF-16 while retaining decoded tree bounds.
 [[nodiscard]] element parse(std::string_view document, limits bounds, operation_context* context);
 // Emit deterministic XML 1.0 UTF-8, with escaping and the same tree/resource checks.
 [[nodiscard]] std::string write(const element& document, limits bounds = {});
 // Emit under an opt-in shared operation context without changing ordinary XML callers.
 [[nodiscard]] std::string write(const element& document, limits bounds, operation_context* context);
+
+// A prepared XML Schema regular expression. Matching uses independent provider execution state.
+class prepared_pattern {
+  struct implementation;
+  std::unique_ptr<implementation> implementation_{};
+public:
+  // Compile a trusted expression after input/character and optional operation-budget checks.
+  explicit prepared_pattern(std::string_view expression, limits bounds = {},
+      operation_context* context = nullptr);
+  // Release the provider-owned immutable automaton after callers have finished matching.
+  ~prepared_pattern();
+  // Transfer ownership; moving or destroying while another thread uses this object is invalid.
+  prepared_pattern(prepared_pattern&&) noexcept;
+  // Replace the expression by transferring ownership without copying provider state.
+  prepared_pattern& operator=(prepared_pattern&&) noexcept;
+  prepared_pattern(const prepared_pattern&) = delete;
+  prepared_pattern& operator=(const prepared_pattern&) = delete;
+  // Match an already whitespace-normalized lexical value; concurrent calls are supported.
+  // Provider calls are not preemptible; cancellation/deadline checks surround each bounded call.
+  [[nodiscard]] bool matches(std::string_view value, limits bounds = {},
+      operation_context* context = nullptr) const;
+};
 
 // Prepared trusted standalone XSD 1.0. Includes/imports/redefines are rejected, never fetched.
 class prepared_schema {
@@ -401,7 +434,9 @@ template <typename Collection> [[nodiscard]] std::string format_list(
   std::string result{};
   for (const auto& value : values) {
     const auto text = [&] {
-      if constexpr (std::same_as<typename detail::collection_traits<Collection>::type, bool>) {
+      if constexpr (std::same_as<typename detail::collection_traits<Collection>::type, std::string>) {
+        return std::string_view{value};
+      } else if constexpr (std::same_as<typename detail::collection_traits<Collection>::type, bool>) {
         return detail::scalar_text(static_cast<bool>(value));
       } else { return detail::scalar_text(value); }
     }();
@@ -657,6 +692,16 @@ class field_reader {
   // Advance exactly one known child while tracking its extension insertion position.
   const element& take_child() { ++known_children_read_; return node_.children[next_child_++]; }
 public:
+  // Copy traversal state while borrowing the same immutable element and optional operation storage.
+  field_reader(const field_reader&) = default;
+  // Readers cannot rebind their immutable parent element after construction.
+  field_reader& operator=(const field_reader&) = delete;
+  // Transfer traversal buffers while retaining the existing parent/context borrowing contract.
+  field_reader(field_reader&&) = default;
+  // Assignment cannot replace the reader's immutable parent element.
+  field_reader& operator=(field_reader&&) = delete;
+  // Report the next borrowed child offset without advancing decoding or allocating state.
+  [[nodiscard]] std::size_t child_position() const noexcept { return next_child_; }
   // Bind one record; indentation whitespace is accepted but mixed scalar text is rejected.
   explicit field_reader(const element& node, bool has_text = false,
       operation_context* context = nullptr, extension_store* extensions = nullptr,
@@ -680,35 +725,37 @@ public:
     lazy_extensions_ = &extensions;
   }
   // Decode simple content; child markup is forbidden even when its text would be empty.
-  template <typename T> void text_value(T& value) {
+  template <typename T> void text_value(T& value, lexical_validator validator = nullptr) {
     if (!node_.children.empty()) { throw std::invalid_argument{"XML simple content contains children"}; }
+    if (validator) { validator(node_.text, node_, context_); }
     if constexpr (std::same_as<T, std::string>) {
       if (context_) { context_->consume(operation_resource::allocation_bytes, node_.text.size()); }
     }
     detail::read_scalar(node_.text, value);
   }
   // Decode an exact typed list from one simple-content value.
-  template <typename T> void list_text_value(T& value) {
+  template <typename T> void list_text_value(T& value, lexical_validator validator = nullptr) {
     if (!node_.children.empty()) { throw std::invalid_argument{"XML list text contains children"}; }
+    if (validator) { validator(node_.text, node_, context_); }
     value = parse_list<T>(node_.text, context_);
   }
   // Decode an exact typed list from one required attribute.
   template <typename T> void list_attribute_value(const name& field_name, T& value,
-      std::optional<std::string_view> absent_default = {}) {
+      std::optional<std::string_view> absent_default = {}, lexical_validator validator = nullptr) {
     if constexpr (detail::optional_traits<T>::value) {
       std::optional<std::string> lexical{};
-      attribute_value(field_name, lexical, absent_default);
+      attribute_value(field_name, lexical, absent_default, validator);
       if (lexical) { value = parse_list<T>(*lexical, context_); }
       else { value.reset(); }
     } else {
       std::string lexical{};
-      attribute_value(field_name, lexical, absent_default);
+      attribute_value(field_name, lexical, absent_default, validator);
       value = parse_list<T>(lexical, context_);
     }
   }
   // Decode one required/optional attribute; duplicate attributes are rejected by the parser/writer.
   template <typename T> void attribute_value(const name& field_name, T& value,
-      std::optional<std::string_view> absent_default = {}) {
+      std::optional<std::string_view> absent_default = {}, lexical_validator validator = nullptr) {
     for (std::size_t index{}; index < node_.attributes.size(); ++index) {
       if (context_) { context_->consume(operation_resource::work_units, 1U); }
       if (node_.attributes[index].qualified_name != field_name) { continue; }
@@ -718,6 +765,7 @@ public:
         context_->consume(operation_resource::work_units, node_.attributes[index].value.size());
         context_->consume(operation_resource::allocation_bytes, node_.attributes[index].value.size());
       }
+      if (validator) { validator(node_.attributes[index].value, node_, context_); }
       if constexpr (detail::optional_traits<T>::value) {
         typename detail::optional_traits<T>::type candidate{};
         detail::read_scalar(node_.attributes[index].value, candidate);
@@ -730,6 +778,7 @@ public:
         context_->consume(operation_resource::work_units, absent_default->size());
         context_->consume(operation_resource::allocation_bytes, absent_default->size());
       }
+      if (validator) { validator(*absent_default, node_, context_); }
       if constexpr (detail::optional_traits<T>::value) {
         typename detail::optional_traits<T>::type candidate{};
         detail::read_scalar(*absent_default, candidate); value = std::move(candidate);
@@ -741,12 +790,20 @@ public:
   }
   // Decode one scalar/record, optional, or repeated array in declared sequence order.
   template <typename T> void child_value(const name& field_name, T& value,
-      std::optional<std::string_view> empty_default = {}) {
+      std::optional<std::string_view> empty_default = {}, lexical_validator validator = nullptr) {
     active_field_ = next_field_++;
     const auto present = [&] {
       skip_extensions(&field_name);
       return next_child_ < node_.children.size() &&
              node_.children[next_child_].qualified_name == field_name;
+    };
+    // Validate each exact child/default spelling while its original prefix bindings remain available.
+    const auto read_child = [&](const element& child, auto& destination) {
+      if (validator) {
+        validator(child.text.empty() && empty_default ? *empty_default : std::string_view{child.text},
+            child, context_);
+      }
+      get_value(child, destination, context_, empty_default);
     };
     if constexpr (detail::optional_traits<T>::value) {
       if (!present()) { value.reset(); return; }
@@ -754,13 +811,13 @@ public:
         context_->consume(operation_resource::allocation_bytes, sizeof(typename detail::optional_traits<T>::type));
       }
       typename detail::optional_traits<T>::type candidate{};
-      get_value(take_child(), candidate, context_, empty_default);
+      read_child(take_child(), candidate);
       value = std::move(candidate);
     } else if constexpr (detail::collection_traits<T>::value) {
       if constexpr (detail::collection_traits<T>::fixed) {
         for (auto& item : value) {
           if (!present()) { throw std::invalid_argument{"XML fixed array item missing"}; }
-          get_value(take_child(), item, context_, empty_default);
+          read_child(take_child(), item);
         }
       } else {
         value.clear();
@@ -769,17 +826,18 @@ public:
             context_->consume(operation_resource::allocation_bytes, sizeof(typename detail::collection_traits<T>::type));
           }
           typename detail::collection_traits<T>::type candidate{};
-          get_value(take_child(), candidate, context_, empty_default);
+          read_child(take_child(), candidate);
           value.push_back(std::move(candidate));
         }
       }
     } else {
       if (!present()) { throw std::invalid_argument{"Required XML child missing or out of order"}; }
-      get_value(take_child(), value, context_, empty_default);
+      read_child(take_child(), value);
     }
   }
   // Require one wrapper, then apply the same exact item contract within its own scope.
-  template <typename T> void wrapped_child_value(const name& wrapper_name, const name& item_name, T& value) {
+  template <typename T> void wrapped_child_value(const name& wrapper_name, const name& item_name, T& value,
+      lexical_validator validator = nullptr) {
     active_field_ = next_field_++;
     skip_extensions(&wrapper_name);
     if (next_child_ >= node_.children.size() || node_.children[next_child_].qualified_name != wrapper_name) {
@@ -789,7 +847,7 @@ public:
     extension_slot retained{};
     const std::array known_items{item_name};
     field_reader wrapper{wrapped, false, context_, retained, known_items};
-    wrapper.child_value(item_name, value);
+    wrapper.child_value(item_name, value, {}, validator);
     wrapper.finish();
     if (retained.get()) {
       auto& extensions = retain_extensions();

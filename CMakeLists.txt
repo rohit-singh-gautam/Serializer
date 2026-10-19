@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.7.0 LANGUAGES CXX)
+project(serializer VERSION 2.8.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.20.0)
@@ -39,7 +39,7 @@ option(SERIALIZER_ENABLE_SIMD "Accelerate schema scanning and runtime codecs on 
 option(SERIALIZER_WITH_ZSTD "Enable standard Zstandard frame compression" ON)
 option(SERIALIZER_WITH_LZ4 "Enable standard LZ4 frame compression" ON)
 option(SERIALIZER_WITH_ZLIB "Enable gzip, zlib, and raw DEFLATE compression" ON)
-option(SERIALIZER_WITH_XML "Enable XML parsing and trusted XSD validation with LibXml2" OFF)
+option(SERIALIZER_WITH_XML "Enable XML parsing and trusted XSD validation with LibXml2" ON)
 include(cmake/serializer_compression.cmake)
 if(SERIALIZER_WITH_XML)
   find_package(LibXml2 REQUIRED)
@@ -62,6 +62,8 @@ add_library(serializer_runtime
   include/rohit/compression_stream.hpp
   src/xml.cpp
   include/rohit/xml.hpp
+  include/rohit/xml_lexical_contract.hpp
+  include/rohit/xml_choice_contract.hpp
   src/package.cpp
   src/package_opc.cpp
   include/rohit/package.hpp
@@ -126,6 +128,11 @@ add_library(serializer_lib
   src/xml_swift_runtime.inc
   src/java_xml_runtime.inc
   src/python_xml_runtime.inc
+  src/python_xml_rich_runtime.inc
+  src/python_xml_writer.hpp
+  src/python_package_runtime.inc
+  src/python_package_mce_runtime.inc
+  src/python_package_writer.hpp
   src/conversion_parser.hpp
   src/conversion_contract.hpp
   src/conversion_writer.hpp
