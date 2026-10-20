@@ -609,6 +609,14 @@ bases and direct managed Protobuf output remain unsupported.
 
 ## Verification
 
+Compiler/runtime **2.17.1** fixes the namespace used when a fresh collaboration
+client joins a typed-reference graph. The
+[reference failure and recovery matrix](../verification/verification-managed-reference-faults-2026-10-21.md)
+records eight-profile allocation/admission, editable ownership, journal/crash and
+collaboration checks, including failed initial joins and successful retry.
+Scoped allocation hooks cover roots/control blocks; model containers keep their
+existing allocators and resident admission remains an estimate.
+
 The [latest four-toolchain verification](../verification/verification-toolchains-2026-10-07.md)
 includes managed history, journal/crash recovery, and collaboration in the full
 default CTest suites. It records Windows x64 (MSVC and clang-cl) and Ubuntu WSL2

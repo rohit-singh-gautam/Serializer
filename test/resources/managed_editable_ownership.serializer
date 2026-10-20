@@ -1,0 +1,18 @@
+serializer version 1.20.0;
+
+namespace editable_ownership {
+  class child managed stable_ids class_id(201) {
+    public string label (1);
+    public optional<managed_ref<child>> next (2);
+  }
+  class group managed stable_ids class_id(202) {
+    public managed array child primary (1);
+    public managed array child secondary (2);
+    public string name (3);
+  }
+  class document managed stable_ids class_id(203) {
+    public managed array group groups (1);
+    public array managed_ref<child> links (2);
+    public string title (3);
+  }
+}

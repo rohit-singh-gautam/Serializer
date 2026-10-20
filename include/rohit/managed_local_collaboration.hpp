@@ -239,7 +239,9 @@ private:
       }
     }
     detail::reset_runtime_fields<traits>(value);
-    store_.validate(value);
+    // A first join adopts the trusted namespace only after validation and durable admission.
+    // Keep caller policy on the live store while checking tokens against the staged document.
+    store_.validate(value, true, &result->document_);
     result->current_ = result->make_published_storage(std::move(value));
     result->snapshot_ = bytes;
     if constexpr (Store::has_history) {

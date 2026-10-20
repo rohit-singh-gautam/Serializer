@@ -1,5 +1,10 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.17.1** fixes the first synchronization of C++ clients joining
+documents with typed managed references. Rebuild clients against matching runtime
+headers and follow the [local collaboration contract](../managed/local_collaboration.md).
+Schema language and saved formats are unchanged by this patch.
+
 Compiler/runtime **2.17.0** adds schema language **1.21.0** package policies and
 automatic scoped payload keys/references. Use
 [`policy`, `key` and `reference`](../serialization/package_application_contracts.md)

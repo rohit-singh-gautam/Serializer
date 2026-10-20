@@ -1,9 +1,15 @@
 # Pending requirements across Serializer
 
-Compiler/runtime **2.17.0** and schema language **1.21.0** complete the next
+Compiler/runtime **2.17.1** completes managed reference/resource/journal and
+collaboration qualification (`MR01`, `MR02`) on Windows and Linux, including an
+initial-join namespace fix. The completed eleven-output package evidence also
+closes API parity parents `OPC-R07` and `XML-B17`. **63 requirements remain
+unchecked**. See the [managed batch and parent reconciliation](verification/verification-managed-reference-faults-2026-10-21.md).
+
+Compiler/runtime **2.17.0** and schema language **1.21.0** completed the next
 **105 existing bounded IDs**: 85 package work units and 20 malformed/provider
-and platform/reproducibility checkpoints. **67 broader requirements remain
-unchecked**. The [batch scope and verification](verification/verification-pending-105-2026-10-21.md)
+and platform/reproducibility checkpoints, leaving 67 broader requirements at that
+checkpoint. The [batch scope and verification](verification/verification-pending-105-2026-10-21.md)
 and [provider/platform record](verification/verification-q02-q08-2026-10-21.md)
 separate implemented owning profiles from deferred graphs, hard resource
 ceilings, broad corpora and publication.
@@ -39,7 +45,7 @@ See the [batch dependencies and verification](verification/verification-pending-
 | [ ] | OPC-R05 | — | Qualify the selected official Core 1.4 and XML XSD bundle against independent official 3MF corpus/conformance checks; required scalar/content constructs bind and unsupported external schemas reject precisely. | — |
 | [ ] | OPC-R06 | — | Complete generated profile/reference checks, target modes, vocabulary/type dispatch and fixed/default/runtime selection; automatically retarget preserved links when a loaded typed role changes to its declared canonical path; failures publish no aggregate/file. | — |
 | [x] | OPC-R06a | — | Generated C++/Python fixed singleton role loads retain discovered paths; preserved sources/internal targets rebind simultaneously on write/Save with original relative scopes, selectors and external URI strings retained; conflicts and dangling references reject. Other backend/dynamic-role work remains pending; [2.15 scope](verification/verification-pending-xml-2026-10-20.md). | — |
-| [ ] | OPC-R07 | — | Implement ZIP/OPC metadata, reader/writer, shared limits, preservation and full-Save APIs for every generated language, with independent producer/consumer tests; [2.14 checkpoint](verification/verification-backlog-2026-10-20.md). | — |
+| [x] | OPC-R07 | — | Implement ZIP/OPC metadata, reader/writer, shared limits, preservation and full-Save APIs for every generated language, with independent producer/consumer tests; [2.14 checkpoint](verification/verification-backlog-2026-10-20.md), [eleven-output completion and limits](verification/verification-managed-reference-faults-2026-10-21.md#package-parent-reconciliation). | — |
 | [ ] | OPC-R08 | — | Qualify ECMA-376 Part 2 fifth-edition URI/content-type/relationship contracts and full Annex B/pass-through corpus; cover escaped/equivalent names, relative targets, collisions, physical metadata names, target modes, UTF-16 and Relationships markup compatibility. | — |
 | [ ] | OPC-R09 | — | Measure large-model CPU, peak memory, encoded/generated-code size and cancellation/provider behavior. Qualify supported platforms with the actual XML/compression providers enabled. | — |
 | [ ] | OPC-R10 | — | Broaden value-reference/scoped-projection XML graph, resource and stress qualification in every backend, preserving source lifetime and avoiding owning payload copies; separately define any durable-address XML contract. | — |
@@ -57,10 +63,10 @@ and actual SDK checks before the parent requirement can be checked.
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | MR01 | — | Broaden native identity/reference lifecycle, corruption, resource and fault tests across allocation, complete-candidate validation, deletion, Undo/Redo, persistence and collaboration. | — |
-| [x] | MR01a | — | Eight existing C++ identity/storage profiles qualify cyclic deletion, complete-candidate edge cleanup, historical pins, Undo/Redo, persisted history, candidate allocation failure and post-reservation snapshot-admission rollback with nonreuse/recovery; [2.16 batch evidence](verification/verification-pending-batch-2026-10-20.md). Broader collaboration/resource faults remain pending. | — |
-| [ ] | MR02 | — | Broaden independent-import ownership/external-mapping failures, editable child moves/retirement, preview resource failures and journal/acceptance faults; preserve IDs and atomic publication. | — |
-| [x] | MR02a | — | Eight existing C++ profiles reject six external-map failures, five ownership-attachment failures and corrupt zero/duplicate source IDs without publishing state/history, then recover successfully. Five added tests per profile are part of 184 passing GTests; [2.16 batch evidence](verification/verification-pending-batch-2026-10-20.md). Wider preview/journal/acceptance gates remain pending. | — |
+| [x] | MR01 | — | Broaden native identity/reference lifecycle, corruption, resource and fault tests across allocation, complete-candidate validation, deletion, Undo/Redo, persistence and collaboration; [eight-profile Windows/Linux checks](verification/verification-managed-reference-faults-2026-10-21.md). | — |
+| [x] | MR01a | — | Eight existing C++ identity/storage profiles qualify cyclic deletion, complete-candidate edge cleanup, historical pins, Undo/Redo, persisted history, candidate allocation failure and post-reservation snapshot-admission rollback with nonreuse/recovery; [2.16 batch evidence](verification/verification-pending-batch-2026-10-20.md). Broader collaboration/resource faults are qualified by MR01. | — |
+| [x] | MR02 | — | Broaden independent-import ownership/external-mapping failures, editable child moves/retirement, preview resource failures and journal/acceptance faults; preserve IDs and atomic publication; [eight-profile Windows/Linux checks](verification/verification-managed-reference-faults-2026-10-21.md). | — |
+| [x] | MR02a | — | Eight existing C++ profiles reject six external-map failures, five ownership-attachment failures and corrupt zero/duplicate source IDs without publishing state/history, then recover successfully. Five added tests per profile are part of 184 passing GTests; [2.16 batch evidence](verification/verification-pending-batch-2026-10-20.md). Wider preview/journal/acceptance gates are qualified by MR02. | — |
 | [ ] | MR03 | — | Define and qualify managed token codecs for other generated outputs; keep these distinct from full native managed engines. Resolve currently rejected recursive generic/reference combinations only under an explicit supported contract. | — |
 | [x] | MR04 | — | Typed C++ managed_ref, get_id, stable class_id and registry reference/resolution; document/type scope and complete-candidate validation (2.7 Windows direct/separated fixed/compact uint32/uint64 profiles; [evidence](verification/verification-opc-xsd-2026-10-19.md)). | Existing C++ managed runtime |
 | [x] | MR05 | — | Initialize required/self/cyclic managed references after native identity assignment and before first validation/publication/history snapshot (2.7 C++ typed-reference profiles; [evidence](verification/verification-opc-xsd-2026-10-19.md)). | MR04 |
@@ -150,7 +156,7 @@ and actual SDK checks before the parent requirement can be checked.
 | [ ] | XML-B14 | — | Model coverage: Broaden concrete generic, owning inheritance, revision/magic and digest combinations; define supported managed/view and recursive/combined graph contracts. | — |
 | [ ] | XML-B15 | — | Referenced XML output: Broaden stress/resource and ownership qualification without duplicate owning payloads; define any durable field-address XML contract before enabling it. | — |
 | [x] | XML-B16 | — | Compression parity: Complete whole-object source/sink wrappers and identical framing/error/limit contracts across every output; qualify optional Zstandard/LZ4 adapters; [qualification](verification/verification-compression-parity-2026-10-20.md). | — |
-| [ ] | XML-B17 | — | Package parity: Complete ZIP/OPC source/sink, metadata, shared budgets and full-Save guarantees across every output. | — |
+| [x] | XML-B17 | — | Package parity: Complete ZIP/OPC source/sink, metadata, shared budgets and full-Save guarantees across every output; [eleven-output completion and limits](verification/verification-managed-reference-faults-2026-10-21.md#package-parent-reconciliation). | — |
 | [ ] | XML-B18 | — | ZIP extensions: Broaden large-archive, stress and provider coverage; qualify ZIP64/spooling, peak-memory and cancellation boundaries in every backend; unsupported features reject explicitly. | — |
 | [ ] | XML-B19 | — | Typed profiles: Extend C++/Python declarations with pipeline/runtime selection, vocabulary profiles and generated payload reference checks before publication; implement equivalent contracts in other backends. | — |
 | [ ] | XML-B20 | — | Typed package loading: Complete generated transactional profiles and automatic codec/reference budgets in every backend; caller-owned callbacks compose selected codecs with the same shared context. | — |

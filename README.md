@@ -38,11 +38,18 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.17.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.17.1**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.21.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.17.1** fixes initial C++ collaboration joins of documents containing
+typed managed references. Incoming references use the staged authority namespace
+while the client retains its application validation policy; rejected joins leave
+the placeholder state intact. Existing schemas, APIs and saved formats retain
+their contracts. See [local synchronization](docs/managed/local_collaboration.md)
+and the [reference failure/recovery matrix](docs/verification/verification-managed-reference-faults-2026-10-21.md).
 
 Release **2.17.0** adds [generated package policies and application references](docs/serialization/package_application_contracts.md).
 Generated [C](docs/languages/c_packages.md), [Rust](docs/languages/rust_packages.md)

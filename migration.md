@@ -1,5 +1,15 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.17.1
+
+Rebuild C++ applications against matching runtime headers. A fresh local
+collaboration client can now join a valid authority baseline containing typed
+managed references: validation uses the staged authority namespace while retaining
+the original client application policy. Foreign references and policy failures
+still reject before publishing the incoming model. Existing schema language
+1.21.0, native model APIs, identities, journals and client checkpoints require no
+migration. See [local synchronization](docs/managed/local_collaboration.md).
+
 ## Compiler/runtime 2.17.0
 
 Regenerate affected package/XML output and rebuild C++ applications against matching

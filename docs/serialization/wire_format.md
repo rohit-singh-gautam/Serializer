@@ -1,5 +1,9 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.17.1** corrects the validation namespace used by a C++ client's
+initial collaboration join. Native codecs, managed tokens, journals and client
+checkpoints retain their existing representations; no payload revision changes.
+
 Compiler/runtime **2.17.0** adds language **1.21.0** declarative package policies
 and typed application keys/references. These are validation metadata without extra
 native fields, wire IDs or private ZIP framing. Stored/DEFLATE choices use existing

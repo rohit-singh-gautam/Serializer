@@ -46,6 +46,20 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
+The current compiler/runtime release is **2.17.1**, with schema language
+**1.21.0**. Preserve the supported native managed identity, transaction,
+preview, journal and collaboration contracts when composing those features.
+For local collaboration, attach a fresh placeholder store before editing or
+creating its client journal. Initial join validates typed references against the
+staged authority namespace and retains the original client policy. A rejected
+join must not publish the incoming root or adopt its document namespace; correct
+the rejected input or policy before retrying. Rebuild C++ consumers for the
+2.17.1 initial-join fix; schema language and saved formats are unchanged.
+Use the [native reference qualification record](../../../docs/verification/verification-managed-reference-faults-2026-10-21.md)
+for actual ID/storage profiles and failure/recovery boundaries. Root/control-block
+allocation hooks and resident admission estimates do not replace allocators in
+generated standard-library payload containers.
+
 Compiler/runtime **2.17.0** adds language **1.21.0** package `policy(fixed|defaults)`,
 `key("scope", field)` and `reference("scope", field, target_role)` declarations.
 Use generated checks for direct public persistent string/integer selectors before

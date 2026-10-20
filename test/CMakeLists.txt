@@ -829,7 +829,9 @@ if(SERIALIZER_BUILD_MANAGED)
   # Exercise typed tokens and ID payloads with both policies, widths and storage representations.
   foreach(registry_profile IN ITEMS direct32 separate32 direct64 separate64 fixed32 fixed64 fixed_separate32 fixed_separate64)
     add_executable(managed_entity_references_${registry_profile}_test
-      managed_entity_references_test.cpp managed_identified_baseline_test.cpp)
+      managed_entity_references_test.cpp managed_identified_baseline_test.cpp
+      managed_reference_journal_test.cpp managed_preview_resources_test.cpp
+      managed_reference_collaboration_test.cpp)
     serializer_generate(TARGET managed_entity_references_${registry_profile}_test
       SCHEMAS resources/managed_entity_references.serializer
       CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/managed_entity_references_${registry_profile}.ini"
@@ -844,6 +846,37 @@ if(SERIALIZER_BUILD_MANAGED)
       target_compile_options(managed_entity_references_${registry_profile}_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME managed_entity_references_${registry_profile}_test COMMAND managed_entity_references_${registry_profile}_test)
+
+    add_executable(managed_reference_crash_${registry_profile} managed_reference_crash_helper.cpp)
+    add_dependencies(managed_reference_crash_${registry_profile} managed_entity_references_${registry_profile}_test)
+    target_include_directories(managed_reference_crash_${registry_profile} PRIVATE
+      "${CMAKE_CURRENT_BINARY_DIR}/managed_entity_references_${registry_profile}")
+    target_link_libraries(managed_reference_crash_${registry_profile} PRIVATE Serializer::managed)
+    if(MSVC)
+      target_compile_options(managed_reference_crash_${registry_profile} PRIVATE /W4 /WX)
+    else()
+      target_compile_options(managed_reference_crash_${registry_profile} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    if(Python3_Interpreter_FOUND)
+      add_test(NAME managed_reference_crash_${registry_profile}_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/managed_reference_crash_test.py"
+          --helper "$<TARGET_FILE:managed_reference_crash_${registry_profile}>"
+          --directory "${CMAKE_CURRENT_BINARY_DIR}/managed_reference_crash_${registry_profile}"
+          --profile "${registry_profile}")
+    endif()
+
+    add_executable(managed_editable_ownership_${registry_profile}_test managed_editable_ownership_test.cpp)
+    serializer_generate(TARGET managed_editable_ownership_${registry_profile}_test
+      SCHEMAS resources/managed_editable_ownership.serializer
+      CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/managed_editable_ownership_${registry_profile}.ini"
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_editable_ownership_${registry_profile}")
+    target_link_libraries(managed_editable_ownership_${registry_profile}_test PRIVATE Serializer::managed GTest::gtest_main)
+    if(MSVC)
+      target_compile_options(managed_editable_ownership_${registry_profile}_test PRIVATE /W4 /WX)
+    else()
+      target_compile_options(managed_editable_ownership_${registry_profile}_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME managed_editable_ownership_${registry_profile}_test COMMAND managed_editable_ownership_${registry_profile}_test)
   endforeach()
   # Exercise snapshot-local registries with both identity widths and storage representations.
   foreach(registry_profile IN ITEMS direct32 separate32 direct64 separate64)

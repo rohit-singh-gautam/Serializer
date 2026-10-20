@@ -10,9 +10,11 @@ and undo/deletion never renumber survivors. Explicit member boundaries still app
 Status: broader design contract. The [C++ interface](cpp_runtime.md) implements
 bare `managed` declarations, generated storage/conversions/editors, central ID type
 configuration, all three transaction forms, linear/tree snapshots, and memory
-save/load. `exclude(...)`, `transient`, capability selectors, notifications, custom
-allocation, and optimized entity/delta storage remain proposals. Use the runtime
-guide for exact generated names and currently available APIs.
+save/load. Generated transient fields, publication callbacks and scoped
+root/control-block allocation hooks are implemented. Arbitrary `exclude(...)`,
+capability selectors, field-specific notification policies, allocator-aware
+payload containers and optimized entity/delta storage remain proposals. Use the
+runtime guide for exact generated names and currently available APIs.
 
 See the [design index](README.md), [concrete data structures](data_structures.md),
 and [C++/other-language bindings](language_bindings.md) for the store template,

@@ -43,6 +43,13 @@ store for initial join: the baseline replaces its constructor value. Attach befo
 editing or creating the client journal. Transactions before join are rejected.
 An existing ordinary document journal is not converted by attaching collaboration.
 
+Compiler/runtime **2.17.1** fixes initial joins when the authority's baseline
+contains typed `managed_ref` values. Validation uses the staged authority document
+namespace before adopting it, and still runs the client's original application
+policy. Foreign typed tokens and policy failures reject without replacing the
+placeholder root, document namespace or history. A corrected join can be retried.
+Rebuild C++ clients against matching headers; no checkpoint migration is needed.
+
 All three existing transaction forms work: explicit `commit`, scoped completion,
 and `execute_transaction`. Generated setters edit locally inside the transaction;
 successful commit publishes the complete local document and queues its change.
