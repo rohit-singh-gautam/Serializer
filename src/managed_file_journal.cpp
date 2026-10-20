@@ -4,10 +4,14 @@
 #include <rohit/managed_file_journal.hpp>
 
 #include <rohit/file_stream.hpp>
+#include <rohit/digest.hpp>
 #include <rohit/managed_journal.hpp>
 #include <rohit/managed_journal_stream.hpp>
+#include "managed_journal_delta.hpp"
+#include "managed_journal_document.hpp"
 
 #include <array>
+#include <algorithm>
 #include <exception>
 #include <limits>
 #include <random>
@@ -21,6 +25,7 @@ using bytes = std::vector<std::uint8_t>;
 constexpr std::size_t file_header_bytes = 9 * wire_word_bytes;
 constexpr std::uint64_t file_magic = 0x314c4e4a5a5253;
 constexpr std::uint64_t record_version = 2;
+constexpr std::uint64_t differential_record_version = 3;
 constexpr std::uint64_t base_file_kind = 1;
 constexpr std::uint64_t sidecar_file_kind = 2;
 
@@ -54,6 +59,7 @@ struct file_header {
   std::uint64_t generation_low{};
   std::uint64_t sequence{};
   std::uint64_t base_digest{};
+  std::uint64_t version{record_version};
 };
 
 // Encode a versioned header binding physical mode, generation, sequence, and base frame checksum.
@@ -61,7 +67,7 @@ bytes encode_header(const file_header& header) {
   bytes result;
   result.reserve(file_header_bytes);
   for (const auto word :
-       {file_magic, record_version, static_cast<std::uint64_t>(header.mode), header.kind,
+       {file_magic, header.version, static_cast<std::uint64_t>(header.mode), header.kind,
         header.generation_high, header.generation_low, header.sequence, header.base_digest}) {
     put_word(result, word);
   }
@@ -75,13 +81,15 @@ file_header decode_header(std::span<const std::uint8_t> input, std::uint64_t kin
     throw std::invalid_argument{"Incomplete managed journal header"};
   }
   const auto header = input.first(file_header_bytes);
-  if (get_word(header, 0) != file_magic || get_word(header, 1) != record_version ||
+  if (get_word(header, 0) != file_magic ||
+      (get_word(header, 1) != record_version && get_word(header, 1) != differential_record_version) ||
       get_word(header, 3) != kind ||
       checksum(header.first(file_header_bytes - wire_word_bytes)) != get_word(header, 8)) {
     throw std::invalid_argument{"Invalid managed journal header"};
   }
   const auto mode = static_cast<journal_storage_mode>(get_word(header, 2));
   if ((mode != journal_storage_mode::appended && mode != journal_storage_mode::sidecar) ||
+      (mode == journal_storage_mode::appended && get_word(header, 1) != record_version) ||
       (get_word(header, 4) == 0 && get_word(header, 5) == 0)) {
     throw std::invalid_argument{"Invalid managed journal mode or generation"};
   }
@@ -90,7 +98,8 @@ file_header decode_header(std::span<const std::uint8_t> input, std::uint64_t kin
           get_word(header, 4),
           get_word(header, 5),
           get_word(header, 6),
-          get_word(header, 7)};
+          get_word(header, 7),
+          get_word(header, 1)};
 }
 
 // Derive companion/staging names from a random generation; filenames alone never establish binding.
@@ -132,7 +141,8 @@ public:
   // Build a new file-backed baseline without overwriting existing data.
   static std::unique_ptr<file_journal> create(const std::filesystem::path& path,
                                               journal_storage_mode mode, const bytes& envelope,
-                                              journal_options options, bool& indeterminate);
+                                              journal_options options, bool& indeterminate,
+                                              std::span<const std::uint8_t> document);
   // Validate container identity and replay its ordered records before tail repair.
   static std::unique_ptr<file_journal>
   recover(const std::filesystem::path& path, journal_options options,
@@ -144,6 +154,10 @@ public:
               std::span<const std::uint8_t> snapshot) override;
   // Atomically replace the base and rotate the selected companion.
   void save(const bytes& envelope) override;
+  // Publish arbitrary document bytes together with their differential managed checkpoint.
+  void save_document(const bytes& envelope, std::span<const std::uint8_t> document) override;
+  // Let the store supply the normalized model only when an external document adapter is active.
+  bool uses_document_codec() const noexcept override;
   // Read only the selected full-Save baseline while retaining the existing writer lock.
   bytes saved_envelope() const override;
   // Publish a restored envelope with a fresh operation sequence.
@@ -164,9 +178,20 @@ struct file_journal::implementation {
   std::uint64_t sequence{};
   std::uint64_t digest{};
   std::size_t append_offset{};
+  std::size_t replay_bytes{};
   bool fenced{};
   bool recovering{};
   bool incomplete_tail{};
+  std::unique_ptr<journal_delta_base> delta{};
+  journal_document_manifest manifest{};
+  bool pending_manifest{};
+
+  // Use a stable side-channel manifest without adding managed data to application document bytes.
+  std::filesystem::path manifest_path(bool pending = false) const {
+    auto result = path;
+    result += pending ? ".journal.pending" : ".journal";
+    return result;
+  }
 
   // Invoke qualification hooks only at documented I/O boundaries.
   void event(journal_io_event point) const {
@@ -190,12 +215,26 @@ struct file_journal::implementation {
     }
   }
 
+  // Bound expansion over the complete generation so small patches cannot imply unlimited replay.
+  void check_replay(std::size_t prefix, std::size_t payload) const {
+    if (prefix > options.max_replay_bytes || payload > options.max_replay_bytes - prefix) {
+      throw std::length_error{"Managed journal replay budget exceeded; perform a full Save"};
+    }
+  }
+
   // Install a fully flushed generation; until replacement, every failure leaves the old base valid.
   void replace(const bytes& envelope, journal_storage_mode mode, bool existing,
-               bool advance_sequence = false) {
+               bool advance_sequence = false, std::span<const std::uint8_t> document = {}) {
     require_ready();
     if (mode != journal_storage_mode::appended && mode != journal_storage_mode::sidecar) {
       throw std::invalid_argument{"Unsupported managed journal storage mode"};
+    }
+    if (options.document_codec) {
+      replace_document(envelope, mode, existing, advance_sequence, document);
+      return;
+    }
+    if (mode == journal_storage_mode::sidecar) {
+      check_replay(0, envelope.size());
     }
     check_size(file_header_bytes, envelope.size());
     if (advance_sequence && sequence == std::numeric_limits<std::uint64_t>::max()) {
@@ -203,10 +242,14 @@ struct file_journal::implementation {
     }
     const auto replacement_sequence = sequence + static_cast<std::uint64_t>(advance_sequence);
     auto frame = encode_frame({envelope}, replacement_sequence, 0, options);
+    auto next_delta = mode == journal_storage_mode::sidecar
+                          ? std::make_unique<journal_delta_base>(bytes{envelope}) : nullptr;
     std::random_device entropy;
     std::uniform_int_distribution<std::uint64_t> word;
     file_header replacement{mode,          base_file_kind, word(entropy),
-                            word(entropy), replacement_sequence, frame.digest};
+                            word(entropy), replacement_sequence, frame.digest,
+                            mode == journal_storage_mode::sidecar ? differential_record_version
+                                                                 : record_version};
     if (replacement.generation_high == 0 && replacement.generation_low == 0) {
       replacement.generation_low = 1;
     }
@@ -263,6 +306,8 @@ struct file_journal::implementation {
     sequence = replacement_sequence;
     append_path.swap(destination);
     writer.swap(next_writer);
+    delta.swap(next_delta);
+    replay_bytes = envelope.size();
     digest = frame.digest;
     append_offset = mode == journal_storage_mode::appended
                         ? file_header_bytes + frame_overhead_bytes + envelope.size()
@@ -277,12 +322,131 @@ struct file_journal::implementation {
     } catch (...) {
     }
   }
+
+  // Stage a data-only file and sidecar before publishing a recoverable two-file decision.
+  void replace_document(const bytes& envelope, journal_storage_mode mode, bool existing,
+                         bool advance_sequence, std::span<const std::uint8_t> document);
 };
+
+// Bind a new managed checkpoint to exactly the document bytes selected by its durable manifest.
+void file_journal::implementation::replace_document(
+    const bytes& envelope, journal_storage_mode mode, bool existing, bool advance_sequence,
+    std::span<const std::uint8_t> document) {
+  if (mode != journal_storage_mode::sidecar || document.empty()) {
+    throw std::invalid_argument{"Document codecs require a sidecar and a canonical root"};
+  }
+  const auto& codec = *options.document_codec;
+  if (codec.format.empty() || !codec.encode || !codec.decode) {
+    throw std::invalid_argument{"Incomplete journal document codec"};
+  }
+  if (existing && !document_matches(manifest, read_file(path, options))) {
+    throw std::invalid_argument{"Saved journal document changed under its writer lock"};
+  }
+  check_replay(0, envelope.size());
+  if (envelope.size() > options.max_record_bytes) {
+    throw std::length_error{"Managed document checkpoint budget exceeded"};
+  }
+  if (advance_sequence && sequence == std::numeric_limits<std::uint64_t>::max()) {
+    throw std::overflow_error{"Managed journal sequence exhausted"};
+  }
+  const bool attach_existing = !existing && std::filesystem::exists(path);
+  const bool preserve_document = attach_existing || advance_sequence;
+  auto document_bytes = preserve_document ? read_file(path, options) : codec.encode(document);
+  if (document_bytes.size() > options.max_file_bytes) {
+    throw std::length_error{"Managed document file budget exceeded"};
+  }
+  const auto roundtrip = codec.decode(document_bytes);
+  if (roundtrip.size() > options.max_record_bytes ||
+      roundtrip.size() != document.size() ||
+      !std::equal(roundtrip.begin(), roundtrip.end(), document.begin())) {
+    throw std::invalid_argument{"Journal document codec does not preserve the canonical model"};
+  }
+  auto next_delta = std::make_unique<journal_delta_base>(bytes{document.begin(), document.end()});
+  const auto checkpoint = next_delta->encode({envelope}, options.max_record_bytes);
+  check_size(file_header_bytes, checkpoint.size());
+  const auto replacement_sequence = sequence + static_cast<std::uint64_t>(advance_sequence);
+  const auto frame = encode_frame({checkpoint}, replacement_sequence, 0, options);
+  std::random_device entropy;
+  std::uniform_int_distribution<std::uint64_t> word;
+  file_header replacement{mode, base_file_kind, word(entropy), word(entropy), replacement_sequence,
+                          frame.digest, differential_record_version};
+  if (replacement.generation_high == 0 && replacement.generation_low == 0) {
+    replacement.generation_low = 1;
+  }
+  auto destination = generation_path(path, replacement, ".journal-");
+  const auto staging = generation_path(path, replacement, ".pending-");
+  auto manifest_staging = staging;
+  manifest_staging += ".manifest";
+  const auto old_sidecar = append_path;
+  const auto encoded_header = encode_header(replacement);
+  journal_document_manifest next_manifest;
+  std::copy(encoded_header.begin(), encoded_header.end(), next_manifest.header.begin());
+  next_manifest.document_bytes = document_bytes.size();
+  next_manifest.document_digest = rohit::make_digest<rohit::digest_algorithm::sha256>(document_bytes);
+  next_manifest.codec = codec.format;
+  const auto manifest_bytes = encode_document_manifest(next_manifest, options.max_file_bytes);
+  auto companion = replacement;
+  companion.kind = sidecar_file_kind;
+  const auto companion_header = encode_header(companion);
+  auto next_writer = std::make_unique<file_stream>(destination, file_open_mode::create);
+  write_stream_bytes(*next_writer, companion_header);
+  write_frame(*next_writer, frame, {checkpoint}, {});
+  next_writer->sync();
+  sync_parent_directory(destination);
+  event(journal_io_event::after_sidecar_flush);
+  if (!preserve_document) {
+    file_stream output{staging, file_open_mode::create};
+    write_stream_bytes(output, document_bytes);
+    output.sync();
+  }
+  {
+    file_stream output{manifest_staging, file_open_mode::create};
+    write_stream_bytes(output, manifest_bytes);
+    output.sync();
+  }
+  event(journal_io_event::after_base_flush);
+  event(journal_io_event::before_replace);
+  try {
+    // The pending manifest is a durable recovery decision. A matching new document may be selected
+    // after any later interruption, including a metadata-only Save whose document bytes are equal.
+    publish_file(manifest_staging, manifest_path(true), false);
+    sync_parent_directory(path);
+    if (!preserve_document) {
+      publish_file(staging, path, std::filesystem::exists(path));
+      sync_parent_directory(path);
+    }
+    event(journal_io_event::after_replace);
+    publish_file(manifest_path(true), manifest_path(), existing);
+    sync_parent_directory(path);
+    event(journal_io_event::after_publish);
+  } catch (...) {
+    fenced = true;
+    throw nested_journal_error{"Managed document Save outcome is indeterminate"};
+  }
+  header = replacement;
+  sequence = replacement_sequence;
+  digest = frame.digest;
+  append_offset = file_header_bytes + frame_overhead_bytes + checkpoint.size();
+  append_path.swap(destination);
+  writer.swap(next_writer);
+  delta.swap(next_delta);
+  replay_bytes = envelope.size();
+  std::swap(manifest, next_manifest);
+  try {
+    event(journal_io_event::before_cleanup);
+    if (!old_sidecar.empty()) {
+      std::error_code ignored;
+      std::filesystem::remove(old_sidecar, ignored);
+    }
+  } catch (...) {
+  }
+}
 
 // Resolve the path once and keep the lock file stable across all base-file replacements.
 file_journal::file_journal(const std::filesystem::path& path, journal_options options)
     : state_{std::make_unique<implementation>()} {
   if (path.empty() || options.max_record_bytes == 0 ||
+      options.max_replay_bytes == 0 ||
       options.max_file_bytes < file_header_bytes + frame_overhead_bytes) {
     throw std::invalid_argument{"Invalid managed journal path or limits"};
   }
@@ -299,13 +463,17 @@ file_journal::~file_journal() = default;
 // Create a new baseline under exclusive ownership without replacing an existing document.
 std::unique_ptr<file_journal> file_journal::create(const std::filesystem::path& path,
                                                    journal_storage_mode mode, const bytes& envelope,
-                                                   journal_options options, bool& indeterminate) {
+                                                   journal_options options, bool& indeterminate,
+                                                   std::span<const std::uint8_t> document) {
   auto result = std::unique_ptr<file_journal>{new file_journal{path, std::move(options)}};
-  if (std::filesystem::exists(result->state_->path)) {
+  if ((!result->state_->options.document_codec && std::filesystem::exists(result->state_->path)) ||
+      (result->state_->options.document_codec &&
+       (std::filesystem::exists(result->state_->manifest_path()) ||
+        std::filesystem::exists(result->state_->manifest_path(true))))) {
     throw std::invalid_argument{"Managed journal document already exists"};
   }
   try {
-    result->state_->replace(envelope, mode, false);
+    result->state_->replace(envelope, mode, false, false, document);
   } catch (...) {
     // Preserve uncertainty even if allocating the richer exception itself failed.
     indeterminate = result->state_->fenced;
@@ -314,25 +482,88 @@ std::unique_ptr<file_journal> file_journal::create(const std::filesystem::path& 
   return result;
 }
 
-// Feed validated borrowed record slices to isolated replay; no extra payload buffer is allocated.
+// Validate physical frames and expand differential records before isolated managed replay.
 std::unique_ptr<file_journal>
 file_journal::recover(const std::filesystem::path& path, journal_options options,
                       const std::function<void(bool, std::span<const std::uint8_t>)>& consume) {
   auto result = std::unique_ptr<file_journal>{new file_journal{path, std::move(options)}};
   auto& state = *result->state_;
   auto input = read_file(state.path, state.options);
-  state.header = decode_header(input, base_file_kind);
+  const bool external = static_cast<bool>(state.options.document_codec);
+  if (external) {
+    const auto& codec = *state.options.document_codec;
+    if (codec.format.empty() || !codec.decode || !codec.encode) {
+      throw std::invalid_argument{"Incomplete journal document codec"};
+    }
+    std::optional<journal_document_manifest> saved;
+    std::optional<journal_document_manifest> pending;
+    if (std::filesystem::exists(state.manifest_path())) {
+      saved = decode_document_manifest(read_file(state.manifest_path(), state.options),
+                                        state.options.max_file_bytes);
+    }
+    if (std::filesystem::exists(state.manifest_path(true))) {
+      pending = decode_document_manifest(read_file(state.manifest_path(true), state.options),
+                                          state.options.max_file_bytes);
+    }
+    if (pending && document_matches(*pending, input)) {
+      state.manifest = std::move(*pending);
+      state.pending_manifest = true;
+    } else if (saved && document_matches(*saved, input)) {
+      state.manifest = std::move(*saved);
+    } else {
+      throw std::invalid_argument{"Journal document does not match its saved generation"};
+    }
+    if (state.manifest.codec != codec.format) {
+      throw std::invalid_argument{"Journal document codec does not match its saved format"};
+    }
+    state.header = decode_header(state.manifest.header, base_file_kind);
+    if (state.header.mode != journal_storage_mode::sidecar ||
+        state.header.version != differential_record_version) {
+      throw std::invalid_argument{"Invalid managed document journal mode or version"};
+    }
+    auto canonical = codec.decode(input);
+    if (canonical.empty() || canonical.size() > state.options.max_record_bytes) {
+      throw std::length_error{"Managed document canonical root budget exceeded"};
+    }
+    state.delta = std::make_unique<journal_delta_base>(std::move(canonical));
+    state.append_path = generation_path(state.path, state.header, ".journal-");
+    input = read_file(state.append_path, state.options);
+    auto companion = decode_header(input, sidecar_file_kind);
+    companion.kind = base_file_kind;
+    if (encode_header(companion) != encode_header(state.header)) {
+      throw std::invalid_argument{"Managed sidecar does not match its document generation"};
+    }
+  } else {
+    state.header = decode_header(input, base_file_kind);
+  }
   const auto baseline =
       read_file_frame(input, file_header_bytes, state.header.sequence, 0, state.options);
   if (!baseline || baseline->digest != state.header.base_digest) {
     throw std::invalid_argument{"Incomplete or mismatched managed journal base"};
   }
-  consume(true, baseline->payload);
+  if (external) {
+    const auto envelope = state.delta->decode(baseline->payload,
+        state.options.max_record_bytes, state.options.max_replay_bytes);
+    state.replay_bytes = envelope.size();
+    consume(true, envelope);
+  } else {
+    if (state.header.version == differential_record_version) {
+      state.check_replay(0, baseline->payload.size());
+      state.replay_bytes = baseline->payload.size();
+    }
+    consume(true, baseline->payload);
+    if (state.header.version == differential_record_version) {
+      state.delta = std::make_unique<journal_delta_base>(
+          bytes{baseline->payload.begin(), baseline->payload.end()});
+    }
+  }
   state.sequence = state.header.sequence;
   state.digest = baseline->digest;
   state.append_offset = baseline->end_offset;
-  state.append_path = state.path;
-  if (state.header.mode == journal_storage_mode::sidecar) {
+  if (!external) {
+    state.append_path = state.path;
+  }
+  if (!external && state.header.mode == journal_storage_mode::sidecar) {
     if (state.append_offset != input.size()) {
       throw std::invalid_argument{"Trailing bytes in managed sidecar base"};
     }
@@ -358,7 +589,15 @@ file_journal::recover(const std::filesystem::path& path, journal_options options
     ++state.sequence;
     state.digest = frame->digest;
     state.append_offset = frame->end_offset;
-    consume(false, frame->payload);
+    if (state.delta) {
+      const auto remaining = state.options.max_replay_bytes - state.replay_bytes;
+      const auto record = state.delta->decode(frame->payload,
+          state.options.max_record_bytes, remaining);
+      state.replay_bytes += record.size();
+      consume(false, record);
+    } else {
+      consume(false, frame->payload);
+    }
   }
   state.recovering = true;
   return result;
@@ -382,6 +621,17 @@ void file_journal::finish_recovery() {
     writer->sync();
     // A previous Save may have failed after rename but before directory flush.
     sync_parent_directory(state.path);
+    if (state.options.document_codec) {
+      if (state.pending_manifest) {
+        publish_file(state.manifest_path(true), state.manifest_path(),
+                       std::filesystem::exists(state.manifest_path()));
+        sync_parent_directory(state.path);
+      } else if (std::filesystem::exists(state.manifest_path(true))) {
+        std::filesystem::remove(state.manifest_path(true));
+        sync_parent_directory(state.path);
+      }
+      state.pending_manifest = false;
+    }
     state.writer.swap(writer);
     state.recovering = false;
   } catch (...) {
@@ -390,7 +640,7 @@ void file_journal::finish_recovery() {
   }
 }
 
-// Write prefix/optional label/already encoded snapshot without combining or copying their buffers.
+// Prepare sidecar differences before I/O; the appended path continues to borrow its original buffers.
 void file_journal::append(std::span<const std::uint8_t> prefix, std::span<const std::uint8_t> label,
                           std::span<const std::uint8_t> snapshot) {
   auto& state = *state_;
@@ -398,14 +648,29 @@ void file_journal::append(std::span<const std::uint8_t> prefix, std::span<const 
   if (state.sequence == std::numeric_limits<std::uint64_t>::max()) {
     throw std::overflow_error{"Managed journal sequence exhausted"};
   }
-  const auto frame =
-      encode_frame({prefix, label, snapshot}, state.sequence + 1, state.digest, state.options);
+  std::size_t logical_bytes{};
+  if (state.delta) {
+    for (const auto part : {prefix, label, snapshot}) {
+      if (part.size() > state.options.max_record_bytes - logical_bytes) {
+        throw std::length_error{"Managed journal logical record budget exceeded"};
+      }
+      logical_bytes += part.size();
+    }
+    state.check_replay(state.replay_bytes, logical_bytes);
+  }
+  const auto patch = state.delta ? state.delta->encode({prefix, label, snapshot},
+                                                        state.options.max_record_bytes) : bytes{};
+  const std::initializer_list<std::span<const std::uint8_t>> parts{
+      state.delta ? std::span<const std::uint8_t>{patch} : prefix,
+      state.delta ? std::span<const std::uint8_t>{} : label,
+      state.delta ? std::span<const std::uint8_t>{} : snapshot};
+  const auto frame = encode_frame(parts, state.sequence + 1, state.digest, state.options);
   state.check_size(state.append_offset, frame.payload_bytes);
   // The exclusive writer retains its positioned handle; edits do not reopen or seek the file.
   auto& output = *state.writer;
   state.event(journal_io_event::before_append);
   try {
-    write_frame(output, frame, {prefix, label, snapshot}, state.options);
+    write_frame(output, frame, parts, state.options);
     output.sync();
     state.event(journal_io_event::after_flush);
   } catch (...) {
@@ -415,17 +680,53 @@ void file_journal::append(std::span<const std::uint8_t> prefix, std::span<const 
   ++state.sequence;
   state.digest = frame.digest;
   state.append_offset += frame_overhead_bytes + frame.payload_bytes;
+  state.replay_bytes += logical_bytes;
 }
 
 // A synchronous full Save covers the current durable sequence and retains the complete envelope.
 void file_journal::save(const bytes& envelope) {
-  state_->replace(envelope, state_->header.mode, true);
+  const auto document = state_->options.document_codec
+                            ? std::span<const std::uint8_t>{state_->delta->bytes()}
+                            : std::span<const std::uint8_t>{};
+  state_->replace(envelope, state_->header.mode, true, false, document);
+}
+
+// Save the external data projection and its managed metadata as one recoverable generation.
+void file_journal::save_document(const bytes& envelope, std::span<const std::uint8_t> document) {
+  state_->replace(envelope, state_->header.mode, true, false, document);
+}
+
+// Keep projection work out of native and legacy journal Save paths.
+bool file_journal::uses_document_codec() const noexcept {
+  return static_cast<bool>(state_->options.document_codec);
 }
 
 // Decode the saved frame lazily, without replaying or retaining the unsaved suffix.
 bytes file_journal::saved_envelope() const {
   const auto& state = *state_;
   state.require_ready();
+  if (state.options.document_codec) {
+    const auto document = read_file(state.path, state.options);
+    if (!document_matches(state.manifest, document)) {
+      throw std::invalid_argument{"Saved journal document changed under its writer lock"};
+    }
+    file_stream companion{state.append_path, file_open_mode::read_shared};
+    if (companion.size() > state.options.max_file_bytes) {
+      throw std::length_error{"Managed journal file budget exceeded"};
+    }
+    std::array<std::uint8_t, file_header_bytes> header_bytes{};
+    read_stream_exact(companion, header_bytes);
+    auto header = decode_header(header_bytes, sidecar_file_kind);
+    header.kind = base_file_kind;
+    if (encode_header(header) != encode_header(state.header)) {
+      throw std::invalid_argument{"Saved document journal generation changed under its writer lock"};
+    }
+    const auto baseline = read_journal_frame(companion, header.sequence, 0, state.options);
+    if (!baseline || baseline->digest != header.base_digest) {
+      throw std::invalid_argument{"Incomplete saved document journal baseline"};
+    }
+    return state.delta->decode(baseline->payload(), state.options.max_record_bytes);
+  }
   // The stable journal lock supplies synchronization; normal read sharing remains unchanged.
   file_stream input{state.path, file_open_mode::read_shared};
   const auto size = input.size();
@@ -439,6 +740,7 @@ bytes file_journal::saved_envelope() const {
   read_stream_exact(input, header_bytes);
   const auto header = decode_header(header_bytes, base_file_kind);
   if (header.mode != state.header.mode || header.sequence != state.header.sequence ||
+      header.version != state.header.version ||
       header.generation_high != state.header.generation_high ||
       header.generation_low != state.header.generation_low ||
       header.base_digest != state.header.base_digest) {
@@ -456,7 +758,10 @@ bytes file_journal::saved_envelope() const {
 
 // Restore saved content through the same atomic, fenced generation replacement as full Save.
 void file_journal::discard(const bytes& envelope) {
-  state_->replace(envelope, state_->header.mode, true, true);
+  const auto document = state_->options.document_codec
+                            ? std::span<const std::uint8_t>{state_->delta->bytes()}
+                            : std::span<const std::uint8_t>{};
+  state_->replace(envelope, state_->header.mode, true, true, document);
 }
 
 // Return the monotonically increasing durable operation position, independently of history cursors.
@@ -475,8 +780,9 @@ bool file_journal::needs_recovery() const noexcept {
 std::unique_ptr<journal_sink> create_file_journal(const std::filesystem::path& path,
                                                   journal_storage_mode mode,
                                                   const std::vector<std::uint8_t>& envelope,
-                                                  journal_options options, bool& indeterminate) {
-  return file_journal::create(path, mode, envelope, std::move(options), indeterminate);
+                                                  journal_options options, bool& indeterminate,
+                                                  std::span<const std::uint8_t> document) {
+  return file_journal::create(path, mode, envelope, std::move(options), indeterminate, document);
 }
 
 // Return the same sink interface after file-specific generation selection and stream replay.

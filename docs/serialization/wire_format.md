@@ -1,5 +1,20 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.13.0** adds
+[version-three differential sidecars](../managed/journal.md#version-three-differential-sidecars).
+Native base envelopes and logical model/history/collaboration records keep their
+existing codecs. Sidecar physical payloads use bounded copy/literal instructions
+against saved bytes; appended mode remains version 2 and the default API mode.
+Version-two sidecars remain readable/writable until explicit full Save upgrades
+their generation. Older runtimes reject version 3.
+
+An optional external-document codec keeps the main file in an application format.
+Its separate manifest binds exact document length/SHA-256, codec ID and native
+generation; identity/history/session checkpoint differences remain in the
+companion. Main documents do not contain journal or session records. This generic
+callback adapter does not define a new JSON/XML/OPC standard or change protocol
+numbers. Schema language remains **1.20.0**.
+
 Compiler/runtime **2.12.0** adds generated token traversals and selected shared
 XML mappings. Explicit nil remains the expanded `xsi:nil` attribute; absence and
 empty scalar/collection values remain distinct. The selected identity mappings
@@ -297,13 +312,15 @@ Version-one linear/disabled saves and cross-label-policy loads are rejected; no
 automatic migration is provided. Persistent object IDs and their high-water marks are
 preserved independently of history. Over-budget imports fail without pruning.
 
-The [version-two journal container](../managed/journal.md#version-two-file-contract)
-uses these unchanged envelopes for its base. Subsequent frames contain one existing
-serialized root snapshot or a small control record. Length/checksum framing,
+The [journal container](../managed/journal.md#version-three-differential-sidecars)
+uses these unchanged envelopes for its native base. Logical subsequent frames
+contain one existing serialized root snapshot or a small control record;
+version-three sidecars encode those payloads as copy/literal differences.
+Length/checksum framing,
 implicit sequence chaining, commit CRCs, and base/sidecar generation binding protect
 recovery. It is a separate file format,
 not trailing bytes accepted by ordinary exact-message decoding. Collaboration
-wire protocols remain proposals.
+client wrappers use the separate records documented below.
 
 The file-stream/journal-stream refactor preserves the managed journal version-two
 framing byte for byte. Memory buffers, standard byte streams, and `file_stream`
@@ -837,6 +854,8 @@ Store clients use separate generated records; authority messages and protocol
 versions 5/6/7/8 are unchanged. The native journal frame payload is a bounded
 `binary_integer` `client_checkpoint` with kind (field 1), model bytes (2),
 `client_state` (3), and binding string `serializer.collaboration.client.v2` (4).
+This describes the reconstructed logical payload; version-three sidecars encode
+it differentially before physical framing.
 Kind 1 contains a complete native managed envelope; kind 2 contains a native journal
 operation, possibly empty. Kind is a wrapper discriminator, not a native journal
 operation tag. Existing file framing/CRC/flush rules enclose the entire pair.

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.12.1 LANGUAGES CXX)
+project(serializer VERSION 2.13.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.20.0)
@@ -52,6 +52,9 @@ add_library(serializer_runtime
   src/file_stream.cpp
   include/rohit/file_stream.hpp
   src/managed_file_journal.cpp
+  src/managed_journal_delta.cpp
+  src/managed_journal_document.cpp
+  include/rohit/managed_journal_document.hpp
   include/rohit/managed_file_journal.hpp
   include/rohit/managed_journal_stream.hpp
   src/managed_journal.cpp

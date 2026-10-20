@@ -1013,7 +1013,7 @@ TEST_P(managed_journal_test, unlabeled_tree_recovery) {
   EXPECT_EQ(store.read()->name, "Two");
 }
 
-// Each edit writes the existing snapshot once, with constant framing independent of retained history.
+// Native appended records retain exact framing; sidecar transport adds bounded differential metadata.
 TEST_P(managed_journal_test, append_size_is_snapshot_plus_constant_metadata) {
   store_type store{ledger{"Base"}};
   store.create_journal(path_, GetParam());
@@ -1025,13 +1025,21 @@ TEST_P(managed_journal_test, append_size_is_snapshot_plus_constant_metadata) {
     const auto name = "Snapshot " + std::to_string(index);
     rename(store, name.c_str()).throw_if_failed();
     const auto snapshot = managed::detail::encode(*store.read());
-    EXPECT_EQ(std::filesystem::file_size(physical) - before,
-              snapshot.size() + edit_metadata_bytes + frame_header_bytes + frame_footer_bytes);
+    const auto appended_bytes = std::filesystem::file_size(physical) - before;
+    const auto flat_bytes = snapshot.size() + edit_metadata_bytes + frame_header_bytes + frame_footer_bytes;
+    if (GetParam() == mode::appended) {
+      EXPECT_EQ(appended_bytes, flat_bytes);
+    } else {
+      constexpr std::size_t maximum_fixture_patch_overhead_bytes = 80;
+      EXPECT_LE(appended_bytes, flat_bytes + maximum_fixture_patch_overhead_bytes);
+    }
   }
   auto before = std::filesystem::file_size(physical);
   store.undo();
-  EXPECT_EQ(std::filesystem::file_size(physical) - before,
-            control_bytes + frame_header_bytes + frame_footer_bytes);
+  constexpr std::size_t literal_delta_overhead_bytes = 5 * 8 + 1 + 8;
+  const auto control_frame_bytes = control_bytes + frame_header_bytes + frame_footer_bytes +
+      (GetParam() == mode::sidecar ? literal_delta_overhead_bytes : 0);
+  EXPECT_EQ(std::filesystem::file_size(physical) - before, control_frame_bytes);
   before = std::filesystem::file_size(physical);
   store
       .execute_transaction([](auto& tx) {
@@ -1039,8 +1047,7 @@ TEST_P(managed_journal_test, append_size_is_snapshot_plus_constant_metadata) {
         tx.revert();
       })
       .throw_if_failed();
-  EXPECT_EQ(std::filesystem::file_size(physical) - before,
-            control_bytes + frame_header_bytes + frame_footer_bytes);
+  EXPECT_EQ(std::filesystem::file_size(physical) - before, control_frame_bytes);
 }
 
 // Append inside managed_journal_test.cpp's anonymous namespace before suite instantiation.

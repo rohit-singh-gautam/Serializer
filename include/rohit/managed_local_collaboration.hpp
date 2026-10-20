@@ -138,6 +138,13 @@ private:
     void save(const std::vector<std::uint8_t>& bytes) override {
       sink->save(bytes);
     }
+    // Keep the data-only document and its complete pending session state in one saved generation.
+    void save_document(const std::vector<std::uint8_t>& bytes,
+                       std::span<const std::uint8_t> document) override {
+      sink->save_document(bytes, document);
+    }
+    // Forward the underlying document projection requirement to the owning store.
+    bool uses_document_codec() const noexcept override { return sink->uses_document_codec(); }
     // Expose the underlying durable sequence without creating another cursor.
     std::uint64_t sequence() const noexcept override {
       return sink->sequence();
@@ -1285,12 +1292,14 @@ public:
       auto journal = std::make_unique<client_journal>(*this);
       auto saved = store_.snapshot_;
       const auto bytes = save();
+      const auto document = options.document_codec ? store_.journal_document_snapshot()
+                                                   : std::vector<std::uint8_t>{};
       detail::resident_admission admission{
           store_.resident_auxiliary_, store_.estimate_auxiliary(
                                          store_.snapshot_, store_.identities_, store_.history_, &saved)};
       store_.journal_operation([&] {
         journal->sink = detail::create_file_journal(path, mode, bytes, std::move(options),
-                                                    store_.journal_state_.indeterminate);
+                                                    store_.journal_state_.indeterminate, document);
       });
       store_.journal_state_.saved_snapshot.swap(saved);
       store_.journal_state_.sink = std::move(journal);

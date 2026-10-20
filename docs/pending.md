@@ -248,24 +248,32 @@ ordinary owning model
 | Reproducibility | Extend independently checked canonical ordering/metadata policies across backends; compressed byte identity depends on provider/version/options. |
 | HTML | Separate HTML syntax/adapter. XML-form XHTML is limited by the implemented XML vocabulary; mixed-content XHTML is not supported. |
 
-The document-state bridge remains a separate substantial item:
+Runtime **2.13.0** supplies a generic C++ external-document journal adapter through
+caller-supplied owning encode/decode callbacks. It binds exact saved bytes, restores
+native identities/history/session state, and publishes differential companions
+with recoverable generation manifests. See the
+[document-codec workflow](guides/usage.md#external-documents-with-a-differential-sidecar).
+This implementation does not automatically generate XML/OPC document projections
+or close the complete standard-specific and platform qualification work below.
+The broader document-state integration remains a separate item:
 
 ```text
 editable application state
        |
        +-- full Save --> XML / ZIP / OPC file
        |
-       +-- binary_none side channels
+       +-- native differential side channels
              history / journal / collaboration
 ```
 
-It must preserve object identities, allocation marks, retained history and branch
-cursors; bind side channels to the exact saved baseline/layout; and recover a
-coherent old/new generation after interrupted publication. Stale/mismatched state
-must fail before decoding. Final document files must contain no Serializer
-history, active journal or session/outbox state. Native managed formats and
-[explicit ID-encoding migration](guides/persistent_id_migration.md) have separate
-contracts; they are not already this adapter.
+Qualification must cover object identities, allocation marks, retained history
+and branch cursors; exact saved-baseline/layout binding; and coherent old/new
+generation recovery after interrupted publication for each selected document
+format and provider. Stale/mismatched documents must fail before decoding. Final
+document files must contain no Serializer history, active journal or session/outbox
+state. The generic adapter keeps native `binary_integer` logical records behind
+its differential side channel; it is separate from
+[explicit ID-encoding migration](guides/persistent_id_migration.md).
 
 Compression is for **one complete serialized object**. Backend byte chunks are
 an implementation detail. Incremental record callbacks and incremental object
@@ -420,8 +428,11 @@ written. A failing case creates a bounded repair task and leaves its feature ope
 ### C++ document-state bridge tasks
 
 These native managed-engine tasks are additional to general backend parity.
-Every external document must remain free of history, journals and session/outbox
-state; internal `binary_none` side channels retain the existing native contract.
+The 2.13 generic caller-adapter implementation supplies shared mechanisms for
+several rows, but their complete format/provider/platform evidence remains open.
+Do not mark D01-D21 complete solely because generic callbacks exist. Every external
+document must remain free of history, journals and session/outbox state; native
+logical records retain their existing codecs inside the differential side channel.
 
 | ID | Cap | Depends on | Deliverable and completion check |
 | --- | --- | --- | --- |

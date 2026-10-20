@@ -1,15 +1,23 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <runtime_features.hpp>
+#include <rohit/file_stream.hpp>
 #include <rohit/managed.hpp>
+#include <rohit/managed_journal_document.hpp>
+#include <rohit/serializer.hpp>
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <utility>
+#include <vector>
 
 namespace {
 namespace managed = rohit::managed;
@@ -652,6 +660,166 @@ TEST(managed_runtime_features, comparison_failure_precedes_journal_acceptance) {
   store.set_publication_callback({});
   change_text(store, "Second").throw_if_failed();
   EXPECT_GT(std::filesystem::file_size(path), bytes);
+}
+
+// Own only one uniquely created temporary document and its manifest, companion and lock files.
+struct external_runtime_journal_fixture {
+  std::filesystem::path directory;
+  std::filesystem::path path;
+
+  // Keep generated physical fixtures outside source directories and unrelated user documents.
+  external_runtime_journal_fixture() {
+    const auto id = managed::make_document_id();
+    directory =
+        std::filesystem::temp_directory_path() /
+        ("serializer-external-runtime-" + std::to_string(id.high) + "-" + std::to_string(id.low));
+    if (!std::filesystem::create_directory(directory)) {
+      throw std::runtime_error{"Cannot create external runtime journal fixture"};
+    }
+    path = directory / "document.binary";
+  }
+
+  // Tests declare this fixture before stores so cleanup runs only after native handles close.
+  ~external_runtime_journal_fixture() {
+    std::error_code error;
+    std::filesystem::remove_all(directory, error);
+  }
+
+  // Locate the sole selected generation before a successful Save retires its predecessor.
+  std::filesystem::path companion() const {
+    const auto prefix = path.filename().string() + ".journal-";
+    for (const auto& item : std::filesystem::directory_iterator{directory}) {
+      if (item.path().filename().string().starts_with(prefix)) {
+        return item.path();
+      }
+    }
+    throw std::runtime_error{"Missing external runtime journal companion"};
+  }
+
+  // Read under the test's owner-thread synchronization while the native journal writer is open.
+  static std::vector<std::uint8_t> read(const std::filesystem::path& source) {
+    rohit::file_stream input{source, rohit::file_open_mode::read_shared};
+    std::vector<std::uint8_t> result(static_cast<std::size_t>(input.size()));
+    rohit::read_stream_exact(input, result);
+    return result;
+  }
+};
+
+// Adapt the owning root separately from its generated managed storage and runtime-only cache fields.
+managed::journal_options external_runtime_journal_options() {
+  managed::journal_options options;
+  options.document_codec = managed::make_journal_document_codec<root, traits>(
+      "application/x-serializer-binary-string",
+      [](const root& value) {
+        EXPECT_EQ(value.lookup_cache, 0u);
+        EXPECT_TRUE(value.lookup_buffer.empty());
+        rohit::full_stream_auto_alloc output;
+        value.serialize_out<rohit::serializer::binary_string>(output);
+        return std::vector<std::uint8_t>{output.begin(), output.begin() + output.current_offset()};
+      },
+      [](std::span<const std::uint8_t> input) {
+        const auto stream = rohit::make_constant_full_stream(input.data(), input.size());
+        return rohit::serializer::deserialize_exact<root, rohit::serializer::binary_string>(stream);
+      });
+  return options;
+}
+
+// Runtime-only edits do not change external document bytes, recovery records, sequence or dirty state.
+TEST(managed_runtime_features, external_document_runtime_edits_leave_all_durable_bytes_unchanged) {
+  external_runtime_journal_fixture fixture;
+  const auto options = external_runtime_journal_options();
+  std::uint32_t root_id{};
+  managed::document_id document;
+  {
+    store_type store{initial_value()};
+    document = store.document();
+    root_id = store.read()->persistent_id;
+    store.create_journal(fixture.path, managed::journal_storage_mode::sidecar, options);
+    const auto main = external_runtime_journal_fixture::read(fixture.path);
+    const auto companion = fixture.companion();
+    const auto recovery = external_runtime_journal_fixture::read(companion);
+    const auto manifest =
+        external_runtime_journal_fixture::read(fixture.path.string() + ".journal");
+    const auto sequence = store.journal_sequence();
+    const auto saved = store.save();
+    store
+        .update_runtime([](auto& edit) {
+          edit.root().set_lookup_cache(999);
+          edit.root().set_lookup_buffer(std::vector<std::uint8_t>(1024, 0xa5));
+        })
+        .throw_if_failed();
+    EXPECT_EQ(payload(store).lookup_cache, 999u);
+    EXPECT_EQ(payload(store).lookup_buffer.size(), 1024u);
+    EXPECT_EQ(store.journal_sequence(), sequence);
+    EXPECT_FALSE(store.journal_dirty());
+    EXPECT_EQ(store.history_cursor(), 0u);
+    EXPECT_EQ(store.save(), saved);
+    EXPECT_EQ(external_runtime_journal_fixture::read(fixture.path), main);
+    EXPECT_EQ(external_runtime_journal_fixture::read(companion), recovery);
+    EXPECT_EQ(external_runtime_journal_fixture::read(fixture.path.string() + ".journal"), manifest);
+  }
+  store_type recovered{initial_value()};
+  recovered.recover_journal(fixture.path, options);
+  EXPECT_EQ(recovered.document().high, document.high);
+  EXPECT_EQ(recovered.document().low, document.low);
+  EXPECT_EQ(recovered.read()->persistent_id, root_id);
+  EXPECT_EQ(payload(recovered).text, "First");
+  EXPECT_EQ(payload(recovered).lookup_cache, 0u);
+  EXPECT_TRUE(payload(recovered).lookup_buffer.empty());
+  EXPECT_FALSE(recovered.journal_dirty());
+}
+
+// External checkpoints retain separate managed identities and history while omitting all runtime data.
+TEST(managed_runtime_features, external_document_save_recovers_defaults_identities_and_history) {
+  external_runtime_journal_fixture fixture;
+  const auto options = external_runtime_journal_options();
+  std::uint32_t root_id{};
+  std::uint32_t reserved_id{};
+  {
+    store_type store{initial_value()};
+    root_id = store.read()->persistent_id;
+    store.create_journal(fixture.path, managed::journal_storage_mode::sidecar, options);
+    store.update_runtime([](auto& edit) { edit.root().set_lookup_cache(777); }).throw_if_failed();
+    change_text(store, "Second").throw_if_failed();
+    EXPECT_EQ(payload(store).lookup_cache, 0u);
+    store
+        .execute_transaction([&](auto& edit) {
+          reserved_id = edit.create_id();
+          edit.revert();
+        })
+        .throw_if_failed();
+    const auto companion = fixture.companion();
+    const auto recovery = external_runtime_journal_fixture::read(companion);
+    const auto sequence = store.journal_sequence();
+    store
+        .update_runtime([](auto& edit) {
+          edit.root().set_lookup_cache(888);
+          edit.root().set_lookup_buffer(std::vector<std::uint8_t>(2048, 0x5a));
+        })
+        .throw_if_failed();
+    EXPECT_EQ(store.journal_sequence(), sequence);
+    EXPECT_EQ(external_runtime_journal_fixture::read(companion), recovery);
+    EXPECT_TRUE(store.journal_dirty());
+    store.save_journal();
+    EXPECT_FALSE(store.journal_dirty());
+  }
+  store_type recovered{initial_value()};
+  recovered.recover_journal(fixture.path, options);
+  EXPECT_EQ(recovered.read()->persistent_id, root_id);
+  EXPECT_EQ(recovered.allocated_id(), reserved_id);
+  EXPECT_EQ(payload(recovered).text, "Second");
+  EXPECT_EQ(payload(recovered).lookup_cache, 0u);
+  EXPECT_TRUE(payload(recovered).lookup_buffer.empty());
+  EXPECT_EQ(recovered.history_cursor(), 1u);
+  EXPECT_FALSE(recovered.journal_dirty());
+  recovered.undo();
+  EXPECT_EQ(payload(recovered).text, "First");
+  EXPECT_EQ(payload(recovered).lookup_cache, 0u);
+  EXPECT_TRUE(payload(recovered).lookup_buffer.empty());
+  EXPECT_EQ(recovered.read()->persistent_id, root_id);
+  recovered.redo();
+  EXPECT_EQ(payload(recovered).text, "Second");
+  EXPECT_FALSE(recovered.journal_dirty());
 }
 
 } // namespace

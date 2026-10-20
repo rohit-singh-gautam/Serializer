@@ -432,9 +432,12 @@ replacement guarantee.
 These helpers add no Serializer history, journal or session parts. Application
 profiles must keep that state in side channels. The generic builder accepts
 caller-provided payloads; it does not identify or police their application meaning.
-These helpers are not attached to native managed stores and do not establish an atomic
-document/sidecar transaction. A managed dual-codec document bridge and recovery
-generation binding remain [pending](../pending.md).
+These helpers do not automatically attach to native managed stores. Runtime 2.13
+adds a separate [caller-supplied document-codec adapter](../guides/usage.md#external-documents-with-a-differential-sidecar)
+with exact-byte generation binding and recoverable document/sidecar publication.
+Applications supply their supported package/XML encoder and decoder, parser
+budgets and document projection. Built-in profile integration and complete
+format/provider/platform qualification remain [pending](../pending.md).
 
 ## Inline XML authoring
 

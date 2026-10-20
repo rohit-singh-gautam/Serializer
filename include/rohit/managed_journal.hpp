@@ -9,6 +9,7 @@
 #include <memory>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace rohit::managed {
@@ -39,12 +40,24 @@ enum class journal_io_event {
   after_tail_repair
 };
 
+// Adapt an application document format to canonical managed root bytes. Callbacks are synchronous,
+// must preserve all durable model values, and must bound their own format-specific decode work.
+struct journal_document_codec {
+  std::string format{};
+  std::function<std::vector<std::uint8_t>(std::span<const std::uint8_t>)> encode{};
+  std::function<std::vector<std::uint8_t>(std::span<const std::uint8_t>)> decode{};
+};
+
 struct journal_options {
   static constexpr std::size_t mebibyte = 1024 * 1024;
   std::size_t max_record_bytes{64 * mebibyte};
   std::size_t max_file_bytes{1024 * mebibyte};
   // Tests may throw or terminate here. Never reenter the store or perform application effects.
   std::function<void(journal_io_event)> fault_injector{};
+  // Sidecar-only document adapter; omit to retain the native managed baseline container.
+  std::shared_ptr<const journal_document_codec> document_codec{};
+  // Bound cumulative reconstructed bytes in a differential generation, independently of disk size.
+  std::size_t max_replay_bytes{1024 * mebibyte};
 };
 
 namespace detail {
@@ -82,6 +95,13 @@ public:
                       std::span<const std::uint8_t> snapshot = {}) = 0;
   // Durably replace the saved baseline, preserving its retained history dependencies.
   virtual void save(const std::vector<std::uint8_t>& envelope) = 0;
+  // Publish a data-only document with its managed metadata; ordinary sinks retain their Save path.
+  virtual void save_document(const std::vector<std::uint8_t>& envelope,
+                             std::span<const std::uint8_t>) {
+    save(envelope);
+  }
+  // Report whether Save must supply a normalized, ID-free root for an application document codec.
+  virtual bool uses_document_codec() const noexcept { return false; }
   // Read the last full-Save envelope lazily; custom sinks may explicitly reject this capability.
   virtual std::vector<std::uint8_t> saved_envelope() const {
     throw std::logic_error{"Journal backend does not support saved baseline reads"};

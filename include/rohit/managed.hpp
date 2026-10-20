@@ -731,6 +731,15 @@ private:
     return bytes;
   }
 
+  // Build the data-only dictionary for an external document; IDs stay in managed sidecar metadata.
+  std::vector<std::uint8_t> journal_document_snapshot() const {
+    // Decode durable bytes instead of copying potentially large memory-only caches.
+    auto value = detail::decode<storage_type>(snapshot_, options_.decode);
+    Traits::visit_entities(value, [](id_type& id, std::string_view) { id = 0; });
+    detail::reset_runtime_fields<Traits>(value);
+    return detail::encode(value, options_.max_snapshot_bytes);
+  }
+
   static constexpr auto allocation_checkpoint_magic = detail::identity_allocation_checkpoint_magic;
 
   // Unwrap optional authority allocation metadata while preserving the ordinary envelope encoding.
@@ -2596,11 +2605,13 @@ public:
     auto saved = snapshot_;
     auto bytes = save();
     check_journal_envelope(bytes);
+    const auto document = options.document_codec ? journal_document_snapshot()
+                                                 : std::vector<std::uint8_t>{};
     detail::resident_admission admission{
         resident_auxiliary_, estimate_auxiliary(snapshot_, identities_, history_, &saved)};
     journal_operation([&] {
       journal_state_.sink = detail::create_file_journal(path, mode, bytes, std::move(options),
-                                                        journal_state_.indeterminate);
+                                                        journal_state_.indeterminate, document);
     });
     journal_state_.saved_snapshot.swap(saved);
     admission.commit();
@@ -2695,7 +2706,9 @@ public:
     }
     detail::resident_admission admission{
         resident_auxiliary_, estimate_auxiliary(snapshot_, identities_, history_, &saved)};
-    journal_operation([&] { journal_state_.sink->save(bytes); });
+    const auto document = journal_state_.sink->uses_document_codec()
+                              ? journal_document_snapshot() : std::vector<std::uint8_t>{};
+    journal_operation([&] { journal_state_.sink->save_document(bytes, document); });
     journal_state_.saved_snapshot.swap(saved);
     journal_state_.delta_count = 0;
     admission.commit();

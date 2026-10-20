@@ -7,10 +7,12 @@ New documents get a namespace automatically. Root and managed descendants alloca
 IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
 and undo/deletion never renumber survivors. Explicit member boundaries still apply.
 
-Status: implemented synchronous C++ journaling and crash recovery for
-`model_store<Root, Mode, Labels, Traits, Features>`, with appended and sidecar native-file
-adapters. By default each edit appends its serialized root snapshot once; opt-in bounded
-byte deltas can reduce frames from compiler/runtime 1.11.0. Compact control records
+Status: synchronous C++ journaling and crash recovery for
+`model_store<Root, Mode, Labels, Traits, Features>`, with appended and sidecar file
+adapters. Compiler/runtime **2.13.0** adds differential sidecar generations and
+caller-supplied external-document codecs. Appended mode remains the default and
+writes each serialized root snapshot once. New sidecars encode copy/literal
+differences without periodic full-snapshot fallback. Compact control records
 persist navigation, reservations, and reset. Schema capability
 selectors, field/entity deltas, background checkpoints, asynchronous flushes,
 and other-language journal readers remain proposals. See the
@@ -24,7 +26,29 @@ journal-only store also selects `history_mode::disabled`. Other feature policies
 no journal attachment, saved baseline or journal store API. See
 [feature selection](cpp_runtime.md#independent-store-features).
 
-## Opt-in verified byte deltas
+## Differential sidecars and legacy snapshot deltas
+
+New `journal_storage_mode::sidecar` generations use container version 3. Each
+record references immutable saved bytes and earlier output in that record;
+unmatched data is stored as literals. Recovery reconstructs the exact logical
+operation before normal model/history/session validation. Records do not depend
+on a growing previous-patch chain and never fall back to periodic full snapshots.
+Genuinely new or historical values may still approach model size. This changes
+disk representation, not the eager in-memory snapshot/history model.
+
+Native sidecars use the main file's saved envelope as their dictionary. With a
+[document codec](../guides/usage.md#external-documents-with-a-differential-sidecar),
+the dictionary is the normalized root reconstructed from the original document;
+sidecar checkpoint metadata restores identities, history and collaboration state.
+It can retain historical or pending values different from the saved root without
+duplicating that root as an unconditional full sidecar checkpoint.
+
+Version-two journals remain readable and continue writing version-two records
+after recovery. Explicit `save_journal()` upgrades a sidecar to version 3;
+appended generations retain version 2. Older readers reject version 3.
+
+The following separate store-level option remains available for compatible
+snapshot-delta operation records, particularly appended journals:
 
 Set `store_options.delta_journal = true` and `max_delta_chain` before construction.
 A changed edit uses a SHA-256 baseline/target verified prefix/suffix patch only
@@ -32,7 +56,8 @@ when its record is smaller than a full snapshot. A full frame bounds each chain;
 `save_journal()` resets that chain through a full checkpoint. Recovery applies
 input/depth/work bounds before publishing the reconstructed snapshot. New delta
 record tags 6/7 require runtime 1.11; default tags/bytes remain unchanged and older
-readers reject unknown tags. Collaboration-attached journals keep full frames.
+readers reject unknown tags. Collaboration-attached stores keep their complete
+logical wrappers; version-three sidecar encoding still reuses their saved bytes.
 
 [Runtime document example](../../example/managed/runtime_state/README.md) and
 [runtime regressions](../../test/runtime_features_test.cpp) qualify exact retained
@@ -74,7 +99,9 @@ using store_type = rohit::managed::model_store<ledger_example::ledger>;
 ```
 
 - `create_journal(path, mode, options)` creates a new saved baseline exclusively.
-  It rejects an existing document. `appended` is the default mode.
+  Native mode rejects an existing document. A document codec can attach an
+  existing matching external file without rewriting it. `appended` is the
+  default mode; document codecs require explicit `sidecar`.
 - `recover_journal(path, options)` validates the base and replays complete
   snapshot/control records, repairs only an incomplete final record, and acquires
   the writer role. It preserves the original store on validation/I/O failure.
@@ -141,8 +168,18 @@ and physical file (`max_file_bytes`, default 1 GiB). Store decoding and history
 budgets also apply. Recovery reads bounded files into memory and borrows record
 slices; these limits are not a total process-memory budget. An over-budget append
 fails before writing; a full Save can reclaim covered records.
+For version-three records, both encoded and reconstructed lengths are bounded.
+`journal_options.max_replay_bytes` additionally caps cumulative expanded bytes
+for the baseline envelope and all logical records in a version-three generation
+(default 1 GiB), independently of physical file size. An append that exhausts
+this budget fails before file I/O. Full Save starts a new generation and resets
+its replay budget to the new baseline size. A reader using a lower budget rejects
+an over-budget generation before live publication; choose compatible limits when
+sharing or reopening journals.
+Document callbacks separately enforce their external parser and encoder budgets;
+physical file limits do not bound a parser's internal allocations.
 
-The edit path does **not** encode an envelope, re-encode retained history, make a
+The ordinary appended edit path does **not** encode an envelope, re-encode retained history, make a
 byte diff, or copy the serialized snapshot into another output buffer. It sends
 stack metadata, an optional borrowed label, and the existing snapshot buffer to
 the retained native file handle. It computes integrity over those buffers and
@@ -164,9 +201,17 @@ preallocate only the new revision node, removing it if publication fails.
 The complete envelope, including retained history and schema/document metadata,
 is written only when creating the base or performing a full Save. Snapshot size
 still scales with the root being serialized; changed-entity/field deltas are not
-implemented. The tests assert exact append sizes across 100 retained edits, so
+implemented. Appended-mode tests assert exact append sizes across 100 retained edits, so
 per-edit disk growth cannot silently become proportional to accumulated history.
 No end-to-end throughput benchmark or latency guarantee is claimed.
+
+The size table describes version-two full-snapshot records. Version-three
+sidecar sizes depend on matched saved bytes, literals and copy instructions;
+their encoder builds a bounded-probe matching index and output staging buffers.
+Each matching index is capped at 16 MiB through adaptive anchor sampling. The
+saved dictionary, target/output buffers and matching indexes still add memory
+overhead; these caps are not a hard process-memory limit.
+The native writer retains its file handle across appends in both modes.
 
 ## Stream and file adapter boundary
 
@@ -176,6 +221,9 @@ internal `journal_sink` commit/recovery interface. The managed store owns that s
 existing `input_stream`/`output_stream` concepts. Serializer memory/custom buffers,
 standard narrow iostreams, and `file_stream` use identical version-two frame bytes.
 Buffer recovery borrows payload slices; byte-stream recovery owns each bounded payload.
+Version-three sidecar records use those same outer frame bytes around the
+differential payload. The file adapter reconstructs logical records before
+passing them to the managed store.
 
 `file_stream.hpp` is a reusable owning file stream for ordinary serialization as well
 as journals. Native read/write/sync/seek/truncate operations and atomic file
@@ -208,6 +256,7 @@ base header and frame. Its generation selects
 `<path>.journal-<generation_high>-<generation_low>`, which contains a matching
 header and subsequent frames. A missing sidecar fails recovery, including an empty
 one; a stale or substituted sidecar cannot be attached by filename alone.
+This native layout is distinct from the external-document layout below.
 
 Full Save writes and flushes a new generation first, creating the matching
 companion first in sidecar mode. It then atomically publishes the base through a
@@ -218,6 +267,50 @@ publication leaves the previous generation recoverable. Failure after publicatio
 may leave obsolete companions or `.pending-<generation>` files; recovery uses only
 the generation selected by the base. Automatic scanning/deletion of crash leftovers
 is not implemented. Cleanup failure cannot invalidate a successful Save.
+
+### External main-file formats
+
+Set `journal_options.document_codec` using
+`make_journal_document_codec<Root>(format_id, encode, decode)` from
+`<rohit/managed_journal_document.hpp>` and explicitly choose sidecar mode. The
+format ID is a nonempty exact identifier of at most 256 bytes. Callbacks accept
+owning root values/byte vectors, run synchronously, and must preserve all durable
+values exactly. The typed helper zeroes managed identities and resets transient
+members before encoding; IDs from decoded external bytes are not authoritative.
+The side channel restores the real document/object identities and allocation marks.
+Callbacks must not reenter the store; their borrowed dependencies must remain live.
+See the [bounded JSON example](../guides/usage.md#external-documents-with-a-differential-sidecar).
+
+Here `<path>` contains only application document bytes, not a native journal
+container. A `<path>.journal` manifest binds their exact length and SHA-256, codec
+ID and native generation header to `<path>.journal-<high>-<low>`. That companion
+starts with a differential complete-checkpoint record against the canonical
+normalized root decoded from the original; subsequent records contain the normal
+logical model/session operations in differential form. History, identity and
+pending-session metadata remain in the side channel.
+
+Creation can attach an existing document if its decoded values exactly match the
+store, preserving original bytes. During ordinary editing the original stays
+unchanged. Full Save stages and syncs the new document, companion and manifest,
+durably publishes `<path>.journal.pending`, replaces the main document, then
+publishes the selected manifest. Recovery chooses a manifest whose exact-byte
+digest matches the document before invoking the external decoder. It validates
+and repairs the selected journal before completing pending publication. A
+failure after publication begins fences the writer and requires fresh recovery.
+Do not delete pending metadata or guess a generation from its filename.
+
+Save retains all history/session dependencies, including unsent work, operation
+IDs, exact retry bytes and receive cursors. Saving a file does not acknowledge
+collaboration. Transient-only runtime updates do not append records. Different
+historical or pending values still consume sidecar space; a differences-only
+representation does not imply constant size or field/entity operation history.
+
+The adapter can call JSON, XML, package or binary codecs that the application
+supplies. It does not automatically provide format-specific document projections,
+prepared XSD providers, OPC profiles, parser budgets or full standard/platform
+qualification. Raw file bounds and digest binding precede recovery decoding;
+format-specific cancellation, allocation and lifetime policies belong to the
+callbacks. Keep all selected side-channel files with the original document.
 
 Windows issues `FlushFileBuffers` and `MoveFileExW` with `MOVEFILE_WRITE_THROUGH`;
 POSIX uses `fsync`, atomic `rename` (exclusive initial creation uses `link`), and
@@ -244,7 +337,46 @@ API. It may throw or terminate at `journal_io_event` boundaries. It must not ree
 the store or perform application effects. Exceptions from best-effort cleanup are
 ignored because publication has already succeeded.
 
+## Version-three differential sidecars
+
+Native sidecar base and companion headers retain the 72-byte layout below with
+container version **3**. The native main base envelope remains unchanged; its
+companion contains framed differential operation payloads. Appended mode stays
+version **2**. External documents instead put the native header in their manifest
+and the differential saved checkpoint in the companion.
+
+Each differential payload starts with five unsigned 64-bit little-endian words:
+magic `0x3141544c444a5253`, saved dictionary length, dictionary CRC-64, expanded
+logical length and instruction count. Instructions are:
+
+| Tag | Following bytes |
+| --- | --- |
+| Literal `1` | uint64 length, then that many literal bytes. |
+| Copy saved `2` | uint64 source offset and length in the immutable saved dictionary. |
+| Copy output `3` | uint64 source offset and length in already reconstructed output. |
+
+All instructions make nonzero progress. Copy-output sources must be fully
+produced before the instruction; overlapping forward expansion is rejected.
+Foreign dictionaries, invalid extents, expansion/encoded budgets, unknown tags,
+incomplete output and trailing bytes reject before model publication. Outer
+sequence/CRC framing still commits and orders each physical record.
+
+External-document manifests use magic `0x33434f444a5a5253`, manifest version **1**,
+the exact native 72-byte header, uint64 document length, 32-byte SHA-256, uint64
+codec-ID length, the codec bytes, and CRC-64 over all preceding metadata bytes.
+Every integer is little endian. The fixed overhead is 144 bytes; codec IDs are
+1..256 bytes. Complete checksum failures, unsupported versions and extra/truncated
+metadata reject. CRCs detect corruption; neither CRC nor unkeyed SHA-256 supplies
+authentication.
+
+The [differential encoder](../../src/managed_journal_delta.cpp) and
+[document-manifest codec](../../src/managed_journal_document.cpp) implement these
+physical contracts; [file publication](../../src/managed_file_journal.cpp) supplies
+locking, synchronization and generation selection.
+
 ## Version-two file contract
+
+This remains the appended representation and the supported legacy sidecar format.
 
 Framing integers are unsigned 64-bit little-endian wire words, independent of
 native object layout. CRCs use CRC-64/ECMA-182 (polynomial

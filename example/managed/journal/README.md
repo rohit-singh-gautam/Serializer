@@ -53,7 +53,9 @@ nonzero exit code.
 - Each document has a stable `.lock` file. Releasing the store releases the lock;
   leaving this file on disk is intentional.
 
-Every changed commit writes only the new snapshot and compact metadata. Calling
+Every changed commit supplies its new snapshot and compact metadata. Appended mode
+writes those bytes directly; new sidecars encode binary differences against the
+saved baseline without periodic full-snapshot fallback. Calling
 `save_journal()` is a full checkpoint: it writes a complete envelope including
 retained undo/redo history, replaces the base, and rotates the sidecar. Destruction
 does not perform this checkpoint. An unchanged transaction writes no snapshot;

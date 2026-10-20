@@ -523,7 +523,11 @@ consumed by canceled edits. Memory `save()` alone is not crash-safe filesystem s
 ### Journal and crash recovery
 
 `create_journal(path, journal_storage_mode::appended|sidecar, options)` creates a
-new durable baseline. `recover_journal(path, options)` restores and opens an
+new durable baseline. New sidecars store binary copy/literal differences rather than
+repeated full snapshots. With `journal_options.document_codec`, a matching existing
+application document can serve as the original baseline without being rewritten;
+see the [external-document workflow](../guides/usage.md#external-documents-with-a-differential-sidecar).
+`recover_journal(path, options)` restores and opens an
 existing document into an unattached store. `save_journal()` publishes a full Save
 without discarding retained history. Journal writes cover commits, navigation,
 history resets, and ID reservations before live publication.

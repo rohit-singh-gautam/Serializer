@@ -843,7 +843,9 @@ if(SERIALIZER_BUILD_MANAGED)
     target_compile_options(managed_profile_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME managed_profile_test COMMAND managed_profile_test)
-  add_executable(managed_direct_test managed_direct_test.cpp managed_journal_test.cpp)
+  add_executable(managed_direct_test managed_direct_test.cpp managed_journal_test.cpp
+    managed_journal_delta_test.cpp managed_journal_document_test.cpp journal_document_codec_test.cpp
+    managed_document_journal_test.cpp managed_document_collaboration_test.cpp managed_sidecar_test.cpp)
   serializer_generate(TARGET managed_direct_test
     SCHEMAS ../example/managed/ledger/ledger.serializer resources/managed_generated.serializer
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_direct")

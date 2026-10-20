@@ -1,5 +1,12 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.13.0** adds differential sidecar journaling and caller-supplied
+[external document codecs](#external-documents-with-a-differential-sidecar).
+Explicit sidecar generations use copy/literal records without periodic full
+snapshot fallback; the default mode remains appended. Save retains pending
+collaboration independently of network acknowledgement. Schema language remains
+**1.20.0** and editor packages remain **2.0.5**.
+
 Compiler/runtime **2.12.1** fixes C++23 XML floating-point parsing with
 warnings treated as errors. Rebuild against the updated runtime headers; signed-zero
 underflow and overflow rejection are unchanged. No schema regeneration or wire
@@ -439,7 +446,10 @@ increment within each document. Save/load preserves identities and allocation st
 Synchronous [journal and crash recovery](../managed/journal.md) is available through
 `create_journal`, `recover_journal`, and `save_journal`, with appended or sidecar
 files. Commits and history navigation flush before publication; `journal_dirty()`
-tracks unsaved values independently. Selectors and other-language
+tracks unsaved values independently. New sidecar generations store differential
+records; an optional document codec keeps the main file in its own application
+format. See the [adapter example](#external-documents-with-a-differential-sidecar).
+Selectors and other-language
 managed runtimes remain proposals.
 
 For shared editing, use the [local store integration](../managed/local_collaboration.md)
@@ -1406,7 +1416,8 @@ reading consumes exactly one record, verifies it, and returns an optional
 or owns a bounded payload read from a byte stream. An incomplete final record
 returns no value; byte streams consume the partial prefix, while input buffers
 remain unadvanced. Corruption, invalid sequencing, excessive lengths, and I/O
-failures throw. The existing version-two wire bytes and per-edit sizes are unchanged.
+failures throw. The low-level framing bytes remain unchanged; the managed sidecar
+adapter wraps version-three differential payloads inside those frames.
 These low-level helpers do not create a managed document container or manage locks,
 sequence allocation, or recovery publication; use the managed journal APIs for that.
 
@@ -1431,6 +1442,114 @@ warnings as errors, and all 120 process-crash recovery checks passed under WSL.
 Current full default-suite results are recorded in the
 [four-toolchain verification](../verification/verification-toolchains-2026-10-07.md).
 No throughput benchmark or physical power-cut qualification was performed.
+
+### External documents with a differential sidecar
+
+Link `Serializer::managed` and include `<rohit/managed_journal_document.hpp>`.
+The [typed adapter header](../../include/rohit/managed_journal_document.hpp)
+defines the callback contract; the [file adapter](../../src/managed_file_journal.cpp)
+owns document/generation publication.
+`journal_options.document_codec` selects the main file's format independently of
+the native sidecar. Its typed helper accepts a stable format ID, an owning
+`const Root& -> std::vector<std::uint8_t>` encoder and a
+`std::span<const std::uint8_t> -> Root` decoder. Both run synchronously, must
+preserve every durable value exactly, and must not reenter the store.
+
+This example uses the generated
+[managed ledger schema](../../example/managed/ledger/ledger.serializer). Generate
+`ledger.hpp` through the normal CMake pipeline; it is a separate model include.
+The callbacks select generated JSON and explicitly bound their allocations and
+exact-message decoding:
+
+```cpp
+#include <rohit/managed_journal_document.hpp>
+#include <ledger.hpp>
+
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <vector>
+
+using ledger = ledger_example::ledger;
+using document_bytes = std::vector<std::uint8_t>;
+constexpr std::size_t max_document_bytes = 16 * 1024 * 1024;
+
+// Supply bounded JSON callbacks and native conversion limits for one document type.
+auto make_ledger_json_codec() {
+  rohit::serializer::decode_limits limits{};
+  limits.max_input_bytes = max_document_bytes;
+  limits.max_string_bytes = 1024 * 1024;
+  limits.max_collection_elements = 100'000;
+  limits.max_nesting_depth = 64;
+  return rohit::managed::make_journal_document_codec<ledger>(
+      "example.ledger.json.v1",
+      [](const ledger& value) -> document_bytes {
+        const rohit::stream_limits bounds{4096, max_document_bytes};
+        rohit::full_stream_auto_alloc_limits output{&bounds};
+        value.serialize_out<rohit::serializer::json>(output);
+        return {output.begin(), output.begin() + output.current_offset()};
+      },
+      [limits](std::span<const std::uint8_t> bytes) -> ledger {
+        const auto input = rohit::make_constant_full_stream(bytes.data(), bytes.size());
+        return rohit::serializer::deserialize_exact<ledger, rohit::serializer::json>(
+            input, limits);
+      },
+      limits);
+}
+```
+
+Construct/load the store with the document's durable values, then attach it:
+
+```cpp
+rohit::managed::journal_options options;
+options.document_codec = make_ledger_json_codec();
+store.create_journal("ledger.json", rohit::managed::journal_storage_mode::sidecar,
+                     options);
+// Transactions now flush differences to the selected companion before publication.
+store.save_journal(); // Update the JSON baseline and preserve history/session/outbox.
+```
+
+If `ledger.json` already exists, creation validates its decoded values and leaves
+its original bytes untouched. A missing document is encoded once as the initial
+baseline. Normal editing updates only the companion; `save_journal()` writes an
+updated main file and its matching generation metadata. To reopen, use a fresh
+store and `recover_journal("ledger.json", options)` with the same codec. With
+collaboration, attach the same session before recovery and synchronize afterward.
+
+The runtime normalizes managed IDs to zero and resets transient fields before
+the encoder; recovery restores real identities, allocation marks, history and
+session state from the side channel. Generated JSON may include zero-valued ID
+fields; an application-specific document projection can omit them. The main
+file carries no journal, undo history or session/outbox records.
+
+Keep the main file, its `<path>.journal` manifest and selected
+`<path>.journal-<high>-<low>` companion together. A pending
+`<path>.journal.pending` manifest coordinates interrupted two-file publication.
+Recovery checks the exact main-file size and SHA-256 before invoking its decoder;
+external edits require a new baseline rather than attaching the old sidecar.
+Do not remove pending manifests or retired-looking companions before recovery.
+
+Copy/literal records reuse saved bytes and repeated bytes within each record.
+They have no periodic full-snapshot fallback. Historical values, unsent changes
+and genuinely new bytes still require storage, so sidecar size is not constant.
+Set `journal_options.max_replay_bytes` to bound cumulative expanded baseline and
+logical-record bytes per version-three generation (default 1 GiB). This is
+independent of `max_file_bytes`, which bounds physical files, and
+`max_record_bytes`, which bounds each encoded/expanded record. Exhausted replay
+budgets reject appends before file I/O; full Save resets the generation's budget
+to its new baseline size. Recovery with a lower limit rejects an over-budget
+generation before publication. Matching indexes use adaptive sampling and are
+capped at 16 MiB each; dictionary, target and output storage still add memory
+overhead rather than establishing a hard process-memory cap.
+Save can make `journal_dirty()` false while requests remain unsent; it preserves
+their operation IDs, exact retries and receive cursor. Transient-only runtime
+updates append nothing and do not change dirty state.
+
+Supply XML, ZIP/OPC or other binary callbacks under their own supported model,
+parser, cumulative-budget and lifetime contracts. The generic adapter does not
+automatically generate those format-specific adapters or complete all standard
+and platform qualification. See the [journal file contract](../managed/journal.md)
+and [remaining requirements](../pending.md).
 
 ### Choose the protocol
 

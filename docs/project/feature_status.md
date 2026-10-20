@@ -501,9 +501,13 @@ Database sinks require an implemented, tested Serializer database adapter; none 
 currently implemented.
 
 Synchronous [journal and crash recovery](../managed/journal.md) now supports appended and
-sidecar files: `create_journal`, `recover_journal`, and `save_journal` append each
-already serialized snapshot once with compact framing, preserve undo/redo and allocated
-IDs, and track unsaved values separately from durability. `journal_dirty()` and
+sidecar files. Appended mode writes already serialized snapshots with compact framing;
+new sidecars use version-three copy/literal differences against the saved baseline.
+The [document-codec adapter](../guides/usage.md#external-documents-with-a-differential-sidecar)
+can use an application-format original file with binary differences and separate
+identity/history/session metadata. Save preserves pending collaboration work.
+Both modes preserve undo/redo and allocated IDs, and track unsaved values separately
+from durability. `journal_dirty()` and
 `journal_sequence()` expose those independent positions. Uncertain I/O reports
 `transaction_status::indeterminate` and blocks writes until recovery.
 

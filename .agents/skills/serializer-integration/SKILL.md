@@ -46,6 +46,24 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
+Compiler/runtime **2.13.0** adds differential C++ sidecar journals and
+`<rohit/managed_journal_document.hpp>`. Require
+`find_package(Serializer 2.13 CONFIG REQUIRED)` for
+`make_journal_document_codec<Root>(format_id, encode, decode)` and assign the
+result to `journal_options.document_codec`. Explicitly select `sidecar`; the API's
+default remains `appended`. New sidecars use version-three copy/literal records
+against the saved baseline, without periodic full-snapshot fallback. Version-two
+recovery remains supported; its writer upgrades only on explicit full Save.
+For an external main file, supply bounded owning callbacks that exactly preserve
+durable values. Recovery verifies its raw-byte SHA-256 binding before calling the
+decoder, restores persistent identities from side-channel metadata, and retains
+history and pending collaboration through Save. Keep the main file, its `.journal`
+manifest and selected generation companion together. Callbacks own format-specific
+parsing, resource bounds and borrowed lifetimes; do not claim automatic XML/OPC
+profile adaptation or complete standard-specific qualification. See the
+[working API example and file contract](../../../docs/guides/usage.md#external-documents-with-a-differential-sidecar)
+and [remaining qualification](../../../docs/pending.md).
+
 Compiler/runtime **2.12.1** fixes C++23 XML floating-point parsing with
 warnings treated as errors. Rebuild consumers against the updated runtime header;
 `numeric_limits<T>::denorm_min()` preserves signed-zero underflow and overflow
@@ -333,7 +351,7 @@ share the package budget explicitly. Compression cancellation hooks borrow a nam
 callable that must outlive the operation or streaming encoder; see the
 [compression guide](../../../docs/serialization/compression.md).
 Generated package profiles are available in C++ and Python. Remaining backend
-package/compression parity and managed document-sidecar recovery are pending;
+package/compression parity and automatic format-specific managed document bridges remain pending;
 keep [remaining coverage](../../../docs/pending.md) explicit.
 
 For an OPC-based format, follow the
@@ -393,10 +411,10 @@ a caller-prepared provider. Preserve existing schema grammar and protocol IDs.
 General features require every output backend; incomplete compression/package
 parity is pending, not a language-specific exception. Whole-object C++ compression
 wrappers borrow arbitrary compatible streams and require explicit `finish()`.
-C++ ZIP/OPC file helpers perform complete staged Saves; they are not a managed
-dual-codec sidecar/recovery adapter. Do not embed Serializer history/session state
-in external documents or claim that existing native journals already implement
-that proposed bridge.
+C++ ZIP/OPC file helpers perform complete staged Saves. To attach an external
+document to a managed journal, use the separate 2.13 caller-supplied document codec
+adapter; these helpers do not automatically supply those callbacks or a generated
+profile/recovery integration. Keep history/session state in the side channel.
 
 Compiler/runtime **2.2.0** adds `model_store::discard_journal_changes()` for ordinary
 journaled C++ stores. Under the native writer lock it checks the physical file
@@ -835,15 +853,26 @@ there instead of relying on the relative links.
   Handle `transaction_status::indeterminate` / `journal_indeterminate_error` by
   destroying the fenced store and recovering into a fresh one before further writes;
   never blindly retry editing callbacks. `load()` cannot bypass an attached journal.
-  By default each edit writes its already serialized snapshot once with compact length/CRC
+  The default appended mode writes each edit's already serialized snapshot once with compact length/CRC
   framing (snapshot bytes + 41 bytes for unlabeled linear history, + 33 for
   unlabeled tree/disabled). Navigation/reservations use 33-byte control records.
   Only base creation/full Save encodes the complete envelope and retained history.
-  The default path has no per-edit envelope encoding, byte-diff pass, snapshot
+  That appended path has no per-edit envelope encoding, byte-diff pass, snapshot
   output-buffer copy, or history deque copy. A retained native handle avoids reopening/seeking
   for each append. Use journal record/file budgets with store decoding limits. See the [journal guide](../../../docs/managed/journal.md)
   for versioned framing, single-writer locking, platform flush assumptions, and
-  limitations. Compiler/runtime 1.11 adds opt-in verified `delta_journal` frames
+  limitations. New sidecar generations instead encode copy/literal differences
+  against immutable saved bytes, including collaboration wrappers, with no
+  periodic full-snapshot fallback. Genuine new/history/pending values still consume
+  storage; this is not field/entity delta history or a bounded-size journal.
+  Set `journal_options.max_replay_bytes` for the cumulative expanded baseline and
+  logical-record budget per version-three generation (default 1 GiB), independently
+  of physical-file and per-record limits. Full Save resets it to the new baseline
+  size; lower reader budgets reject before publication. Matching indexes are capped
+  at 16 MiB each through adaptive sampling, not a hard total process-memory cap.
+  External document codecs require sidecar mode and keep the main file data-only;
+  follow the [document adapter workflow](../../../docs/guides/usage.md#external-documents-with-a-differential-sidecar).
+  Compiler/runtime 1.11 adds opt-in verified `delta_journal` frames
   with `max_delta_chain`, resident admission via `max_resident_bytes`,
   `resident_bytes()`, and a shared `allocation_resource` hook for roots/control
   blocks. Account pinned roots and callback growth; do not describe admission

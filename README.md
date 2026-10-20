@@ -36,11 +36,26 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.12.1**. Bug fixes and minor updates
+The current compiler and runtime release is **2.13.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.20.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.13.0** adds differential C++ sidecar journals and an
+[external-document codec adapter](docs/guides/usage.md#external-documents-with-a-differential-sidecar).
+Sidecar records reuse saved bytes through copy/literal instructions without
+periodic full-snapshot fallback. Applications can keep a JSON, XML, package or
+binary main file and supply its encoder/decoder independently of the native
+journal. Existing documents can be attached without rewriting their bytes;
+full Save retains history, identities and pending collaboration work in the
+side channel. Exact-byte document digests and generation manifests bind recovery
+to the matching original. Appended mode remains the default API choice, and
+version-two journals remain readable. This runtime addition leaves schema
+language **1.20.0** and editor packages **2.0.5** unchanged. Format-specific
+callbacks and their parser limits remain application responsibilities; built-in
+XML/OPC profile integration and broader platform qualification remain in the
+[backlog](docs/pending.md).
 
 Release **2.12.1** fixes C++23 XML floating-point parsing builds with warnings
 treated as errors. Numeric conversion uses `numeric_limits<T>::denorm_min()`

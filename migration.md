@@ -1,5 +1,40 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.13.0
+
+Require `find_package(Serializer 2.13 CONFIG REQUIRED)` for differential sidecars
+and `<rohit/managed_journal_document.hpp>`. New explicit `sidecar` journals use
+container version 3; the default storage mode remains `appended` and keeps its
+version-two container. Existing version-two journals recover and continue writing
+their original representation until `save_journal()` explicitly publishes a new
+generation. Older runtimes reject version-three containers. Upgrade every reader
+before distributing new sidecars; ordinary model/save envelopes and collaboration
+message protocols are unchanged.
+
+To keep an application-format main file, provide an exact owning encoder/decoder
+through `make_journal_document_codec<Root>(format_id, encode, decode)` and set
+`journal_options.document_codec` on creation and recovery. Select `sidecar`
+explicitly. An existing matching document is attached byte-for-byte; a mismatching
+model is rejected. The document codec sees normalized persistent IDs and transient
+defaults; side-channel metadata restores the native IDs and allocation state.
+Format IDs must remain stable for compatible callbacks. The caller owns external
+parser bounds and resource/lifetime policies; the file adapter checks physical
+budgets and the exact saved-byte digest before invoking the recovery decoder.
+
+Keep `<path>`, `<path>.journal` and its selected `.journal-<high>-<low>` companion
+together. A `.journal.pending` manifest may be required after interrupted Save;
+recover before manual cleanup. Full Save publishes updated document bytes and
+matching metadata through the recoverable generation protocol. It preserves
+unsent requests, exact retries and receive cursors; Save does not acknowledge
+collaboration work. A clean document can still have a nonempty outbox.
+
+The generic caller-adapter implementation does not close all built-in XML/OPC
+profile, standard-specific crash, performance and platform qualification tasks.
+Schema language **1.20.0** and editor packages **2.0.5** remain unchanged. See
+[usage](docs/guides/usage.md#external-documents-with-a-differential-sidecar),
+[journal formats](docs/managed/journal.md#version-three-differential-sidecars)
+and [remaining work](docs/pending.md).
+
 ## Compiler/runtime 2.12.1
 
 C++ XML floating-point parsing uses `std::numeric_limits<T>::denorm_min()` instead

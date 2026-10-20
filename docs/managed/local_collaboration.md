@@ -216,7 +216,11 @@ The existing store journal pointer wraps the native file adapter. One durable fr
 pairs each native transaction/reservation with its client state. Synchronization
 metadata and exact outgoing bytes are also persisted before sending. Appended and
 sidecar framing, writer locks, CRC checks, tail repair and indeterminate-write fencing
-are reused. This stores full client metadata/snapshots; it is not a compact delta log.
+are reused. The logical client state still contains complete snapshots/metadata.
+From runtime **2.13.0**, new sidecar generations encode that state as copy/literal
+differences against the saved baseline, without periodic full-snapshot fallback.
+This changes disk encoding; it does not replace the eager snapshot/history model
+with field/entity operations or guarantee a small outbox.
 
 Applications keep using `model_store::create_journal`, `save_journal`, and
 `recover_journal` for ordinary edits and undo/redo. The internal adapter adds a
@@ -241,6 +245,23 @@ history specialization; live replacement is rejected. Client wrapper format 2 ha
 its own binding and is not readable as an ordinary model save. `save_journal()`
 preserves synchronization state, including unsent work. `journal_dirty()` still tracks
 document values relative to Save; it does not mean the outbox is empty.
+
+With a [document codec](../guides/usage.md#external-documents-with-a-differential-sidecar),
+the main file remains in its application format and the side channel retains
+session identity, pending transactions, acknowledgements, receive cursor, leases
+and retry bytes. Full Save updates the main-file baseline and rotates its bound
+generation without clearing unsent/unresolved work. It can run while offline.
+Recovery restores the exact saved collaboration state before synchronization;
+the external main file alone cannot establish whether a request was already
+accepted. Keep its manifest and selected companion, including pending-publication
+metadata after an interrupted Save. Attaching a fresh session to the main file
+does not reconstruct the previous outbox.
+
+File-save position and network acknowledgement are independent. A change covered
+by the new main file may still need sending; a remotely acknowledged change may
+still need journal data because the original file has not been saved. Retain all
+recovery, history and retry dependencies until the replacement generation is
+durably selected. Do not implement Save by truncating or deleting the sidecar.
 
 History-enabled clients use `serializer.collaboration.client.v2`; history-free
 clients use `serializer.collaboration.pending.v2` and pending-only records. Both
@@ -285,7 +306,7 @@ retained snapshot buffers with rollback on preflight failure. Pinned readers and
 callbacks use copy-on-write preparation to preserve immutable inspection and atomicity.
 Journal wrappers borrow existing state during encoding rather than copying it into a
 second generated envelope. Journaled metadata-only decisions use a kind-2 checkpoint
-with empty model bytes, reusing the already durable model. Provision both sides for the workload. Current payloads contain full model snapshots, and retained field projections
+with empty model bytes, reusing the already durable model. Provision both sides for the workload. Logical payloads contain full model snapshots; differential sidecars reuse their saved/repeated byte ranges. Retained field projections
 and history add CPU/memory costs. Multi-authority peer-to-peer ordering, automatic
 transport reconnect, durable authority history across epochs and other-language
 collaboration runtimes remain outside this implementation.

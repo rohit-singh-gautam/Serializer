@@ -19,7 +19,8 @@ namespace rohit::managed::detail {
 std::unique_ptr<journal_sink> create_file_journal(const std::filesystem::path& path,
                                                   journal_storage_mode mode,
                                                   const std::vector<std::uint8_t>& envelope,
-                                                  journal_options options, bool& indeterminate);
+                                                  journal_options options, bool& indeterminate,
+                                                  std::span<const std::uint8_t> document = {});
 
 // Replay validated borrowed slices under a stable writer lock; delay tail repair until validation.
 std::unique_ptr<journal_sink>
