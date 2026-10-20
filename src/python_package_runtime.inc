@@ -1193,7 +1193,8 @@ R"packagepython(def _pkg_profile_load(source, roles, value_type, budget, policy=
             setattr(candidate, role['field'], (values[0] if values else None) if role['singleton'] else values)
             sources[role['field']] = discovered
             declared_links[role['field']] = role_links
-            if role['singleton'] and discovered:
+            # Preserve authored target spelling unless the actual discovered part name changes.
+            if role['singleton'] and discovered and discovered[0] != role['name']:
                 budget.consume('metadata_bytes', len(discovered[0]) + len(role['name']))
                 relocations.append((discovered[0], role['name']))
         _pkg_validate_references(candidate, roles, budget, sources, declared_links)

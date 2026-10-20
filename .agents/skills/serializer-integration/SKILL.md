@@ -46,7 +46,7 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-The current compiler/runtime release is **2.18.0**, with schema language
+The current compiler/runtime release is **2.19.0**, with schema language
 **1.21.0**. Preserve the supported native managed identity, transaction,
 preview, journal and collaboration contracts when composing those features.
 For local collaboration, attach a fresh placeholder store before editing or
@@ -59,6 +59,20 @@ Use the [native reference qualification record](../../../docs/verification/verif
 for actual ID/storage profiles and failure/recovery boundaries. Root/control-block
 allocation hooks and resident admission estimates do not replace allocators in
 generated standard-library payload containers.
+
+For fixed singleton package canonicalization in 2.19.0, keep the loaded
+extensions with the edited aggregate. Generated facades retain moved-role origin
+provenance and resolve preserved internal links against the original source before
+rebinding both endpoints. C/Rust use additive canonical writer APIs; Go selects
+additive canonical loading. Existing defaults remain valid. Do not reconstruct
+extensions from their public arrays when private moved-role provenance is needed.
+Removed moved origins, occupied destinations and source-local ID collisions must
+reject before publication, even when a path swap gives another role the old name.
+Dynamic role renames require explicit application rebinding. Preserve opaque
+bytes, external URI references and raw query/fragment suffixes; this contract does
+not imply lexical XML or signature preservation. Follow the
+[package preservation contract](../../../docs/serialization/xml_packages.md#fixed-singleton-path-canonicalization)
+and [actual SDK verification](../../../docs/verification/verification-package-relocation-2026-10-21.md).
 
 For C/Rust XML composition in 2.18.0, use the additive operation descriptor/trait
 APIs with the same caller-owned ledger. Package codecs automatically share native

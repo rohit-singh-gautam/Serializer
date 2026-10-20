@@ -8,6 +8,7 @@ R"cpackage(
 #include <libxml/tree.h>
 #include <libxml/xmlwriter.h>
 #include <inttypes.h>
+#include <ctype.h>
 #include <time.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -91,6 +92,21 @@ static inline bool @p@_part_name(const char* name) {if(!name||name[0]!='/'||!@p@
 static inline char* @p@_target(@p@_budget* budget,const char* source,const char* target) {if(!target||!*target||strchr(target,'\\')||!strncmp(target,"//",2)){ @p@_fail(budget,@p@_invalid_relationship,source,NULL,NULL);return NULL;}char path[@p@_name_bytes+1];size_t length=0;if(*target!='/'){const char* slash=strrchr(source,'/');length=slash?(size_t)(slash-source):0;if(length){memcpy(path,source,length);}}const char* cursor=target;if((*cursor=='#'||*cursor=='?')&&strcmp(source,"/")){return @p@_string(budget,source,strlen(source));}while(*cursor&&*cursor!='#'&&*cursor!='?'){while(*cursor=='/'){++cursor;}const char* begin=cursor;while(*cursor&&*cursor!='/'&&*cursor!='#'&&*cursor!='?'){++cursor;}const size_t count=(size_t)(cursor-begin);if(!count||(count==1&&*begin=='.')){continue;}if(count==2&&begin[0]=='.'&&begin[1]=='.'){if(!length){@p@_fail(budget,@p@_invalid_relationship,source,NULL,NULL);return NULL;}while(length&&path[length-1]!='/'){--length;}if(length){--length;}continue;}if(count>sizeof(path)-length-2){@p@_fail(budget,@p@_resource_limit,source,NULL,NULL);return NULL;}path[length++]='/';memcpy(path+length,begin,count);length+=count;}path[length]='\0';if(!@p@_part_name(path)){@p@_fail(budget,@p@_invalid_relationship,source,NULL,NULL);return NULL;}return @p@_string(budget,path,length);}
 /* Require inert absolute URIs for relationship types and external targets. */
 static inline bool @p@_uri(const char* value) {if(!value||strlen(value)>@p@_name_bytes){return false;}const char* colon=strchr(value,':');if(!colon||colon==value||!colon[1]){return false;}for(const char* cursor=value;cursor<colon;++cursor){const unsigned char byte=(unsigned char)*cursor;if(!((byte>='a'&&byte<='z')||(byte>='A'&&byte<='Z')||(cursor>value&&((byte>='0'&&byte<='9')||strchr("+-.",byte))))){return false;}}for(;*value;++value){if((unsigned char)*value<=32){return false;}}return true;}
+)cpackage"
+R"cpackage(/* Accept inert relative external IRIs while preserving every previously accepted absolute URI spelling. */
+static inline bool @p@_iri_reference(const char* value){
+  if(@p@_uri(value)){return true;}if(!value||!*value){return false;}const size_t size=strlen(value);if(size>@p@_name_bytes||!srl_utf8((const uint8_t*)value,size)){return false;}
+  const char* colon=strchr(value,':');if(colon&&(size_t)(colon-value)<strcspn(value,"/?#")){return false;}bool query=false;
+  for(size_t position=0;position<size;){const unsigned char first=(unsigned char)value[position++];if(first<128u){
+      if(first=='%'){if(size-position<2u||!isxdigit((unsigned char)value[position])||!isxdigit((unsigned char)value[position+1u])){return false;}position+=2u;continue;}
+      if(first=='?'){query=true;}else if(first=='#'){query=false;}
+      if(!((first>='a'&&first<='z')||(first>='A'&&first<='Z')||(first>='0'&&first<='9')||strchr("-._~!$&'()*+,;=:/?#[]@",first))){return false;}
+    }else{uint32_t code=first;size_t remaining;if(first<0xe0u){code&=31u;remaining=1u;}else if(first<0xf0u){code&=15u;remaining=2u;}else{code&=7u;remaining=3u;}while(remaining--){code=(code<<6)|((unsigned char)value[position++]&63u);}
+      const bool ordinary=(code>=0xa0u&&code<=0xd7ffu)||(code>=0xf900u&&code<=0xfdcfu)||(code>=0xfdf0u&&code<=0xffefu)||(code>=0x10000u&&code<=0xdfffdu&&(code&65535u)<=0xfffdu)||(code>=0xe1000u&&code<=0xefffdu);
+      const bool private_query=query&&((code>=0xe000u&&code<=0xf8ffu)||(code>=0xf0000u&&code<=0xffffdu)||(code>=0x100000u&&code<=0x10fffdu));if(!ordinary&&!private_query){return false;}
+    }
+  }return true;
+}
 /* Recognize the exact MIME token alphabet independently of locale. */
 static inline bool @p@_mime_token(unsigned char value){return (value>='a'&&value<='z')||(value>='A'&&value<='Z')||(value>='0'&&value<='9')||(value&&strchr("!#$%&'*+-.^_`|~",value));}
 typedef struct @p@_mime_parameter {const char* name;size_t name_size;const char* value;size_t value_size;bool quoted;} @p@_mime_parameter;

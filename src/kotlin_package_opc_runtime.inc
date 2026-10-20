@@ -18,6 +18,11 @@ R"packagekotlin(
     /** Whole-part preservation keeps namespace declarations and relationship context intact. */
     class Extensions(parts: List<BinaryPart> = emptyList(), relationships: List<Relationship> = emptyList()) {
         val parts = parts.toList(); val relationships = relationships.toList()
+        private var origins: Map<String,Pair<String,String>> = emptyMap()
+        /** Retain loaded role provenance privately without changing authored extension constructors. */
+        internal fun retainOrigins(value: Map<String,Pair<String,String>>) { origins = value.toMap() }
+        /** Clone and rebase only retained links whose loaded fixed role is still present. */
+        internal fun composedRelationships(sources: Map<String,List<String>>, state: State): List<Relationship> = relocated(relationships,origins,sources,state)
     }
     enum class Unknown { REJECT, SKIP, PRESERVE }
     /** Required capabilities override independent optional part/link policy. */

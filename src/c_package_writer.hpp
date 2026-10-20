@@ -168,8 +168,16 @@ inline std::string c(const package_node& package, const std::string& name,
   }
   line("  " + api("key_finish") + "(&keys,budget);goto done;done:" + api("key_index_free") + "(&keys);return budget->status;\n}");
   line("/* Assemble a complete archive privately; failed encoding retains the initialized output buffer. */");
-  line("static inline int " + selected_api + "_encode_with_codecs(const " + name + "_input* value,srl_buffer* result," + api("budget") + "* budget,const " + api("selected_codec") + "* codecs,size_t codecs_size){ " + api("composer") + " composer={0};srl_buffer bytes={0};srl_limits limits=" + api("native_limits") + "(budget);");
+  line("static inline int " + selected_api + "_encode_mode(const " + name + "_input* value,srl_buffer* result," + api("budget") + "* budget,const " + api("selected_codec") + "* codecs,size_t codecs_size,bool canonical){ " + api("composer") + " composer={0};srl_buffer bytes={0};srl_limits limits=" + api("native_limits") + "(budget);");
   line("  if(!value||!result){return " + api("fail") + "(budget," + api("invalid_options") + ",NULL,NULL,NULL);}");
+  line("  " + name + "_input routed=*value;" + api("relocation") + " relocations[" + std::to_string(std::max<std::size_t>(parts.size(), 1U)) + "]={0};size_t relocation_count=0;");
+  line("  if(canonical){");
+  for (const auto* part : parts) {
+    if (!singleton(*part)) { continue; }
+    const auto member = render_field(part->name);
+    line("    if(value->" + member + "_path&&strcmp(value->" + member + "_path," + literal(*part->part_name) + ")){if(" + api("consume") + "(budget," + api("metadata_bytes") + ",sizeof(relocations[0]),value->" + member + "_path,\"relocations\",value->" + member + "_link)){return budget->status;}relocations[relocation_count++]=(" + api("relocation") + "){value->" + member + "_path," + literal(*part->part_name) + ",value->" + member + "!=NULL};}routed." + member + "_path=" + literal(*part->part_name) + ";");
+  }
+  line("    value=&routed;if(" + api("relocations_check") + "(relocations,relocation_count,budget)){return budget->status;}\n  }");
   for (const auto* part : parts) {
     if (singleton(*part)) { continue; }
     const auto member = render_field(part->name);
@@ -200,7 +208,13 @@ inline std::string c(const package_node& package, const std::string& name,
     }
     line("  }");
   }
-  line("  " + api("compose_finish") + "(&composer,value->extensions,result);goto done;done:srl_buffer_free(&bytes);" + api("composer_free") + "(&composer);(void)limits;return budget->status;\n}");
+  line("  if(canonical){" + api("compose_finish_relocated") + "(&composer,value->extensions,relocations,relocation_count,result);}else{" + api("compose_finish") + "(&composer,value->extensions,result);}goto done;done:srl_buffer_free(&bytes);" + api("composer_free") + "(&composer);(void)limits;return budget->status;\n}");
+  line("/* Preserve ordinary discovered paths and existing selected-codec entrypoint signatures. */");
+  line("static inline int " + selected_api + "_encode_with_codecs(const " + name + "_input* value,srl_buffer* result," + api("budget") + "* budget,const " + api("selected_codec") + "* codecs,size_t codecs_size){return " + selected_api + "_encode_mode(value,result,budget,codecs,codecs_size,false);}");
+  line("/* Canonicalize only fixed singleton paths while borrowing every typed payload unchanged. */");
+  line("static inline int " + selected_api + "_encode_canonical_with_codecs(const " + name + "_input* value,srl_buffer* result," + api("budget") + "* budget,const " + api("selected_codec") + "* codecs,size_t codecs_size){return " + selected_api + "_encode_mode(value,result,budget,codecs,codecs_size,true);}");
+  line("/* Select native codecs for an additive canonical-path archive operation. */");
+  line("static inline int " + selected_api + "_encode_canonical(const " + name + "_input* value,srl_buffer* result," + api("budget") + "* budget){return " + selected_api + "_encode_canonical_with_codecs(value,result,budget,NULL,0);}");
   line("/* Preserve the original generated encoder with default operation-aware native codecs. */");
   line("static inline int " + name + "_encode(const " + name + "_input* value,srl_buffer* result," + api("budget") + "* budget){return " + selected_api + "_encode_with_codecs(value,result,budget,NULL,0);}");
   line("/* Decode into a private aggregate; failure leaves the initialized destination unchanged. */");
@@ -246,6 +260,14 @@ inline std::string c(const package_node& package, const std::string& name,
   line("static inline int " + selected_api + "_write_with_codecs(const " + name + "_input* value," + api("sink") + " sink,void* context," + api("budget") + "* budget,const " + api("selected_codec") + "* codecs,size_t codecs_size){srl_buffer bytes={0};int status=" + selected_api + "_encode_with_codecs(value,&bytes,budget,codecs,codecs_size);if(!status){status=" + api("write_sink") + "(sink,context,bytes.data,bytes.size,budget);}srl_buffer_free(&bytes);return status;}");
   line("/* Run selected encode/decode validation before same-directory atomic file publication. */");
   line("static inline int " + selected_api + "_save_with_codecs(const char* path,const " + name + "_input* value," + api("budget") + "* budget," + api("fault") + " fault,void* context,const " + api("selected_codec") + "* codecs,size_t codecs_size){srl_buffer bytes={0};" + name + "_value candidate={0};int status=" + selected_api + "_encode_with_codecs(value,&bytes,budget,codecs,codecs_size);if(!status){status=" + selected_api + "_load_with_codecs(&candidate,bytes.data,bytes.size," + api("preserve_policy") + "(),budget,codecs,codecs_size);}if(!status){status=" + api("save_file") + "(path,bytes.data,bytes.size,budget,fault,context);}" + name + "_free(&candidate);srl_buffer_free(&bytes);return status;}");
+  line("/* Stage canonical fixed paths before borrowing a sink; input ownership remains untouched. */");
+  line("static inline int " + selected_api + "_write_canonical_with_codecs(const " + name + "_input* value," + api("sink") + " sink,void* context," + api("budget") + "* budget,const " + api("selected_codec") + "* codecs,size_t codecs_size){srl_buffer bytes={0};int status=" + selected_api + "_encode_canonical_with_codecs(value,&bytes,budget,codecs,codecs_size);if(!status){status=" + api("write_sink") + "(sink,context,bytes.data,bytes.size,budget);}srl_buffer_free(&bytes);return status;}");
+  line("/* Use default native codecs when writing canonical fixed-role paths. */");
+  line("static inline int " + selected_api + "_write_canonical(const " + name + "_input* value," + api("sink") + " sink,void* context," + api("budget") + "* budget){return " + selected_api + "_write_canonical_with_codecs(value,sink,context,budget,NULL,0);}");
+  line("/* Revalidate canonical output and preserved closure before atomic same-directory replacement. */");
+  line("static inline int " + selected_api + "_save_canonical_with_codecs(const char* path,const " + name + "_input* value," + api("budget") + "* budget," + api("fault") + " fault,void* context,const " + api("selected_codec") + "* codecs,size_t codecs_size){srl_buffer bytes={0};" + name + "_value candidate={0};int status=" + selected_api + "_encode_canonical_with_codecs(value,&bytes,budget,codecs,codecs_size);if(!status){status=" + selected_api + "_load_with_codecs(&candidate,bytes.data,bytes.size," + api("preserve_policy") + "(),budget,codecs,codecs_size);}if(!status){status=" + api("save_file") + "(path,bytes.data,bytes.size,budget,fault,context);}" + name + "_free(&candidate);srl_buffer_free(&bytes);return status;}");
+  line("/* Select native codecs for canonical fixed-role Save without altering the old Save API. */");
+  line("static inline int " + selected_api + "_save_canonical(const char* path,const " + name + "_input* value," + api("budget") + "* budget," + api("fault") + " fault,void* context){return " + selected_api + "_save_canonical_with_codecs(path,value,budget,fault,context,NULL,0);}");
   return output;
 }
 } // namespace rohit::serializer::writer::package_codegen

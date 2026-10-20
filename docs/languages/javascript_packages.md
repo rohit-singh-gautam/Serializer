@@ -158,8 +158,22 @@ Nonfile and non-PartName physical items are excluded after integrity validation.
 parts and links. Synchronous `isRequiredPart` and `isRequiredRelationship` callbacks
 return booleans; required unknown items always reject. Preserve keeps complete
 unknown bytes, their MIME values and source-scoped authored links. The result's
-extensions are attached to its value for re-encoding. Editing/removing referenced
-parts requires valid replacement links; encoding revalidates all sources/targets.
+extensions are attached to its value for re-encoding.
+
+From compiler/runtime 2.19.0, the loaded `Extensions` instance carries private
+origin context for typed fixed singletons discovered at a different output path.
+Reuse that instance on the loaded value or a fresh `Input`. Encoding clones
+preserved links and applies all fixed-role moves simultaneously, resolving each
+internal target against its original source before mapping either endpoint.
+The exact suffix from the first literal `?` or `#`, external target text and
+unchanged relative spelling are retained. Public object fields and constructors
+stay unchanged; caller extensions, byte arrays and models are not mutated.
+
+If a moved fixed role is removed, links to its original identity reject even
+when another part now occupies that URI. Canonical destination conflicts and
+source-local ID collisions also reject before publication. Newly authored
+extensions have no loaded-origin context. Arbitrary dynamic/repeated renames
+still require caller-updated links; encoding revalidates complete closure.
 
 `Limits` is immutable. `Budget` exposes one cumulative operation ledger; repeated
 work is charged again. Defaults are 256 MiB archive, 1 GiB transport I/O, 16 MiB

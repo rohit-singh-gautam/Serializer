@@ -38,11 +38,20 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.18.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.19.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.21.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.19.0** extends fixed singleton package path canonicalization across
+all eleven outputs. Preserved links resolve in their original source scope before
+simultaneous rebinding; selectors, external URI references and opaque bytes retain
+their values. Removed moved roles and path/relationship collisions reject before
+publication. C/Rust canonical writers and Go canonical loaders are additive opt-in
+APIs; existing defaults retain their behavior. Dynamic role renames still require
+application rebinding. See the [package preservation contract](docs/serialization/xml_packages.md#fixed-singleton-path-canonicalization)
+and [executed relocation checks](docs/verification/verification-package-relocation-2026-10-21.md).
 
 Release **2.18.0** adds caller-owned native XML operation contexts in
 [C](docs/languages/c_packages.md) and [Rust](docs/languages/rust_packages.md),

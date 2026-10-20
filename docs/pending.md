@@ -1,10 +1,18 @@
 # Pending requirements across Serializer
 
+Compiler/runtime **2.19.0** completes `XML-B22` preservation/policy/collision
+qualification in supported XML/package graphs across all eleven outputs. Fixed
+singleton role paths rebind preserved links simultaneously, with opt-in canonical
+C/Rust writers and Go loaders. Dynamic renames, broader XML graphs, lexical XML,
+signatures and the remaining `OPC-R06` profile work stay separate. See the
+[actual SDK matrix and scope](verification/verification-package-relocation-2026-10-21.md).
+**61 requirements remain unchecked**; 786 of 847 rows are checked.
+
 Compiler/runtime **2.18.0** completes `XML-B20`: additive C/Rust native XML
 operations, shared XSD identity budgets and public selected-codec composition in
 all eleven outputs. Windows/Linux SDKs, strict native checks and sanitizers pass
 within the [recorded profiles and provider limits](verification/verification-native-xml-operations-2026-10-21.md).
-**62 requirements remain unchecked**; 785 of 847 rows are checked.
+That checkpoint left 62 unchecked, with 785 of 847 rows checked.
 
 Compiler/runtime **2.17.1** completes managed reference/resource/journal and
 collaboration qualification (`MR01`, `MR02`) on Windows and Linux, including an
@@ -50,7 +58,7 @@ See the [batch dependencies and verification](verification/verification-pending-
 | [ ] | OPC-R04 | — | Complete multiple-typed-branch and grouped repeated choices plus ordered heterogeneous content; interleaving and occurrence semantics survive round trips. | — |
 | [ ] | OPC-R05 | — | Qualify the selected official Core 1.4 and XML XSD bundle against independent official 3MF corpus/conformance checks; required scalar/content constructs bind and unsupported external schemas reject precisely. | — |
 | [ ] | OPC-R06 | — | Complete generated profile/reference checks, target modes, vocabulary/type dispatch and fixed/default/runtime selection; automatically retarget preserved links when a loaded typed role changes to its declared canonical path; failures publish no aggregate/file. | — |
-| [x] | OPC-R06a | — | Generated C++/Python fixed singleton role loads retain discovered paths; preserved sources/internal targets rebind simultaneously on write/Save with original relative scopes, selectors and external URI strings retained; conflicts and dangling references reject. Other backend/dynamic-role work remains pending; [2.15 scope](verification/verification-pending-xml-2026-10-20.md). | — |
+| [x] | OPC-R06a | — | Generated fixed singleton roles support preserved source/internal-target canonical rebinding across eleven outputs, with opt-in C/Rust writers and Go loaders; original relative scopes, selectors, external URI strings and opaque bytes retain their values. Removed moved roles, collisions and dangling references reject. Dynamic-role and broader profile work remains in OPC-R06; [2.19 scope](verification/verification-package-relocation-2026-10-21.md), [original 2.15 scope](verification/verification-pending-xml-2026-10-20.md). | — |
 | [x] | OPC-R07 | — | Implement ZIP/OPC metadata, reader/writer, shared limits, preservation and full-Save APIs for every generated language, with independent producer/consumer tests; [2.14 checkpoint](verification/verification-backlog-2026-10-20.md), [eleven-output completion and limits](verification/verification-managed-reference-faults-2026-10-21.md#package-parent-reconciliation). | — |
 | [ ] | OPC-R08 | — | Qualify ECMA-376 Part 2 fifth-edition URI/content-type/relationship contracts and full Annex B/pass-through corpus; cover escaped/equivalent names, relative targets, collisions, physical metadata names, target modes, UTF-16 and Relationships markup compatibility. | — |
 | [ ] | OPC-R09 | — | Measure large-model CPU, peak memory, encoded/generated-code size and cancellation/provider behavior. Qualify supported platforms with the actual XML/compression providers enabled. | — |
@@ -167,7 +175,7 @@ and actual SDK checks before the parent requirement can be checked.
 | [ ] | XML-B19 | — | Typed profiles: Extend C++/Python declarations with pipeline/runtime selection, vocabulary profiles and generated payload reference checks before publication; implement equivalent contracts in other backends. | — |
 | [x] | XML-B20 | — | Typed package loading: Complete generated transactional profiles and automatic codec/reference budgets in every backend; caller-owned callbacks compose selected codecs with the same shared context; [2.18 SDK verification and graph limits](verification/verification-native-xml-operations-2026-10-21.md). | — |
 | [ ] | XML-B21 | — | Complete-operation context: Propagate shared accounting/deadlines across remaining backends; qualify projection/compression/provider cancellation and large-input boundaries, including explicit provider-internal peak/preemption limits. | — |
-| [ ] | XML-B22 | — | Preservation: Broaden XML/package policy and collision qualification in every backend; keep signatures and lexical preservation under separate contracts. | — |
+| [x] | XML-B22 | — | Preservation: XML/package policy and collision qualification covers supported graphs in every backend, including simultaneous fixed-role rebinding, removed-role tombstones, exact selector/external values and failure publication; broader graph gates, signatures and lexical preservation remain separate. [Executed matrix and historical XML-policy evidence](verification/verification-package-relocation-2026-10-21.md). | — |
 | [ ] | XML-B23 | — | Reproducibility: Extend independently checked canonical ordering/metadata policies across backends; pin provider/version/options when qualifying compressed byte equality. | — |
 | [ ] | XML-B24 | — | HTML: Broaden restricted HTML adapters only under an explicit supported contract; keep arbitrary HTML and unrestricted mixed-content XHTML outside that contract. | — |
 

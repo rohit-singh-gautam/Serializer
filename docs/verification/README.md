@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [Fixed singleton package relocation](verification-package-relocation-2026-10-21.md) | Simultaneous preserved-link rebinding, opt-in C/Rust/Go APIs, moved-role removal, URI spelling and publication/collision checks across eleven actual SDKs. |
 | [Native XML operations and selected package codecs](verification-native-xml-operations-2026-10-21.md) | Additive C/Rust operation APIs, supported package identity graphs, public same-ledger codec composition across eleven outputs, strict SDK/field/error checks and explicit provider limits. |
 | [Managed reference failures and recovery](verification-managed-reference-faults-2026-10-21.md) | Eight native identity/storage profiles, preview/ownership/journal/crash/collaboration faults, initial-join namespace fix and explicit per-platform results. |
 | [105-item package and qualification batch](verification-pending-105-2026-10-21.md) | Selected package implementations, fixed/default storage policies, generated scoped references, cumulative diagnostics and integrated regression evidence. |

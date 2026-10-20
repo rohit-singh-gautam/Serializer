@@ -176,6 +176,29 @@ inline std::string rust(const package_node& package, const std::string& name,
   line("  pub fn write_with_codecs(destination:&mut impl std::io::Write,value:&" + name + "Input,budget:&mut " + api("Budget") + codec_parameters(true, "codec") + ") -> " + api("Result") + "<()> {let bytes=Self::encode_with_codecs(value,budget" + codec_arguments("codec") + ")?;" + helper + "::write_sink(destination,&bytes,budget)}");
   line("  /// Run selected encoders and decoders before atomically publishing a validated package file.");
   line("  pub fn save_with_codecs(path:&std::path::Path,value:&" + name + "Input,budget:&mut " + api("Budget") + ",fault:Option<&dyn Fn(&str)->" + api("Result") + "<()>>" + codec_parameters(true, "encode") + codec_parameters(false, "decode") + ") -> " + api("Result") + "<()> {let bytes=Self::encode_with_codecs(value,budget" + codec_arguments("encode") + ")?;let _=Self::load_with_codecs(&bytes,budget," + api("ExtensionPolicy") + "::preserve()" + codec_arguments("decode") + ")?;" + helper + "::save(path,&bytes,budget,fault)}\n}");
+  line("/// Add canonical output through a helper-owned trait without changing inherent methods or value layouts.");
+  line("impl " + api("CanonicalPackage") + " for " + name + " {");
+  line("  type Input=" + name + "Input;");
+  line("  /// Borrow all typed payloads while rebasing original preserved link scopes simultaneously.");
+  line("  fn encode_canonical(value:&Self::Input,budget:&mut " + api("Budget") + ") -> " + api("Result") + "<Vec<u8>> {");
+  line("    " + helper + "::validate_overrides(Self::profiles(),budget)?;Self::validate_references(value,budget)?;");
+  std::string present;
+  for (const auto* part : parts) {
+    if (!present.empty()) { present += ','; }
+    present += singleton(*part) ? "value." + render_field(part->name) + ".is_some()" : "false";
+  }
+  line("    let mut paths=" + api("CanonicalPaths") + "::new(Self::profiles(),&value.paths,&[" + present + "],budget)?;let mut composer=" + api("Composer") + "::new_canonical(budget,std::mem::take(&mut paths.paths));");
+  index = 0;
+  for (const auto* part : parts) {
+    line("    composer." + std::string{part->value_type ? (singleton(*part) ? "single_with_operation" : "models_with_operation") : "binaries"} +
+        "(&Self::ROLE_" + std::to_string(index++) + ",&value." + render_field(part->name) +
+        (part->value_type ? ",|model,context|context.encode(model)" : "") + ")?;");
+  }
+  line("    composer.finish_canonical(&value.extensions,&paths)\n  }");
+  line("  /// Complete canonical encoding before writing to the borrowed destination.");
+  line("  fn write_canonical(destination:&mut impl std::io::Write,value:&Self::Input,budget:&mut " + api("Budget") + ") -> " + api("Result") + "<()> {let bytes=<Self as " + api("CanonicalPackage") + ">::encode_canonical(value,budget)?;" + helper + "::write_sink(destination,&bytes,budget)}");
+  line("  /// Validate preserved closure and native codecs before atomic canonical-path Save.");
+  line("  fn save_canonical(path:&std::path::Path,value:&Self::Input,budget:&mut " + api("Budget") + ",fault:Option<&dyn Fn(&str)->" + api("Result") + "<()>>) -> " + api("Result") + "<()> {let bytes=<Self as " + api("CanonicalPackage") + ">::encode_canonical(value,budget)?;let _=Self::load(&bytes,budget," + api("ExtensionPolicy") + "::preserve())?;" + helper + "::save(path,&bytes,budget,fault)}\n}");
   return output;
 }
 } // namespace rohit::serializer::writer::package_codegen

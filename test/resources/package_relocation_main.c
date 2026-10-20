@@ -1,0 +1,74 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+#include "schema.h"
+
+static size_t checks;
+static const int caller_marker=-70123;
+static const char previous[]="previous destination";
+
+/* Keep every ownership, exact-boundary and publication assertion active under optimization. */
+static void check(bool condition,const char* message){if(!condition){fprintf(stderr,"%s\n",message);exit(1);}++checks;}
+/* Resolve only fixture-owned paths beneath the directory provided by the independent driver. */
+static void path(char* output,size_t capacity,const char* directory,const char* name,const char* suffix){const int count=snprintf(output,capacity,"%s/%s%s",directory,name,suffix);check(count>=0&&(size_t)count<capacity,"fixture path extent");}
+/* Read complete independent XML/ZIP bytes with checked allocation and no provider normalization. */
+static srl_buffer read_file(const char* name){FILE* file=fopen(name,"rb");check(file!=NULL,"open fixture");check(!fseek(file,0,SEEK_END),"seek fixture");const long count=ftell(file);if(count<0||(uintmax_t)count>=(uintmax_t)PTRDIFF_MAX){fclose(file);check(false,"fixture extent");return(srl_buffer){0};}check(!fseek(file,0,SEEK_SET),"fixture rewind");srl_buffer bytes={0};check(srl_reserve(&bytes,(size_t)count+1u),"fixture allocation");bytes.size=(size_t)count;check(fread(bytes.data,1,bytes.size,file)==bytes.size&&!fclose(file),"fixture bytes");bytes.data[bytes.size]=0;return bytes;}
+/* Retain exact canonical archives or an old-generation sentinel for independent inspection. */
+static void write_file(const char* name,const uint8_t* bytes,size_t size){FILE* file=fopen(name,"wb");check(file!=NULL,"open output");check(fwrite(bytes,1,size,file)==size&&!fclose(file),"write output");}
+/* Require every rejected Save to leave its preexisting destination bytes intact. */
+static void unchanged_file(const char* name){srl_buffer bytes=read_file(name);check(bytes.size==sizeof(previous)-1u&&!memcmp(bytes.data,previous,bytes.size),"rejected Save changed destination");srl_buffer_free(&bytes);}
+/* Hash framed opaque bytes and strings only for independently allocated fixture snapshots. */
+static uint64_t mix(uint64_t value,const void* data,size_t size){const uint64_t multiplier=UINT64_C(1099511628211);const uint8_t* bytes=(const uint8_t*)data;for(size_t index=0;index<size;++index){value=(value^bytes[index])*multiplier;}return(value^(uint64_t)size)*multiplier;}
+/* Include empty/absent metadata distinctly without dereferencing absent optional models. */
+static uint64_t text_hash(uint64_t hash,const char* text){return mix(hash,text?text:"",text?strlen(text):0);}
+/* Snapshot preservation records, payload values and discovered routing without borrowing mutable scratch. */
+static uint64_t snapshot(const relocation_archive_value* value){uint64_t hash=UINT64_C(14695981039346656037);hash=text_hash(hash,value->first_path);hash=text_hash(hash,value->second_path);hash=mix(hash,&value->children_size,sizeof(value->children_size));if(value->first){hash=mix(hash,&value->first->id,sizeof(value->first->id));hash=text_hash(hash,value->first->label.data);}if(value->second){hash=mix(hash,&value->second->id,sizeof(value->second->id));hash=text_hash(hash,value->second->label.data);}for(size_t index=0;index<value->children_size;++index){const relocation_archive_children_part* item=&value->children[index];hash=text_hash(hash,item->name);hash=text_hash(hash,item->content_type);hash=mix(hash,&item->source_index,sizeof(item->source_index));hash=mix(hash,&item->value.id,sizeof(item->value.id));hash=text_hash(hash,item->value.label.data);}for(size_t index=0;index<value->extensions.parts_size;++index){const @p@_binary_part* part=&value->extensions.parts[index];hash=text_hash(hash,part->name);hash=text_hash(hash,part->content_type);hash=mix(hash,part->bytes.data,part->bytes.size);}for(size_t index=0;index<value->extensions.links_size;++index){const @p@_relationship* link=&value->extensions.links[index];hash=text_hash(hash,link->source);hash=text_hash(hash,link->id);hash=text_hash(hash,link->type);hash=text_hash(hash,link->target);hash=mix(hash,&link->external,sizeof(link->external));}return hash;}
+/* Cancel after bounded modeled work has begun, never using process-global operation context. */
+typedef struct cancellation {@p@_budget* budget;size_t after;} cancellation;
+/* Query the public ledger cooperatively while retaining the caller-owned cancellation state. */
+static bool cancelled(void* context){const cancellation* value=(const cancellation*)context;return value->budget->used[@p@_work_units]>=value->after;}
+/* Inject an exact arbitrary caller error at the public final publication boundary. */
+static int fault(void* context,const char* point){(void)context;return !strcmp(point,"before_replace")?caller_marker:0;}
+/* Retain caller codec identity and direction counts while borrowing the same operation context. */
+typedef struct codec_state {const void* model;size_t encoded,decoded;int failure;} codec_state;
+/* Select a typed encoder that composes the generated native descriptor with the package ledger. */
+static int encode_selected(void* userdata,const void* model,srl_buffer* bytes,const srl_limits* limits,@p@_xml_context* context){codec_state* state=(codec_state*)userdata;++state->encoded;check(model==state->model&&!strcmp(context->part,"/left/A.xml"),"selected canonical encoder borrowed identity");if(state->failure){return state->failure;}return @p@_xml_encode(context,srl_xml_operation_codec_relocation_payload(),model,bytes,limits);}
+/* Decode only the unpublished native candidate during selected-codec canonical Save validation. */
+static int decode_selected(void* userdata,void* model,const uint8_t* bytes,size_t size,const srl_limits* limits,@p@_xml_context* context){codec_state* state=(codec_state*)userdata;++state->decoded;check(!strcmp(context->part,"/left/A.xml"),"selected canonical decoder path");return @p@_xml_decode(context,srl_xml_operation_codec_relocation_payload(),model,bytes,size,limits);}
+/* Accept staged bytes through a borrowed sink independently of filesystem publication. */
+static int collect(void* userdata,const uint8_t* bytes,size_t size,size_t* written){srl_buffer* output=(srl_buffer*)userdata;if(size>SIZE_MAX-output->size||!srl_reserve(output,output->size+size)){return caller_marker;}memcpy(output->data+output->size,bytes,size);output->size+=size;*written=size;return 0;}
+/* Exercise every additive canonical writer/Save codec variant at the actual public C boundary. */
+static void codec_variants(const relocation_archive_input* input,const srl_buffer* expected,const char* saved,const char* typed_path){
+  codec_state state={input->first,0,0,0};const @p@_selected_codec codecs[]={{"first",&state,encode_selected,decode_selected}};@p@_budget budget=@p@_default_budget();srl_buffer bytes={0};
+  check(!@selected@_encode_canonical_with_codecs(input,&bytes,&budget,codecs,sizeof(codecs)/sizeof(codecs[0]))&&state.encoded==1u&&bytes.size==expected->size&&!memcmp(bytes.data,expected->data,bytes.size),"selected canonical encoder output");write_file(typed_path,bytes.data,bytes.size);srl_buffer_free(&bytes);
+  budget=@p@_default_budget();check(!@selected@_write_canonical(input,collect,&bytes,&budget)&&bytes.size==expected->size&&!memcmp(bytes.data,expected->data,bytes.size),"canonical borrowed sink");srl_buffer_free(&bytes);
+  budget=@p@_default_budget();check(!@selected@_write_canonical_with_codecs(input,collect,&bytes,&budget,codecs,sizeof(codecs)/sizeof(codecs[0]))&&bytes.size==expected->size&&!memcmp(bytes.data,expected->data,bytes.size),"selected canonical borrowed sink");srl_buffer_free(&bytes);
+  budget=@p@_default_budget();check(!@selected@_save_canonical_with_codecs(saved,input,&budget,NULL,NULL,codecs,sizeof(codecs)/sizeof(codecs[0]))&&state.encoded==3u&&state.decoded==1u,"selected canonical Save encode/decode");
+  state.failure=caller_marker;budget=@p@_default_budget();check(@selected@_write_canonical_with_codecs(input,collect,&bytes,&budget,codecs,sizeof(codecs)/sizeof(codecs[0]))==caller_marker&&!bytes.size&&!bytes.data,"selected encoder failure published to sink");srl_buffer_free(&bytes);
+}
+/* Admit exact shared budgets, reject one-tight limits and preserve initialized output on every rejection. */
+static void boundaries(const relocation_archive_input* input,const relocation_archive_value* value,const char* saved){
+  @p@_budget measured=@p@_default_budget();srl_buffer bytes={0};check(!@selected@_encode_canonical(input,&bytes,&measured),"measure canonical encode");srl_buffer_free(&bytes);const uint64_t before=snapshot(value);
+  const @p@_resource resources[]={@p@_work_units,@p@_allocation_bytes};
+  for(size_t index=0;index<sizeof(resources)/sizeof(resources[0]);++index){for(size_t tight=0;tight<2u;++tight){@p@_budget budget=@p@_default_budget();budget.maximum[resources[index]]=measured.used[resources[index]]-tight;srl_buffer output={0};check(srl_reserve(&output,4u),"boundary output");memcpy(output.data,"keep",4u);output.size=4u;uint8_t* original=output.data;const int status=@selected@_encode_canonical(input,&output,&budget);check((status==0)==(tight==0),"exact and one-tight canonical admission");if(tight){check(status==@p@_resource_limit&&output.data==original&&output.size==4u&&!memcmp(output.data,"keep",4u),"bounded encode published partial bytes");}check(snapshot(value)==before,"bounded encode changed caller state");srl_buffer_free(&output);}}
+  write_file(saved,(const uint8_t*)previous,sizeof(previous)-1u);@p@_budget budget=@p@_default_budget();cancellation cancel={&budget,measured.used[@p@_work_units]/2u};budget.is_cancelled=cancelled;budget.context=&cancel;
+  check(@selected@_save_canonical(saved,input,&budget,NULL,NULL)==@p@_cancelled,"canonical cancellation ignored");unchanged_file(saved);budget=@p@_default_budget();check(@selected@_save_canonical(saved,input,&budget,fault,NULL)==caller_marker,"caller Save fault identity changed");unchanged_file(saved);
+  relocation_archive_input conflicting=*input;conflicting.first_path=input->second_path;budget=@p@_default_budget();check(@selected@_encode_canonical(&conflicting,&bytes,&budget)!=0,"conflicting canonical origins accepted");srl_buffer_free(&bytes);
+}
+/* Exercise the old aggregate layout and additive canonical APIs with transactional owning cleanup. */
+int main(int argc,char** argv){
+  check(argc==5,"fixture arguments");const char* directory=argv[1];const char* name=argv[2];const char* action=argv[3];const char* expected=argv[4];
+  const relocation_archive_input old_layout={NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,NULL};(void)old_layout;
+  char filename[4097],saved[4097];path(filename,sizeof(filename),directory,name,".opc");path(saved,sizeof(saved),directory,name,"-saved.opc");write_file(saved,(const uint8_t*)previous,sizeof(previous)-1u);
+  srl_buffer source=read_file(filename);relocation_archive_value value={0};@p@_budget budget=@p@_default_budget();const int loaded=relocation_archive_load(&value,source.data,source.size,@p@_preserve_policy(),&budget);
+  if(loaded){check(!strcmp(expected,"LOAD_ERROR")&&!value.first&&!value.second&&!value.children&&!value.extensions.parts,"unexpected or partial legacy load failure");printf("{\"case\":\"%s\",\"decision\":\"%s\",\"checks\":%zu,\"failure_stage\":\"load\"}\n",name,expected,checks);relocation_archive_free(&value);srl_buffer_free(&source);return 0;}
+  check(strcmp(expected,"LOAD_ERROR")!=0,"invalid duplicate origin published");check(value.first&&value.first->id==11u&&srl_string_equal(&value.first->label,"first")&&value.children_size==1u&&value.children[0].value.id==33u&&value.children[0].source_index==0u,"typed payload and child routing");
+  if(!strcmp(action,"remove_second")){relocation_payload_free(value.second);free(value.second);value.second=NULL;}
+  const uint64_t before=snapshot(&value);const relocation_archive_value shallow=value;const relocation_archive_input input=relocation_archive_as_input(&value);srl_buffer encoded={0};budget=@p@_default_budget();const int status=@selected@_encode_canonical(&input,&encoded,&budget);
+  if(!strcmp(expected,"REJECT")){check(status!=0,"invalid canonical encode published");budget=@p@_default_budget();check(@selected@_save_canonical(saved,&input,&budget,NULL,NULL)!=0,"invalid canonical Save published");unchanged_file(saved);}else{
+    if(status){fprintf(stderr,"canonical status=%d part=%s field=%s link=%s\n",status,budget.part,budget.field,budget.link);}check(!strcmp(expected,"OK")&&!status,"unexpected canonical failure");path(filename,sizeof(filename),directory,name,"-encoded.opc");write_file(filename,encoded.data,encoded.size);
+    relocation_archive_value repeated={0};budget=@p@_default_budget();check(!relocation_archive_load(&repeated,encoded.data,encoded.size,@p@_preserve_policy(),&budget),"canonical roundtrip load");const relocation_archive_input repeat_input=relocation_archive_as_input(&repeated);srl_buffer again={0};budget=@p@_default_budget();check(!@selected@_encode_canonical(&repeat_input,&again,&budget)&&again.size==encoded.size&&!memcmp(again.data,encoded.data,again.size),"canonical output is not idempotent");path(filename,sizeof(filename),directory,name,"-repeat.opc");write_file(filename,again.data,again.size);srl_buffer_free(&again);relocation_archive_free(&repeated);
+    budget=@p@_default_budget();check(!@selected@_save_canonical(saved,&input,&budget,NULL,NULL),"canonical Save");srl_buffer legacy={0};budget=@p@_default_budget();check(!relocation_archive_encode(&input,&legacy,&budget),"unchanged legacy discovered paths");path(filename,sizeof(filename),directory,name,"-legacy.opc");write_file(filename,legacy.data,legacy.size);srl_buffer_free(&legacy);
+    if(!strcmp(name,"alternate")){boundaries(&input,&value,saved);path(filename,sizeof(filename),directory,name,"-typed.opc");codec_variants(&input,&encoded,saved,filename);budget=@p@_default_budget();check(!@selected@_save_canonical(saved,&input,&budget,NULL,NULL),"restore successful canonical Save");}
+  }
+  check(!memcmp(&shallow,&value,sizeof(value))&&snapshot(&value)==before,"canonical operation mutated caller ownership or payload");srl_buffer_free(&encoded);relocation_archive_free(&value);srl_buffer_free(&source);printf("{\"case\":\"%s\",\"decision\":\"%s\",\"checks\":%zu}\n",name,expected,checks);return 0;
+}

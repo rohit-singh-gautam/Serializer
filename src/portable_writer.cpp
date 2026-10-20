@@ -3246,7 +3246,7 @@ public:
           }
           selected_prefix = selected_base + '_' + std::to_string(++selected_suffix);
         }
-        for (const auto suffix : {"Encode", "Load", "Write", "Save"}) {
+        for (const auto suffix : {"Encode", "Load", "Write", "Save", "LoadCanonical", "LoadCanonicalWithCodecs", "LoadMode"}) {
           globals.insert(selected_prefix + suffix);
         }
         source += package_codegen::go(*package, names.at(package), go_package_prefix,

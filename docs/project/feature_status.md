@@ -1,5 +1,15 @@
 # Features and implementation status
 
+Compiler/runtime **2.19.0**, schema language **1.21.0**, provides selected owning
+package profiles in all eleven outputs, including fixed/default storage policies,
+scoped application references and shared native operation admission. Fixed
+singleton canonicalization retains preserved links through simultaneous moves,
+with additive opt-in C/Rust writers and Go loaders. See the
+[package contract](../serialization/xml_packages.md#fixed-singleton-path-canonicalization)
+and [actual preservation/collision matrix](../verification/verification-package-relocation-2026-10-21.md).
+Supported XML graphs retain their backend-specific capability gates; dynamic
+renames, lexical XML, signatures and hard provider peak limits remain separate.
+
 Compiler/runtime **2.16.0** adds per-occurrence QName namespace preservation,
 expanded default diagnostics and [C#/Kotlin ZIP/OPC facades](../languages/csharp_kotlin_packages.md).
 See the [batch evidence](../verification/verification-pending-50-2026-10-20.md)
@@ -34,7 +44,7 @@ coverage and verification. Proposals are not delivery commitments.
 | C++ output optimization | Binary views, constant evaluation, protocol selection and emission models; [constant evaluation](../serialization/constant_evaluation.md) and [performance](../serialization/performance.md). |
 | XML and XSD | XML support enabled by default; generated owning mappings across all outputs, richer C++/Python fixed-XSD subsets and explicit prepared validation; [usage and backend scope](../serialization/xml_packages.md). |
 | Streams and compression | C++ stream adapters, whole-message helpers and composable whole-object compression streams; [compression](../serialization/compression.md). General backend parity remains pending. |
-| ZIP and OPC | ZIP32/ZIP64 and generated C++/Python/Java/JS/TS/Go/C#/Kotlin OPC profiles under backend-specific contracts, bounded spooling, metadata, preservation, canonical ordering and staged Save; [package APIs](../serialization/xml_packages.md#plain-zip-and-opc). Remaining backends and broader profiles remain pending. |
+| ZIP and OPC | ZIP32/ZIP64 and generated owning OPC profiles in all eleven outputs under backend-specific contracts, bounded spooling, metadata, preservation, canonical ordering and staged Save; [package APIs](../serialization/xml_packages.md#plain-zip-and-opc). Broader XML graphs, dynamic-role/profile selection, corpus and performance gates remain pending. |
 | Managed application state | C++ identity, transactions, snapshot history, journals, collaboration and typed registries; [managed index](../managed/README.md). Other outputs exchange records without native managed engines. |
 | Builds and examples | CLI/INI generation, CMake integration, standalone examples and native Go projects; [build guide](../guides/build_and_generation.md) and [examples](../../example/README.md). |
 | Editors | Visual Studio and VS Code schema editing and navigation; [editor index](../editors/README.md). |
@@ -44,7 +54,7 @@ coverage and verification. Proposals are not delivery commitments.
 | Capability | Proposal and boundary |
 | --- | --- |
 | Broader XML and XSD | [Pending report](../pending.md): tree-free optimized tokens, richer vocabularies, XSD facets/identity constraints, broader export and wider model coverage. |
-| ZIP/OPC parity and profiles | [Package requirements](../design/xml_support.md#multipart-packages-and-opc): all-language APIs/qualification, generated typed profiles, preservation and reproducibility. |
+| ZIP/OPC profiles and qualification | [Package requirements](../design/xml_support.md#multipart-packages-and-opc): broader typed graphs/profiles, provider and corpus stress, measured resource bounds and reproducibility qualification. |
 | Reusable document-file profiles | [Proposed profile](../design/xml_support.md#reusable-document-file-profiles): complete saved files, side-channel-only history/recovery and independent external/internal codecs. Current native C++ formats remain unchanged. |
 | Compression parity | Whole-object stream wrappers across outputs with exact framing, limits and optional providers. Incremental records/object serialization are not required. |
 | Format parity | C++-only Protobuf APIs still need equivalent general backend support. Native `binary_none`-only selection already covers every output. C++ constant evaluation and borrowed native views remain language-specific. |

@@ -38,11 +38,17 @@ extension @package_name@ {
             self.source = source; self.id = id; self.type = type; self.target = target; self.external = external
         }
     }
+    fileprivate struct Relocation { let destination: Swift.String; let role: Swift.String }
     public struct Extensions {
         public let parts: [BinaryPart]
         public let relationships: [Relationship]
+        fileprivate let relocations: [Swift.String:Relocation]
         /// Preserve complete bytes and their source/target context without claiming lexical metadata preservation.
-        public init(parts: [BinaryPart] = [], relationships: [Relationship] = []) { self.parts = parts; self.relationships = relationships }
+        public init(parts: [BinaryPart] = [], relationships: [Relationship] = []) { self.parts = parts; self.relationships = relationships; relocations = [:] }
+        /// Keep loaded moved-role provenance private until the edited aggregate is composed.
+        fileprivate init(parts: [BinaryPart], relationships: [Relationship], relocations: [Swift.String:Relocation]) {
+            self.parts = parts; self.relationships = relationships; self.relocations = relocations
+        }
     }
     public enum Unknown { case reject, skip, preserve }
     public struct ExtensionPolicy {
@@ -138,13 +144,19 @@ R"packageopc(                guard ended else { throw Failure(.invalidMetadata,"
         guard value.range(of: "^[A-Za-z][A-Za-z0-9+.-]*:", options: .regularExpression) != nil, !value.contains("#"),
             !value.unicodeScalars.contains(where: { $0.value <= 32 || $0.value == 127 }) else { throw Failure(.invalidRelationship, "Invalid relationship type IRI") }
     }
+    /// Find URI syntax by Unicode scalar so combining marks cannot hide ASCII delimiters.
+    private static func selectorIndex(_ target: Swift.String) -> Swift.String.Index {
+        target.unicodeScalars.firstIndex { $0 == "?" || $0 == "#" } ?? target.endIndex
+    }
     /// Resolve internal relative targets inside the package root; external links are never consulted.
     public static func resolve(_ source: Swift.String, _ target: Swift.String) throws -> Swift.String {
         try iri(target)
-        guard !target.isEmpty, !target.contains("?"), !target.contains("#"), !target.contains("\\"), !target.contains("//"), !target.hasSuffix("/"),
-            target.hasPrefix("/") || !(target.split(separator:"/").first?.contains(":") ?? false) else { throw Failure(.invalidRelationship, "Invalid internal relationship target") }
-        var result: [Swift.String] = target.hasPrefix("/") ? [] : source.split(separator: "/").dropLast().map(Swift.String.init)
-        for piece in target.split(separator: "/", omittingEmptySubsequences: false) {
+        let path = target[..<selectorIndex(target)]
+        if path.isEmpty && !target.isEmpty && source != "/" { return try partName(source) }
+        guard !path.isEmpty, !path.contains("\\"), !path.contains("//"), !path.hasSuffix("/"),
+            path.hasPrefix("/") || !(path.split(separator:"/").first?.contains(":") ?? false) else { throw Failure(.invalidRelationship, "Invalid internal relationship target") }
+        var result: [Swift.String] = path.hasPrefix("/") ? [] : source.split(separator: "/").dropLast().map(Swift.String.init)
+        for piece in path.split(separator: "/", omittingEmptySubsequences: false) {
             if piece.isEmpty || piece == "." { continue }; if piece == ".." { guard !result.isEmpty else { throw Failure(.invalidRelationship, "Relationship escapes package root") }; result.removeLast() } else { result.append(Swift.String(piece)) }
         }
         do { return try partName("/"+result.joined(separator: "/")) } catch { throw Failure(.invalidRelationship, "Invalid resolved relationship target") }

@@ -16,13 +16,15 @@ R"packagecs(
     // Expose immutable physical and logical metadata to extension policy callbacks.
     public sealed record PartMetadata(string Name,string ContentType,Entry Entry);
     public sealed class Extensions {
+      private static readonly global::System.Collections.Generic.IReadOnlyDictionary<string,string> EmptyRelocations=new global::System.Collections.Generic.Dictionary<string,string>();
       internal global::System.Collections.Generic.IReadOnlyDictionary<string,string> Relocations{get;}
+      internal global::System.Collections.Generic.IReadOnlyDictionary<string,string> RelocationRoles{get;}
       public global::System.Collections.Generic.IReadOnlyList<BinaryPart> Parts{get;}public global::System.Collections.Generic.IReadOnlyList<Relationship> Relationships{get;}
 
     // Retain opaque parts, scoped links and fixed-role relocation context.
     public Extensions(global::System.Collections.Generic.IEnumerable<BinaryPart>? parts=null,global::System.Collections.Generic.IEnumerable<Relationship>? relationships=null):this(parts,relationships,new global::System.Collections.Generic.Dictionary<string,string>()){}
       // Retain source/target identities for known fixed roles while opaque bytes remain unchanged.
-      internal Extensions(global::System.Collections.Generic.IEnumerable<BinaryPart>? parts,global::System.Collections.Generic.IEnumerable<Relationship>? relationships,global::System.Collections.Generic.IReadOnlyDictionary<string,string> relocations){Relocations=new global::System.Collections.Generic.Dictionary<string,string>(relocations,global::System.StringComparer.Ordinal);Parts=new global::System.Collections.Generic.List<BinaryPart>(parts??global::System.Array.Empty<BinaryPart>()).AsReadOnly();Relationships=new global::System.Collections.Generic.List<Relationship>(relationships??global::System.Array.Empty<Relationship>()).AsReadOnly();}
+      internal Extensions(global::System.Collections.Generic.IEnumerable<BinaryPart>? parts,global::System.Collections.Generic.IEnumerable<Relationship>? relationships,global::System.Collections.Generic.IReadOnlyDictionary<string,string> relocations,global::System.Collections.Generic.IReadOnlyDictionary<string,string>? relocationRoles=null){Relocations=new global::System.Collections.Generic.Dictionary<string,string>(relocations,global::System.StringComparer.Ordinal);RelocationRoles=relocationRoles==null?EmptyRelocations:new global::System.Collections.Generic.Dictionary<string,string>(relocationRoles,global::System.StringComparer.Ordinal);Parts=new global::System.Collections.Generic.List<BinaryPart>(parts??global::System.Array.Empty<BinaryPart>()).AsReadOnly();Relationships=new global::System.Collections.Generic.List<Relationship>(relationships??global::System.Array.Empty<Relationship>()).AsReadOnly();}
     }
     public enum Unknown { Reject,Skip,Preserve }
 

@@ -174,6 +174,13 @@ inline std::string go(const package_node& package, const std::string& name,
   line("  return " + selected_prefix + "Load(source,options" + codec_arguments("") + ")}");
   line("// " + selected_prefix + "Load composes selected decoders with the same located native operation policy.");
   line("func " + selected_prefix + "Load(source any,options " + name + "LoadOptions" + codec_parameters(false,"codec") + ")(*" + name + "Value,error){");
+  line("  return " + selected_prefix + "LoadMode(source,options,false" + codec_arguments("codec") + ")} ");
+  line("// " + selected_prefix + "LoadCanonical opts into fixed-path link rebasing before publishing the old value layout.");
+  line("func " + selected_prefix + "LoadCanonical(source any,options " + name + "LoadOptions)(*" + name + "Value,error){return " + selected_prefix + "LoadMode(source,options,true" + codec_arguments("") + ")}");
+  line("// " + selected_prefix + "LoadCanonicalWithCodecs shares existing selected decoders with canonical link publication.");
+  line("func " + selected_prefix + "LoadCanonicalWithCodecs(source any,options " + name + "LoadOptions" + codec_parameters(false,"codec") + ")(*" + name + "Value,error){return " + selected_prefix + "LoadMode(source,options,true" + codec_arguments("codec") + ")}");
+  line("// " + selected_prefix + "LoadMode stages either unchanged legacy metadata or explicitly canonical preserved scopes.");
+  line("func " + selected_prefix + "LoadMode(source any,options " + name + "LoadOptions,canonical bool" + codec_parameters(false,"codec") + ")(*" + name + "Value,error){");
   line("  if options.ExtensionPolicy.Parts>" + api("Preserve") + "||options.ExtensionPolicy.Relationships>" + api("Preserve") + "{return nil,srlPackageFailure(" + api("InvalidOptions") + ",\"Invalid package extension policy\",\"\")}");
   line("  budget,err:=srlPackageBudget([]*" + api("Budget") + "{options.Budget});if err!=nil{return nil,err};loader,err:=srlPackageNewLoader(source,budget);if err!=nil{return nil,err};defer loader.close();value:=&" + name + "Value{}");
   index = 0;
@@ -197,8 +204,13 @@ inline std::string go(const package_node& package, const std::string& name,
     }
   }
   line("  if err=srlPackageReferences"+name+"(value,budget,loader);err!=nil{return nil,err}");
-  line("  var validate func(*" + api("Budget") + ")error;if options.Validate!=nil{validate=func(budget *" + api("Budget") + ")error{return options.Validate(value,budget)}}");
-  line("  if err=loader.finish(options.ExtensionPolicy,func(extensions " + api("Extensions") + "){value.Extensions=extensions},validate);err!=nil{return nil,err};return value,nil");
+  line("  var canonicalError error;var validate func(*" + api("Budget") + ")error;if options.Validate!=nil||canonical{validate=func(budget *" + api("Budget") + ")error{if canonicalError!=nil{return canonicalError};if options.Validate!=nil{return options.Validate(value,budget)};return nil}}");
+  std::string canonical_roles;
+  for (std::size_t role_index{}; role_index < parts.size(); ++role_index) {
+    if (!canonical_roles.empty()) { canonical_roles += ','; }
+    canonical_roles += role(role_index);
+  }
+  line("  if err=loader.finish(options.ExtensionPolicy,func(extensions " + api("Extensions") + "){if canonical{extensions,canonicalError=srlPackageCanonicalExtensions(loader,extensions,[]srlPackageRole{" + canonical_roles + "});if canonicalError!=nil{return}};value.Extensions=extensions},validate);err!=nil{return nil,err};return value,nil");
   line("}");
   line("// " + selected_prefix + "Write stages selected encoders before writing to the borrowed sink.");
   line("func " + selected_prefix + "Write(destination srlPackageIO.Writer,value *" + name + "Input,budget *" + api("Budget") + codec_parameters(true,"codec") + ")(int64,error){if destination==nil{return 0,srlPackageFailure(" + api("InvalidOptions") + ",\"Missing package sink\",\"\")};data,err:=" + selected_prefix + "Encode(value,nil,budget" + codec_arguments("codec") + ");if err!=nil{return 0,err};return " + api("Write") + "(destination,data,budget)}");

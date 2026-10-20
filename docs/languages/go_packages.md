@@ -83,9 +83,45 @@ payloads still undergo ZIP integrity validation.
 
 Preservation retains whole opaque bytes, logical names/media types and authored
 relationship strings. Edited packages are checked again for duplicate identities
-and complete source/target closure. The encoder does not rewrite retained links
-when an application changes layout or a fixed writer default differs from a
-discovered path; repair or remove affected links explicitly. Reordering unordered
+and complete source/target closure. Ordinary `Load` and the existing encoders
+retain their previous behavior: fixed roles use declared writer paths, and stale
+preserved scopes require explicit application repair. Release 2.19.0 provides
+an opt-in canonical load before editing:
+
+```go
+value, err := model.SerializerPackageCodecsProfileArchiveLoadCanonical(
+  archive,
+  model.ProfileArchiveLoadOptions{
+    ExtensionPolicy: model.SerializerPackageExtensionPolicy{
+      Parts: model.SerializerPackagePreserve,
+      Relationships: model.SerializerPackagePreserve,
+    },
+  },
+)
+```
+
+Use the prefix recorded by `Generated Go selected-codec prefix` when a collision
+selects another spelling. `LoadCanonicalWithCodecs` takes the same options and
+per-role decoder callbacks as the existing selected `Load`. Decoders still see
+actual discovered input paths and IDs with the original shared XML context.
+The explicit mode rebases retained links only after all declared roles have been
+decoded, before domain validation and publication of the normal owning Value.
+Choose that mode before editing; an already edited legacy Value has no additional
+hidden provenance fields. Existing aggregate layouts, unkeyed struct literals,
+options and default APIs remain unchanged.
+
+Canonical load resolves each internal target in its original source scope and
+maps moved fixed singleton endpoints simultaneously. It preserves raw query and
+fragment suffixes, unchanged relative spelling and inert external URI text.
+Unknown payload bytes remain exact. Occupied destinations, source-local ID
+collisions and broken prospective closure reject without publishing a Value.
+After success, ordinary `Encode`, `Write` and `Save` use the already canonical
+records; repeated output does not reapply an old move. Removing an optional role
+then leaves references to its distinct canonical path dangling, so subsequent
+encode/Save rejects. Routing indexes, copies and work share the budget and
+cancellation checks; no moved fixed paths uses the existing finish path.
+Arbitrary dynamic-role renames remain an application responsibility.
+Reordering unordered
 explicit extension part/link sets preserves canonical output. Declared repeated
 role order remains semantic because generated IDs encode occurrence order.
 

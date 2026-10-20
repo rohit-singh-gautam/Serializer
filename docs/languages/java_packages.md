@@ -80,9 +80,21 @@ selection. Preserved `Extensions` retain complete payload bytes and source-local
 link context; they do not claim that an unknown required vocabulary is understood.
 Skipped physical entries still undergo size, framing and CRC validation.
 External relationship targets remain inert URI/IRI strings and are never opened.
-Fixed singleton output uses its authored writer name. When an input used another
-discovered name, preserved links that reference that old name must be explicitly
-rebound before output; finalization rejects stale sources or targets.
+From compiler/runtime 2.19.0, loaded `Extensions` privately retain the original
+part identity of a typed fixed singleton when its discovered name differs from
+the declared output name. Keep that same `Extensions` instance when re-encoding
+the loaded value or binding its models to a fresh `Input`. Composition retargets
+preserved sources and internal endpoints simultaneously, resolving every target
+against its original source first. It retains the exact suffix beginning at the
+first literal `?` or `#`, external target text and unchanged relative spelling.
+The supplied extension parts, links and models are not mutated.
+
+Removing a moved fixed role rejects preserved links that still use its original
+identity, even when another output part occupies that URI. Occupied canonical
+destinations, conflicting mappings and source-local ID collisions also reject
+before publication. Newly authored extension state has no loaded-origin context.
+Arbitrary renaming of dynamic/repeated occurrences remains outside automatic
+retargeting; callers must update those links and satisfy the final closure check.
 
 ## ZIP and source ownership
 

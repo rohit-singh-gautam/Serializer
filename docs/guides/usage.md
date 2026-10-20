@@ -1,5 +1,13 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.19.0** extends fixed singleton package canonicalization to
+all eleven outputs. Retain loaded extensions while editing; preserved internal
+links resolve in their original source scope before simultaneous endpoint
+rebinding. C/Rust canonical writers and Go canonical loaders are opt-in additions.
+Dynamic role renames require application rebinding. See
+[the package contract](../serialization/xml_packages.md#fixed-singleton-path-canonicalization)
+and [migration](../../migration.md#compilerruntime-2190).
+
 Compiler/runtime **2.18.0** adds compatible C/Rust XML operation APIs and shared
 native identity admission in generated packages. Caller-selected Go, JS/TS and
 external-module Kotlin codecs can retain the same shared package context.

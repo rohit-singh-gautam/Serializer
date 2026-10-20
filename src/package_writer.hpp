@@ -292,11 +292,14 @@ inline std::string cpp(const package_node& package,
     if (part->value_type) {
       const auto type = render_type(*part->value_type);
       if (singleton(*part)) {
-        line("          srl_shared.consume(::rohit::serializer::package::resource::metadata_bytes,");
-        line("              sizeof(::rohit::serializer::package::part_relocation), srl_part.name);");
-        line("          srl_shared.consume(::rohit::serializer::package::resource::metadata_bytes, srl_part.name.size(), srl_part.name);");
-        line("          srl_shared.consume(::rohit::serializer::package::resource::metadata_bytes, " + std::to_string(part->part_name->size()) + "U, srl_part.name);");
-        line("          srl_relocations.push_back({srl_part.name, " + quote(*part->part_name) + "});");
+        // Record physical-name changes only; equivalent authored target spelling remains inert otherwise.
+        line("          if (srl_part.name != " + quote(*part->part_name) + ") {");
+        line("            srl_shared.consume(::rohit::serializer::package::resource::metadata_bytes,");
+        line("                sizeof(::rohit::serializer::package::part_relocation), srl_part.name);");
+        line("            srl_shared.consume(::rohit::serializer::package::resource::metadata_bytes, srl_part.name.size(), srl_part.name);");
+        line("            srl_shared.consume(::rohit::serializer::package::resource::metadata_bytes, " + std::to_string(part->part_name->size()) + "U, srl_part.name);");
+        line("            srl_relocations.push_back({srl_part.name, " + quote(*part->part_name) + "});");
+        line("          }");
         line("          srl_value." + member(*part) + " = ::rohit::serializer::package::read_xml_part<" + type + ">(srl_bytes, srl_shared, srl_part.name, ::rohit::serializer::package::profile_dispatch(srl_profiles, " + quote(part->name) + "));");
         references(*part, part->min_occurs == 0U ? "(*srl_value." + member(*part) + ")" :
             "srl_value." + member(*part), "srl_part.name", "::std::string{srl_loader.current_relationship_id()}");

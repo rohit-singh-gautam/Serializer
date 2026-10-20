@@ -94,6 +94,55 @@ extension @package_name@ {
         _ = parser.parse()
         guard accepted, handler.failure is IdentityStop else { throw handler.failure ?? parser.parserError ?? SerializerError.invalid("Missing package XML root") }
     }
+    /// Rebase moved-role links from original context without mutating preserved records or payloads.
+    private static func relocatedRelationships(_ extensions: Extensions, _ sources: [Swift.String:[Swift.String]], _ budget: Budget) throws -> [Relationship] {
+        guard !extensions.relocations.isEmpty else { return extensions.relationships }
+        var destinations: Swift.Set<Swift.String> = []
+        let destinationIndexEntryBytes = Swift.MemoryLayout<Swift.String>.stride + 2 * Swift.MemoryLayout<Swift.Int>.stride
+        for (origin,move) in extensions.relocations {
+            try budget.consume(.workUnits,1,part:origin)
+            try budget.consume(.workUnits,origin.utf8.count,part:origin)
+            try budget.consume(.workUnits,move.destination.utf8.count,part:origin)
+            try partName(origin); try partName(move.destination)
+            // Admit the owned folded string and logical set entry before retaining either.
+            try budget.consume(.decoderAllocationBytes,destinationIndexEntryBytes,part:origin)
+            try budget.consume(.decoderAllocationBytes,move.destination.utf8.count,part:origin)
+            guard destinations.insert(fold(move.destination)).inserted else { throw Failure(.duplicateName,"Conflicting canonical role destinations",part:move.destination) }
+        }
+        var result: [Relationship] = []
+        for original in extensions.relationships {
+            try budget.consumeAnnotated(.workUnits,1,part:original.source,field:"relationships",reference:"",relationshipId:original.id)
+            try budget.consume(.workUnits,original.source.utf8.count,part:original.source)
+            try budget.consume(.workUnits,original.target.utf8.count,part:original.source)
+            let sourceMove = extensions.relocations[fold(original.source)]
+            if let move = sourceMove, !(sources[move.role]?.contains(where: { fold($0) == fold(move.destination) }) ?? false) {
+                throw Failure(.missingPart,"Preserved source role was removed",part:original.source,relationshipId:original.id)
+            }
+            let source = sourceMove?.destination ?? original.source
+            var target = original.target
+            if !original.external {
+                // Resolve both endpoints against the original graph before applying any simultaneous move.
+                try budget.consume(.decoderAllocationBytes,original.source.utf8.count,part:original.source)
+                try budget.consume(.decoderAllocationBytes,original.target.utf8.count,part:original.source)
+                let resolved = try resolve(original.source,original.target)
+                let targetMove = extensions.relocations[fold(resolved)]
+                if let move = targetMove, !(sources[move.role]?.contains(where: { fold($0) == fold(move.destination) }) ?? false) {
+                    throw Failure(.missingPart,"Preserved target role was removed",part:resolved,relationshipId:original.id)
+                }
+                if targetMove != nil || !source.utf8.elementsEqual(original.source.utf8) {
+                    let destination = targetMove?.destination ?? resolved
+                    let marker = selectorIndex(original.target)
+                    let suffix = original.target[marker...]
+                    try budget.consume(.decoderAllocationBytes,destination.utf8.count,part:original.source)
+                    try budget.consume(.decoderAllocationBytes,suffix.utf8.count,part:original.source)
+                    target = destination; target.append(contentsOf:suffix)
+                }
+            }
+            try budget.consumeAnnotated(.decoderAllocationBytes,Swift.MemoryLayout<Relationship>.stride,part:original.source,field:"relationships",reference:"",relationshipId:original.id)
+            result.append(Relationship(source:source,id:original.id,type:original.type,target:target,external:original.external))
+        }
+        return result
+    }
     /// Synchronous unpublished composition stages typed values and inert opaque parts together.
     public final class Composer {
         private let budget: Budget
@@ -161,7 +210,8 @@ R"packageprofile(            parts.append(BinaryPart(data,name:selectedName,cont
             guard !closed, !busy else { closed = true; throw Failure(.invalidState,"Closed package composer") }; busy = true; defer { busy = false; closed = true; parts = []; relationships = [] }
             guard profiles.keys.allSatisfy({ selected.contains($0) }) else { throw Failure(.invalidOptions,"Unknown package profile role") }
             for part in extensions.parts { try budget.consume(.preservedBytes,part.data.count,part:part.name) }
-            return try opcWrite(parts+extensions.parts,relationships:relationships+extensions.relationships,budget:budget)
+            let preserved = try relocatedRelationships(extensions,sources,budget)
+            return try opcWrite(parts+extensions.parts,relationships:relationships+preserved,budget:budget)
         }
     }
     /// Own a private catalog and decoded role inventory until final aggregate policy validation.
@@ -172,7 +222,7 @@ R"packageprofile(            parts.append(BinaryPart(data,name:selectedName,cont
         private var sources: [Swift.String:[Swift.String]] = ["/":["/"]]
         private var selectedParts: Swift.Set<Swift.String> = []
         private var selectedLinks: Swift.Set<Swift.Int> = []
-        private var aliases: [Swift.String:Swift.String] = [:]
+        private var aliases: [Swift.String:Relocation] = [:]
         private var locations: [Swift.String:[(part:Swift.String,relationshipId:Swift.String)]] = [:]
         private var selectedRoles: Swift.Set<Swift.String> = []
         private var busy = false
@@ -197,7 +247,12 @@ R"packageprofile(            parts.append(BinaryPart(data,name:selectedName,cont
                     guard !role.fixed || part.entry.compression == role.compression else { throw Failure(.invalidOptions,"Fixed package compression differs",part:target,fieldPath:role.field) }
                     guard selectedParts.insert(fold(part.name)).inserted else { throw Failure(.semantic,"Part selected by multiple roles",part:target) }
                     selectedLinks.insert(index); values.append(Occurrence(metadata:part,parent:parentIndex,id:link.id))
-                    if let canonical = role.name { aliases[fold(part.name)] = canonical }
+                    if let canonical = role.name, !part.name.utf8.elementsEqual(canonical.utf8) {
+                        try budget.consume(.workUnits,1,part:part.name)
+                        try budget.consume(.decoderAllocationBytes,part.name.utf8.count,part:part.name)
+                        try budget.consume(.decoderAllocationBytes,Swift.MemoryLayout<Relocation>.stride,part:part.name)
+                        aliases[fold(part.name)] = Relocation(destination:canonical,role:role.field)
+                    }
                 }
             }
             try occurs(role,values.count); sources[role.field] = values.map { $0.metadata.name }
@@ -232,7 +287,7 @@ R"packageprofile(            parts.append(BinaryPart(data,name:selectedName,cont
             do { let occurrences = try discover(role); return try occurrences.map { item in BinaryPart(try opc.read(item.metadata.name),name:item.metadata.name,contentType:item.metadata.contentType,sourceIndex:item.parent,compression:item.metadata.entry.compression) } }
             catch { closed = true; throw error }
         }
-        /// Preserve whole bytes and retarget context when a loaded typed role adopts its canonical path.
+        /// Preserve whole bytes and original link context; canonical relocation waits for edited composition.
         public func finish(_ policy: ExtensionPolicy = ExtensionPolicy()) throws -> Extensions {
 )packageprofile"
 R"packageprofile(            guard !busy, !closed else { closed = true; throw Failure(.invalidState,"Closed package loader") }; busy = true; defer { busy = false; closed = true }
@@ -246,14 +301,11 @@ R"packageprofile(            guard !busy, !closed else { closed = true; throw Fa
                 try budget.check(); let required = try policy.requiredRelationship?(link) ?? false
                 guard !required, policy.relationships != .reject else { throw Failure(.unsupportedFeature,"Unknown or required package relationship",part:link.source) }
                 if policy.relationships == .preserve {
-                    let source = aliases[fold(link.source)] ?? link.source
-                    let resolved = link.external ? link.target : try resolve(link.source,link.target)
-                    let target = link.external ? link.target : aliases[fold(resolved)] ?? resolved
-                    try budget.consume(.preservedBytes,source.utf8.count+link.id.utf8.count+link.type.utf8.count+target.utf8.count)
-                    links.append(Relationship(source:source,id:link.id,type:link.type,target:target,external:link.external))
+                    for text in [link.source,link.id,link.type,link.target] { try budget.consume(.preservedBytes,text.utf8.count,part:link.source) }
+                    links.append(link)
                 }
             }
-            try budget.check(); return Extensions(parts:parts,relationships:links)
+            try budget.check(); return Extensions(parts:parts,relationships:links,relocations:aliases)
         }
         /// Release only the private archive; decoded and preserved values remain independently owned.
         public func close() { closed = true; archive.close() }

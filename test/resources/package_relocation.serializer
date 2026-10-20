@@ -1,0 +1,36 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.21.0;
+
+namespace relocation {
+  xml(namespace("urn:serializer:relocation-test"), scalars(attribute));
+
+  class payload {
+    public uint32 id (1);
+    public string label (2);
+  }
+
+  package archive {
+    part first : payload {
+      name("/left/A.xml");
+      content_type("application/vnd.serializer.relocation+xml");
+      relationship("urn:serializer:relocation:first");
+      compression(stored);
+    }
+    part second : payload {
+      name("/right/B.xml");
+      content_type("application/vnd.serializer.relocation+xml");
+      relationship("urn:serializer:relocation:second");
+      occurs(0, 1);
+      compression(stored);
+    }
+    part children : payload {
+      name(dynamic);
+      content_type("application/vnd.serializer.relocation+xml");
+      relationship("urn:serializer:relocation:child");
+      source(first);
+      occurs(0, unbounded);
+      compression(stored);
+    }
+  }
+}

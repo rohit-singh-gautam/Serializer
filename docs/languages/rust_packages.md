@@ -74,6 +74,43 @@ source-local target strings are revalidated during encoding. `Value::paths`
 retains discovered singleton paths, allowing a loaded package to keep its relative
 relationship scopes. Dynamic role renames still require application rebinding.
 
+Release 2.19.0 adds the helper-module `CanonicalPackage` trait. It leaves existing
+`encode`, `write`, `save` and selected-codec methods unchanged, including their
+use of discovered `paths`. Explicit trait calls avoid adding collision-prone
+inherent method names or fields to existing public struct literals:
+
+```rust
+let bytes = <ProfileArchive as package::CanonicalPackage>::encode_canonical(
+    &loaded,
+    &mut package::Budget::default(),
+)?;
+<ProfileArchive as package::CanonicalPackage>::save_canonical(
+    std::path::Path::new("canonical.opc"),
+    &loaded,
+    &mut package::Budget::default(),
+    None,
+)?;
+```
+
+`write_canonical` takes a borrowed `Write`, the input and its budget. The trait
+uses the generated native codecs and borrows typed payloads without cloning
+them. It prepares separate routing metadata for present fixed singleton roles,
+then rewrites only private preserved output links. Original relative targets
+resolve before either endpoint moves; swaps apply simultaneously. Query and
+fragment suffixes retain their exact bytes, external URI references remain inert
+and unchanged, and unmoved relative links retain their authored spelling.
+
+Retain `paths` entries when removing an optional loaded role. Only paths that
+differ from the declared fixed path participate in provenance: a removed moved
+origin rejects preserved sources or targets that still refer to it, including
+when another role takes its old path. No-move roles retain their existing URI
+identity behavior. The input, preserved records and model payloads remain
+unchanged. Conflicting origins, occupied output paths, source-local ID collisions
+and dangling links reject before publication; canonical Save validates the full
+staged round trip before replacement. Metadata allocation, lookup/copy work and
+cancellation share the operation budget. An empty move set retains the existing
+composition path. Dynamic-role arbitrary renames remain outside this API.
+
 Schema language 1.21 adds `policy(fixed)` and `policy(defaults)` to package roles.
 Set `budget.overrides.insert("main".into(), 0)` for stored ZIP or `8` for DEFLATE.
 Defaults permit either supported override; fixed rejects a changed method before

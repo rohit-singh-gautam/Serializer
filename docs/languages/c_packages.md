@@ -96,6 +96,39 @@ reject/skip/preserve policies. Preserved opaque payload bytes and relationship
 scopes are checked again on encode/Save. Dynamic role renames require explicit
 application rebinding.
 
+Release 2.19.0 adds opt-in canonical fixed-singleton output. Existing `encode`,
+`write`, `save` and their selected-codec forms retain discovered `_path` values
+and their previous output behavior. Use the collision-selected entry point
+prefix recorded by `Generated C selected-codec prefix` for the new
+`_encode_canonical`, `_write_canonical` and `_save_canonical` functions. For the
+example package, encoding a borrowed view of a live loaded Value is:
+
+```c
+const profile_archive_input edited = profile_archive_as_input(&loaded);
+budget = serializer_package_default_budget();
+status = serializer_package_profile_archive_encode_canonical(&edited, &bytes, &budget);
+```
+
+The new functions accept the same arguments as the corresponding ordinary
+functions. Their `_with_codecs` variants append the borrowed codec table and
+count. Canonical output borrows the typed models, routes present fixed singleton
+roles to their declared paths, and copies preserved links into private output
+ownership. It resolves each internal target against its original source before
+mapping either endpoint. Moves are simultaneous, including swaps; raw query and
+fragment suffixes remain exact, and relative or absolute external targets remain
+inert unchanged text. Unmoved links keep their original relative spelling.
+
+Keep loaded `_path` metadata when removing an optional role. A moved origin for
+that absent role remains a tombstone: a preserved source or target referring to
+it rejects even if another role moves into its old path. Unchanged role paths do
+not acquire tombstones. Unknown part bytes, the borrowed input and native model
+payloads remain unchanged. Conflicting origins, occupied destinations, duplicate
+source-local IDs and dangling references reject before publishing an aggregate,
+buffer or file. Routing metadata, copies and lookup work use the same budget and
+cancellation callbacks; an empty move set uses the existing composition path.
+These APIs preserve the old public aggregate layouts and relationship-ID rules.
+Arbitrary renames of dynamic occurrences remain an application responsibility.
+
 Schema language 1.21 role `policy(fixed)` prevents changed compression overrides;
 `policy(defaults)` permits stored or DEFLATE. Supply a borrowed
 `serializer_package_override` array in Budget using method `0` or `8`. Unknown

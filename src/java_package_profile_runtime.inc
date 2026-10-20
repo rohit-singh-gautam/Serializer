@@ -168,9 +168,42 @@ R"packagejava(
   private static <T> T decodeNative(Decoder<T> decoder,byte[] bytes,State state,Role role,String part,String id)throws java.io.IOException{boolean previous=SrlXmlRule.enterPackageQuota();try{return decoder.decode(bytes,nativeLimits(state,role,part,id));}finally{SrlXmlRule.leavePackageQuota(previous);}}
   /** Check aggregate cardinality after all source-scoped role occurrences are counted. */
   private static void occurs(Role role,long count) throws java.io.IOException {if(count<role.minimum||role.maximum>=0&&count>role.maximum)throw new PackageError(Code.SEMANTIC,"Package role cardinality failed","",0,role.field,"","");}
+  /** Add logical location only to runtime-owned relocation resource failures. */
+  private static void relocationConsume(State state,Resource resource,long amount,String part,String field,String id) throws java.io.IOException {
+    try{state.consume(resource,amount,part);}catch(PackageError failure){if(state.first==failure||state.budget.policyFailure==failure)throw failure;throw new PackageError(failure.code,failure.getMessage(),part,0,field,"",id);}
+  }
+  /** Rebase retained links simultaneously from their original source and target identities. */
+  private static java.util.List<Relationship> relocated(Extensions extensions,java.util.Map<String,java.util.List<String>> sources,State state) throws java.io.IOException {
+    if(extensions.origins.isEmpty())return extensions.relationships;
+    java.util.Map<String,String> moves=null;var destinations=new java.util.HashMap<String,String>();var absent=new java.util.HashSet<String>();
+    for(var item:extensions.origins.entrySet()) {
+      String origin=item.getValue().get(0),canonical=item.getValue().get(1);state.consume(Resource.WORK_UNITS,origin.length()+canonical.length()+1L,origin);
+      var active=sources.get(item.getKey());if(active==null||!active.contains(canonical)){state.consume(Resource.DECODER_ALLOCATION_BYTES,64L+2L*origin.length(),origin);absent.add(fold(origin));continue;}if(origin.equals(canonical))continue;
+      state.consume(Resource.DECODER_ALLOCATION_BYTES,160L+4L*(origin.length()+canonical.length()),origin);
+      if(moves==null)moves=new java.util.HashMap<>();String key=fold(origin),destination=fold(canonical),prior=moves.putIfAbsent(key,canonical),owner=destinations.putIfAbsent(destination,key);
+      if(prior!=null&&!prior.equals(canonical)||owner!=null&&!owner.equals(key))throw error(Code.INVALID_RELATIONSHIP,"Conflicting canonical package relocation",origin);
+    }
+    if(moves==null&&absent.isEmpty())return extensions.relationships;
+    var result=new java.util.ArrayList<Relationship>();
+    for(Relationship link:extensions.relationships) {
+      relocationConsume(state,Resource.WORK_UNITS,link.source.length()+link.target.length()+1L,link.source,"relationships",link.id);if(absent.contains(fold(link.source)))throw new PackageError(Code.MISSING_PART,"Preserved relationship source role was removed",link.source,0,"relationships","",link.id);String source=moves==null?link.source:moves.getOrDefault(fold(link.source),link.source),text=link.target;
+      if(link.mode.equals("internal")) {
+        relocationConsume(state,Resource.DECODER_ALLOCATION_BYTES,128L+4L*(link.source.length()+link.target.length()),link.source,"relationships",link.id);
+        String original=target(link.source,link.target);if(absent.contains(fold(original)))throw new PackageError(Code.MISSING_PART,"Preserved relationship target role was removed",link.source,0,"relationships",original,link.id);String destination=moves==null?original:moves.getOrDefault(fold(original),original);
+        if(!source.equals(link.source)||!destination.equals(original)) {
+          int query=text.indexOf('?'),fragment=text.indexOf('#'),suffix=query<0?fragment:fragment<0?query:Math.min(query,fragment);
+          relocationConsume(state,Resource.DECODER_ALLOCATION_BYTES,48L+2L*(destination.length()+(suffix<0?0:text.length()-suffix)),link.source,"relationships",link.id);
+          text=destination+(suffix<0?"":text.substring(suffix));
+        }
+      }
+      relocationConsume(state,Resource.DECODER_ALLOCATION_BYTES,64,link.source,"relationships",link.id);result.add(new Relationship(source,link.id,link.type,text,link.mode));
+    }
+    return result;
+  }
   /** Statically generated facade calls compose one complete role at a time in source order. */
   public static final class Composer {
-    private final State state;private final java.util.Map<String,java.util.List<String>> sources=new java.util.HashMap<>();
+)packagejava"
+R"packagejava(    private final State state;private final java.util.Map<String,java.util.List<String>> sources=new java.util.HashMap<>();
     private final java.util.List<BinaryPart> parts=new java.util.ArrayList<>();private final java.util.List<Relationship> links=new java.util.ArrayList<>();
     /** Share one policy ledger across every model, binary part and infrastructure stage. */
     public Composer(Budget budget){state=new State(budget);}
@@ -200,7 +233,7 @@ R"packagejava(
     }
     /** Complete standard metadata after independently preserved extension parts/links are supplied. */
     public byte[] finish(Extensions extensions) throws java.io.IOException {
-      state.begin();try{if(extensions!=null){parts.addAll(extensions.parts);links.addAll(extensions.relationships);}byte[] bytes=opcWrite(parts,links,state);state.poll();state.closed=true;return bytes;}
+      state.begin();try{if(extensions!=null){parts.addAll(extensions.parts);links.addAll(relocated(extensions,sources,state));}byte[] bytes=opcWrite(parts,links,state);state.poll();state.closed=true;return bytes;}
       catch(java.io.IOException|RuntimeException|Error failure){state.closed=true;throw state.fail(failure);}finally{state.busy=false;parts.clear();links.clear();sources.clear();}
     }
   }
@@ -222,6 +255,7 @@ R"packagejava(
     /** Retain metadata/routing context for one selected declared role occurrence. */
     private record Occurrence(PartMetadata metadata,int parent,String id) {}
     private final java.util.Map<String,java.util.List<Occurrence>> referenceLocations=new java.util.HashMap<>();
+    private java.util.Map<String,java.util.List<String>> origins=java.util.Map.of();
     /** Reuse already retained discovery records so loaded selector diagnostics keep authored IDs. */
     public void locateReferences(References references,String role,int occurrence){var selected=referenceLocations.get(role).get(occurrence);references.location(selected.metadata.name,selected.id);}
 
@@ -240,7 +274,7 @@ R"packagejava(
       occurs(role,values.size());state.consume(Resource.DECODER_ALLOCATION_BYTES,128,"");referenceLocations.put(role.field,values);sources.put(role.field,discovered);return values;
     }
     /** Decode one fixed typed role to a nullable owning native value. */
-    public <T> T single(Role role,Decoder<T> decoder) throws java.io.IOException {var values=models(role,decoder);return values.isEmpty()?null:values.get(0).value;}
+    public <T> T single(Role role,Decoder<T> decoder) throws java.io.IOException {var values=models(role,decoder);if(values.isEmpty()||role.name==null||values.get(0).name.equals(role.name))return values.isEmpty()?null:values.get(0).value;state.begin();try{String origin=values.get(0).name,id=referenceLocations.get(role.field).get(0).id;relocationConsume(state,Resource.WORK_UNITS,origin.length()+role.name.length()+1L,origin,role.field,id);relocationConsume(state,Resource.DECODER_ALLOCATION_BYTES,128L+2L*(origin.length()+role.name.length()),origin,role.field,id);if(origins.isEmpty())origins=new java.util.HashMap<>();origins.put(role.field,java.util.List.of(origin,role.name));return values.get(0).value;}catch(java.io.IOException|RuntimeException|Error failure){state.closed=true;throw state.fail(failure);}finally{leave();}}
     /** Return complete typed occurrences only after every selected part passes native XML validation. */
     public <T> java.util.List<ModelPart<T>> models(Role role,Decoder<T> decoder) throws java.io.IOException {
       state.begin();try{var result=new java.util.ArrayList<ModelPart<T>>();
@@ -274,7 +308,7 @@ R"packagejava(
           if(required||policy.relationships==Unknown.REJECT)throw error(Code.UNSUPPORTED_FEATURE,"Unknown required or rejected package relationship",link.source);
           if(policy.relationships==Unknown.PRESERVE){long bytes=0;for(String text:new String[]{link.source,link.id,link.type,link.target,link.mode})bytes+=text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;state.consume(Resource.PRESERVED_BYTES,bytes,link.source);links.add(link);}
         }
-        var extensions=new Extensions(opaque,links);if(bind!=null){state.poll();bind.accept(value,extensions);state.poll();}
+        if(!origins.isEmpty())state.consume(Resource.DECODER_ALLOCATION_BYTES,64L*origins.size(),"");var extensions=new Extensions(opaque,links);extensions.origins=java.util.Map.copyOf(origins);if(bind!=null){state.poll();bind.accept(value,extensions);state.poll();}
         if(validate!=null){state.poll();validate.validate(value,state.budget);state.poll();}
         state.poll();finished=true;return new Result<>(value,extensions);
       }catch(java.io.IOException|RuntimeException|Error failure){state.closed=true;throw state.fail(failure);}finally{leave();}

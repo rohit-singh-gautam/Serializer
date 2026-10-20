@@ -1,5 +1,11 @@
 # XML, compression streams and packages
 
+Compiler/runtime **2.19.0** extends
+[fixed singleton path canonicalization](#fixed-singleton-path-canonicalization)
+across eleven outputs, with additive opt-in C/Rust writers and Go loaders.
+The schema language remains **1.21.0**. See the
+[actual SDK qualification](../verification/verification-package-relocation-2026-10-21.md).
+
 Compiler/runtime **2.17.0** adds language **1.21.0**
 [package policies and application references](package_application_contracts.md).
 Use automatic scoped keys/references and immutable expected XML/model identities
@@ -467,7 +473,9 @@ preserved-byte and metadata budgets. Profile predicates identify required
 capabilities, which fail under every unknown policy. `write_preserved` appends
 retained data to an OPC writer after known-field edits; finalization rechecks
 source/target existence, so edits cannot silently publish dangling preserved links.
-Generated C++/Python facades also retain loaded fixed singleton typed-role names in
+### Fixed singleton path canonicalization
+
+Generated C++/Python facades retain loaded fixed singleton typed-role names in
 `preserved_extensions::relocations` / `PreservedExtensions.relocations`. Passing
 the loaded extensions to generated Save automatically rebinds preserved source
 and internal target names to the role's declared canonical output path. Rebinding
@@ -477,7 +485,40 @@ suffixes remain verbatim; external targets are inert and unchanged even when the
 source moves. Unknown part bytes and caller-owned extension records are unchanged.
 Conflicting origins, removed targets and source-local ID collisions still reject
 before file replacement. Empty relocation lists retain the caller-authored API's
-existing behavior. Dynamic role renames and other generated package backends need
+existing behavior. Only a discovered path whose exact spelling differs from the
+declared output path creates automatic provenance; an unchanged role does not
+cause unrelated URI spelling to be rewritten.
+
+From 2.19, Java, JavaScript/TypeScript, C#, Kotlin and Swift generated facades retain
+equivalent private provenance on their loaded extensions. Pass that same extension
+object with the edited input; rebuilding extensions from public part/link arrays
+does not transfer private provenance. C provides additive canonical encode/write/
+Save functions, and Rust provides qualified `CanonicalPackage` methods without
+changing their existing value layouts or ordinary discovered-path writers. Go's
+additive canonical loaders select the fixed output paths before publishing a value
+while retaining its public option/value layouts and ordinary Load behavior. See
+the [C](../languages/c_packages.md), [Rust](../languages/rust_packages.md),
+[Go](../languages/go_packages.md), [Java](../languages/java_packages.md),
+[JS/TS](../languages/javascript_packages.md),
+[C#/Kotlin](../languages/csharp_kotlin_packages.md) and
+[Swift](../languages/swift_packages.md) guides.
+
+Moves are simultaneous. A retained internal target is resolved from its original
+source, then the original source and resolved target are independently mapped.
+The raw suffix beginning at the first literal `?` or `#` remains verbatim;
+external URI references are inert and keep their complete target text. Unmoved
+links retain their spelling. Part bytes and caller-owned metadata remain
+unchanged across repeated encode/Save calls. Source occurrence indexes for dynamic
+children retain their meaning when their fixed parent moves.
+
+Moved origins retain role ownership even after an optional role is removed. A
+preserved source or target referring to that removed origin rejects, including a
+swap where another role now occupies the same path. Occupied output paths,
+ambiguous origins, dangling links and source-local relationship ID collisions
+also reject before aggregate/final-file publication. A failed Save preserves the
+previous destination; borrowed stream writes retain their documented partial
+write behavior. Automatically generated IDs keep their backend's existing
+algorithm. Dynamic role renames and arbitrary caller path edits still need
 explicit application rebinding. Scratch/work/metadata use the operation budget;
 these logical counters do not establish hard process-allocation bounds.
 Opaque XML bytes carry their original namespace declarations. Rewritten known XML

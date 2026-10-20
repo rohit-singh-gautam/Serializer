@@ -73,6 +73,48 @@ static inline int @p@_native(@p@_budget* budget,srl_status status,const char* pa
 static inline srl_limits @p@_native_limits(const @p@_budget* budget){srl_limits result=srl_default_limits();result.max_bytes=budget->max_part_bytes;result.max_string_bytes=budget->max_part_bytes;result.max_depth=budget->max_depth;return result;}
 )cpackage"
 R"cpackage(
+/* Borrow original and canonical identities only for one synchronous canonical composition. */
+typedef struct @p@_relocation {const char* original;const char* canonical;bool present;} @p@_relocation;
+/* Earlier split literals share the unchanged owning copy/composition helpers below. */
+static inline int @p@_copy_part(@p@_binary_part*,const @p@_binary_part*,@p@_budget*);
+static inline int @p@_copy_link(@p@_relationship*,const @p@_relationship*,@p@_budget*);
+static inline int @p@_compose_finish(@p@_composer*,const @p@_extensions*,srl_buffer*);
+/* Reject ambiguous origins before resolving any source-local target. */
+static inline int @p@_relocations_check(const @p@_relocation* values,size_t size,@p@_budget* budget){
+  for(size_t index=0;index<size;++index){const @p@_relocation* value=&values[index];
+    if(!value->original||!value->canonical||@p@_consume(budget,@p@_work_units,strlen(value->original)+strlen(value->canonical),value->original,"relocations",NULL)){return budget->status?budget->status:@p@_fail(budget,@p@_invalid_options,NULL,"relocations",NULL);}
+    if(!@p@_part_name(value->original)||!@p@_part_name(value->canonical)){return @p@_fail(budget,@p@_invalid_name,value->original,"relocations",NULL);}
+    for(size_t previous=0;previous<index;++previous){if(@p@_consume(budget,@p@_work_units,strlen(value->original)+strlen(values[previous].original),value->original,"relocations",NULL)){return budget->status;}
+      if(!@p@_compare(value->original,values[previous].original)&&strcmp(value->canonical,values[previous].canonical)){return @p@_fail(budget,@p@_invalid_relationship,value->original,"relocations",NULL);}}
+  }return @p@_poll(budget);
+}
+/* Resolve a borrowed destination by OPC ASCII identity; no mapping is applied recursively. */
+static inline const char* @p@_relocated(const @p@_relocation* values,size_t size,const char* original,@p@_budget* budget){
+  for(size_t index=0;index<size;++index){if(@p@_consume(budget,@p@_work_units,strlen(original)+strlen(values[index].original),original,"relocations",NULL)){return NULL;}if(!@p@_compare(original,values[index].original)){if(!values[index].present){@p@_fail(budget,@p@_missing_part,original,"relocations",NULL);return NULL;}return values[index].canonical;}}return original;
+}
+/* Clone final link metadata once, preserving inert external text and original target selector bytes. */
+static inline int @p@_copy_relocated_link(@p@_relationship* output,const @p@_relationship* input,const @p@_relocation* values,size_t size,@p@_budget* budget){
+  if(!size){return @p@_copy_link(output,input,budget);}if(!input->source||!input->id||!*input->id||!input->type||!input->target){return @p@_fail(budget,@p@_invalid_options,NULL,"relocations",NULL);}
+  const char* source=@p@_relocated(values,size,input->source,budget);if(!source){return budget->status;}char* resolved=NULL;char* rewritten=NULL;
+  if(!input->external){resolved=@p@_target(budget,input->source,input->target);if(!resolved){return budget->status;}const char* destination=@p@_relocated(values,size,resolved,budget);if(!destination){free(resolved);return budget->status;}
+    if(strcmp(source,input->source)||strcmp(destination,resolved)){const size_t prefix=strlen(destination);const char* suffix=input->target+strcspn(input->target,"?#");const size_t tail=strlen(suffix);
+      if(prefix>SIZE_MAX-tail-1u||@p@_consume(budget,@p@_allocation_bytes,prefix+tail+1u,input->source,"relocations",input->id)){free(resolved);return @p@_fail(budget,@p@_resource_limit,input->source,"relocations",input->id);}
+      rewritten=(char*)malloc(prefix+tail+1u);if(!rewritten){free(resolved);return @p@_fail(budget,@p@_allocation,input->source,"relocations",input->id);}memcpy(rewritten,destination,prefix);memcpy(rewritten+prefix,suffix,tail+1u);
+    }free(resolved);
+  }
+  output->source=@p@_string(budget,source,strlen(source));output->id=@p@_string(budget,input->id,strlen(input->id));output->type=@p@_string(budget,input->type,strlen(input->type));output->external=input->external;
+  output->target=rewritten?rewritten:@p@_string(budget,input->target,strlen(input->target));return output->source&&output->id&&output->type&&output->target?@p@_ok:budget->status;
+}
+/* Rebind only copied preserved links; final OPC closure rejects occupied destinations and duplicate IDs. */
+static inline int @p@_compose_finish_relocated(@p@_composer* composer,const @p@_extensions* extensions,const @p@_relocation* values,size_t size,srl_buffer* result){
+  if(!size){return @p@_compose_finish(composer,extensions,result);}@p@_budget* budget=composer->budget;if(@p@_relocations_check(values,size,budget)){return budget->status;}
+  if(extensions&&((extensions->parts_size&&!extensions->parts)||(extensions->links_size&&!extensions->links))){return @p@_fail(budget,@p@_invalid_options,NULL,"relocations",NULL);}
+  if(extensions){for(size_t index=0;index<extensions->parts_size;++index){if(!@p@_grow((void**)&composer->catalog.parts,composer->catalog.parts_size+1,sizeof(*composer->catalog.parts),budget)||@p@_copy_part(&composer->catalog.parts[composer->catalog.parts_size++].value,&extensions->parts[index],budget)){return budget->status;}}
+    for(size_t index=0;index<extensions->links_size;++index){if(!@p@_grow((void**)&composer->catalog.links,composer->catalog.links_size+1,sizeof(*composer->catalog.links),budget)||@p@_copy_relocated_link(&composer->catalog.links[composer->catalog.links_size++],&extensions->links[index],values,size,budget)){return budget->status;}}}
+  return @p@_opc_write(&composer->catalog,result,budget);
+}
+)cpackage"
+R"cpackage(
 /* Copy an opaque part into private complete-candidate ownership. */
 static inline int @p@_copy_part(@p@_binary_part* target,const @p@_binary_part* source,@p@_budget* budget){if(!source->name||!source->content_type||(source->bytes.size&&!source->bytes.data)){return @p@_fail(budget,@p@_invalid_options,NULL,NULL,NULL);}target->name=@p@_string(budget,source->name,strlen(source->name));target->content_type=@p@_string(budget,source->content_type,strlen(source->content_type));target->method=source->method;target->source_index=source->source_index;if(!target->name||!target->content_type||@p@_append(budget,&target->bytes,source->bytes.data,source->bytes.size,budget->max_part_bytes)){return budget->status;}return @p@_ok;}
 /* Copy one inert link exactly, retaining relative scope, selector and external URI spelling. */

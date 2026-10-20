@@ -1,5 +1,15 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.19.0** extends preserved relationship rebinding across
+generated package outputs. It uses existing OPC part names and relationship
+records without adding archive side channels, native fields, protocol IDs or
+payload revisions. Only loaded fixed singleton roles whose discovered spelling
+differs from their declared output path acquire relocation provenance. Internal
+targets resolve in the original source scope; raw query/fragment suffixes,
+external URI references and opaque bytes retain their values. This graph contract
+does not preserve ZIP byte layout, lexical XML or signatures. See
+[fixed singleton canonicalization](xml_packages.md#fixed-singleton-path-canonicalization).
+
 Compiler/runtime **2.18.0** adds operation/context APIs and native package XSD
 identity validation in C/Rust. Selected codec composition and admission metadata
 do not add model fields, protocol IDs, ZIP framing or payload revisions. Existing

@@ -32,6 +32,7 @@ R"packagejava(
   /** Preserve exact whole-part bytes and source-local links independently. */
   public static final class Extensions {
     public final java.util.List<BinaryPart> parts;public final java.util.List<Relationship> relationships;
+    private java.util.Map<String,java.util.List<String>> origins=java.util.Map.of();
     /** Own immutable list structure while byte arrays remain ordinary application values. */
     public Extensions(java.util.List<BinaryPart> parts,java.util.List<Relationship> relationships){this.parts=java.util.List.copyOf(parts);this.relationships=java.util.List.copyOf(relationships);}
     /** Construct empty retained extension state. */

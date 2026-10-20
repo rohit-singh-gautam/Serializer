@@ -173,6 +173,18 @@ R"rustpackage(            if cursor!=finish {return Err(fail(Code::InvalidZip,"Z
     pub fn target(source:&str,value:&str)->Result<String> {let path=value.split(['?','#']).next().unwrap_or("");if path.is_empty()&&source!="/" {part_name(source)?;return Ok(source.into());}if path.is_empty()||path.starts_with("//")||path.contains(['\\',':']) {return Err(fail(Code::InvalidRelationship,"Invalid internal relationship target",source,"",""));}let mut segments:Vec<&str>=if path.starts_with('/') {Vec::new()}else{source.rsplit_once('/').map_or(Vec::new(),|(parent,_)|parent.split('/').filter(|part|!part.is_empty()).collect())};for part in path.split('/') {match part {""|"."=>(),".."=>{if segments.pop().is_none(){return Err(fail(Code::InvalidRelationship,"Relationship escapes package root",source,"",""));}},_=>segments.push(part)}}let name="/".to_owned()+&segments.join("/");part_name(&name)?;Ok(name)}
     /// Validate inert absolute relationship types and external targets, without network access.
     fn uri(value:&str)->Result<()> {let(scheme,rest)=value.split_once(':').ok_or_else(||fail(Code::InvalidRelationship,"Relationship URI must be absolute","","",""))?;if scheme.is_empty()||!scheme.bytes().enumerate().all(|(index,byte)|byte.is_ascii_alphabetic()||index>0&&(byte.is_ascii_digit()||b"+-.".contains(&byte)))||rest.is_empty()||value.chars().any(|character|character.is_control()||character==' ') {return Err(fail(Code::InvalidRelationship,"Invalid relationship URI","","",""));}Ok(())}
+    /// Validate new inert relative external IRIs without changing legacy absolute URI acceptance.
+    fn iri_reference(value:&str)->Result<()>{
+        if uri(value).is_ok(){return Ok(());}let invalid=||fail(Code::InvalidRelationship,"Invalid external IRI reference","","","");if value.is_empty(){return Err(invalid());}
+        if value.find(':').is_some_and(|colon|colon<value.find(['/','?','#']).unwrap_or(value.len())){return Err(invalid());}
+        let mut query=false;
+        for(position,character)in value.char_indices(){if character=='%'{if value.len()-position<3||!value.as_bytes()[position+1..position+3].iter().all(u8::is_ascii_hexdigit){return Err(invalid());}}
+            if character=='?'{query=true;}else if character=='#'{query=false;}
+            let code=character as u32;let ordinary=(0xa0..=0xd7ff).contains(&code)||(0xf900..=0xfdcf).contains(&code)||(0xfdf0..=0xffef).contains(&code)||((0x10000..=0xdfffd).contains(&code)&&(code&65535)<=0xfffd)||(0xe1000..=0xefffd).contains(&code);
+            let private=query&&((0xe000..=0xf8ff).contains(&code)||(0xf0000..=0xffffd).contains(&code)||(0x100000..=0x10fffd).contains(&code));
+            if !ordinary&&!private&&!(character.is_ascii_alphanumeric()||"-._~!$&'()*+,;=:/?#[]@%".contains(character)){return Err(invalid());}
+        }Ok(())
+    }
     /// Exact MIME identity folds media/parameter names and retains decoded parameter values.
     #[derive(PartialEq,Eq)]
     struct Mime {media:String,parameters:BTreeMap<String,String>}
@@ -246,7 +258,7 @@ R"rustpackage(        pub fn reference(&mut self,scope:&str,value:&str,role:&str
         pub fn finish(&mut self,budget:&mut Budget<'_>)->Result<()> {for(scope,value,role,part,field,link)in &self.references{budget.consume(Resource::WorkUnits,1,part,field,link)?;if self.keys.get(&(scope.clone(),value.clone()))!=Some(role){return Err(fail(Code::Semantic,"Missing or wrong-type application key",part,field,link));}}budget.poll()}
     }
     /// Check source-local ID uniqueness, inert URI types and internal closure before publication.
-    fn relationships(parts:&BTreeMap<String,BinaryPart>,links:&[Relationship],budget:&mut Budget<'_>)->Result<()> {let mut ids=BTreeSet::new();for link in links {budget.consume(Resource::Relationships,1,&link.source,"relationships",&link.id)?;budget.consume(Resource::References,1,&link.source,"relationships",&link.id)?;if link.id.is_empty()||!link.id.chars().enumerate().all(|(index,character)|character=='_'||character.is_alphabetic()||index>0&&(character.is_numeric()||".-".contains(character)))||!ids.insert((link.source.to_ascii_lowercase(),link.id.clone())) {return Err(fail(Code::InvalidRelationship,"Invalid or duplicate scoped relationship ID",&link.source,"relationships",&link.id));}if link.source!="/"&&!parts.contains_key(&part_name(&link.source)?) {return Err(fail(Code::MissingPart,"Relationship source missing",&link.source,"relationships",&link.id));}uri(&link.kind)?;if link.external {uri(&link.target)?;}else if !parts.contains_key(&part_name(&target(&link.source,&link.target)?)?) {return Err(fail(Code::MissingPart,"Relationship target missing",&link.source,"relationships",&link.id));}}Ok(())}
+    fn relationships(parts:&BTreeMap<String,BinaryPart>,links:&[Relationship],budget:&mut Budget<'_>)->Result<()> {let mut ids=BTreeSet::new();for link in links {budget.consume(Resource::Relationships,1,&link.source,"relationships",&link.id)?;budget.consume(Resource::References,1,&link.source,"relationships",&link.id)?;if link.id.is_empty()||!link.id.chars().enumerate().all(|(index,character)|character=='_'||character.is_alphabetic()||index>0&&(character.is_numeric()||".-".contains(character)))||!ids.insert((link.source.to_ascii_lowercase(),link.id.clone())) {return Err(fail(Code::InvalidRelationship,"Invalid or duplicate scoped relationship ID",&link.source,"relationships",&link.id));}if link.source!="/"&&!parts.contains_key(&part_name(&link.source)?) {return Err(fail(Code::MissingPart,"Relationship source missing",&link.source,"relationships",&link.id));}uri(&link.kind)?;if link.external {iri_reference(&link.target)?;}else if !parts.contains_key(&part_name(&target(&link.source,&link.target)?)?) {return Err(fail(Code::MissingPart,"Relationship target missing",&link.source,"relationships",&link.id));}}Ok(())}
     /// Parse bounded metadata with the existing no-DTD/no-fetch XML policy and cumulative ledger.
     fn metadata<'a>(text:&'a str,part:&str,budget:&mut Budget<'_>)->Result<roxmltree::Document<'a>> {budget.consume(Resource::MetadataBytes,text.len(),part,"","")?;xml_document(text,part,"","",budget)}
     /// Account every XML node, scalar and namespace before invoking a generated native decoder.
@@ -352,5 +364,61 @@ R"rustpackage(        pub fn single<T>(&mut self,role:&Role,value:&Option<T>,enc
     }
     /// Stage with create-new ownership, sync, then atomically replace a same-directory destination.
     pub fn save(path:&std::path::Path,bytes:&[u8],budget:&Budget<'_>,fault:Option<&dyn Fn(&str)->Result<()>>)->Result<()>{use std::io::Write;static NEXT:std::sync::atomic::AtomicU64=std::sync::atomic::AtomicU64::new(0);budget.poll()?;if let Some(fault)=fault{fault("before_create")?;}let parent=path.parent().filter(|value|!value.as_os_str().is_empty()).unwrap_or_else(||std::path::Path::new("."));let stamp=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(native_error)?.as_nanos();let stage=Stage(parent.join(format!(".serializer-package-{}-{}-{}.tmp",std::process::id(),stamp,NEXT.fetch_add(1,std::sync::atomic::Ordering::Relaxed))));let mut options=std::fs::OpenOptions::new();options.write(true).create_new(true);#[cfg(unix)]{use std::os::unix::fs::OpenOptionsExt;options.mode(0o600);}let mut file=options.open(&stage.0).map_err(native_error)?;write_sink(&mut file,bytes,budget)?;file.flush().map_err(native_error)?;file.sync_all().map_err(native_error)?;drop(file);if let Some(fault)=fault{fault("after_write")?;}budget.poll()?;if let Some(fault)=fault{fault("before_replace")?;}budget.poll()?;std::fs::rename(&stage.0,path).map_err(native_error)?;if let Some(fault)=fault{fault("after_replace")?;}Ok(())}
+)rustpackage"
+R"rustpackage(
+    /// Additive canonical output keeps every existing package value and extension struct literal intact.
+    pub trait CanonicalPackage {
+        type Input;
+        /// Borrow models while rebasing fixed singleton paths and cloned preserved links privately.
+        fn encode_canonical(value:&Self::Input,budget:&mut Budget<'_>)->Result<Vec<u8>>;
+        /// Finish canonical validation before borrowing a caller-owned sink.
+        fn write_canonical(destination:&mut impl std::io::Write,value:&Self::Input,budget:&mut Budget<'_>)->Result<()>;
+        /// Revalidate the staged archive before same-directory atomic file replacement.
+        fn save_canonical(path:&std::path::Path,value:&Self::Input,budget:&mut Budget<'_>,fault:Option<&dyn Fn(&str)->Result<()>>)->Result<()>;
+    }
+    /// Own only routing metadata; authored/native model payloads are never copied by canonical selection.
+    pub struct CanonicalPaths {pub paths:BTreeMap<String,String>,relocations:Vec<(String,String,bool)>}
+    impl CanonicalPaths {
+        /// Preserve moved-origin tombstones so a removed swap partner cannot be captured by another role.
+        pub fn new(roles:&[Role],loaded:&BTreeMap<String,String>,present:&[bool],budget:&mut Budget<'_>)->Result<Self>{
+            if roles.len()!=present.len(){return Err(fail(Code::InvalidOptions,"Canonical role inventory mismatch","","relocations",""));}
+            let mut result=Self{paths:BTreeMap::new(),relocations:Vec::new()};
+            for (role,exists) in roles.iter().zip(present){let Some(canonical)=role.name else{continue;};let original=loaded.get(role.field).map(String::as_str).unwrap_or(canonical);
+                if *exists{budget.consume(Resource::DecoderAllocationBytes,role.field.len()+canonical.len()+std::mem::size_of::<(String,String)>(),original,"relocations","")?;result.paths.insert(role.field.into(),canonical.into());}
+                if original==canonical{continue;}
+                budget.consume(Resource::WorkUnits,original.len()+canonical.len(),original,"relocations","")?;let key=part_name(original)?;part_name(canonical)?;
+                for (before,after,_) in &result.relocations{budget.consume(Resource::WorkUnits,before.len()+original.len(),original,"relocations","")?;if before.eq_ignore_ascii_case(&key)&&after!=canonical{return Err(fail(Code::InvalidRelationship,"Conflicting canonical role origins",original,"relocations",""));}}
+                budget.consume(Resource::MetadataBytes,original.len()+canonical.len()+std::mem::size_of::<(String,String,bool)>(),original,"relocations","")?;
+                budget.consume(Resource::DecoderAllocationBytes,original.len()+canonical.len()+std::mem::size_of::<(String,String,bool)>(),original,"relocations","")?;
+                result.relocations.try_reserve_exact(1).map_err(native_error)?;result.relocations.push((original.into(),canonical.into(),*exists));
+            }budget.poll()?;Ok(result)
+        }
+        /// Map once from original OPC identity, rejecting references to a moved role that was removed.
+        fn destination<'a>(&'a self,original:&'a str,budget:&mut Budget<'_>)->Result<&'a str>{for(before,after,present)in &self.relocations{
+            budget.consume(Resource::WorkUnits,before.len()+original.len(),original,"relocations","")?;
+            if before.eq_ignore_ascii_case(original){if !present{return Err(fail(Code::MissingPart,"Preserved link refers to removed moved role",original,"relocations",""));}return Ok(after);}}
+            Ok(original)
+        }
+        /// Resolve original target scope before moving either endpoint and retain exact raw selectors/external text.
+        fn relationship(&self,link:&Relationship,budget:&mut Budget<'_>)->Result<Relationship>{
+            budget.poll()?;let source=self.destination(&link.source,budget)?;let mut destination=None;
+            if !link.external{budget.consume(Resource::DecoderAllocationBytes,link.source.len()+link.target.len(),&link.source,"relocations",&link.id)?;let resolved=target(&link.source,&link.target)?;let moved=self.destination(&resolved,budget)?;
+                if source!=link.source||moved!=resolved{let offset=link.target.find(['?','#']).unwrap_or(link.target.len());let suffix=&link.target[offset..];let count=moved.len().checked_add(suffix.len()).ok_or_else(||fail(Code::ResourceLimit,"Retargeted URI overflow",&link.source,"relocations",&link.id))?;
+                    budget.consume(Resource::DecoderAllocationBytes,count,&link.source,"relocations",&link.id)?;let mut text=String::new();text.try_reserve_exact(count).map_err(native_error)?;text.push_str(moved);text.push_str(suffix);destination=Some(text);}}
+            budget.consume(Resource::DecoderAllocationBytes,source.len()+link.id.len()+link.kind.len()+if destination.is_some(){0}else{link.target.len()},&link.source,"relocations",&link.id)?;
+            Ok(Relationship{source:source.into(),id:link.id.clone(),kind:link.kind.clone(),target:destination.unwrap_or_else(||link.target.clone()),external:link.external})
+        }
+    }
+    impl Composer<'_,'_>{
+        /// Transfer admitted canonical routing metadata without cloning any map or model a second time.
+        pub fn new_canonical<'a,'b>(budget:&'a mut Budget<'b>,paths:BTreeMap<String,String>)->Composer<'a,'b>{Composer{budget,parts:Vec::new(),links:Vec::new(),sources:BTreeMap::new(),paths}}
+        /// Keep the old no-relocation path and privately clone only final preserved output ownership.
+        pub fn finish_canonical(mut self,extensions:&Extensions,paths:&CanonicalPaths)->Result<Vec<u8>>{
+            if paths.relocations.is_empty(){return self.finish(extensions);}
+            for part in &extensions.parts{self.budget.consume(Resource::DecoderAllocationBytes,part.data.len()+part.name.len()+part.content_type.len()+std::mem::size_of::<BinaryPart>(),&part.name,"relocations","")?;self.parts.try_reserve_exact(1).map_err(native_error)?;self.parts.push(part.clone());}
+            for link in &extensions.relationships{self.budget.consume(Resource::DecoderAllocationBytes,std::mem::size_of::<Relationship>(),&link.source,"relocations",&link.id)?;let rebound=paths.relationship(link,self.budget)?;self.links.try_reserve_exact(1).map_err(native_error)?;self.links.push(rebound);}
+            opc_write(self.parts,self.links,self.budget)
+        }
+    }
 }
 )rustpackage"

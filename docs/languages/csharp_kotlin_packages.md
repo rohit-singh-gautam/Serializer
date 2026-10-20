@@ -47,6 +47,18 @@ var loaded = A.Load(bytes).Value;
 A.Save("model.opc", loaded);
 ```
 
+From 2.19.0, C# loaded extensions retain private provenance for actually moved
+fixed singleton roles. Keep `loaded.Extensions` with the edited input rather than
+reconstructing it from its public arrays. Encode/Save resolves preserved internal
+targets against the original source before rebinding both endpoints simultaneously.
+Raw query/fragment suffixes, external URI references, unmoved target spelling and
+opaque bytes retain their values without mutating the loaded extensions. Removed
+moved roles retain their origin ownership, so an old link cannot silently bind to
+another role after a path swap. Occupied destinations, ambiguous origins, dangling
+links and source-local ID collisions reject before publication. Dynamic role
+renames require explicit application rebinding. See the
+[executed relocation corpus](../verification/verification-package-relocation-2026-10-21.md).
+
 Kotlin facades are top-level objects, with ordinary generated owning models:
 
 ```kotlin
@@ -77,6 +89,18 @@ bounds while retaining that bridge and expected root type. Constructing a fresh
 policy or using the data class's ordinary `copy` does not retain its internal
 operation binding. Callbacks and their captured resources remain synchronous
 and caller-owned. Existing facade calls and ordinary XML limit APIs are unchanged.
+
+From compiler/runtime 2.19.0, Kotlin's loaded `Extensions` privately retain the
+origin of each typed fixed singleton whose discovered path differs from its
+declared output path. Reuse that instance on the loaded value or a fresh `Input`.
+Composition clones preserved links and retargets both endpoints simultaneously,
+resolving internal targets against their original sources first. It preserves
+the exact suffix from the first literal `?` or `#`, external target text and
+unchanged relative spelling without mutating caller parts, links or models.
+Removing a moved role rejects links to its original identity even when another
+part occupies that URI; canonical destination and source-local ID conflicts
+also reject before publication. Newly authored extensions have no loaded-origin
+context. Arbitrary dynamic/repeated renames still require caller-updated links.
 
 ## Sources, budgets and publication
 

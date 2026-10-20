@@ -40,6 +40,39 @@ R"packagekotlin(
     }
     /** Check cardinality on the complete source-scoped role occurrence set. */
     private fun occurs(role: Role, count: Int) { if (count < role.minimum || role.maximum >= 0 && count > role.maximum) throw PackageError(Code.SEMANTIC,"Package role cardinality failed","",0,role.field) }
+    /** Resolve every retained target against its original source before simultaneous canonical moves. */
+    private fun relocated(links: List<Relationship>, origins: Map<String,Pair<String,String>>, sources: Map<String,List<String>>, state: State): List<Relationship> {
+        if (origins.isEmpty()) return links
+        var moves: MutableMap<String,String>? = null; val destinations = mutableMapOf<String,String>(); val absent = mutableSetOf<String>()
+        for ((role,pair) in origins) {
+            val (origin,canonical) = pair; state.consume(Resource.WORK_UNITS,origin.length.toLong()+canonical.length+1,origin)
+            if (sources[role]?.contains(canonical) != true) { state.consume(Resource.DECODER_ALLOCATION_BYTES,64L+2L*origin.length,origin); absent.add(fold(origin)); continue }
+            if (origin == canonical) continue
+            state.consume(Resource.DECODER_ALLOCATION_BYTES,160L+4L*(origin.length.toLong()+canonical.length),origin)
+            val selected = moves ?: mutableMapOf<String,String>().also { moves = it }
+            val key = fold(origin); val destination = fold(canonical); val prior = selected.putIfAbsent(key,canonical); val owner = destinations.putIfAbsent(destination,key)
+            if (prior != null && prior != canonical || owner != null && owner != key) throw PackageError(Code.INVALID_RELATIONSHIP,"Conflicting canonical package relocation",origin)
+        }
+        val selected = moves; if (selected == null && absent.isEmpty()) return links; val result = mutableListOf<Relationship>()
+        for (link in links) {
+            state.consume(Resource.WORK_UNITS,link.source.length.toLong()+link.target.length+1,link.source,"relationships",link.id)
+            if (fold(link.source) in absent) throw PackageError(Code.MISSING_PART,"Preserved relationship source role was removed",link.source,0,"relationships","",link.id)
+            val source = selected?.get(fold(link.source)) ?: link.source; var text = link.target
+            if (link.mode == "internal") {
+                state.consume(Resource.DECODER_ALLOCATION_BYTES,128L+4L*(link.source.length.toLong()+link.target.length),link.source,"relationships",link.id)
+                val original = target(link.source,link.target)
+                if (fold(original) in absent) throw PackageError(Code.MISSING_PART,"Preserved relationship target role was removed",link.source,0,"relationships",original,link.id)
+                val destination = selected?.get(fold(original)) ?: original
+                if (source != link.source || destination != original) {
+                    val suffix = text.indexOfFirst { it == '?' || it == '#' }
+                    state.consume(Resource.DECODER_ALLOCATION_BYTES,48L+2L*(destination.length.toLong()+if (suffix < 0) 0 else text.length-suffix),link.source,"relationships",link.id)
+                    text = destination+(if (suffix < 0) "" else text.substring(suffix))
+                }
+            }
+            state.consume(Resource.DECODER_ALLOCATION_BYTES,64,link.source,"relationships",link.id); result.add(Relationship(source,link.id,link.type,text,link.mode))
+        }
+        return result
+    }
     /** Compose all declared values and preserved extensions before returning an archive. */
     class Composer(budget: Budget = Budget()) {
         private val state = State(budget)
@@ -87,7 +120,7 @@ R"packagekotlin(
         /** Revalidate retained whole-part/link context together with every edited typed role. */
         fun finish(extensions: Extensions = Extensions()): ByteArray {
             state.begin()
-            try { parts.addAll(extensions.parts); links.addAll(extensions.relationships); val bytes = opcWrite(parts,links,state); state.poll(); state.closed = true; return bytes }
+            try { parts.addAll(extensions.parts); links.addAll(extensions.composedRelationships(sources,state)); val bytes = opcWrite(parts,links,state); state.poll(); state.closed = true; return bytes }
             catch (error: kotlin.Throwable) { state.closed = true; state.fail(error) }
             finally { state.busy = false; parts.clear(); links.clear(); sources.clear() }
         }
@@ -108,6 +141,7 @@ R"packagekotlin(
         }
         private data class Occurrence(val metadata: PartMetadata, val parent: Int, val id: String)
         private val locations = mutableMapOf<Pair<String,Int>,PayloadLocation>()
+        private var origins: MutableMap<String,Pair<String,String>>? = null
         /** Retrieve an already discovered occurrence for generated reference diagnostics. */
         fun location(role: String, index: Int): PayloadLocation = locations[role to index]
             ?: throw PackageError(Code.INVALID_STATE,"Package occurrence location unavailable","",0,role)
@@ -127,10 +161,24 @@ R"packagekotlin(
                 locations[role.schemaRole to result.size] = PayloadLocation(metadata.name,link.id)
                 selected.add(index); result.add(Occurrence(metadata,parent,link.id)); discovered.add(metadata.name)
             }
-            occurs(role,result.size); sources[role.field] = discovered; return result
+)packagekotlin"
+R"packagekotlin(            occurs(role,result.size); sources[role.field] = discovered; return result
         }
         /** Decode an optional/fixed role without publishing an incomplete aggregate. */
-        fun <T> single(role: Role, decoder: (ByteArray,CodecContext) -> T): T? = models(role,decoder).firstOrNull()?.value
+        fun <T> single(role: Role, decoder: (ByteArray,CodecContext) -> T): T? {
+            val values = models(role,decoder)
+            if (values.isEmpty() || role.name == null || values[0].name == role.name) return values.firstOrNull()?.value
+            state.begin()
+            try {
+                if (values.isNotEmpty()) {
+                    val origin = values[0].name; val id = location(role.schemaRole,0).relationshipId; state.consume(Resource.WORK_UNITS,origin.length.toLong()+role.name.length+1,origin,role.field,id)
+                    state.consume(Resource.DECODER_ALLOCATION_BYTES,128L+2L*(origin.length.toLong()+role.name.length),origin,role.field,id)
+                    val retained = origins ?: mutableMapOf<String,Pair<String,String>>().also { origins = it }
+                    retained[role.field] = origin to role.name
+                }
+                return values.firstOrNull()?.value
+            } catch (error: kotlin.Throwable) { state.closed = true; state.fail(error) } finally { leave() }
+        }
         /** Decode all selected role occurrences to fresh values before returning the role list. */
         fun <T> models(role: Role, decoder: (ByteArray,CodecContext) -> T): List<ModelPart<T>> {
             state.begin()
@@ -170,7 +218,9 @@ R"packagekotlin(
 R"packagekotlin(                    if (required || policy.relationships == Unknown.REJECT) throw PackageError(Code.UNSUPPORTED_FEATURE,"Unknown required or rejected relationship",link.source,0,"","",link.id)
                     if (policy.relationships == Unknown.PRESERVE) { val size = listOf(link.source,link.id,link.type,link.target,link.mode).sumOf { srlUtf8(it).size.toLong() }; state.consume(Resource.PRESERVED_BYTES,size,link.source,"",link.id); links.add(link) }
                 }
-                val extensions = Extensions(opaque,links)
+                val retained = origins
+                if (retained != null) state.consume(Resource.DECODER_ALLOCATION_BYTES,64L*retained.size)
+                val extensions = Extensions(opaque,links); if (retained != null) extensions.retainOrigins(retained)
                 state.poll(); bind?.invoke(value,extensions); state.poll(); validate?.invoke(value,state.budget); state.poll()
                 finished = true; return Result(value,extensions)
             } catch (error: kotlin.Throwable) { state.closed = true; state.fail(error) } finally { leave() }

@@ -1,5 +1,33 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.19.0
+
+Regenerate affected package output and rebuild C++ consumers against matching
+headers/runtime. Schema language remains 1.21.0; native APIs, wire identities and
+payload revisions retain their contracts. New C canonical encode/write/Save and
+qualified Rust `CanonicalPackage` methods are opt-in. Go selects canonical fixed
+role paths with additive canonical Load functions; its existing Load defaults and
+public option/value layouts are unchanged. Use collision-selected helper names
+reported by generated source.
+
+For the remaining generated facades, keep the loaded extensions attached to the
+edited input. Java, JS/TS, Kotlin, C# and Swift retain private moved-role origins;
+constructing new extensions only from their public part/link arrays loses that
+provenance. Swift now retains the original public preserved relationship context
+until composition rather than eagerly rewriting it at load. Save resolves each
+internal target against its original source before applying simultaneous moves.
+External URI references, raw query/fragment suffixes and untouched target spelling
+retain their values. C/Rust also accept inert relative external URI references;
+relationship type URIs still require the existing absolute URI contract.
+
+Only actually moved fixed singleton roles acquire provenance. C++/Python no longer
+rewrite preserved target spelling for an unchanged role. Removing a moved role
+cannot silently redirect its old links to another role that now occupies its path;
+such links reject before publication. Remove or edit those links explicitly.
+Dynamic role renames, arbitrary path edits, lexical XML and signature preservation
+remain separate requirements. See the
+[preservation contract](docs/serialization/xml_packages.md#fixed-singleton-path-canonicalization).
+
 ## Compiler/runtime 2.18.0
 
 Regenerate affected C/Rust XML/package output to use shared native operation

@@ -736,6 +736,42 @@ if(Python3_Interpreter_FOUND)
           --cc "${serializer_package_cc}" ${serializer_package_c_provider_args})
     endif()
   endif()
+  # Run the same independent fixed-role preservation corpus through each available native SDK.
+  function(serializer_add_package_relocation_test language)
+    add_test(NAME serializer_package_relocation_${language}
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_relocation_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --language "${language}"
+        --build "${CMAKE_CURRENT_BINARY_DIR}/package_relocation_${language}" ${ARGN})
+  endfunction()
+  serializer_add_package_relocation_test(python)
+  if(Java_FOUND)
+    serializer_add_package_relocation_test(java --java "${Java_JAVA_EXECUTABLE}" --javac "${Java_JAVAC_EXECUTABLE}")
+  endif()
+  if(serializer_compression_kotlinc AND Java_FOUND)
+    serializer_add_package_relocation_test(kotlin --java "${Java_JAVA_EXECUTABLE}" --kotlinc "${serializer_compression_kotlinc}")
+  endif()
+  if(serializer_compression_node AND serializer_compression_typescript_cli)
+    serializer_add_package_relocation_test(javascript --node "${serializer_compression_node}"
+      --node-dependencies "${CMAKE_SOURCE_DIR}/editors/vscode/node_modules")
+    serializer_add_package_relocation_test(typescript --node "${serializer_compression_node}"
+      --typescript-cli "${serializer_compression_typescript_cli}"
+      --node-dependencies "${CMAKE_SOURCE_DIR}/editors/vscode/node_modules")
+  endif()
+  if(serializer_compression_dotnet)
+    serializer_add_package_relocation_test(csharp --dotnet "${serializer_compression_dotnet}")
+  endif()
+  if(serializer_compression_swiftc)
+    serializer_add_package_relocation_test(swift --swiftc "${serializer_compression_swiftc}")
+  endif()
+  if(serializer_compression_go)
+    serializer_add_package_relocation_test(go --go "${serializer_compression_go}")
+  endif()
+  if(serializer_package_cargo)
+    serializer_add_package_relocation_test(rust --cargo "${serializer_package_cargo}")
+  endif()
+  if(SERIALIZER_WITH_XML AND SERIALIZER_WITH_ZLIB AND serializer_package_cc)
+    serializer_add_package_relocation_test(c --cc "${serializer_package_cc}" ${serializer_package_c_provider_args})
+  endif()
   add_executable(html_interop html_interop.cpp)
   target_link_libraries(html_interop PRIVATE Serializer::runtime)
   if(MSVC)
@@ -1511,6 +1547,25 @@ if(SERIALIZER_WITH_XML)
     target_compile_options(package_application_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME package_application_test COMMAND package_application_test)
+
+  add_executable(package_relocation_sdk package_relocation_test.cpp)
+  serializer_generate(TARGET package_relocation_sdk SCHEMAS resources/package_relocation.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/opc_profile.ini"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/package_relocation")
+  target_link_libraries(package_relocation_sdk PRIVATE Serializer::runtime)
+  if(MSVC)
+    target_compile_options(package_relocation_sdk PRIVATE /W4 /WX)
+  else()
+    target_compile_options(package_relocation_sdk PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME serializer_package_relocation_cpp
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_relocation_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --language cpp
+        --consumer "$<TARGET_FILE:package_relocation_sdk>"
+        --generated "${CMAKE_CURRENT_BINARY_DIR}/package_relocation/package_relocation.hpp"
+        --build "${CMAKE_CURRENT_BINARY_DIR}/package_relocation_cpp")
+  endif()
 
   add_executable(xml_schema_test xml_schema_test.cpp)
   target_link_libraries(xml_schema_test PRIVATE Serializer::serializer_lib GTest::gtest_main)

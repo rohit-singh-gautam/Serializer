@@ -94,7 +94,18 @@ when optional items would be skipped or preserved. Unknown core metadata still
 rejects. Preserved parts retain their exact opaque bytes and complete XML
 namespace declarations. Preserved relationships retain source/target context;
 loaded typed roles adopting canonical paths retarget those retained links before
-Save. Collisions and dangling edited links reject before publication.
+Save. In 2.19.0, loaded extensions retain original relationship context and private
+provenance only for fixed singleton roles whose discovered spelling differs from
+the canonical output path. Keep the loaded `Extensions` with the edited input;
+constructing a replacement from its public arrays does not copy that provenance.
+Each internal target resolves against its original source before simultaneous
+source/target rebinding. Raw query/fragment suffixes, external URI references and
+unmoved target spelling remain unchanged, as do opaque bytes and caller-owned
+records. Removed moved roles retain tombstones: old links reject even when a swap
+puts another role at the removed origin. Occupied destinations, ambiguous origins,
+source-local ID collisions and dangling edited links reject before publication.
+Dynamic role renames require explicit application rebinding. See the
+[independent relocation checks](../verification/verification-package-relocation-2026-10-21.md).
 
 ## ZIP, ownership and limits
 

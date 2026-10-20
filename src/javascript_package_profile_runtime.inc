@@ -126,6 +126,39 @@ R"packagejs(
   function occurs(count, role) { if (count < role.minimum || role.maximum !== null && count > role.maximum) { const error = new PackageError(Code.Occurrence, 'Package role occurrence constraint failed'); error.fieldPath = role.field; throw error; } }
   // Create a schema-bound facade after model constructors exist; ordinary model codec APIs stay unchanged.
   function profile(roles) {
+    const origins = new WeakMap();
+    // Poll caller policy separately so only ledger-owned exhaustion acquires relocation context.
+    function relocationConsume(state,resource,count,part,field='relationships',id='') {
+      state.poll();try{state.budget.consume(resource,count,part);}catch(error){if(error instanceof PackageError){error.fieldPath=field;error.relationshipId=id;}throw error;}
+    }
+    // Retarget cloned links from original identities, preserving inert suffix and external spelling.
+    function preservedRelationships(extensions,sources,state) {
+      const provenance=origins.get(extensions);if(!provenance||!provenance.size)return extensions.relationships;
+      let moves=null;const destinations=new Map(),absent=new Set();
+      for(const [role,[origin,canonical]]of provenance){
+        state.poll();state.budget.consume('workUnits',origin.length+canonical.length+1,origin);
+        if(!sources.get(role)?.includes(canonical)){state.budget.consume('decoderAllocationBytes',64+2*origin.length,origin);absent.add(fold(origin));continue;}
+        if(origin===canonical)continue;state.budget.consume('decoderAllocationBytes',160+4*(origin.length+canonical.length),origin);
+        if(moves===null)moves=new Map();const key=fold(origin),destination=fold(canonical);
+        if(moves.has(key)&&moves.get(key)!==canonical||destinations.has(destination)&&destinations.get(destination)!==key)throw new PackageError(Code.InvalidRelationship,'Conflicting canonical package relocation',origin);
+        moves.set(key,canonical);destinations.set(destination,key);
+      }
+      if(moves===null&&!absent.size)return extensions.relationships;const result=[];
+      for(const link of extensions.relationships){
+        relocationConsume(state,'workUnits',link.source.length+link.target.length+1,link.source,'relationships',link.id);
+        if(absent.has(fold(link.source)))throw new PackageError(Code.MissingPart,'Preserved relationship source role was removed',link.source,link.id);
+        const source=moves?.get(fold(link.source))??link.source;let text=link.target;
+        if(link.mode==='internal'){
+          relocationConsume(state,'decoderAllocationBytes',128+4*(link.source.length+link.target.length),link.source,'relationships',link.id);
+          const original=targetName(link.source,text);if(absent.has(fold(original)))throw new PackageError(Code.MissingPart,'Preserved relationship target role was removed',link.source,link.id);
+)packagejs"
+R"packagejs(          const destination=moves?.get(fold(original))??original;
+          if(source!==link.source||destination!==original){const suffix=text.search(/[?#]/);relocationConsume(state,'decoderAllocationBytes',48+2*(destination.length+(suffix<0?0:text.length-suffix)),link.source,'relationships',link.id);text=destination+(suffix<0?'':text.slice(suffix));}
+        }
+        relocationConsume(state,'decoderAllocationBytes',64,link.source,'relationships',link.id);result.push(new Relationship(source,link.id,link.type,text,link.mode));
+      }
+      return result;
+    }
     // Bridge native scalar/events and identity tuples through the package ledger.
     function nativeLimits(state,role,part,link='') {
       return new XmlLimits({expectedType:role.expectedTypeUri+'\0'+role.expectedTypeLocal,maxBytes:Math.min(state.budget.limits.maxPartBytes,16777216),operation(resource,count,field){
@@ -204,7 +237,7 @@ R"packagejs(          } else data = item.data;
       const extensions = value.extensions || new Extensions(); const opaque = snapshotParts(extensions.parts, state);
       if (opaque.length > budget.limits.maxEntries - parts.length) throw new PackageError(Code.ResourceLimit, 'Package part count exceeds limit');
       for (const part of opaque) parts.push(part);
-      for (const link of extensions.relationships) links.push(new Relationship(link.source, link.id, link.type, link.target, link.mode));
+      for (const link of preservedRelationships(extensions,sources,state)) links.push(new Relationship(link.source, link.id, link.type, link.target, link.mode));
       return await opcEncode(parts, links, {...options, limits: undefined, budget});
       } finally { state.releaseHolds(); }
     }
@@ -215,7 +248,7 @@ R"packagejs(          } else data = item.data;
       const selectedCodecs=codecs(options);
       const archive = await ZipReader.open(source, {...options, limits: undefined, budget});
       try {
-        const metadata = await opcRead(archive, budget), candidate = new Value(), sources = new Map(), locations=new Map(), decoded = new Map(), selected = new Map();
+        const metadata = await opcRead(archive, budget), candidate = new Value(), sources = new Map(), locations=new Map(), decoded = new Map(), selected = new Map();let provenance=null;
         for (const role of roles) {
           const values = [], discovered = [], roleLocations=[], parents = role.source === '/' ? ['/'] : sources.get(role.source);
           for (let parent = 0; parent < parents.length; ++parent) for (let index = 0; index < metadata.relationships.length; ++index) {
@@ -233,6 +266,7 @@ R"packagejs(          } else data = item.data;
             } else values.push(new BinaryPart(data, part.name, part.contentType, parent, part.entry.method)); discovered.push(part.name);
           }
           occurs(values.length, role); candidate[role.field] = role.singleton ? values.length ? values[0] : null : values; sources.set(role.field, discovered);locations.set(role.field,roleLocations);
+          if(role.singleton&&role.model!==null&&role.name!==null&&discovered.length&&discovered[0]!==role.name){const origin=discovered[0],id=roleLocations[0][1];relocationConsume(state,'workUnits',origin.length+role.name.length+1,origin,role.field,id);relocationConsume(state,'decoderAllocationBytes',128+2*(origin.length+role.name.length),origin,role.field,id);if(provenance===null)provenance=new Map();provenance.set(role.field,[origin,role.name]);}
         }
         const opaque = [], preservedLinks = [];
         for (const [key, part] of metadata.parts) {
@@ -249,7 +283,7 @@ R"packagejs(          } else data = item.data;
           if (required || policy.relationships === 'reject') throw new PackageError(Code.UnknownRelationship, 'Unknown required or rejected package relationship', link.source, link.id);
           if (policy.relationships === 'preserve') { budget.consume('preservedBytes', srlUtf8(link.source + link.id + link.type + link.target).length); preservedLinks.push(link); }
         }
-        references(candidate,budget,locations);candidate.extensions = new Extensions(opaque, preservedLinks);
+        references(candidate,budget,locations);candidate.extensions = new Extensions(opaque, preservedLinks);if(provenance!==null)origins.set(candidate.extensions,provenance);
         if (options.validate) { state.poll(); await options.validate(candidate, budget); state.poll(); }
         state.poll(); return new Result(candidate, candidate.extensions);
       } finally { await archive.close(); }
