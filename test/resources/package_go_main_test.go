@@ -10,9 +10,11 @@ import (
   "io"
   "os"
   "path/filepath"
+  "runtime"
   "sort"
   "strconv"
   "strings"
+  "syscall"
   "testing"
   "time"
 )
@@ -389,6 +391,45 @@ func TestWriterLifecycle(t *testing.T) {
   })
 }
 
+// transientSaveReplacement identifies only native Windows rename contention before publication.
+func transientSaveReplacement(err error) bool {
+  if runtime.GOOS!="windows" { return false }
+  var failure *os.LinkError
+  if !errors.As(err,&failure)||failure.Op!="rename" { return false }
+  const windowsAccessDenied syscall.Errno=5
+  const windowsSharingViolation syscall.Errno=32
+  return errors.Is(failure.Err,windowsAccessDenied)||errors.Is(failure.Err,windowsSharingViolation)
+}
+
+// saveAtCheckpoint retries transient native contention only after proving complete rollback.
+// Reaching the selected hook ends retry eligibility, including swallowed or changed injected failures.
+func saveAtCheckpoint(t *testing.T,destination string,data,old []byte,point string,
+    fault SerializerPackageSaveFault) (err error,panicValue any) {
+  t.Helper()
+  const maximumAttempts=20
+  const retryDelay=25*time.Millisecond
+  for attempt:=0;attempt<maximumAttempts;attempt++ {
+    reached:=false
+    func(){
+      defer func(){panicValue=recover()}()
+      err=SerializerPackageSaveBytes(destination,data,nil,func(actual string)error{
+        if actual==point { reached=true }
+        return fault(actual)
+      })
+    }()
+    if reached||panicValue!=nil||!transientSaveReplacement(err) { return }
+    actual,readErr:=os.ReadFile(destination)
+    files,listErr:=os.ReadDir(filepath.Dir(destination))
+    if readErr!=nil||listErr!=nil||!bytes.Equal(actual,old)||len(files)!=1 {
+      t.Fatalf("Contended replacement changed the old generation or leaked staging: %v %v %v",err,readErr,listErr)
+    }
+    if attempt+1==maximumAttempts { t.Fatalf("Selected Save checkpoint never reached after native rename contention: %v",err) }
+    t.Logf("Retrying native Windows rename contention before %s: %v",point,err)
+    time.Sleep(retryDelay)
+  }
+  return
+}
+
 // TestSavePublication exercises real synchronized sibling replacement and every named fault boundary.
 func TestSavePublication(t *testing.T) {
   writer:=basicWriter(t);data,err:=writer.Finish();if err!=nil { t.Fatal(err) };writer.Close()
@@ -396,7 +437,9 @@ func TestSavePublication(t *testing.T) {
     t.Run(point,func(t *testing.T){
       directory:=t.TempDir();destination:=filepath.Join(directory,"complete.zip");old:=[]byte("original complete generation")
       if err=os.WriteFile(destination,old,0600);err!=nil { t.Fatal(err) };marker:=errors.New("Save failure marker")
-      err=SerializerPackageSaveBytes(destination,data,nil,func(actual string)error{if actual==point{return marker};return nil})
+      var panicValue any
+      err,panicValue=saveAtCheckpoint(t,destination,data,old,point,func(actual string)error{if actual==point{return marker};return nil})
+      if panicValue!=nil { t.Fatalf("Save error hook unexpectedly panicked: %v",panicValue) }
       actual,readErr:=os.ReadFile(destination);if readErr!=nil { t.Fatal(readErr) }
       if point=="after_replace"||point=="after_directory_sync" {
         requireCode(t,"PUBLICATION_UNCERTAIN",nil,err);if !errors.Is(err,marker)||!bytes.Equal(actual,data) { t.Fatal("Post-replacement cause/content changed",err) }
@@ -419,7 +462,8 @@ func TestSavePublication(t *testing.T) {
   for _,point:=range []string{"after_temporary","after_replace"} { t.Run("panic-"+point,func(t *testing.T){
     directory:=t.TempDir();destination:=filepath.Join(directory,"complete.zip");old:=[]byte("old complete")
     if err=os.WriteFile(destination,old,0600);err!=nil { t.Fatal(err) };marker:=&struct{value int}{17}
-    func(){defer func(){if recover()!=marker{t.Fatal("Save panic identity changed")}}();SerializerPackageSaveBytes(destination,data,nil,func(actual string)error{if actual==point{panic(marker)};return nil});t.Fatal("Save panic swallowed")}()
+    returned,panicValue:=saveAtCheckpoint(t,destination,data,old,point,func(actual string)error{if actual==point{panic(marker)};return nil})
+    if panicValue!=marker { t.Fatalf("Save panic identity changed or swallowed: panic=%#v returned=%v",panicValue,returned) }
     actual,readErr:=os.ReadFile(destination);expected:=old;if point=="after_replace" { expected=data }
     files,listErr:=os.ReadDir(directory);if readErr!=nil||listErr!=nil||!bytes.Equal(actual,expected)||len(files)!=1 { t.Fatal("Panic left partial file/staging") }
   }) }

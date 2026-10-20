@@ -198,10 +198,10 @@ inline std::string cpp(const package_node& package,
         line("          srl_shared.consume(::rohit::serializer::package::resource::metadata_bytes, srl_part.name.size(), srl_part.name);");
         line("          srl_shared.consume(::rohit::serializer::package::resource::metadata_bytes, " + std::to_string(part->part_name->size()) + "U, srl_part.name);");
         line("          srl_relocations.push_back({srl_part.name, " + quote(*part->part_name) + "});");
-        line("          srl_value." + member(*part) + " = ::rohit::serializer::package::read_xml_part<" + type + ">(srl_bytes, srl_shared);");
+        line("          srl_value." + member(*part) + " = ::rohit::serializer::package::read_xml_part<" + type + ">(srl_bytes, srl_shared, srl_part.name);");
       } else {
         line("          srl_value." + member(*part) + ".push_back({srl_part.name, srl_part.content_type,");
-        line("              ::rohit::serializer::package::read_xml_part<" + type + ">(srl_bytes, srl_shared)});");
+        line("              ::rohit::serializer::package::read_xml_part<" + type + ">(srl_bytes, srl_shared, srl_part.name)});");
       }
     } else {
       line("          srl_shared.consume(::rohit::serializer::package::resource::decoder_allocation_bytes, srl_bytes.size(), srl_part.name);");
@@ -223,19 +223,24 @@ inline std::string cpp(const package_node& package,
   line("  static void compose(::rohit::serializer::package::opc_writer& srl_writer, const input& srl_input) {");
   for (const auto* part : parts) {
     const auto field = "srl_input." + member(*part);
+    const auto id = part->relationship_id ? quote(*part->relationship_id) :
+        "::rohit::serializer::package::generated_relationship_id(" + quote(part->name) + ", " +
+        (singleton(*part) ? "0U" : "srl_index") + ")";
     line("    ::std::vector<::std::string> " + local(*part) + "_sources;");
     if (singleton(*part)) {
       line("    if (" + field + ") {");
       line("      const auto srl_name = " + quote(*part->part_name) + ";");
-      line("      ::rohit::serializer::package::write_xml_part(srl_writer, srl_name, " + quote(*part->content_type) + ", *" + field + ", " + storage(*part) + ");");
+      line("      const auto srl_relationship_id = " + id + ";");
+      line("      ::rohit::serializer::package::write_xml_part(srl_writer, srl_name, " + quote(*part->content_type) + ", *" + field + ", " + storage(*part) + ", srl_relationship_id);");
     } else {
       line("    for (::std::size_t srl_index{}; srl_index < " + field + ".size(); ++srl_index) {");
       line("      const auto& srl_item = " + field + "[srl_index];");
       line("      const ::std::string_view srl_name = " + (part->part_name ? quote(*part->part_name) : "srl_item.name") + ";");
+      line("      const auto srl_relationship_id = " + id + ";");
       const auto media = part->content_type ? quote(*part->content_type) : "srl_item.content_type";
       if (part->value_type) {
         line("      if (!srl_item.value) { throw ::std::invalid_argument{\"Package typed resource is unbound\"}; }");
-        line("      ::rohit::serializer::package::write_xml_part(srl_writer, srl_name, " + media + ", *srl_item.value, " + storage(*part) + ");");
+        line("      ::rohit::serializer::package::write_xml_part(srl_writer, srl_name, " + media + ", *srl_item.value, " + storage(*part) + ", srl_relationship_id);");
       } else {
         line("      srl_writer.add_part(srl_name, " + media + ", srl_item.bytes, " + storage(*part) + ");");
       }
@@ -247,10 +252,7 @@ inline std::string cpp(const package_node& package,
       source = "::rohit::serializer::package::require_source(" + local(**found) + "_sources, " +
           (singleton(*part) ? "0U" : "srl_item.source_index") + ", " + quote(part->name) + ")";
     }
-    const auto id = part->relationship_id ? quote(*part->relationship_id) :
-        "::rohit::serializer::package::generated_relationship_id(" + quote(part->name) + ", " +
-        (singleton(*part) ? "0U" : "srl_index") + ")";
-    line("      srl_writer.add_relationship({" + source + ", " + id + ", " + quote(part->relationship) + ", ::std::string{srl_name}});");
+    line("      srl_writer.add_relationship({" + source + ", srl_relationship_id, " + quote(part->relationship) + ", ::std::string{srl_name}});");
     line("    }");
   }
   line("    if (srl_input.extensions) { ::rohit::serializer::package::write_preserved(srl_writer, *srl_input.extensions); }");

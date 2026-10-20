@@ -1,5 +1,16 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.16.0** adds XML-only scalar occurrence scopes, shared
+package reference admission and typed default diagnostics. Native protocol IDs,
+scalar encodings and managed storage formats remain unchanged. See the
+[namespace record](../verification/verification-qname-scopes-2026-10-20.md)
+and [batch record](../verification/verification-pending-batch-2026-10-20.md).
+
+The same release adds C#/Kotlin readers and writers for the existing ZIP/OPC
+envelopes, including ZIP64 and data descriptors. They introduce no private
+container framing; see their [API and provider limits](../languages/csharp_kotlin_packages.md)
+and [independent acceptance checks](../verification/verification-pending-50-2026-10-20.md).
+
 Compiler/runtime **2.15.0** leaves native protocol identities, scalar encodings and
 managed side-channel layouts unchanged. Its selected XML union mappings validate
 the first successful member before preserving QName identity or comparing outer
@@ -77,7 +88,9 @@ native fields or add package metadata to native payloads. Imported declarations
 receive explicit stable IDs; their independently chosen native ordering/layout
 need not equal an application-authored model. OPC remains a standard outer
 container with runtime-owned content types and relationships. Unknown XML slots
-and QName bindings are XML-only state and do not appear in native codecs. See
+and QName bindings are XML-only state and do not appear in native codecs.
+Compiler/runtime 2.16.0 also retains per-occurrence scalar-child namespace scopes
+for QName/list values; these do not add native fields or change protocol IDs. See
 [XML/package rules](xml_packages.md), [XSD import](xsd_tooling.md) and
 [migration](../../migration.md#compilerruntime-270).
 

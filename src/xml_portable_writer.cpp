@@ -24,6 +24,7 @@ const std::string_view go_runtime =
 #include "xml_go_runtime.inc"
 #include "xml_go_map_runtime.inc"
 #include "xml_go_scalar_runtime.inc"
+#include "xml_go_namespace_runtime.inc"
 #include "xml_go_mixed_runtime.inc"
 #include "xml_go_identity_runtime.inc"
 #include "xml_go_html_runtime.inc"
@@ -35,6 +36,14 @@ std::string quote(std::string_view value) { return native::quote(value); }
 // Build an expanded name independently of document prefixes.
 std::string qualified(const xml::name& value) {
   return "srlxml.Name{Space:" + quote(value.namespace_uri) + ",Local:" + quote(value.local) + "}";
+}
+// Select only namespace-dependent scalar strings qualified by the Go direct token path.
+bool namespace_scalar(const xml_binding::field& field) {
+  return field.qname || field.prefix_list || field.facets.list_item_kind == "QName";
+}
+// Keep QName, QName-list and namespace-prefix-list semantics distinct during token traversal.
+std::string namespace_mode(const xml_binding::field& field) {
+  return field.prefix_list ? "2" : field.facets.list_item_kind == "QName" ? "1" : "0";
 }
 // Select the statically known leaf beneath one supported presence/collection modifier.
 const type_name& leaf(const member& value) {
@@ -333,7 +342,7 @@ std::string decode_presence(const xml_binding::field& field, const std::string& 
 
 // Join one native list privately, checking its item/text limits before emitting any field tokens.
 std::string encode_list(const xml_binding::field& field, const std::string& access,
-    const type_name_fn& type, const std::string& rule) {
+    const type_name_fn& type, const std::string& rule, std::size_t field_index, bool readonly) {
   const bool optional = field.source->type_name_list.front().is_optional();
   const auto selected = optional ? "(*" + access + ')' : access;
   std::string out{"{\n"};
@@ -346,10 +355,23 @@ std::string encode_list(const xml_binding::field& field, const std::string& acce
   out += output_errors(encode_scalar(leaf(*field.source), "srlItem", type));
   out += "srlTokens,srlErr:=srlXmlTokens(srlText,1);if srlErr!=nil||len(srlTokens)!=1||srlTokens[0]!=srlText{return fmt.Errorf(\"Invalid native XML list item\")}\nsrlListBytes,srlErr=output.listItem(srlText,&srlJoined,srlListBytes);if srlErr!=nil{return srlErr}\n}\nsrlText:=srlJoined.String()\n";
   out += output_errors(scalar_facets(field, rule, true));
+  const auto qualify = [&] {
+    if (!namespace_scalar(field)) { return std::string{}; }
+    std::string result{"srlScope:=map[string]string(nil)\n"};
+    if (!readonly) {
+      result += "if scopes:=value.srlXmlNamespaces[" + std::to_string(field_index) +
+          "];len(scopes)!=0{srlScope=scopes[0]}else if fallback:=value.srlXmlNamespaces[-1];len(fallback)!=0{srlScope=fallback[0]}\n";
+    }
+    return result + "srlQualified,srlNamespaceErr:=output.namespaceValue(srlText,1,srlScope);if srlNamespaceErr!=nil{return srlNamespaceErr};srlText=srlQualified\n";
+  };
   if (field.attribute) {
+    out += qualify();
+    if (namespace_scalar(field)) { out += "{\n" + output_errors(scalar_facets(field, rule, true)) + "}\n"; }
     out += "if err:=output.attribute(" + qualified(field.qualified_name) + ",srlText);err!=nil{return err}\n";
   } else {
     if (!field.text) { out += "if err:=output.open(" + qualified(field.qualified_name) + ");err!=nil{return err}\n"; }
+    out += qualify();
+    if (namespace_scalar(field)) { out += "{\n" + output_errors(scalar_facets(field, rule, true)) + "}\n"; }
     out += "if err:=output.text(srlText);err!=nil{return err}\n";
     if (!field.text) { out += "if err:=output.close();err!=nil{return err}\n"; }
   }
@@ -359,9 +381,13 @@ std::string encode_list(const xml_binding::field& field, const std::string& acce
 
 // Build a complete native list from one already selected scalar before assigning its owner field.
 std::string decode_list_value(const xml_binding::field& field, const std::string& access,
-    const type_name_fn& type, const std::string& rule) {
+    const type_name_fn& type, const std::string& rule, std::size_t field_index) {
   const auto& scalar = leaf(*field.source);
   std::string out{scalar_facets(field, rule)};
+  if (namespace_scalar(field)) {
+    out += "if value.srlXmlNamespaces==nil{value.srlXmlNamespaces=make(map[int][]map[string]string)}\n";
+    out += "value.srlXmlNamespaces[" + std::to_string(field_index) + "]=[]map[string]string{srlScope}\n";
+  }
   out += "srlTokens,srlTokenErr:=srlXmlTokens(srlText,input.budget.limits.MaxNodes);if srlTokenErr!=nil{return nil,srlTokenErr}\n";
   if (field.source->fixed_extent != 0U) {
     out += "if len(srlTokens)!=" + std::to_string(field.source->fixed_extent) + "{return nil,fmt.Errorf(\"XML fixed list extent mismatch\")}\n";
@@ -374,7 +400,7 @@ std::string decode_list_value(const xml_binding::field& field, const std::string
 
 // Select optional attributes/children or required simple content without retaining XML subtrees.
 std::string decode_list(const xml_binding::field& field, const std::string& access,
-    const type_name_fn& type, const std::string& rule) {
+    const type_name_fn& type, const std::string& rule, std::size_t field_index) {
   const bool optional = field.source->type_name_list.front().is_optional();
   const auto& fallback = field.fixed_value ? field.fixed_value : field.default_value;
   std::string out{"{\n"};
@@ -383,14 +409,23 @@ std::string decode_list(const xml_binding::field& field, const std::string& acce
     out += "srlText,srlPresent,srlErr:=fields.attribute(" + qualified(field.qualified_name) + ',' +
         (optional || fallback || field.min_occurs == 0U ? "false" : "true") + ");if srlErr!=nil{return nil,srlErr}\n";
     if (fallback) { out += "if !srlPresent{srlText=" + quote(*fallback) + ";srlPresent=true}\n"; }
-    out += "if srlPresent{\n" + decode_list_value(field, access, type, rule) + "}\n";
+    out += "if srlPresent{\n";
+    if (namespace_scalar(field)) {
+      out += "srlScope,srlNamespaceErr:=input.namespaceScope(srlText,1,nil);if srlNamespaceErr!=nil{return nil,srlNamespaceErr}\n";
+    }
+    out += decode_list_value(field, access, type, rule, field_index) + "}\n";
   } else if (field.text) {
-    out += "if fields.used!=len(fields.attrs){return nil,fmt.Errorf(\"Unexpected XML attribute\")}\nsrlText,srlErr:=input.text();if srlErr!=nil{return nil,srlErr}\n" +
-        decode_list_value(field, access, type, rule);
+    out += "if fields.used!=len(fields.attrs){return nil,fmt.Errorf(\"Unexpected XML attribute\")}\n";
+    out += namespace_scalar(field)
+        ? "srlText,srlScope,srlErr:=input.namespaceText(1);if srlErr!=nil{return nil,srlErr}\n"
+        : "srlText,srlErr:=input.text();if srlErr!=nil{return nil,srlErr}\n";
+    out += decode_list_value(field, access, type, rule, field_index);
   } else {
     if (optional) { out += "srlPresent,srlErr:=input.has(" + qualified(field.qualified_name) + ");if srlErr!=nil{return nil,srlErr};if srlPresent{\n"; }
-    out += "srlText,srlErr:=input.scalar(" + qualified(field.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\n" +
-        decode_list_value(field, access, type, rule);
+    out += namespace_scalar(field)
+        ? "srlText,srlScope,srlErr:=input.namespaceScalar(" + qualified(field.qualified_name) + ",1);if srlErr!=nil{return nil,srlErr}\n"
+        : "srlText,srlErr:=input.scalar(" + qualified(field.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\n";
+    out += decode_list_value(field, access, type, rule, field_index);
     if (optional) { out += "}\n"; }
   }
   return out + "}\n";
@@ -525,6 +560,11 @@ bool needs_scalar_rule(const xml_binding::field& field) {
       (!facets.lexical_kind.empty() && facets.lexical_kind != "string");
 }
 
+// Share namespace adapter detection with managed record and list emitters.
+bool namespace_dependent(const xml_binding::field& field) {
+  return namespace_scalar(field);
+}
+
 bool supports_map(const xml_binding::field& field) {
   return field.map_binding && field.wrapper && *field.wrapper == field.map_binding->wrapper &&
       !field.attribute && !field.text && !field.repeated && !field.list && !field.qname &&
@@ -618,10 +658,25 @@ std::string scalar_check(const xml_binding::field& field, std::size_t index,
 
 std::string scalar_input(const xml_binding::field& field, std::size_t index,
                          const std::string& expression, std::string_view language) {
+  const auto namespaced = [&] {
+    if (!namespace_scalar(field) || expression == "srlLexical" || expression == "srlLexical!") {
+      return expression;
+    }
+    const bool java = language == "java";
+    const auto prefix = "result.srlXmlNamespaces.";
+    if (!field.attribute && !field.text) {
+      return std::string{prefix} + (java ? "scalar(input," : "Scalar(input,") + std::to_string(index) + ',' +
+          quote(field.qualified_name.namespace_uri.empty() ? field.qualified_name.local :
+              '{' + field.qualified_name.namespace_uri + '}' + field.qualified_name.local) + ',' +
+          namespace_mode(field) + ')';
+    }
+    return std::string{prefix} + (java ? "capture(input," : "Capture(input,") + std::to_string(index) +
+        ',' + expression + ",srlNamespaceScope," + namespace_mode(field) + ')' + (java ? "" : "!");
+  }();
   const auto& fallback = field.fixed_value ? field.fixed_value : field.default_value;
   const auto text = fallback ? std::string{"SrlXmlRule."} +
       (language == "java" ? "defaultText(" : "DefaultText(") + expression + ',' +
-      quote(*fallback) + ',' + (field.attribute ? "true" : "false") + ')' : expression;
+      quote(*fallback) + ',' + (field.attribute ? "true" : "false") + ')' : namespaced;
   return needs_scalar_rule(field) ? scalar_rule_name(index, language) +
       (language == "java" ? ".check(" : ".Check(") + text + ',' +
       (language == "java" ? "input.listLimit()" : "input.ListLimit") + ')' : text;
@@ -630,12 +685,15 @@ std::string scalar_input(const xml_binding::field& field, std::size_t index,
 std::string scalar_output(const xml_binding::field& field, std::size_t index,
                           const std::string& expression, std::string_view language) {
   const auto& fallback = field.fixed_value ? field.fixed_value : field.default_value;
-  if (!needs_scalar_rule(field)) { return expression; }
   const bool java = language == "java";
+  const auto text = namespace_scalar(field) ? std::string{"srlXmlNamespaces."} +
+      (java ? "output(output," : "Output(output,") + std::to_string(index) + ',' +
+      (typed_list(field) ? "0" : "srlNamespaceIndex++") + ',' + expression + ',' + namespace_mode(field) + ')' : expression;
+  if (!needs_scalar_rule(field)) { return text; }
   const auto limit = java ? "output.listLimit()" : "output.ListLimit";
   return scalar_rule_name(index, language) + (fallback && !field.attribute ?
-      (java ? ".output(" : ".Output(") + expression + ',' + quote(*fallback) + ',' + limit + ')' :
-      (java ? ".check(" : ".Check(") + expression + ',' + limit + ')');
+      (java ? ".output(" : ".Output(") + text + ',' + quote(*fallback) + ',' + limit + ')' :
+      (java ? ".check(" : ".Check(") + text + ',' + limit + ')');
 }
 
 bool typed_list(const xml_binding::field& field) {
@@ -685,7 +743,14 @@ std::string list_read(const xml_binding::field& field, std::size_t index,
   const auto& selected_type = leaf(*field.source);
   const auto item_type = type(selected_type);
   const bool defaulted = field.default_value || field.fixed_value;
-  std::string result{"{\nvar srlLexical=" + expression + ";\n"};
+  const auto lexical = namespace_scalar(field) ? (field.attribute || field.text ?
+      std::string{"result.srlXmlNamespaces."} + (java ? "capture(input," : "Capture(input,") +
+          std::to_string(index) + ',' + expression + ",srlNamespaceScope," + namespace_mode(field) + ')' :
+      std::string{"result.srlXmlNamespaces."} + (java ? "scalar(input," : "Scalar(input,") +
+          std::to_string(index) + ',' + quote(field.qualified_name.namespace_uri.empty() ?
+              field.qualified_name.local : '{' + field.qualified_name.namespace_uri + '}' + field.qualified_name.local) +
+          ',' + namespace_mode(field) + ')') : expression;
+  std::string result{"{\nvar srlLexical=" + lexical + ";\n"};
   if (optional && !defaulted) { result += "if(srlLexical==null){" + access + (java ? "=java.util.Optional.empty();" : "=null;") + "}else{\n"; }
   result += "var srlListText=" + scalar_input(field, index, java || defaulted ? "srlLexical" : "srlLexical!", language) + ";\n";
   result += java ? "var srlTokens=SrlXmlRule.tokens(srlListText,input.listLimit());\n" : "var srlTokens=SrlXmlRule.Tokens(srlListText,input.ListLimit);\n";
@@ -720,11 +785,16 @@ std::string scalar_runtime(std::string_view language) {
       } : std::string{
 #include "xml_csharp_scalar_runtime.inc"
       };
+  const std::string names = java ? std::string{
+#include "xml_java_namespace_runtime.inc"
+      } : std::string{
+#include "xml_csharp_namespace_runtime.inc"
+      };
   return std::string{java ? "private static final class SrlXmlRule {\n" : "private sealed class SrlXmlRule {\n"} +
       declaration + "MAX_STATES=" + std::to_string(limits.max_states) + ";\n" +
       declaration + "MAX_INPUT_BYTES=" + std::to_string(limits.max_input_bytes) + ";\n" +
       declaration + "MAX_LIST_ITEMS=" + std::to_string(xml::limits{}.max_nodes) + ";\n" +
-      declaration + "MAX_WORK_UNITS=" + std::to_string(limits.max_work_units) + ";\n" + body;
+      declaration + "MAX_WORK_UNITS=" + std::to_string(limits.max_work_units) + ";\n" + body + names;
 }
 
 std::string map_runtime(std::string_view language) {
@@ -806,7 +876,9 @@ std::string identity_metadata(const xml::identity_scope& scope, std::string_view
       if (target == scope.constraints.end()) { throw std::invalid_argument{"XML identity target is outside its owner scope"}; }
       refer = std::distance(scope.constraints.begin(), target);
     }
-    result += std::string{go ? "},refer:" : "},"} + std::to_string(refer) + (go ? "}," : "),");
+    result += std::string{go ? "},refer:" : "},"} + std::to_string(refer);
+    if (language == "csharp") { result += ',' + quote(constraint.id.local); }
+    result += go ? "}," : "),";
   }
   return result + (go ? "}}" : "})");
 }
@@ -1231,6 +1303,7 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
     bool readonly, const field_name& projection) {
   if (language != "go") { throw std::invalid_argument{"Unsupported XML portable methods"}; }
   const bool export_graph = readonly || xml_codegen::native_xml_export_graph(object);
+  const bool namespace_values = std::any_of(contract.fields.begin(), contract.fields.end(), namespace_scalar);
   const bool all = supports_all(contract);
   if (!contract.all_groups.empty() && !all) {
     throw std::invalid_argument{"Go XML all traversal requires one complete unwrapped singleton group"};
@@ -1247,6 +1320,9 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
     }
   }
   for (const auto& value : object.member_list) {
+    if (field(value) == "srlXmlNamespaces" || (namespace_values && field(value) == "SetXMLNamespaces")) {
+      throw std::invalid_argument{"Go XML namespace state collides with a native field"};
+    }
     if (field(value) == "EncodeXML" || field(value) == "EncodeXMLWithMapLimits" ||
         field(value) == "EncodeXMLWithMixedLimits" || field(value) == "EncodeXMLWithContentLimits" ||
         field(value) == "EncodeXMLWithIdentityLimits" || field(value) == "EncodeXMLWithPolicies" ||
@@ -1309,6 +1385,14 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
       "// EncodeXMLWithDigestLimits bounds nested owning digests without changing earlier option structs.\nfunc (value *" + identifier + ") EncodeXMLWithDigestLimits(digests XmlDigestLimits,policies ...XmlOptions)([]byte,error){return value.EncodeXMLWithAllPolicies(DefaultXmlMapLimits(),DefaultXmlMixedLimits(),DefaultXmlIdentityLimits(),digests,policies...)}\n"
       "// EncodeXMLWithAllPolicies validates every independent policy before graph traversal.\nfunc (value *" + identifier + ") EncodeXMLWithAllPolicies(maps XmlMapLimits,mixed XmlMixedLimits,identity XmlIdentityLimits,digests XmlDigestLimits,policies ...XmlOptions)([]byte,error){return value.EncodeXMLWithAllBounds(maps,mixed,identity,digests,DefaultXmlExtensionOptions(),policies...)}\n// EncodeXMLWithExtensionOptions carries explicit vocabulary understanding and opaque storage bounds.\nfunc (value *" + identifier + ") EncodeXMLWithExtensionOptions(extensions XmlExtensionOptions,policies ...XmlOptions)([]byte,error){return value.EncodeXMLWithAllBounds(DefaultXmlMapLimits(),DefaultXmlMixedLimits(),DefaultXmlIdentityLimits(),DefaultXmlDigestLimits(),extensions,policies...)}\n// EncodeXMLWithAllBounds validates each independent policy before complete owning traversal.\nfunc (value *" + identifier + ") EncodeXMLWithAllBounds(maps XmlMapLimits,mixed XmlMixedLimits,identity XmlIdentityLimits,digests XmlDigestLimits,extensions XmlExtensionOptions,policies ...XmlOptions)([]byte,error){\nvar extensionErr error;extensions,extensionErr=srlXmlExtensionOptions(extensions);if extensionErr!=nil{return nil,extensionErr}\nif err:=srlXmlMapPolicy(maps);err!=nil{return nil,err}\nif err:=srlXmlMixedPolicy(mixed);err!=nil{return nil,err}\nif err:=srlXmlIdentityPolicy(identity);err!=nil{return nil,err}\nif err:=srlXmlDigestPolicy(digests);err!=nil{return nil,err}\n"};
   out.insert(0, pattern_declarations);
+  if (namespace_values && !readonly) {
+    out.insert(0, "// SetXMLNamespaces replaces XML-only field scopes for native-authored QName values.\n"
+        "// Bindings are copied; native fields and serialization protocols retain their existing values.\n"
+        "func (value *" + identifier + ") SetXMLNamespaces(bindings map[string]string)error{\n"
+        "if value==nil{return fmt.Errorf(\"Nil XML record\")}\n"
+        "scope,err:=srlXmlNamespaceBindings(bindings);if err!=nil{return err}\n"
+        "value.srlXmlNamespaces=map[int][]map[string]string{-1:{scope}};return nil\n}\n");
+  }
   // Keep positional extension drains outside lifecycle guards and specialized early branches.
   const auto extension_scope=[&](const xml_binding::field& mapped,bool encoding){
     if(!contract.extensions||mapped.attribute||mapped.text)return xml_codegen::model_emission_scope{{}};
@@ -1351,7 +1435,9 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
     out+="srlScope:=map[string]string{}\n";
     if(!readonly)out+="if value.srlXmlPreserved!=nil{srlScope=value.srlXmlPreserved.scope}\n";
     out+="srlExtensions,srlExtensionErr:=srlXmlExtensionTracker(&"+extension_name+",srlScope,output.extensionOptions,"+std::string{readonly?"nil":"value.srlXmlPreserved"}+");if srlExtensionErr!=nil{return srlExtensionErr}\nif err:=output.openScoped(name,srlScope);err!=nil{return err}\n";
-  }else out+="if err:=output.open(name);err!=nil{return err}\n";
+  } else if (namespace_values) {
+    out += "if err:=output.openScoped(name,map[string]string{\"\":\"\"});err!=nil{return err}\n";
+  } else { out += "if err:=output.open(name);err!=nil{return err}\n"; }
   if (contract.identity) {
     out += "srlIdentity,srlIdentityErr:=output.identityScope(&" + identity_name + ");if srlIdentityErr!=nil{return srlIdentityErr}\n";
   }
@@ -1380,7 +1466,8 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
       const auto extensions=extension_scope(mapped,true);
       const auto active = active_scope(source, out);
       if (typed_list(mapped)) {
-        out += encode_list(mapped, "value." + member_paths.at(&source), type, patterns.at(&source));
+        out += encode_list(mapped, "value." + member_paths.at(&source), type, patterns.at(&source),
+            static_cast<std::size_t>(&mapped - contract.fields.data()), readonly);
         continue;
       }
       if (needs_presence(mapped)) {
@@ -1421,6 +1508,7 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
       const auto min = source.fixed_extent != 0 ? source.fixed_extent : mapped.min_occurs;
       const auto max = source.fixed_extent != 0 ? std::optional<std::size_t>{static_cast<std::size_t>(source.fixed_extent)} : mapped.max_occurs;
       out += "{\n";
+      if (namespace_scalar(mapped)) { out += "srlNamespaceIndex:=0\n"; }
       if (mapped.wrapper) {
         out += "if err:=output.open(" + qualified(*mapped.wrapper) + ");err!=nil{return err}\n";
       }
@@ -1438,10 +1526,32 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
         out += output_errors(encode_scalar(scalar, expression, type));
         out += output_errors(scalar_facets(mapped,
             patterns.contains(&source) ? patterns.at(&source) : "", true));
+        const auto namespace_value = [&] {
+          if (!namespace_scalar(mapped)) { return std::string{}; }
+          if (readonly) {
+            return "srlQualified,srlNamespaceErr:=output.namespaceValue(srlText," + namespace_mode(mapped) +
+                ",nil);if srlNamespaceErr!=nil{return srlNamespaceErr};srlText=srlQualified\nsrlNamespaceIndex++\n";
+          }
+          return "srlScope:=map[string]string(nil)\nsrlScopes:=value.srlXmlNamespaces[" +
+              std::to_string(&mapped - contract.fields.data()) + "]\n" +
+              "if srlNamespaceIndex<len(srlScopes){srlScope=srlScopes[srlNamespaceIndex]}else if fallback:=value.srlXmlNamespaces[-1];len(fallback)!=0{srlScope=fallback[0]}\n" +
+              "srlQualified,srlNamespaceErr:=output.namespaceValue(srlText," + namespace_mode(mapped) +
+              ",srlScope);if srlNamespaceErr!=nil{return srlNamespaceErr};srlText=srlQualified\nsrlNamespaceIndex++\n";
+        };
         if (mapped.attribute) {
+          out += namespace_value();
+          if (namespace_scalar(mapped)) {
+            out += "{\n" + output_errors(scalar_facets(mapped,
+                patterns.contains(&source) ? patterns.at(&source) : "", true)) + "}\n";
+          }
           out += "if err:=output.attribute(" + qualified(mapped.qualified_name) + ",srlText);err!=nil{return err}\n";
         } else {
           if (!mapped.text) { out += "if err:=output.open(" + qualified(mapped.qualified_name) + ");err!=nil{return err}\n"; }
+          out += namespace_value();
+          if (namespace_scalar(mapped)) {
+            out += "{\n" + output_errors(scalar_facets(mapped,
+                patterns.contains(&source) ? patterns.at(&source) : "", true)) + "}\n";
+          }
           out += "if err:=output.text(srlText);err!=nil{return err}\n";
           if (!mapped.text) { out += "if err:=output.close();err!=nil{return err}\n"; }
         }
@@ -1488,7 +1598,8 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
       const auto extensions=extension_scope(mapped,false);
       const auto active = active_scope(source, out);
       if (typed_list(mapped)) {
-        out += decode_list(mapped, "value." + member_paths.at(&source), type, patterns.at(&source));
+        out += decode_list(mapped, "value." + member_paths.at(&source), type, patterns.at(&source),
+            static_cast<std::size_t>(&mapped - contract.fields.data()));
         continue;
       }
       if (needs_presence(mapped)) {
@@ -1536,8 +1647,15 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
         out += "srlText,srlPresent,srlErr:=fields.attribute(" + qualified(mapped.qualified_name) + "," + (min && !fallback ? "true" : "false") + ");if srlErr!=nil{return nil,srlErr}\n";
         if (fallback) { out += "if !srlPresent{srlText=" + quote(*fallback) + ";srlPresent=true}\n"; }
         out += "if srlPresent{\n";
+        if (namespace_scalar(mapped)) {
+          out += "srlScope,srlNamespaceErr:=input.namespaceScope(srlText," + namespace_mode(mapped) +
+              ",nil);if srlNamespaceErr!=nil{return nil,srlNamespaceErr}\n";
+        }
       } else if (mapped.text) {
-        out += "if fields.used!=len(fields.attrs){return nil,fmt.Errorf(\"Unexpected XML attribute\")}\nsrlText,srlErr:=input.text();if srlErr!=nil{return nil,srlErr}\n";
+        out += "if fields.used!=len(fields.attrs){return nil,fmt.Errorf(\"Unexpected XML attribute\")}\n";
+        out += namespace_scalar(mapped)
+            ? "srlText,srlScope,srlErr:=input.namespaceText(" + namespace_mode(mapped) + ");if srlErr!=nil{return nil,srlErr}\n"
+            : "srlText,srlErr:=input.text();if srlErr!=nil{return nil,srlErr}\n";
       } else {
         if (mapped.wrapper) { out += "wrapper,srlErr:=input.open(" + qualified(*mapped.wrapper) + ");if srlErr!=nil{return nil,srlErr}\n"; }
         out += "srlCount:=0\nfor {\nsrlPresent,srlErr:=input.has(" + qualified(mapped.qualified_name) + ");if srlErr!=nil{return nil,srlErr};if !srlPresent{break}\n";
@@ -1545,11 +1663,18 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
         if (scalar.type == object_type::class_type) {
           out += "srlValue,srlErr:=srlXmlDecode" + record_name(type(scalar)) + "(input," + qualified(mapped.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\n";
         } else {
-          out += "srlText,srlErr:=input.scalar(" + qualified(mapped.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\n";
+          out += namespace_scalar(mapped)
+              ? "srlText,srlScope,srlErr:=input.namespaceScalar(" + qualified(mapped.qualified_name) + ',' + namespace_mode(mapped) + ");if srlErr!=nil{return nil,srlErr}\n"
+              : "srlText,srlErr:=input.scalar(" + qualified(mapped.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\n";
         }
       }
       if (scalar.type != object_type::class_type) {
         out += scalar_facets(mapped, patterns.contains(&source) ? patterns.at(&source) : "");
+        if (namespace_scalar(mapped)) {
+          const auto index = std::to_string(&mapped - contract.fields.data());
+          out += "if value.srlXmlNamespaces==nil{value.srlXmlNamespaces=make(map[int][]map[string]string)}\n";
+          out += "value.srlXmlNamespaces[" + index + "]=append(value.srlXmlNamespaces[" + index + "],srlScope)\n";
+        }
         out += decode_scalar(scalar, type);
       }
       out += access + (optional ? "=&srlValue" : mapped.repeated ? source.fixed_extent != 0 ? "[srlCount]=srlValue" : "=append(" + access + ",srlValue)" : "=srlValue") + "\n";
@@ -1579,7 +1704,7 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
       out += "case " + qualified(mapped.qualified_name) + ":\nif " + seen +
           "{return nil,fmt.Errorf(\"Duplicate XML all child\")}\n";
       if (typed_list(mapped)) {
-        out += decode_list(mapped, "value." + member_paths.at(mapped.source), type, patterns.at(mapped.source));
+        out += decode_list(mapped, "value." + member_paths.at(mapped.source), type, patterns.at(mapped.source), index);
         out += seen + "=true;srlAllCount++\n";
         continue;
       }
@@ -1593,9 +1718,14 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
         out += "srlValue,srlErr:=srlXmlDecode" + record_name(type(scalar)) + "(input," +
             qualified(mapped.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\n";
       } else {
-        out += "srlText,srlErr:=input.scalar(" + qualified(mapped.qualified_name) +
-            ");if srlErr!=nil{return nil,srlErr}\n";
+        out += namespace_scalar(mapped)
+            ? "srlText,srlScope,srlErr:=input.namespaceScalar(" + qualified(mapped.qualified_name) + ',' + namespace_mode(mapped) + ");if srlErr!=nil{return nil,srlErr}\n"
+            : "srlText,srlErr:=input.scalar(" + qualified(mapped.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\n";
         out += scalar_facets(mapped, patterns.contains(mapped.source) ? patterns.at(mapped.source) : "");
+        if (namespace_scalar(mapped)) {
+          out += "if value.srlXmlNamespaces==nil{value.srlXmlNamespaces=make(map[int][]map[string]string)}\n";
+          out += "value.srlXmlNamespaces[" + std::to_string(index) + "]=[]map[string]string{srlScope}\n";
+        }
         out += decode_scalar(scalar, type);
       }
       out += "value." + member_paths.at(mapped.source) + '=' +

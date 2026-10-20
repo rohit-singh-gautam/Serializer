@@ -339,6 +339,38 @@ retains exact SDK/provider/cache paths and commands. Run the driver's `--help`;
 missing SDKs are explicit failures. Small-document exchange does not establish
 uniform malformed/resource qualification or broad vocabulary coverage.
 
+## Java, C#, Go, JavaScript and TypeScript XML measurements
+
+The [portable XML benchmark](portable_xml_benchmark.py) builds actual XML-enabled
+and XML-disabled owning models for all five SDKs. It checks three reproducible
+workloads independently, requires exact native bytes across every profile/SDK,
+then records 90 isolated operations with five warmed timing batches each.
+TypeScript compiles strictly against generated declarations and runs the same
+JavaScript implementation; it is not a separate XML runtime.
+
+```powershell
+python -B qualification/portable_xml_benchmark.py `
+  --compiler out/build/pending-qname-2026-10-20/performance-compiler/serializer.exe `
+  --build out/build/portable-xml-measurements `
+  --node-dependencies out/build/pending-qname-2026-10-20/javascript/node_modules
+```
+
+Use a fresh, empty build directory and an immutable compiler with its deployed
+DLLs. Node dependencies must match the maintained XML TypeScript lockfile exactly;
+the runner performs no installation. This Windows measurement profile records
+absolute process high-water residency and total process CPU, including startup
+and validation. Java bypasses Windows `javapath` launchers using the selected
+runtime's `java.home`, so counters belong to the JVM. Two explicit finite JAXP
+entity-size bounds admit the larger escaped-text fixture; other generated limits
+retain their defaults. Java/C#/Go additionally record one separate allocation
+sample with their documented SDK counters. Raw samples, hashes, compiler commands,
+encoded/generated sizes and measurement limitations remain in `verification.json`.
+Other platforms and additional vocabularies remain pending.
+
+The [selected five-SDK record](../docs/verification/verification-portable-xml-performance-2026-10-20.md)
+also retains the final 18-operation C# replay after package integration and
+template whitespace cleanup, with current generated-source sizes.
+
 ## Proposed compact scalar reference
 
 `compact_scalar_contract.py` checks the selected signed/floating payload design
@@ -356,3 +388,42 @@ See the [contract](../docs/design/compact_scalar_contract.md) and
 [executed reference proof](../docs/verification/verification-compact-scalar-contract-2026-10-20.md).
 This verifies a design prerequisite; it enables no schema keyword or generated
 codec and substitutes for no future backend qualification.
+
+## C, Rust, Kotlin and Swift XML measurements
+
+The [native/mobile XML benchmark](native_mobile_xml_benchmark.py) builds actual
+XML-enabled and XML-disabled owning models with all four native Windows SDKs.
+Three reproducible workloads exercise 72 isolated XML/native operations, with
+independent expanded-name/value checks and exact native-byte equality across
+every profile and SDK.
+
+```powershell
+python -B qualification/native_mobile_xml_benchmark.py `
+  --compiler out/build/pending-qname-2026-10-20/fifty-compiler-clean/serializer.exe `
+  --build out/build/native-mobile-xml-measurements `
+  --libxml2-prefix out/build/ReleaseWindows/vcpkg_installed/x64-windows `
+  --kotlin-home out/tools/kotlin-2.2.21/kotlinc `
+  --cargo-home out/build/pending-qname-2026-10-20/native-namespaces/cargo-home
+```
+
+Use an MSVC developer environment, a fresh empty build directory and an immutable
+compiler with its deployed DLLs. All selected actual SDKs are mandatory; the
+runner performs no dependency installation. Cargo builds offline from the
+maintained XML example lockfile. `--language` selects a distinct subset when a
+smaller measurement is desired. Each operation launches the actual executable
+or JVM directly, warms three batches, then retains five calibrated wall samples.
+C/Swift use an opaque result sink compiled separately without LTO; Rust uses
+`black_box` and Kotlin uses a volatile sink.
+
+The [selected measurement record](../docs/verification/verification-native-mobile-xml-performance-2026-10-20.md)
+contains exact commands, SDK settings, encoded/generated sizes and limits.
+Its final-compiler source comparison retains the six unchanged C/Rust/Swift
+measurements and a fresh 18-operation Kotlin replay after package integration.
+The Kotlin replay includes the final SDK-name collision fixes and updated source
+sizes.
+Absolute OS process high-water residency and total process CPU include startup,
+setup and validation. Rust and Kotlin retain one separate requested-allocation
+sample with their documented counter scopes; C/Swift report exact allocation as
+unavailable. Raw samples, input/output hashes, dependency identities and commands
+remain in `verification.json`. Other platforms and broader vocabularies remain
+pending.

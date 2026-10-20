@@ -46,11 +46,29 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-Compiler/runtime **2.15.0** extends selected C++/Python XML and OPC contracts.
+Compiler/runtime **2.16.0** retains each C++/Python namespace-dependent scalar
+child's XML scope through local declarations, shadowing and default namespace
+resets. Optional/repeated QName, QName-list and nested union values preserve their
+expanded identities. Treat XML namespace metadata as associated with its owning
+field/occurrence when editing; ordinary native strings do not contain expanded
+namespace identity. Native JSON/binary codecs omit that XML-only state. Go/Java/C# add
+plain QName/list/prefix-list codecs and validate/copy authored bindings through
+Go `SetXMLNamespaces`, Java `setXmlNamespaces` and C# `SetXmlNamespaces`;
+these setters replace loaded scopes on that record and nested records bind
+independently. Namespace-dependent unions/defaults/fixed/enumeration remain
+explicitly gated. Valid Unicode XML mapping names and prefixes are accepted.
+Kotlin/Swift provide equivalent plain scalar scope retention on owning records.
+C/Rust keep scopes in XML document companions; use document decode and
+encode-with-extensions APIs, and respect their additional graph capability gates.
+Regenerate affected outputs and rebuild C++ consumers with matching headers/runtime.
+Use the [current scope and checks](../../../docs/verification/verification-qname-scopes-2026-10-20.md)
+before claiming completion of the broader `OPC-R01` requirement.
+
+Release **2.15.0** extended selected C++/Python XML and OPC contracts.
 Regenerate affected outputs and rebuild C++ consumers with matching headers/runtime.
 C++ QName/QName-list child unions require the first successful member and expanded
-names to agree in child and owning-record scopes; child-local/shadowed identity loss
-still rejects. Python permits outer enumeration/fixed values on namespace-independent
+names to agree in child and owning-record scopes in that release. Version 2.16
+retains child-local/shadowed scopes separately. Python permits outer enumeration/fixed values on namespace-independent
 unions and compares their selected primitive/list value identities. Namespace-dependent
 outer union restrictions and QName-list enumeration/fixed values remain gated.
 
@@ -68,7 +86,21 @@ Explicit language 1.14+ canonical decimal/hex integer literal defaults receive
 member-located overflow diagnostics, including original included/generic source.
 Native expressions, suffixed/octal literals, numeric Boolean defaults and legacy
 headers retain their behavior. Aggregate/generic default failures also name their
-original declaration. Schema language **1.20.0** and native wire identities stay
+original declaration. Version 2.16 additionally checks canonical unsuffixed
+decimal float/double overflow and unknown enum defaults explicitly qualified by
+their declared enum type. Underflow and opaque native spellings retain their
+existing handling; see [owning defaults](../../../docs/schema/owning_api.md).
+
+Generated C++/Python package codecs share OPC-edge and supported XSD
+key/unique/keyref tuple admission on the package reference budget. Failed/repeated
+work is cumulative. Use `budget.xml_context(part, relationship_id)` when adapting
+caller-owned XML codecs; its original one-argument overload remains available.
+Locations identify instrumented native validation/reference admission;
+deferred presentation/provider work still has documented field attribution and
+error-classification gaps. Keep diagnostic callback
+nodes as synchronous borrows. See the
+[batch scope](../../../docs/verification/verification-pending-batch-2026-10-20.md).
+Schema language **1.20.0** and native wire identities stay
 unchanged; the wider backlog remains pending.
 
 Release **2.14.0** added compiler-only installed CMake discovery. For
@@ -86,7 +118,7 @@ Unchanged prepared generated files and depfiles retain their timestamps, allowin
 Ninja restat to prune dependent compilation. Alias/source preflight and formatting
 still run; changed files retain the existing publication failure behavior.
 Schema language **1.20.0** and wire formats are unchanged. Both editor source
-packages use **2.0.8**, with generated package-facade navigation and bounded
+packages use **2.0.9**, with generated package-facade navigation and bounded
 indexing of marked runtime support; older outputs retain fallback indexing.
 
 Regenerate Python modules with 2.14 for the additive
@@ -151,6 +183,21 @@ independently narrowed document limits; automatic cumulative allocation/referenc
 accounting, runtime codec dispatch and declarative application references remain
 pending. See [Go ZIP/OPC usage](../../../docs/languages/go_packages.md) and the
 [actual Windows/Linux OPC proof](../../../docs/verification/verification-go-opc-packages-2026-10-20.md).
+
+Regenerate C# and Kotlin/JVM with 2.16 for collision-selected physical ZIP helpers
+and typed schema OPC facades, using .NET 8 or JVM 17 standard providers. Ordinary
+XML-disabled models retain provider independence. Share one snapshotted package
+`Budget` through nested XML/identity work, domain validation and staged Save;
+logical admission counters are not exact managed-heap measurements. Borrow stable
+random sources or explicitly admit bounded private spooling for sequential input.
+For Kotlin on Windows, supply access-restricted spool/Save directories; its files
+inherit directory ACLs. POSIX providers receive owner-only file permissions.
+Keep loaded extensions when editing, validate complete unpublished aggregates,
+and respect platform array limits and host-specific replacement durability.
+Runtime profile dispatch and declarative application reference checks remain
+separate pending contracts. See the
+[C#/Kotlin package API and examples](../../../docs/languages/csharp_kotlin_packages.md)
+and [actual acceptance record](../../../docs/verification/verification-pending-50-2026-10-20.md).
 
 Regenerate C# output with 2.14 for its nested `SerializerCompression` helper
 (with a generated suffix on collision). The .NET 8 profile supports
@@ -634,7 +681,7 @@ callable that must remain alive through the last operation on either wrapper,
 including cached input finish; see the
 [compression guide](../../../docs/serialization/compression.md).
 Generated package profiles are available in C++, Python, Java,
-JavaScript/TypeScript and Go under their documented backend contracts. Remaining
+JavaScript/TypeScript, Go, C# and Kotlin/JVM under their documented backend contracts. Remaining
 package backends, complete shared contexts and automatic format-specific managed
 document bridges remain pending;
 keep [remaining coverage](../../../docs/pending.md) explicit.
@@ -2008,7 +2055,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 2.0.8 is shared with the Visual Studio extension and is independent of
+version 2.0.9 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Embedded target blocks reuse available editor language grammars for highlighting;
 install a grammar provider for targets the host does not bundle. This does not

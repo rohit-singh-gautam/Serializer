@@ -1,5 +1,20 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.16.0** retains C++/Python per-occurrence XML namespace scopes
+for scalar children, including shadowed/local QName declarations, default resets
+and nested QName/list unions. Go/Java/C#/Kotlin/Swift add plain
+QName/list/prefix-list codecs with copied native-authoring bindings; C/Rust
+retain these scopes in XML document companions. Unicode XML names and prefixes are supported.
+Regenerate XML output and rebuild C++ consumers with matching headers/runtime.
+See [namespace preservation and its boundaries](../serialization/xml_tokens.md)
+and the [executed checks](../verification/verification-qname-scopes-2026-10-20.md).
+
+This release also checks declared-width floating default overflow and explicitly
+qualified enum defaults; see [owning defaults](../schema/owning_api.md). Package
+relationship/XSD identity-reference budgets and active field/link diagnostics
+are described in the [package guide](../serialization/xml_packages.md) and
+[batch verification](../verification/verification-pending-batch-2026-10-20.md).
+
 Compiler/runtime **2.15.0** extends selected C++/Python XML unions and automatic
 fixed-role OPC link rebinding. Regenerate affected output, rebuild C++ consumers
 against matching headers/runtime, and pass loaded extensions into package Save.
@@ -21,7 +36,7 @@ JavaScript/TypeScript, Kotlin, Swift, Rust and C offer
 providers and borrowed-stream wrappers. Selected Java and JS/TS package facades
 also provide typed XML/opaque ZIP/OPC workflows. Schema language **1.20.0**,
 existing model APIs and wire formats are unchanged. Both editor source packages
-use **2.0.8** for package-facade navigation and bounded runtime indexing.
+use **2.0.9** for package-facade navigation and bounded runtime indexing.
 
 Compiler/runtime **2.13.0** adds differential sidecar journaling and caller-supplied
 [external document codecs](#external-documents-with-a-differential-sidecar).
@@ -2358,6 +2373,19 @@ after edits. See the [package API and examples](../languages/javascript_packages
 and [executed profile](../verification/verification-javascript-packages-2026-10-20.md).
 Automatic nested cumulative contexts, arbitrary runtime codec selection and
 generated application key/reference rules remain pending.
+
+### C# and Kotlin/JVM ZIP/OPC
+
+Regenerate with **2.16.0** for owning .NET 8 and Kotlin/JVM 17 package support.
+Physical ZIP helpers are independent of XML; declared package facades add typed
+XML roles and compiler-owned OPC metadata. Share one `Budget` across nested XML,
+references, validation and Save. Explicit private spooling admits sequential
+sources, and staged Save validates a complete candidate before replacement.
+Keep loaded extensions when editing opaque parts/links and supply aggregate
+validation for application invariants. See the
+[API, examples and ownership/publication limits](../languages/csharp_kotlin_packages.md)
+and [selected acceptance evidence](../verification/verification-pending-50-2026-10-20.md).
+Runtime profile dispatch and declarative application references remain pending.
 
 ## Application command-line declarations
 

@@ -304,6 +304,82 @@ TEST(serialize_parser, portable_scalar_default_failures_locate_the_member) {
   }
 }
 
+// Known floating overflow and explicitly declared enum typos fail at their original member.
+TEST(serialize_parser, floating_and_enum_default_failures_locate_the_member) {
+  for (const auto& [type, literal] : std::vector<std::pair<std::string, std::string>>{
+           {"float", "3.4028236e38"}, {"float", "1e39"}, {"float", "-1e39"},
+           {"float", "9e999999999999999999999999999999"},
+           {"double", "1.8e308"}, {"double", "-1e309"},
+           {"double", "9e999999999999999999999999999999"},
+           {"kind", "kind::missing"}, {"kind", "::kind::missing"}}) {
+    SCOPED_TRACE(type + " " + literal);
+    const auto source = "serializer version 1.14.0;\n"
+        "enum kind { first, second }\nclass record {\n  public " + type +
+        " value { " + literal + " };\n}\n";
+    const auto input = rohit::make_constant_stream(source.data(), source.size());
+    try {
+      static_cast<void>(rohit::serializer::parser::parse(input, true));
+      FAIL() << "Invalid typed literal default was accepted";
+    } catch (const rohit::serializer::exception::bad_member_spec& error) {
+      const std::string message{error.what()};
+      EXPECT_NE(message.find("<schema>:4:3: member value:"), std::string::npos) << message;
+      EXPECT_NE(message.find(type == "kind" ? "Unknown enumerator in default" :
+          "Floating default exceeds the declared " + type + " range"), std::string::npos) << message;
+    }
+  }
+}
+
+// Preserve rounded finite endpoints, native underflow, suffixes and numeric Boolean compatibility.
+TEST(serialize_parser, floating_and_enum_validation_preserves_supported_defaults) {
+  for (const auto& [type, literal] : std::vector<std::pair<std::string, std::string>>{
+           {"float", "3.4028235e38"}, {"float", "-3.4028235e38"},
+           {"float", "0.00034028235e42"}, {"double", "1.7976931348623158e308"},
+           {"float", "1e-100"}, {"double", "-1e-1000"},
+           {"double", "1e-999999999999999999999999999999"},
+           {"float", "0e999999999999999999999999999999"},
+           {"float", "-0.0"}, {"float", "1.0F"}, {"double", "0x1p1023"},
+           {"float", "native_float()"}, {"double", "+1e400"},
+           {"kind", "kind::first"}, {"kind", "::kind::second"},
+           {"kind", "other::native_value"}, {"kind", "native_value"},
+           {"kind", "kind::native_value()"}, {"bool", "42"}, {"bool", "-1"}}) {
+    SCOPED_TRACE(type + " " + literal);
+    const auto source = "serializer version 1.14.0; enum kind { first, second } "
+        "class record { public " + type + " value { " + literal + " }; }";
+    const auto input = rohit::make_constant_stream(source.data(), source.size());
+    const auto statements = rohit::serializer::parser::parse(input, true);
+    const auto& record = static_cast<const rohit::serializer::class_node&>(*statements.back());
+    EXPECT_EQ(record.member_list.front().default_value, literal);
+    EXPECT_FALSE(record.member_list.front().initializer);
+  }
+}
+
+// The original defining declaration controls the diagnostic after generic scalar substitution.
+TEST(serialize_parser, floating_default_diagnostics_survive_specialization) {
+  const std::string source = "serializer version 1.14.0;\n"
+      "class box<T> {\n  public T value { 1e39 };\n}\n"
+      "instantiate float_box = box<float>;\n";
+  const auto input = rohit::make_constant_stream(source.data(), source.size());
+  try {
+    static_cast<void>(rohit::serializer::parser::parse(input, true));
+    FAIL() << "Generic floating narrowing was accepted";
+  } catch (const rohit::serializer::exception::bad_member_spec& error) {
+    const std::string message{error.what()};
+    EXPECT_NE(message.find("<schema>:3:3: member value:"), std::string::npos) << message;
+    EXPECT_NE(message.find("Floating default exceeds the declared float range"), std::string::npos);
+  }
+}
+
+// Legacy and older explicit contracts retain their native literal handling without new checks.
+TEST(serialize_parser, floating_and_enum_validation_preserves_legacy_contracts) {
+  for (const std::string_view header : {"", "serializer version 1; ", "serializer version 1.13.0; "}) {
+    const auto source = std::string{header} + "enum kind { first } class record { "
+        "public float narrow { 1e39 }; public double overflow { 1e400 }; "
+        "public kind value { kind::missing }; public bool numeric { 42 }; }";
+    const auto input = rohit::make_constant_stream(source.data(), source.size());
+    EXPECT_NO_THROW(static_cast<void>(rohit::serializer::parser::parse(input, !header.empty())));
+  }
+}
+
 // Existing aggregate shape and element failures also report their containing source declaration.
 TEST(serialize_parser, portable_aggregate_default_failures_locate_the_member) {
   for (const std::string_view declaration : {

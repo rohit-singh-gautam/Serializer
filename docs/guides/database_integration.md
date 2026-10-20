@@ -1,7 +1,7 @@
 # Database storage and document sinks
 
 Adapter implementation is tracked as **DB01** in
-[the central pending backlog](../xml_pending.md#managed-state-and-storage).
+[the central pending backlog](../pending.md#managed-state-and-storage).
 
 Status: integration guidance and proposed adapter design. Serializer implements
 JSON and binary codecs, but this repository does not implement database clients,

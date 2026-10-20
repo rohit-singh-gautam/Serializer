@@ -370,7 +370,6 @@ def rejected_bindings(args, languages):
     """Keep namespace identities and unsupported selected-member comparisons behind precise atomic gates."""
     directory = args.build / 'rejections'; directory.mkdir(parents=True, exist_ok=True)
     fixtures = [
-        ('<xs:element name="value" type="xs:QName"/>', '', 'scalar restrictions or lexical adapters'),
         ('<xs:element name="value" default="p:item"><xs:simpleType><xs:union memberTypes="xs:QName xs:unsignedShort"/></xs:simpleType></xs:element>', '', 'QName union defaults'),
         ('<xs:element name="value"><xs:simpleType><xs:restriction><xs:simpleType><xs:list itemType="xs:QName"/></xs:simpleType><xs:enumeration value="p:item"/></xs:restriction></xs:simpleType></xs:element>', '', 'QName list enumeration'),
         ('<xs:element name="value" fixed="1"><xs:simpleType><xs:union memberTypes="xs:boolean xs:unsignedShort"/></xs:simpleType></xs:element>', '', 'union fixed values'),

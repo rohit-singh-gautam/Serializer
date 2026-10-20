@@ -5,6 +5,7 @@
 
 #include <rohit/compression.hpp>
 #include <rohit/xml.hpp>
+#include <rohit/xml_identity.hpp>
 
 #include <gtest/gtest.h>
 
@@ -1720,6 +1721,103 @@ TEST(package_profile, typed_reference_indexes_validate_forward_scoped_and_wrong_
   package::reference_index<std::uint64_t> limited{bounded};
   limited.add_target<int>("", 1);
   expect_error(package::error_code::resource_limit, [&] { limited.require_target<int>("", 1); });
+}
+
+// Resource errors retain caller-declared reference locations before an index can mutate.
+TEST(package_profile, reference_budget_exhaustion_retains_field_key_and_relationship) {
+  package::budget shared{package::limits{.max_references = 1U}};
+  package::reference_index<std::string> index{shared};
+  index.add_target<int>("scope", "first", {"/target.xml", "id", "targetLink"});
+  try {
+    index.require_target<int>("scope", "second", {"/source.xml", "items.target", "sourceLink"});
+    FAIL() << "Expected reference admission failure";
+  } catch (const package::error& failure) {
+    EXPECT_EQ(failure.code, package::error_code::resource_limit);
+    EXPECT_EQ(failure.part, "/source.xml");
+    EXPECT_EQ(failure.field_path, "items.target");
+    EXPECT_EQ(failure.reference, "second");
+    EXPECT_EQ(failure.relationship_id, "sourceLink");
+    EXPECT_EQ(failure.required, 1U);
+    EXPECT_EQ(failure.permitted, 0U);
+  }
+  EXPECT_NO_THROW(index.validate());
+  EXPECT_EQ(shared.remaining(package::resource::references), 0U);
+}
+
+// Diagnostics borrow static paths; native callback failures keep their original exception types.
+TEST(package_profile, xml_bridge_scopes_restore_and_preserve_original_callbacks) {
+  namespace xml = rohit::serializer::xml;
+  package::budget shared{package::limits{.max_work_units = 1U}};
+  auto context = shared.xml_context("/model.xml", "modelLink");
+  {
+    xml::field_scope owner{&context};
+    owner.select("points");
+    try {
+      xml::field_scope child{&context};
+      child.select("x");
+      context.consume(xml::operation_resource::work_units, 2U);
+      FAIL() << "Expected nested XML work exhaustion";
+    } catch (const package::error& failure) {
+      EXPECT_EQ(failure.part, "/model.xml");
+      EXPECT_EQ(failure.field_path, "points.x");
+      EXPECT_EQ(failure.relationship_id, "modelLink");
+    }
+    ASSERT_NE(context.current_field, nullptr);
+    EXPECT_EQ(context.current_field->member, "points");
+  }
+  EXPECT_EQ(context.current_field, nullptr);
+  context.charge = [](auto, auto) { throw std::logic_error{"original charge callback"}; };
+  EXPECT_THROW(context.consume(xml::operation_resource::work_units, 0U), std::logic_error);
+  context.charge = {};
+  context.is_cancelled = []() -> bool { throw std::logic_error{"original cancellation callback"}; };
+  EXPECT_THROW(context.check(), std::logic_error);
+}
+
+// Raw-tree validators and generated token observers admit the same complete identity tuples.
+TEST(package_profile, tree_identity_admission_uses_the_shared_reference_budget) {
+  namespace xml = rohit::serializer::xml;
+  const xml::identity_path selector{{{"item", ""}}, false, {}};
+  const xml::identity_field field{{{}, false, xml::name{"id", ""}}, "unsignedInt", false};
+  const xml::identity_scope contract{{"root", ""}, {
+      {{"keys", ""}, xml::identity_kind::key, selector, {field}, {}}}};
+  const auto tree = xml::parse("<root><item id='1'/><item id='2'/></root>");
+  package::budget shared{package::limits{.max_references = 1U}};
+  auto context = shared.xml_context("/tree.xml", "treeLink");
+  try {
+    xml::validate_identity_scope(tree, contract, {}, &context);
+    FAIL() << "Expected second tuple admission failure";
+  } catch (const package::error& failure) {
+    EXPECT_EQ(failure.code, package::error_code::resource_limit);
+    EXPECT_EQ(failure.part, "/tree.xml");
+    EXPECT_EQ(failure.field_path, "keys");
+    EXPECT_EQ(failure.relationship_id, "treeLink");
+  }
+  EXPECT_EQ(shared.remaining(package::resource::references), 0U);
+}
+
+// Runtime annotations never slice an exception thrown by the caller's interruption policy.
+TEST(package_profile, xml_and_reference_callbacks_preserve_package_error_subtypes) {
+  namespace xml = rohit::serializer::xml;
+  struct caller_error : package::error {
+    // Distinguish a caller-owned derived exception from the runtime's own budget failures.
+    caller_error() : package::error{package::error_code::semantic, "original caller failure"} {}
+  };
+  bool armed{};
+  package::budget shared{package::limits{.is_cancelled = [&] {
+    if (armed) { throw caller_error{}; }
+    return false;
+  }}};
+  auto context = shared.xml_context("/model.xml", "modelLink");
+  xml::field_scope scope{&context};
+  scope.select("name");
+  armed = true;
+  EXPECT_THROW(context.check(), caller_error);
+  EXPECT_THROW(context.consume(xml::operation_resource::work_units, 1U), caller_error);
+  package::reference_index<std::uint32_t> index{shared};
+  EXPECT_THROW(index.add_target<int>("scope", 1U, {"/model.xml", "id", "modelLink"}), caller_error);
+  armed = false;
+  context.charge = [](auto, auto) { throw caller_error{}; };
+  EXPECT_THROW(context.consume(xml::operation_resource::work_units, 1U), caller_error);
 }
 
 // Live canonical indexes reserve scratch that remains unavailable to nested compression calls.

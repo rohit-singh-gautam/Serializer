@@ -19,7 +19,8 @@ internal class SrlXmlIdentityConstraint(val kind: String, val selector: SrlXmlId
 internal class SrlXmlIdentityScope(val constraints: Array<SrlXmlIdentityConstraint>)
 
 // Observe starts/text/ends directly, retaining only bounded tuples and active scalar captures, never sibling trees.
-internal class SrlXmlIdentity(private val scope: SrlXmlIdentityScope, private val limits: XmlIdentityLimits) {
+internal class SrlXmlIdentity(private val scope: SrlXmlIdentityScope, private val limits: XmlIdentityLimits, private val operation: SrlXmlBudget.Operation? = null) {
+    private val packageField = operation?.field ?: ""
     private class Capture(val depth: Int, val nil: Boolean) { val text = StringBuilder(); var bytes = 0 }
     private class Candidate(val constraint: Int, val depth: Int, count: Int) {
         val values = arrayOfNulls<String>(count); val seen = BooleanArray(count)
@@ -31,6 +32,7 @@ internal class SrlXmlIdentity(private val scope: SrlXmlIdentityScope, private va
     private var selected = 0; private var tuples = 0; private var tupleBytes = 0
     private var workUnits = 0L; private var complete = false; private var failed = false
     init {
+        operation?.charge("allocation",scope.constraints.size*128L,packageField)
         require(scope.constraints.size <= limits.maxConstraints) { "XML identity constraint limit" }
         for (item in scope.constraints) {
             require(item.fields.isNotEmpty() && item.fields.size <= limits.maxFields) { "XML identity field limit" }
@@ -38,9 +40,9 @@ internal class SrlXmlIdentity(private val scope: SrlXmlIdentityScope, private va
         }
     }
     // A callback failure permanently invalidates this private index; the caller's exact exception is preserved.
-    private inline fun checked(action: () -> Unit) { try { action() } catch (failure: Exception) { failed = true; throw failure } }
+    private inline fun checked(action: () -> Unit) { try { action() } catch (failure: Exception) { failed = true; operation?.failure(packageField); throw failure } }
     // Charge before scanning names or retaining values; subtraction keeps zero/maximum policies exact.
-    private fun work(count: Long) { require(count >= 0 && count <= limits.maxWorkUnits - workUnits) { "XML identity work limit" }; workUnits += count }
+    private fun work(count: Long) { operation?.charge("work",count,packageField); require(count >= 0 && count <= limits.maxWorkUnits - workUnits) { "XML identity work limit" }; workUnits += count }
     // Charge full expanded names, including large common URI prefixes, before exact comparisons.
     private fun nameBytes(name: SrlXmlName): Long = srlXmlUtf8Size(name.local) + srlXmlUtf8Size(name.namespace) + 2
     // Compare prepared relative paths without allocating suffix arrays or interpreting XPath.
@@ -78,6 +80,7 @@ internal class SrlXmlIdentity(private val scope: SrlXmlIdentityScope, private va
     // Admit canonical bytes before retaining one partial field; type markers are private indexing overhead.
     private fun store(candidate: Candidate, index: Int, value: String) {
         val bytes=srlXmlUtf8Size(value)-(if (value.startsWith("q")) 2 else 1)
+        operation?.charge("allocation",bytes*2+32,packageField)
         require(bytes <= limits.maxTupleBytes-candidate.bytes) { "XML identity candidate tuple-byte limit" }
         candidate.bytes += bytes.toInt(); candidate.values[index]=value
     }
@@ -89,6 +92,7 @@ internal class SrlXmlIdentity(private val scope: SrlXmlIdentityScope, private va
         path.add(name)
         for ((index,item) in scope.constraints.withIndex()) if (matches(1,item.selector)) {
             require(selected < limits.maxSelectedNodes) { "XML identity selected-node limit" }; ++selected
+            operation?.charge("allocation",128L+item.fields.size*32,packageField)
             active.add(Candidate(index,path.size,item.fields.size))
         }
         for (candidate in active) {
@@ -114,6 +118,7 @@ internal class SrlXmlIdentity(private val scope: SrlXmlIdentityScope, private va
         val bytes=srlXmlUtf8Size(value); work(bytes)
         for (candidate in active) for (capture in candidate.captures) if (capture != null) {
             work(bytes); require(!capture.nil || value.isEmpty()) { "Nil XML identity field has text" }
+            operation?.charge("allocation",bytes*2,packageField)
             require(bytes <= limits.maxTupleBytes-capture.bytes) { "XML identity field-byte limit" }
             capture.bytes += bytes.toInt(); capture.text.append(value)
         }
@@ -138,6 +143,8 @@ internal class SrlXmlIdentity(private val scope: SrlXmlIdentityScope, private va
             if (candidate.values.any { it == null }) { require(constraint.kind != "key") { "XSD key tuple incomplete or nil" }; continue }
             require(tuples < limits.maxTuples) { "XML identity tuple-count limit" }
             require(candidate.bytes <= limits.maxTupleBytes-tupleBytes) { "XML identity tuple-byte limit" }
+            operation?.charge("reference",1,packageField)
+            operation?.charge("allocation",candidate.bytes*2L+64,packageField)
             ++tuples; tupleBytes += candidate.bytes; work(candidate.bytes.toLong()+1)
             val tuple=buildString { for (value in candidate.values) { append(value!!.length); append(':'); append(value) } }
             require(tables[candidate.constraint].add(tuple) || constraint.kind == "keyref") { "Duplicate XSD key/unique tuple" }
@@ -153,7 +160,8 @@ internal class SrlXmlIdentity(private val scope: SrlXmlIdentityScope, private va
     }
     companion object {
         private val nilName=SrlXmlName("nil","http://www.w3.org/2001/XMLSchema-instance")
-        private val integerKinds=setOf("byte","unsignedByte","short","unsignedShort","int","unsignedInt","long","unsignedLong","integer","positiveInteger","negativeInteger","nonPositiveInteger","nonNegativeInteger")
+)identitykotlin"
+R"identitykotlin(        private val integerKinds=setOf("byte","unsignedByte","short","unsignedShort","int","unsignedInt","long","unsignedLong","integer","positiveInteger","negativeInteger","nonPositiveInteger","nonNegativeInteger")
     }
 }
 )identitykotlin"

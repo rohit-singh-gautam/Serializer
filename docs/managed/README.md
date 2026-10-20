@@ -3,7 +3,7 @@
 [Documentation index](../README.md)
 
 All remaining managed-reference, migration, capability and storage requirements
-are tracked in [the central pending backlog](../xml_pending.md#managed-references-and-migration).
+are tracked in [the central pending backlog](../pending.md#managed-references-and-migration).
 
 New to these features? Start with the
 [history, journal, collaboration, and authorization overview](getting_started.md).

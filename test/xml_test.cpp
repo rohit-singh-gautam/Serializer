@@ -4,6 +4,7 @@
 #include <rohit/serializer_creator.hpp>
 #include <rohit/stream.hpp>
 #include <rohit/xml.hpp>
+#include <rohit/xml_name.hpp>
 #include <xml_fixture.hpp>
 #include <xml_xsd_fixture.hpp>
 
@@ -123,6 +124,44 @@ TEST(xml, retained_namespace_bindings_preserve_qname_valued_metadata) {
   EXPECT_EQ(reread.namespace_bindings.at("t"), "urn:type");
   ASSERT_EQ(reread.attributes.size(), 1U);
   EXPECT_EQ(reread.attributes.front().value, "t:Thing");
+}
+
+// Unicode element, attribute and QName spellings retain exact expanded identities on write/reparse.
+TEST(xml, unicode_names_and_prefixes_preserve_expanded_identity) {
+  xml::element original{};
+  original.qualified_name = {"\xcf\x80", "urn:root"};
+  original.namespace_bindings.emplace("\xc3\xa9", "urn:type");
+  original.attributes.push_back({{"\xe5\x90\x8d", "urn:attribute"}, "\xc3\xa9:\xe9\xa0\x85"});
+  const auto encoded = xml::write(original);
+  const auto reread = xml::parse(encoded);
+  EXPECT_EQ(reread.qualified_name, original.qualified_name);
+  ASSERT_EQ(reread.attributes.size(), 1U);
+  EXPECT_EQ(reread.attributes.front().qualified_name, original.attributes.front().qualified_name);
+  EXPECT_EQ(xml::resolve_qname(reread.attributes.front().value, reread),
+      (xml::name{"\xe9\xa0\x85", "urn:type"}));
+  EXPECT_EQ(xml::resolve_qname("\xc3\xa9:\xe9\xa0\x85", original),
+      (xml::name{"\xe9\xa0\x85", "urn:type"}));
+  EXPECT_NO_THROW((void)xml::write(xml::element{{"\xf0\x90\x80\x80", {}}}));
+}
+
+// Strict UTF-8 and NCName boundaries reject malformed names before tree or scalar publication.
+TEST(xml, unicode_name_boundaries_reject_invalid_utf8_and_namespace_separators) {
+  constexpr std::string_view valid[]{"A", "_", "\xc3\x80", "\xc3\x98", "\xcf\x80", "\xe5\x90\x8d",
+      "a\xcc\x81", "a\xc2\xb7", "\xf3\xaf\xbf\xbf"};
+  for (const auto value : valid) {
+    EXPECT_TRUE(xml::is_ncname(value)) << value;
+    EXPECT_NO_THROW((void)xml::write(xml::element{{std::string{value}, {}}}));
+  }
+  const std::string invalid[]{"", ":", "a:b", "1a", "a b", "\xcc\x81", "\xc2\xb7",
+      "\xc3\x97", "\xc0\xaf", "\xed\xa0\x80", "\xf4\x90\x80\x80", "\xf3\xb0\x80\x80",
+      "\xe2\x82", "\xe2\x28\xa1", std::string{"a\0b", 3U}};
+  for (const auto& value : invalid) {
+    EXPECT_FALSE(xml::is_ncname(value));
+    EXPECT_THROW((void)xml::write(xml::element{{value, {}}}), std::invalid_argument);
+    EXPECT_THROW((void)xml::resolve_qname(value, xml::element{}), std::invalid_argument);
+  }
+  static_assert(xml::is_ncname("name"));
+  static_assert(!xml::is_ncname("two:names"));
 }
 
 TEST(xml, numeric_lexical_forms_are_exact) {
@@ -320,6 +359,31 @@ TEST(xml, direct_generation_validates_xml_configuration_for_every_backend) {
   options.enabled = true;
   options.classes["missing"].root = "root";
   reject(options);
+}
+
+// Every backend accepts Unicode XML mappings independently of ASCII native identifier spelling.
+TEST(xml, unicode_mapping_names_are_accepted_by_every_backend) {
+  namespace writer = rohit::serializer::writer;
+  constexpr std::string_view source{
+      "serializer version 1.20.0; class value { public string label "
+      "xml(attribute,name(\"\xe5\x90\x8d\"),namespace(\"urn:attribute\")); }"};
+  const auto input = rohit::make_constant_stream(source.data(), source.size());
+  const auto statements = rohit::serializer::parser::parse(input);
+  writer::xml_options mapping{};
+  mapping.enabled = true;
+  mapping.classes["value"].root = "\xcf\x80";
+  mapping.classes["value"].namespace_uri = "urn:root";
+  writer::cpp_options cpp{};
+  cpp.format = false; cpp.xml = mapping;
+  EXPECT_NO_THROW((void)writer::cpp::generate(statements, cpp));
+  writer::java_options java{};
+  java.xml = mapping;
+  EXPECT_NO_THROW((void)writer::java::generate(statements, "Schema", java));
+  for (const auto language : {"js", "typescript", "go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
+    writer::portable_options options{};
+    options.xml = mapping;
+    EXPECT_NO_THROW((void)writer::portable::generate(statements, language, "Schema", options)) << language;
+  }
 }
 
 TEST(xml, separate_cpp_includes_validate_class_selectors_against_the_complete_schema) {

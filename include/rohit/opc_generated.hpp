@@ -81,8 +81,9 @@ inline void remember_source(std::vector<std::string>& names, std::string_view na
 // Encode a borrowed model with the same cumulative package and XML operation context.
 template <typename Model>
 void write_xml_part(opc_writer& writer, std::string_view name,
-    std::string_view content_type, const Model& value, entry_options storage = {}) {
-  auto context = writer.shared_budget()->xml_context();
+    std::string_view content_type, const Model& value, entry_options storage,
+    std::string_view relationship_id) {
+  auto context = writer.shared_budget()->xml_context(name, relationship_id);
   xml::limits bounds{};
   const auto& configured = writer.shared_budget()->configured();
   bounds.max_output_bytes = static_cast<std::size_t>(
@@ -94,14 +95,28 @@ void write_xml_part(opc_writer& writer, std::string_view name,
   }, storage);
 }
 
+// Preserve the original caller-authored helper while generated facades supply their known link.
+template <typename Model>
+void write_xml_part(opc_writer& writer, std::string_view name,
+    std::string_view content_type, const Model& value, entry_options storage = {}) {
+  write_xml_part(writer, name, content_type, value, storage, {});
+}
+
 // Decode a fresh typed resource while charging generated/XML work to its package budget.
 template <typename Model>
-[[nodiscard]] Model read_xml_part(std::span<const std::uint8_t> bytes, budget& shared) {
-  auto context = shared.xml_context();
+[[nodiscard]] Model read_xml_part(std::span<const std::uint8_t> bytes, budget& shared,
+    std::string_view part) {
+  auto context = shared.xml_context(part);
   xml::limits bounds{};
   bounds.max_input_bytes = bytes.size();
   return xml::deserialize<Model>(
       {reinterpret_cast<const char*>(bytes.data()), bytes.size()}, bounds, nullptr, &context);
+}
+
+// Preserve the original context-free spelling for existing callback implementations.
+template <typename Model>
+[[nodiscard]] Model read_xml_part(std::span<const std::uint8_t> bytes, budget& shared) {
+  return read_xml_part<Model>(bytes, shared, {});
 }
 
 } // namespace rohit::serializer::package

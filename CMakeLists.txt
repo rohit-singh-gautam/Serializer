@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.15.0 LANGUAGES CXX)
+project(serializer VERSION 2.16.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.20.0)
@@ -68,6 +68,7 @@ add_library(serializer_runtime
   src/xml.cpp
   include/rohit/xml.hpp
   include/rohit/xml_tokens.hpp
+  include/rohit/xml_name.hpp
   src/xml_events.cpp
   include/rohit/xml_events.hpp
   src/xml_event_reader.cpp
@@ -213,6 +214,12 @@ add_library(serializer_lib
   src/xml_go_runtime.inc
   src/xml_go_map_runtime.inc
   src/xml_go_scalar_runtime.inc
+  src/xml_go_namespace_runtime.inc
+  src/xml_java_namespace_runtime.inc
+  src/xml_csharp_namespace_runtime.inc
+  src/xml_mobile_namespace.hpp
+  src/xml_kotlin_namespace_runtime.inc
+  src/xml_swift_namespace_runtime.inc
   src/xml_go_mixed_runtime.inc
   src/xml_go_identity_runtime.inc
   src/xml_go_html_runtime.inc
@@ -352,6 +359,11 @@ add_library(serializer_lib
   src/csharp_optional_compression_runtime.inc
   src/csharp_zstd_compression_runtime.inc
   src/csharp_lz4_compression_runtime.inc
+  src/csharp_package_writer.hpp
+  src/csharp_package_runtime.inc
+  src/csharp_package_writer_runtime.inc
+  src/csharp_package_opc_runtime.inc
+  src/csharp_package_profile_runtime.inc
   src/java_writer.cpp
   src/java_runtime.inc
   src/java_package_writer.hpp
@@ -360,6 +372,14 @@ add_library(serializer_lib
   src/java_package_opc_runtime.inc
   src/java_package_xml_runtime.inc
   src/java_package_profile_runtime.inc
+  src/kotlin_package_writer.hpp
+  src/kotlin_package_runtime.inc
+  src/kotlin_package_zip_runtime.inc
+  src/kotlin_package_writer_runtime.inc
+  src/kotlin_package_opc_runtime.inc
+  src/kotlin_package_xml_runtime.inc
+  src/kotlin_package_catalog_runtime.inc
+  src/kotlin_package_profile_runtime.inc
   src/java_compression_runtime.inc
   src/java_deflate_validation_runtime.inc
   src/cpp_type_mapping.cpp

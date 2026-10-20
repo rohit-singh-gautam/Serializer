@@ -20,7 +20,7 @@ policy and the desired import operation. It supplies values and uses the native
 registry; it should not need a second identity allocator or object repository.
 
 Remaining work and qualification are tracked only in the
-[central backlog, MR01–MR03 and MG05](../xml_pending.md#managed-references-and-migration).
+[central backlog, MR01–MR03 and MG05](../pending.md#managed-references-and-migration).
 
 | Capability | Current implementation |
 | --- | --- |

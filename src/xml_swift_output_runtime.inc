@@ -36,6 +36,8 @@ fileprivate final class SrlXmlOutput {
         for frame in stack.reversed() { if let uri=frame.bindings[WireString(prefix)] { return uri } }
         return prefix.isEmpty ? "" : nil
     }
+    // Resolve typed scalar vocabulary from active generated scopes after all declarations are pinned.
+    func namespace(_ prefix: String) -> String? { identityNamespace(prefix) }
     // Notify starts only after the current element's complete original attribute inventory is available.
     private func identityStart() throws {
         guard !identities.isEmpty, let frame=stack.last else { return }

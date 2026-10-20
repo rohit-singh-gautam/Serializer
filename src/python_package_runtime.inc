@@ -68,9 +68,15 @@ class PackageBudget:
     def check(self):
         """Check monotonic deadline and cancellation at each bounded processing boundary."""
         if self.limits.is_cancelled is not None and self.limits.is_cancelled():
-            raise PackageError('cancelled', 'Package operation cancelled')
+            raise self._failure('cancelled', 'Package operation cancelled')
         if self.limits.deadline is not None and _pkg_time.monotonic() >= self.limits.deadline:
-            raise PackageError('deadline_exceeded', 'Package operation deadline exceeded')
+            raise self._failure('deadline_exceeded', 'Package operation deadline exceeded')
+    @staticmethod
+    def _failure(code, message, part=''):
+        """Identify runtime-created budget failures without changing their public exception class."""
+        error = PackageError(code, message, part)
+        error._budget_failure = True
+        return error
     def remaining(self, resource):
         """Expose unspent cumulative capacity without resetting failed work."""
         return getattr(self.limits, self._resources[resource]) - self.used[resource]
@@ -78,17 +84,20 @@ class PackageBudget:
         """Charge a nonnegative resource before allocating or exposing its result."""
         self.check()
         if type(amount) is not int or amount < 0 or amount > self.remaining(resource):
-            raise PackageError('resource_limit', 'Package ' + resource + ' limit exceeded', part)
+            raise self._failure('resource_limit', 'Package ' + resource + ' limit exceeded', part)
         self.used[resource] += amount
     def check_buffer(self, amount, part=''):
         """Bound simultaneously materialized byte buffers before their allocation."""
         self.check()
         if amount > self.limits.max_buffer_bytes:
-            raise PackageError('resource_limit', 'Package buffer limit exceeded', part)
+            raise self._failure('resource_limit', 'Package buffer limit exceeded', part)
     def xml_limits(self):
         """Narrow nested XML limits without replacing this operation's shared counters."""
         return Limits(max_bytes=self.limits.max_part_bytes, max_string_bytes=self.limits.max_part_bytes,
                       max_elements=min(1000000, self.remaining('work_units')), max_depth=64)
+    def xml_context(self, part='', relationship_id=''):
+        """Borrow cumulative codec/reference accounting for a synchronous custom typed-part codec."""
+        return _PackagePartContext(self, part, relationship_id)
 
 @_pkg_dataclasses.dataclass(frozen=True)
 class PackageRelationship:
@@ -137,7 +146,8 @@ class PackageResult:
     value: object
     extensions: PreservedExtensions
 
-class _PackagePartContext:
+)packagepython"
+R"packagepython(class _PackagePartContext:
     """Borrow one operation budget while annotating nested XML failures with their part and link."""
     def __init__(self, shared, part, relationship_id=''):
         """Keep a synchronous borrowed context without copying or resetting shared counters."""
@@ -145,18 +155,51 @@ class _PackagePartContext:
         self.limits = shared.limits
     def consume(self, resource, amount, part=''):
         """Charge before work and preserve package diagnostics through generated XML callbacks."""
+        self._xml_consume_at(resource, amount, None, part)
+    def check_buffer(self, amount, part=''):
+        """Retain the source URI when a nested writer exhausts its byte workspace."""
+        self._xml_buffer_at(amount, None, part)
+    def check(self):
+        """Apply the original operation's deadline and cancellation predicate."""
+        self._xml_check_at(None)
+    def _locate(self, error, field):
+        """Fill missing structured locations only on the package runtime's own failures."""
+        if not getattr(error, '_budget_failure', False): return
+        if not error.part: error.part = self.part
+        if not error.relationship_id: error.relationship_id = self.relationship_id
+        if not error.field_path and field is not None:
+            names = []
+            while field is not None:
+                names.append(field[0])
+                field = field[1]
+            error.field_path = '.'.join(reversed(names))
+    def _xml_consume_at(self, resource, amount, field, part=''):
+        """Charge before work without swallowing unrelated provider or caller exceptions."""
         try:
             self.shared.consume(resource, amount, part or self.part)
         except PackageError as error:
-            if not error.part: error.part = self.part
-            if not error.relationship_id: error.relationship_id = self.relationship_id
+            self._locate(error, field)
             raise
-    def check_buffer(self, amount, part=''):
-        """Retain the source URI when a nested writer exhausts its byte workspace."""
-        self.shared.check_buffer(amount, part or self.part)
-    def check(self):
-        """Apply the original operation's deadline and cancellation predicate."""
-        self.shared.check()
+    def _xml_buffer_at(self, amount, field, part=''):
+        """Keep the field and link on buffer-limit, cancellation and deadline failures."""
+        try:
+            self.shared.check_buffer(amount, part or self.part)
+        except PackageError as error:
+            self._locate(error, field)
+            raise
+    def _xml_check_at(self, field):
+        """Apply interruption at bounded field transitions without resetting the budget."""
+        try:
+            self.shared.check()
+        except PackageError as error:
+            self._locate(error, field)
+            raise
+    def _xml_reference_at(self, field):
+        """Share tuple admission with archive relationships and caller reference validation."""
+        self._xml_consume_at('references', 1, field)
+    def admit_reference(self):
+        """Admit a root identity tuple when no generated field scope is active."""
+        self._xml_reference_at(None)
 
 def _pkg_budget(limits, budget):
     """Keep exactly one caller-selected operation context rather than silently resetting nested limits."""
@@ -774,8 +817,16 @@ def _pkg_relationships(links, parts, budget):
     """Validate source-local IDs, source membership and every internal target before use or publication."""
     seen, result = set(), []
     for link in links:
-        budget.consume('relationships', 1, link.source)
-        budget.consume('references', 1, link.source)
+        try:
+            budget.consume('relationships', 1, link.source)
+            budget.consume('references', 1, link.source)
+        except PackageError as error:
+            if not getattr(error, '_budget_failure', False): raise
+            if not error.part: error.part = link.source
+            if not error.relationship_id: error.relationship_id = link.id
+            if not error.reference: error.reference = link.target
+            if not error.field_path: error.field_path = 'relationships'
+            raise
         if not _xml_ncname(link.id):
             raise PackageError('invalid_relationship', 'Invalid relationship ID', link.source)
         source = '/' if link.source == '/' else _pkg_name(link.source)
@@ -951,12 +1002,13 @@ def _pkg_profile_encode(value, roles, budget):
                 raise PackageError('invalid_relationship', 'Package source occurrence is missing', name)
             _pkg_name(name)
             _pkg_mime(content_type)
+            relationship_id = role['id'] or 'srl_' + role['role'] + '_' + str(index)
             if role['model'] is not None:
                 model = item if role['singleton'] else item.value
                 if not isinstance(model, role['model']):
                     raise PackageError('codec', 'Package typed resource is unbound or has the wrong type', name)
                 try:
-                    data = model.encode_xml(limits=budget.xml_limits(), context=_PackagePartContext(budget, name))
+                    data = model.encode_xml(limits=budget.xml_limits(), context=_PackagePartContext(budget, name, relationship_id))
                 except PackageError:
                     raise
                 except (ValueError, OverflowError) as error:
@@ -967,7 +1019,7 @@ def _pkg_profile_encode(value, roles, budget):
                 if not isinstance(data, (bytes, bytearray, memoryview)):
                     raise PackageError('codec', 'Package binary resource requires bytes', name)
             parts.append(BinaryPart(data, name, content_type, parent, role['compression']))
-            links.append(PackageRelationship(parents[parent], role['id'] or 'srl_' + role['role'] + '_' + str(index), role['relationship'], name))
+            links.append(PackageRelationship(parents[parent], relationship_id, role['relationship'], name))
             discovered.append(name)
         sources[role['field']] = discovered
     extensions = value.extensions or PreservedExtensions()

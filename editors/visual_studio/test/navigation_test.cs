@@ -25,12 +25,12 @@ internal static class NavigationTest {
       var packageSchema = Path.GetFullPath(Path.Combine(repository, "test/resources/opc_profile.serializer"));
       var packageText = File.ReadAllText(packageSchema);
       var packageOutput = Path.Combine(Path.GetDirectoryName(generated), "opc-packages");
-      // Real emitted Java classes, JS factories and TS namespaces share schema package identity.
+      // Real emitted classes, factories, namespaces and Kotlin objects share schema package identity.
       foreach (var packageName in new[] { "archive", "document_profiles", "collection_archive" }) {
         var start = packageText.IndexOf("package " + packageName, StringComparison.Ordinal) + "package ".Length;
         foreach (var cursor in new[] { start, start + packageName.Length }) {
           var definitions = NavigationRunner.Resolve(packageSchema, cursor, true, packageOutput, live, CancellationToken.None);
-          Require(definitions.Length == 3, "package definitions across Java, JavaScript and TypeScript");
+          Require(definitions.Length == 5, "package definitions across Java, JavaScript, TypeScript, C# and Kotlin");
           foreach (var definition in definitions) {
             foreach (var endpoint in new[] { definition.start, definition.end }) {
               var source = NavigationRunner.Resolve(definition.file, endpoint, false, packageOutput, live, CancellationToken.None);

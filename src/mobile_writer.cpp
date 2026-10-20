@@ -11,6 +11,8 @@
 #include "format_writer.hpp"
 #include "auto_size_writer.hpp"
 #include "xml_schema.hpp"
+#include "xml_mobile_namespace.hpp"
+#include "kotlin_package_writer.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -71,6 +73,22 @@ std::string mobile_compression_support(const schema& model, bool swift) {
   return "// Generated " + language + " compression helper name: " + name + "\n" + result;
 }
 
+// Select a package helper without renaming any existing flattened declaration.
+std::string kotlin_package_name(const schema& model) {
+  const std::string base{"SerializerPackage"};
+  auto name = base;
+  std::size_t suffix{1U};
+  while (std::any_of(model.names.begin(), model.names.end(), [&](const auto& item) {
+    return item.second == name;
+  })) {
+    if (suffix == std::numeric_limits<std::size_t>::max()) {
+      throw std::length_error{"Kotlin package helper names exhausted"};
+    }
+    name = base + '_' + std::to_string(++suffix);
+  }
+  return name;
+}
+
 // Share field traversal while emitting native Swift and Kotlin syntax and ownership.
 class mobile_emitter {
   const schema& model;
@@ -78,6 +96,8 @@ class mobile_emitter {
   behavior::checked_helpers arithmetic_helpers{};
   std::set<const class_node*> xml_mixed_fragments_{};
   std::set<const class_node*> xml_extension_owners_{};
+  std::set<const class_node*> xml_namespace_owners_{};
+  std::string kotlin_package_helper_{};
   std::string output{};
   std::size_t indent{};
   bool variable_first{};
@@ -1346,6 +1366,15 @@ class mobile_emitter {
       close();
     }
     open(select("public struct ", "class ") + name + (swift && external ? ": " + name + "ExternalBehavior" : ""));
+    if (xml_namespace_owners_.contains(&value)) {
+      if (std::any_of(value.member_list.begin(), value.member_list.end(), [&](const auto& item) {
+        return field(item.name) == "srlXmlNamespaces" || field(item.name) == "xmlBindNamespace";
+      })) {
+        throw std::invalid_argument{"XML namespace storage conflicts with a native field"};
+      }
+      line("// Retain QName presentation separately from native serialized members.");
+      line(select("fileprivate var srlXmlNamespaces = SrlXmlNamespaceState()", "internal var srlXmlNamespaces = SrlXmlNamespaceState()"));
+    }
     if (xml_extension_owners_.contains(&value)) {
       if (std::any_of(value.member_list.begin(), value.member_list.end(), [&](const auto& item) { return field(item.name) == "srlXmlExtensions"; })) {
         throw std::invalid_argument{"XML extension storage conflicts with native field: srlXmlExtensions"};
@@ -1742,7 +1771,9 @@ public:
         if (node->type != object_type::class_type) { continue; }
         const auto& owner = static_cast<const class_node&>(*node);
         if (owner.reference || (xml_mixed_fragments_.contains(&owner) && !model.xml.classes.contains(owner.get_full_name()))) { continue; }
-        if (bindings.bind(owner).extensions) { xml_extension_owners_.insert(&owner); }
+        const auto contract = bindings.bind(owner);
+        if (contract.extensions) { xml_extension_owners_.insert(&owner); }
+        if (xml_codegen::mobile_namespace_value(contract)) { xml_namespace_owners_.insert(&owner); }
       }
     }
     arithmetic_helpers = behavior::select_helpers(model.nodes,
@@ -1768,8 +1799,14 @@ public:
     for (const auto& code : model.preambles) {
       if (code.language == (swift ? "swift" : "kotlin")) { output += behavior::source_marker(code, swift ? "swift" : "kotlin") + code.text + "\n"; }
     }
+    if (!swift) { output += "// Serializer runtime support begins.\n"; }
     output += swift ? swift_runtime : kotlin_runtime;
     output += mobile_compression_support(model, swift);
+    if (!swift) {
+      kotlin_package_helper_ = kotlin_package_name(model);
+      output += "// Generated Kotlin package helper name: " + kotlin_package_helper_ + '\n';
+      output += package_codegen::kotlin_runtime(kotlin_package_helper_, !model.packages.empty());
+    }
     if (swift && std::any_of(model.nodes.begin(), model.nodes.end(), [](const auto* node) {
           return node->type == object_type::class_type && static_cast<const class_node&>(*node).reference.has_value();
         })) { output += reference_support::portable_runtime("swift"); }
@@ -1787,6 +1824,7 @@ public:
     }
     --indent;
     line(select("]", ")"));
+    if (!swift) { line("// Serializer schema declarations begin."); }
     for (const auto* node : model.nodes) {
       if (swift && model.names.at(node) == "SrlReferenceOwner" &&
           std::any_of(model.nodes.begin(), model.nodes.end(), [](const auto* item) {
@@ -1833,6 +1871,14 @@ public:
         close();
       }
       close();
+    }
+    if (!swift) {
+      for (const auto* package : model.packages) {
+        output += package_codegen::kotlin(*package, model.names.at(package), kotlin_package_helper_,
+            [&](const auto& value) { return type(value); },
+            [&](const auto value) { return field(value); },
+            [&](const auto value) { return quote(value); });
+      }
     }
     return output;
   }

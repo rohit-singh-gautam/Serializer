@@ -6,12 +6,14 @@
 
 #include <algorithm>
 #include <exception>
+#include <map>
 #include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace rohit::serializer::xml {
 // A generated matcher shares its bounded portable program or explicit legacy provider across instances.
@@ -33,6 +35,102 @@ struct lexical_contract {
   std::span<const lexical_pattern_group> pattern_groups{};
   std::span<const lexical_contract> union_members{};
 };
+
+// XML-only child scopes follow field occurrence order; native codecs never serialize this state.
+using child_namespace_store = std::map<std::string, std::vector<element>, std::less<>>;
+
+// Create field state only when decoding that field, admitting its map node before allocation.
+inline std::vector<element>& child_namespace_destination(child_namespace_store& retained,
+    std::string_view field, operation_context* context = nullptr) {
+  const auto found = retained.find(field);
+  if (found != retained.end()) { return found->second; }
+  if (context) {
+    context->consume(operation_resource::allocation_bytes,
+        sizeof(child_namespace_store::value_type));
+    context->consume(operation_resource::allocation_bytes, field.size());
+  }
+  return retained.emplace(std::string{field}, std::vector<element>{}).first->second;
+}
+
+// Borrow all saved occurrence scopes without creating storage for a newly authored field.
+inline std::span<const element> child_namespace_occurrences(const child_namespace_store& retained,
+    std::string_view field) {
+  const auto found = retained.find(field);
+  return found == retained.end() ? std::span<const element>{} : std::span<const element>{found->second};
+}
+
+// Charge retained namespace storage before copying it; a callback failure publishes no new scope.
+inline void retain_child_namespace_scope(std::vector<element>& destination,
+    const element& source, operation_context* context = nullptr) {
+  if (context) {
+    context->consume(operation_resource::allocation_bytes, sizeof(element));
+    for (const auto& [prefix, uri] : source.namespace_bindings) {
+      context->consume(operation_resource::work_units, 1U);
+      context->consume(operation_resource::allocation_bytes,
+          sizeof(std::pair<const std::string, std::string>));
+      context->consume(operation_resource::allocation_bytes, prefix.size());
+      context->consume(operation_resource::allocation_bytes, uri.size());
+    }
+  }
+  element candidate{};
+  candidate.namespace_bindings = source.namespace_bindings;
+  if (!candidate.namespace_bindings.contains("")) {
+    if (context) { context->consume(operation_resource::allocation_bytes,
+        sizeof(std::pair<const std::string, std::string>)); }
+    candidate.namespace_bindings.emplace("", "");
+  }
+  destination.push_back(std::move(candidate));
+}
+
+// Retain each scalar child's complete scope, including default namespace resets and shadowing.
+inline void retain_child_namespace_scopes(std::span<const element> children,
+    const name& child_name, std::vector<element>& destination,
+    operation_context* context = nullptr) {
+  for (const auto& child : children) {
+    if (context) { context->consume(operation_resource::work_units, 1U); }
+    if (child.qualified_name == child_name) {
+      retain_child_namespace_scope(destination, child, context);
+    }
+  }
+}
+
+// Borrow an occurrence's original scope; newly authored values use their current owner scope.
+inline const element& child_namespace_scope(const child_namespace_store& retained,
+    std::string_view field, std::size_t occurrence, const element& owner) {
+  const auto found = retained.find(field);
+  return found != retained.end() && occurrence < found->second.size() ?
+      found->second[occurrence] : owner;
+}
+
+// Let schema defaults add declarations to the exact child scope that will later be emitted.
+inline element& child_namespace_scope(child_namespace_store& retained,
+    std::string_view field, std::size_t occurrence, element& owner) {
+  const auto found = retained.find(field);
+  return found != retained.end() && occurrence < found->second.size() ?
+      found->second[occurrence] : owner;
+}
+
+// Restore only matching scalar children, accounting namespace allocations through the build budget.
+inline void restore_child_namespace_scopes(std::span<element> children, const name& child_name,
+    const child_namespace_store& retained, std::string_view field, build_budget& budget,
+    const lexical_contract* contract = nullptr, const element* fallback_scope = nullptr) {
+  const auto found = retained.find(field);
+  if (found == retained.end() && !contract) { return; }
+  std::size_t occurrence{};
+  for (auto& child : children) {
+    if (budget.context()) { budget.context()->consume(operation_resource::work_units, 1U); }
+    if (child.qualified_name != child_name) { continue; }
+    const auto* scope = found != retained.end() && occurrence < found->second.size() ?
+        &found->second[occurrence] : fallback_scope;
+    ++occurrence;
+    child.namespace_contract = contract;
+    if (!scope) { continue; }
+    for (const auto& [prefix, uri] : scope->namespace_bindings) {
+      budget.namespace_binding(prefix, uri);
+    }
+    child.namespace_bindings = scope->namespace_bindings;
+  }
+}
 
 // Reject child-only/shadowed QName bindings that cannot be retained by a legacy record-wide scope.
 // Inherited equivalent bindings retain existing behavior; no source or target tree is modified.
@@ -186,6 +284,61 @@ inline void validate_lexical_contract_member(std::string_view text, const lexica
 inline void validate_lexical_contract(std::string_view text, const lexical_contract& contract,
     const element& scope, operation_context* context = nullptr) {
   validate_lexical_contract_member(text, contract, scope, context, nullptr);
+}
+
+// Materialize only lexical-token prefixes needed by a union's namespace-dependent alternatives.
+template <typename Lookup> element lexical_namespace_scope(std::string_view text,
+    Lookup&& lookup, operation_context* context = nullptr) {
+  element result{};
+  if (context) { context->consume(operation_resource::work_units, text.size()); }
+  const auto retain = [&](std::string_view prefix) {
+    if (context) { context->consume(operation_resource::allocation_bytes, prefix.size()); }
+    std::string prefix_text{prefix};
+    if (result.namespace_bindings.contains(prefix_text)) { return; }
+    const auto uri = lookup(prefix_text);
+    if (context) {
+      context->consume(operation_resource::work_units, prefix.size());
+      context->consume(operation_resource::allocation_bytes,
+          sizeof(std::pair<const std::string, std::string>));
+      context->consume(operation_resource::allocation_bytes, uri.size());
+    }
+    result.namespace_bindings.emplace(std::move(prefix_text), uri);
+  };
+  retain("");
+  auto remaining = detail::trim(text);
+  while (!remaining.empty()) {
+    const auto end = remaining.find_first_of(" \t\r\n");
+    const auto token = remaining.substr(0U, end);
+    const auto colon = token.find(':');
+    if (colon != std::string_view::npos) { retain(token.substr(0U, colon)); }
+    remaining = end == std::string_view::npos ? std::string_view{} : detail::trim(remaining.substr(end));
+  }
+  return result;
+}
+
+// Reject final inherited/generated bindings that change the first successful member or QName identities.
+inline void validate_lexical_namespace_identity(std::string_view text, const lexical_contract& contract,
+    const element& original_scope, const element& emitted_scope, operation_context* context = nullptr) {
+  const lexical_contract* original_member{};
+  const lexical_contract* emitted_member{};
+  std::optional<std::string> normalized;
+  validate_lexical_contract_member(text, contract, original_scope, context, &original_member, &normalized);
+  validate_lexical_contract_member(text, contract, emitted_scope, context, &emitted_member);
+  if (original_member != emitted_member) {
+    throw std::invalid_argument{"Inherited XML namespace changes the selected union member"};
+  }
+  if (original_member->kind != "QName" && original_member->list_item_kind != "QName") { return; }
+  auto lexical = detail::trim(normalized ? std::string_view{*normalized} : text);
+  const bool list = original_member->list_item_kind == "QName";
+  if (list && lexical.empty()) { return; }
+  do {
+    const auto end = list ? lexical.find_first_of(" \t\r\n") : std::string_view::npos;
+    const auto token = lexical.substr(0U, end);
+    if (resolve_qname(token, original_scope) != resolve_qname(token, emitted_scope)) {
+      throw std::invalid_argument{"Inherited XML namespace changes a union QName identity"};
+    }
+    lexical = end == std::string_view::npos ? std::string_view{} : detail::trim(lexical.substr(end));
+  } while (!lexical.empty());
 }
 
 // Keep the first successful union member and its QName identities unchanged in record-wide storage.

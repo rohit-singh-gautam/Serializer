@@ -24,6 +24,7 @@ fileprivate final class SrlXmlTokenFrame {
     var knownChildren: [SrlXmlName] = []
     var foreignChild: ((SrlXmlName, [SrlXmlAttribute], () -> [WireString:String]) throws -> SrlXmlTokenFrame)?
     var scopeStart: (([WireString:String]) throws -> Void)?
+    var namespaceValue = false
     var child: (SrlXmlName, [SrlXmlAttribute]) throws -> SrlXmlTokenFrame = { _, _ in throw SerializerError.invalid("Unexpected XML child") }
     var text: (String) throws -> Void = { value in
         guard srlXmlWhitespace(value) else { throw SerializerError.invalid("Unexpected XML record text") }
@@ -82,6 +83,8 @@ fileprivate func srlXmlScalarFrame(_ name: SrlXmlName, _ attributes: [SrlXmlAttr
     frame.finish = { try complete(text) }
     return frame
 }
+)serializer"
+R"serializer(
 // Feed generated owning frames directly from Foundation's non-resolving SAX provider.
 fileprivate final class SrlXmlTokenParser: NSObject, XMLParserDelegate {
     private let budget: SrlXmlBudget
@@ -156,7 +159,15 @@ fileprivate final class SrlXmlTokenParser: NSObject, XMLParserDelegate {
                 guard !rootSeen else { throw SerializerError.invalid("Multiple XML roots") }
                 rootSeen = true; frame = try rootFactory(name, attributes)
             }
-            if let start = frame.scopeStart { try start(prefixes.compactMapValues { $0.last }) }
+            if let start = frame.scopeStart {
+                if frame.namespaceValue {
+                    if prefixes[WireString("")] == nil { try budget.node(stack.count+1) }
+                    for (prefix,values) in prefixes {
+                        if let uri=values.last { try budget.node(stack.count+1); try budget.text(prefix.value); try budget.text(uri) }
+                    }
+                }
+                try start(prefixes.compactMapValues { $0.last })
+            }
             stack.append(frame)
             // Existing ancestors and this new owner observe the same original full start tag exactly once.
             for active in stack { try active.identity?.start(name,attributes) { prefix in self.prefixes[WireString(prefix)]?.last } }

@@ -1,3 +1,9 @@
+# 2.0.9
+
+- Navigate generated Kotlin package objects and C# package facades to their schema declarations and back through the shared interpreter.
+- Exclude compiler-marked Kotlin/C# runtime support while preserving source offsets, legacy output and enum navigation.
+- Synchronize both package versions and extend real generated-package adapter qualification to five backends.
+
 # 2.0.8
 
 - Reuse each generated output's offset-preserving lexical mask during inherited-field lookup so eleven-language results stay within the Visual Studio interpreter's existing resource limits.

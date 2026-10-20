@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: 0BSD
 #include <opc_profile.hpp>
+#include <opc_identity.hpp>
 #include <rohit/package.hpp>
 #include <rohit/document_profile.hpp>
 
@@ -10,6 +11,9 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -46,6 +50,37 @@ std::string collection_input(std::size_t invalid_index) {
                     {reinterpret_cast<const std::uint8_t*>(xml.data()), xml.size()});
     writer.add_relationship(
         {"/", "record" + std::to_string(index), "urn:serializer:collection-model", path});
+  }
+  writer.finish();
+  return output.str();
+}
+
+// Keep each owner independently valid while repeating equal scoped keys across typed parts.
+identity_xml::registry identity_model() {
+  identity_xml::registry result{};
+  identity_xml::request request{};
+  request.id = 7U;
+  result.requests.push_back(request);
+  result.requests.push_back(request);
+  identity_xml::entry entry{};
+  entry.id = 7U;
+  entry.label = "label";
+  result.entries.push_back(entry);
+  return result;
+}
+
+// Author three typed identity parts independently of the generated profile's encode path.
+std::string identity_input() {
+  std::ostringstream output;
+  package::opc_writer writer{output};
+  constexpr std::string_view payload = "<registry xmlns='urn:serializer:identity-test'>"
+      "<ref id='0007'/><ref id='7'/><entry id='7' label='label'/></registry>";
+  for (std::size_t index{}; index < 3U; ++index) {
+    const auto path = "/Registries/registry" + std::to_string(index) + ".xml";
+    writer.add_part(path, "application/vnd.serializer.identity+xml",
+        {reinterpret_cast<const std::uint8_t*>(payload.data()), payload.size()});
+    writer.add_relationship({"/", "record" + std::to_string(index),
+        "urn:serializer:identity-registry", path});
   }
   writer.finish();
   return output.str();
@@ -200,6 +235,104 @@ TEST(opc_profile, shared_budget_and_deadline_propagate_to_generated_xml) {
   limits.deadline = std::chrono::steady_clock::now();
   shared = std::make_shared<package::budget>(limits);
   EXPECT_THROW(profile::archive::write(output, {&model, {}}, shared), package::error);
+}
+
+// The facade identifies an exhausting native field and the generated link before stream output.
+TEST(opc_profile, generated_write_retains_field_part_and_link_budget_diagnostics) {
+  auto model = fixture_model();
+  model.name.assign(4096U, 'a');
+  auto shared = std::make_shared<package::budget>(package::limits{.max_work_units = 128U});
+  std::ostringstream output;
+  try {
+    profile::archive::write(output, {&model, {}}, shared);
+    FAIL() << "Expected generated XML work exhaustion";
+  } catch (const package::error& failure) {
+    EXPECT_EQ(failure.code, package::error_code::resource_limit);
+    EXPECT_EQ(failure.part, "/3D/model.xml");
+    EXPECT_EQ(failure.field_path, "name");
+    EXPECT_EQ(failure.relationship_id, "srl_main_0");
+  }
+  EXPECT_TRUE(output.str().empty());
+  EXPECT_LT(shared->remaining(package::resource::work_units), 128U);
+}
+
+// Retained-tree rendering remains a documented outer-location boundary after native traversal.
+TEST(opc_profile, deferred_tree_emission_reports_outer_location_without_inventing_a_field) {
+  namespace xml = rohit::serializer::xml;
+  const auto model = fixture_model();
+  package::budget shared;
+  auto context = shared.xml_context("/model.xml", "modelLink");
+  xml::element tree{};
+  tree.qualified_name = profile::model::xml_root_name();
+  xml::build_budget builder{{}, &context};
+  model.serialize_xml_out(tree, builder);
+  EXPECT_EQ(context.current_field, nullptr);
+  shared.consume(package::resource::work_units, shared.remaining(package::resource::work_units));
+  try {
+    static_cast<void>(xml::write(tree, {}, &context));
+    FAIL() << "Expected deferred emission budget failure";
+  } catch (const package::error& failure) {
+    EXPECT_EQ(failure.code, package::error_code::resource_limit);
+    EXPECT_EQ(failure.part, "/model.xml");
+    EXPECT_EQ(failure.relationship_id, "modelLink");
+    EXPECT_TRUE(failure.field_path.empty());
+  }
+  EXPECT_EQ(model.name, "sample & geometry");
+}
+
+// Duplicate forward requests each consume admission even when their tuple values are equal.
+TEST(opc_profile, identity_reference_budget_is_cumulative_across_typed_parts_and_load_is_atomic) {
+  const auto encoded = identity_input();
+  std::istringstream valid{encoded};
+  auto destination = identity_package::archive::load(valid);
+  ASSERT_EQ(destination.value.registries.size(), 3U);
+  std::size_t validations{};
+  // Three OPC links and four complete tuples in the first owner spend seven admissions.
+  std::istringstream bounded{encoded};
+  try {
+    destination = identity_package::archive::load(bounded,
+        package::limits{.max_references = 7U}, {}, [&](const auto&, auto&) { ++validations; });
+    FAIL() << "Expected second-owner identity admission failure";
+  } catch (const package::error& failure) {
+    EXPECT_EQ(failure.code, package::error_code::resource_limit);
+    EXPECT_EQ(failure.part, "/Registries/registry1.xml");
+    EXPECT_EQ(failure.relationship_id, "record1");
+    EXPECT_NE(failure.field_path.find("references"), std::string::npos);
+    EXPECT_TRUE(failure.reference.empty());
+  }
+  EXPECT_EQ(validations, 0U);
+  ASSERT_EQ(destination.value.registries.size(), 3U);
+  EXPECT_EQ(destination.value.registries.back().value.entries.front().id, 7U);
+}
+
+// Generated Save stages the same XML reference budget before replacing any previous generation.
+TEST(opc_profile, identity_reference_exhaustion_preserves_previous_save_and_borrowed_models) {
+  const auto model = identity_model();
+  const std::array parts{
+      package::model_part_view<identity_xml::registry>{&model, "/Registries/a.xml"},
+      package::model_part_view<identity_xml::registry>{&model, "/Registries/b.xml"},
+      package::model_part_view<identity_xml::registry>{&model, "/Registries/c.xml"}};
+  const auto path = std::filesystem::temp_directory_path() /
+      ("serializer-opc-reference-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".opc");
+  struct remove_file {
+    std::filesystem::path value;
+    // Remove only this test's uniquely named temporary output, including on assertion failure.
+    ~remove_file() { std::error_code ignored; std::filesystem::remove(value, ignored); }
+  } cleanup{path};
+  { std::ofstream previous{path, std::ios::binary}; previous << "previous generation"; }
+  try {
+    identity_package::archive::save(path, {parts}, package::limits{.max_references = 2U});
+    FAIL() << "Expected Save identity admission failure";
+  } catch (const package::error& failure) {
+    EXPECT_EQ(failure.code, package::error_code::resource_limit);
+    EXPECT_EQ(failure.part, "/Registries/a.xml");
+    EXPECT_EQ(failure.relationship_id, "srl_registries_0");
+    EXPECT_FALSE(failure.field_path.empty());
+  }
+  std::ifstream previous{path, std::ios::binary};
+  EXPECT_EQ((std::string{std::istreambuf_iterator<char>{previous}, {}}), "previous generation");
+  EXPECT_EQ(model.entries.front().id, 7U);
+  EXPECT_EQ(model.requests.size(), 2U);
 }
 
 // First/middle/last typed decoding failures preserve the prior aggregate and skip domain publication.

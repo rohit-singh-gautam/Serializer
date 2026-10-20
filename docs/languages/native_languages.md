@@ -207,6 +207,12 @@ locale during codec calls.
 
 ## Performance and qualification
 
+Kotlin/JVM 17 adds [owning ZIP/OPC package facades](csharp_kotlin_packages.md) in
+2.16, with typed XML roles, shared operation budgets, bounded private spooling and
+staged Save. Physical ZIP support remains independent of XML; package declarations
+enable metadata providers. The guide records source/ownership and remaining
+profile boundaries.
+
 Codecs access typed fields directly and parse JSON tokens without constructing
 generic object trees. Field keys and positional metadata are cached; numeric
 Kotlin arrays avoid per-element boxing and unnecessary final copies. Rust

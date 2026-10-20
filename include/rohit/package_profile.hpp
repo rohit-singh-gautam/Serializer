@@ -6,7 +6,10 @@
 #include <rohit/package.hpp>
 
 #include <concepts>
+#include <array>
+#include <charconv>
 #include <cstddef>
+#include <limits>
 #include <map>
 #include <string>
 #include <type_traits>
@@ -19,6 +22,7 @@ namespace rohit::serializer::package {
 struct payload_location {
   std::string part;
   std::string field_path;
+  std::string relationship_id{};
 };
 
 // A typed key index validates duplicate, forward, missing and wrong-type payload references.
@@ -28,6 +32,7 @@ struct payload_location {
 template <typename Key>
   requires (std::integral<Key> || std::same_as<Key, std::string>)
 class reference_index {
+  using key_buffer = std::array<char, std::numeric_limits<Key>::digits10 + 4U>;
   using scoped_key = std::pair<std::string, Key>;
   struct target {
     std::type_index type;
@@ -51,17 +56,32 @@ class reference_index {
     }
   }
 
+  // Borrow string keys or render fixed-width integers on the stack before a diagnostic charge.
+  [[nodiscard]] static std::string_view key_view(const Key& key, key_buffer& storage) {
+    if constexpr (std::same_as<Key, std::string>) { return key; }
+    else {
+      using Integer = std::conditional_t<std::same_as<Key, bool>, unsigned char, Key>;
+      const auto converted = std::to_chars(storage.data(), storage.data() + storage.size(),
+          static_cast<Integer>(key));
+      return {storage.data(), static_cast<std::size_t>(converted.ptr - storage.data())};
+    }
+  }
+
   // Charge key/location storage before copying it into a retained validation index.
   void charge(const std::string& scope, const Key& key, const payload_location& location,
               std::size_t fixed_bytes) {
-    budget_.consume(resource::references, 1, location.part);
-    budget_.consume(resource::work_units, 1, location.part);
-    budget_.consume(resource::metadata_bytes, fixed_bytes, location.part);
-    budget_.consume(resource::metadata_bytes, scope.size(), location.part);
-    budget_.consume(resource::metadata_bytes, location.part.size(), location.part);
-    budget_.consume(resource::metadata_bytes, location.field_path.size(), location.part);
+    key_buffer text{};
+    const budget_location declared{location.part, location.field_path,
+        key_view(key, text), location.relationship_id};
+    budget_.consume_at(resource::references, 1, declared);
+    budget_.consume_at(resource::work_units, 1, declared);
+    budget_.consume_at(resource::metadata_bytes, fixed_bytes, declared);
+    budget_.consume_at(resource::metadata_bytes, scope.size(), declared);
+    budget_.consume_at(resource::metadata_bytes, location.part.size(), declared);
+    budget_.consume_at(resource::metadata_bytes, location.field_path.size(), declared);
+    budget_.consume_at(resource::metadata_bytes, location.relationship_id.size(), declared);
     if constexpr (std::same_as<Key, std::string>) {
-      budget_.consume(resource::metadata_bytes, key.size(), location.part);
+      budget_.consume_at(resource::metadata_bytes, key.size(), declared);
     } else {
       static_cast<void>(key);
     }
@@ -78,7 +98,7 @@ public:
     scoped_key selected{scope, key};
     if (targets_.contains(selected)) {
       throw error{error_code::invalid_reference, "Duplicate payload key", location.part,
-                  0, 0, 0, location.field_path, key_text(selected.second)};
+                  0, 0, 0, location.field_path, key_text(selected.second), location.relationship_id};
     }
     targets_.emplace(std::move(selected), target{typeid(Target), location});
   }
@@ -93,13 +113,16 @@ public:
   // Validate all references before aggregate publication, preserving source field/key diagnostics.
   void validate() const {
     for (const auto& item : requests_) {
-      budget_.consume(resource::work_units, 1, item.location.part);
+      key_buffer text{};
+      budget_.consume_at(resource::work_units, 1, budget_location{item.location.part,
+          item.location.field_path, key_view(item.key.second, text), item.location.relationship_id});
       const auto found = targets_.find(item.key);
       if (found == targets_.end() || found->second.type != item.expected) {
         throw error{error_code::invalid_reference,
                     found == targets_.end() ? "Missing payload reference target"
                                             : "Payload reference target has an unexpected type",
-                    item.location.part, 0, 0, 0, item.location.field_path, key_text(item.key.second)};
+                    item.location.part, 0, 0, 0, item.location.field_path, key_text(item.key.second),
+                    item.location.relationship_id};
       }
     }
   }

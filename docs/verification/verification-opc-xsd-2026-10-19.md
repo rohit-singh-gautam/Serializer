@@ -57,7 +57,7 @@ results, not application throughput or memory benchmarks.
 The latest Linux full build/test, complete OPC and official 3MF schema/corpus
 conformance, independent 3MF application interoperability, broader performance
 measurements and remaining cross-language package implementations are not
-qualified by these checks. Retain them in [pending work](../xml_pending.md).
+qualified by these checks. Retain them in [pending work](../pending.md).
 C++ managed-reference and collaboration results do not establish those contracts
 for other backends. Migration logs are retained as
 `out/build/opc-implementation/migration-focused-{build,test}.log`; recursive

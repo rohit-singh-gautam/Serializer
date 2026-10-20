@@ -58,8 +58,13 @@ public:
     allocate(sizeof(const element*));
   }
   // Count complete candidate tuples and aggregate retained canonical bytes once per table entry.
-  void tuple(const std::vector<std::string>& value) {
+  void tuple(const std::vector<std::string>& value, std::string_view constraint) {
     if (tuple_count_ >= limits_.max_tuples) { throw std::length_error{"XSD identity tuple-count limit exceeded"}; }
+    if (context_ && context_->admit_reference) {
+      field_scope location{context_};
+      location.select(constraint);
+      context_->admit_reference(context_->current_field);
+    }
     ++tuple_count_;
     for (const auto& item : value) {
       if (item.size() > limits_.max_tuple_bytes - tuple_bytes_) {
@@ -418,7 +423,7 @@ void validate_identity_scope(const element& document, const identity_scope& scop
         if (constraint.kind == identity_kind::key) { throw std::invalid_argument{"XSD key tuple is incomplete or nil"}; }
         continue;
       }
-      budget.tuple(candidate);
+      budget.tuple(candidate, constraint.id.local);
       budget.work();
       // Canonical tuple ordering is bounded by aggregate retained bytes as well as tuple count.
       if (!tables[index].insert(std::move(candidate)).second && constraint.kind != identity_kind::keyref) {
@@ -683,7 +688,7 @@ struct identity_validator::implementation {
         budget.allocate(selected->values.size() * sizeof(std::string));
         tuple result{};
         for (auto& field : selected->values) { result.push_back(std::move(*field)); }
-        budget.tuple(result); budget.work();
+        budget.tuple(result, constraint.id.local); budget.work();
         if (!tables[selected->constraint].insert(std::move(result)).second && constraint.kind != identity_kind::keyref) {
           throw std::invalid_argument{"Duplicate XSD key/unique tuple"};
         }

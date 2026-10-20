@@ -77,6 +77,25 @@ def independent_collection_parts(bad_index=None):
     return parts
 
 
+def independent_identity_parts():
+    """Repeat locally valid forward keys in three independently named XML identity owners."""
+    parts, declarations = {}, []
+    relationships = etree.Element('{' + RELS + '}Relationships')
+    for index in range(3):
+        name = f'Registries/registry{index}.xml'
+        parts[name] = (b'<registry xmlns="urn:serializer:identity-test"><ref id="0007"/>'
+                       b'<ref id="7"/><entry id="7" label="label"/></registry>')
+        declarations.append('<Override PartName="/' + name +
+                            '" ContentType="application/vnd.serializer.identity+xml"/>')
+        etree.SubElement(relationships, '{' + RELS + '}Relationship',
+                         {'Id': f'record{index}', 'Type': 'urn:serializer:identity-registry', 'Target': name})
+    parts['_rels/.rels'] = etree.tostring(relationships, encoding='utf-8')
+    parts['[Content_Types].xml'] = ('<Types xmlns="' + CT + '"><Default Extension="rels" '
+        'ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+        ''.join(declarations) + '</Types>').encode()
+    return parts
+
+
 def independent_content_type_parts(declarations, include_manifest=True):
     """Author duplicate-preserving manifest XML independently of the generated OPC metadata writer."""
     parts = independent_parts()
@@ -1163,6 +1182,149 @@ class python_package_test(unittest.TestCase):
         self.module.ProfileArchive.save(destination, self.fixture())
         self.assertEqual(self.module.ProfileArchive.load(destination).value.main.name, 'generated & checked')
 
+    def test_automatic_identity_references_share_one_budget_across_parts_and_save(self):
+        """Count duplicate requests, stop in the middle owner, and reuse the ledger for Save validation."""
+        module = self.identity
+        encoded = independent_zip(independent_identity_parts())
+        budget = module.PackageBudget()
+        accepted = module.IdentityPackageArchive.load(encoded, budget=budget)
+        self.assertEqual(len(accepted.value.registries), 3)
+        self.assertEqual(budget.used['references'], 15)  # Three links plus four tuples per owner.
+        published = []
+        with self.assertRaises(module.PackageError) as caught:
+            module.IdentityPackageArchive.load(encoded, module.PackageLimits(max_references=7),
+                validate=lambda value, shared: published.append(value))
+        self.assertEqual(caught.exception.code, 'resource_limit')
+        self.assertEqual(caught.exception.part, '/Registries/registry1.xml')
+        self.assertEqual(caught.exception.relationship_id, 'record1')
+        self.assertIn('references', caught.exception.field_path)
+        self.assertEqual(caught.exception.reference, '')
+        self.assertEqual(published, [])
+        self.assertEqual(accepted.value.registries[-1].value.entries[0].id, (7,))
+        candidate = module.IdentityPackageArchive.Input(accepted.value.registries)
+        exact = module.PackageBudget(module.PackageLimits(max_references=15))
+        output = module.IdentityPackageArchive.encode(candidate, budget=exact)
+        self.assertEqual(exact.used['references'], 15)
+        self.assertEqual(len(module.IdentityPackageArchive.load(output).value.registries), 3)
+        with self.assertRaises(module.PackageError):
+            module.IdentityPackageArchive.encode(candidate, budget=exact)
+        self.assertEqual(exact.used['references'], 15)
+        destination = self.directory / 'identity-reference-budget.opc'
+        destination.write_bytes(b'previous generation')
+        # Encoding spends fifteen; the required staged typed validation must use the same ledger.
+        with self.assertRaises(module.PackageError) as caught:
+            module.IdentityPackageArchive.save(destination, candidate,
+                module.PackageLimits(max_references=29))
+        self.assertEqual(caught.exception.code, 'resource_limit')
+        self.assertEqual(caught.exception.part, '/Registries/registry2.xml')
+        self.assertEqual(caught.exception.relationship_id, 'srl_registries_2')
+        self.assertTrue(caught.exception.field_path)
+        self.assertEqual(destination.read_bytes(), b'previous generation')
+        self.assertFalse(list(self.directory.glob('.serializer-opc-*')))
+        module.IdentityPackageArchive.save(destination, candidate,
+            module.PackageLimits(max_references=30))
+        self.assertEqual(len(module.IdentityPackageArchive.load(destination).value.registries), 3)
+
+    def test_xml_field_bridge_preserves_locations_and_unrelated_callback_errors(self):
+        """Nested codec work, buffers and interruption report part/field/link without changing exceptions."""
+        module = self.module
+        shared = module.PackageBudget(module.PackageLimits(max_work_units=1, max_buffer_bytes=1))
+        context = module._xml_field_context(shared.xml_context('/model.xml', 'modelLink'), 'points')
+        child = module._xml_field_context(context, 'x')
+        for callback in (lambda: child.consume('work_units', 2), lambda: child.check_buffer(2)):
+            with self.assertRaises(module.PackageError) as caught:
+                callback()
+            self.assertEqual(caught.exception.code, 'resource_limit')
+            self.assertEqual(caught.exception.part, '/model.xml')
+            self.assertEqual(caught.exception.field_path, 'points.x')
+            self.assertEqual(caught.exception.relationship_id, 'modelLink')
+        shared.limits = dataclasses.replace(shared.limits, deadline=time.monotonic())
+        with self.assertRaises(module.PackageError) as caught:
+            child.check()
+        self.assertEqual(caught.exception.code, 'deadline_exceeded')
+        self.assertEqual(caught.exception.field_path, 'points.x')
+        def fail():
+            """Model an arbitrary caller failure that package annotations must leave untouched."""
+            raise RuntimeError('original caller callback')
+        shared.limits = dataclasses.replace(shared.limits, deadline=None, is_cancelled=fail)
+        with self.assertRaisesRegex(RuntimeError, 'original caller callback'):
+            child.check()
+        class caller_error(module.PackageError):
+            """Keep a caller's derived package error distinct from runtime budget failures."""
+        original = caller_error('semantic', 'original derived caller error')
+        def fail_package():
+            """Return the exact same exception instance through every optional adapter layer."""
+            raise original
+        shared.limits = dataclasses.replace(shared.limits, is_cancelled=fail_package)
+        for callback in (child.check, lambda: child.consume('work_units', 1), lambda: child.check_buffer(1)):
+            with self.assertRaises(caller_error) as caught:
+                callback()
+            self.assertIs(caught.exception, original)
+            self.assertEqual(caught.exception.part, '')
+            self.assertEqual(caught.exception.field_path, '')
+            self.assertEqual(caught.exception.relationship_id, '')
+
+    def test_generated_field_work_failure_identifies_part_and_generated_link(self):
+        """Automatic facade contexts attribute exhausted scalar validation before publishing output."""
+        candidate = self.fixture()
+        candidate.main.name = 'a' * 4096
+        shared = self.module.PackageBudget(self.module.PackageLimits(max_work_units=128))
+        with self.assertRaises(self.module.PackageError) as caught:
+            self.module.ProfileArchive.encode(candidate, budget=shared)
+        self.assertEqual(caught.exception.code, 'resource_limit')
+        self.assertEqual(caught.exception.part, '/3D/model.xml')
+        self.assertEqual(caught.exception.field_path, 'name')
+        self.assertEqual(caught.exception.relationship_id, 'srl_main_0')
+
+    def test_deferred_tree_emission_preserves_outer_location_boundary(self):
+        """Report the part/link after native scopes end without claiming a persistent field mapping."""
+        module = self.module
+        model = self.fixture().main
+        shared = module.PackageBudget()
+        context = shared.xml_context('/model.xml', 'modelLink')
+        budget = module._XmlBudget(context=context)
+        tree = model._xml_node('{urn:serializer:package-test}model', budget, 1)
+        shared.consume('work_units', shared.remaining('work_units'))
+        with self.assertRaises(module.PackageError) as caught:
+            module._xml_write(tree, module.Limits(), context)
+        self.assertEqual(caught.exception.code, 'resource_limit')
+        self.assertEqual(caught.exception.part, '/model.xml')
+        self.assertEqual(caught.exception.relationship_id, 'modelLink')
+        self.assertEqual(caught.exception.field_path, '')
+        self.assertEqual(model.name, 'generated & checked')
+
+    def test_namespace_snapshot_admission_retains_nested_field_diagnostics(self):
+        """Use the original namespace ledger and exact charges through nested optional diagnostic proxies."""
+        module = self.module
+        bindings = {'p': 'urn:namespace-admission'}
+        wrapper_bytes = 2 * module._XML_DIAGNOSTIC_CONTEXT_BYTES
+        snapshot_bytes = 2 * module._XML_NAMESPACE_BINDING_ALLOCATION_BYTES + sum(
+            len(prefix.encode('utf-8')) + len(uri.encode('utf-8')) for prefix, uri in bindings.items())
+        for limit, accepted in ((wrapper_bytes, False), (wrapper_bytes + snapshot_bytes, True)):
+            shared = module.PackageBudget(module.PackageLimits(max_decoder_allocation_bytes=limit))
+            tracker = module._xml_namespace_context(module.Limits(), shared.xml_context('/model.xml', 'modelLink'))
+            context = module._xml_field_context(module._xml_field_context(tracker, 'points'), 'code')
+            fields = module._XmlFieldsRich(['root', {}, [], '', {}, []], False, {'wildcards': ()}, context)
+            child = ['value', {}, [], 'p:item', bindings, []]
+            if accepted:
+                self.assertIs(fields.scalar_scope(0, 0, child), bindings)
+                self.assertEqual(fields.scalar_scopes[(0, 0)][0], dict(bindings, **{'': ''}))
+                self.assertEqual(tracker.namespace_bytes, snapshot_bytes)
+                self.assertEqual(tracker.namespace_entries, 2)
+                self.assertEqual(shared.used['decoder_allocation_bytes'], limit)
+            else:
+                with self.assertRaises(module.PackageError) as caught:
+                    fields.scalar_scope(0, 0, child)
+                self.assertEqual(caught.exception.code, 'resource_limit')
+                self.assertEqual(caught.exception.part, '/model.xml')
+                self.assertEqual(caught.exception.field_path, 'points.code')
+                self.assertEqual(caught.exception.relationship_id, 'modelLink')
+                self.assertEqual(fields.scalar_scopes, {})
+                self.assertEqual(tracker.namespace_entries, 0)
+                self.assertEqual(tracker.namespace_bytes, 0)
+                self.assertEqual(shared.used['decoder_allocation_bytes'], wrapper_bytes)
+            self.assertEqual(shared.used['work_units'], 2)
+
 
 def main():
     """Generate the actual facade with the selected compiler, import it, and run independent qualification."""
@@ -1196,6 +1358,15 @@ def main():
         sys.modules[spec.name] = parameterized
         spec.loader.exec_module(parameterized)
         python_package_test.parameterized = parameterized
+        identity_output = directory / 'identity.py'
+        subprocess.run([str(args.compiler.resolve()), '--input', str(ROOT / 'test/resources/opc_identity.serializer'),
+                        '--config', str(ROOT / 'test/resources/opc_identity.ini'), '--language', 'python',
+                        '--python.output', str(identity_output)], check=True)
+        spec = importlib.util.spec_from_file_location('serializer_python_opc_identity_fixture', identity_output)
+        identity = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = identity
+        spec.loader.exec_module(identity)
+        python_package_test.identity = identity
         result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(python_package_test))
         if not result.wasSuccessful(): raise SystemExit(1)
 

@@ -4,7 +4,7 @@ Working source: compiler/runtime **2.8.0**, schema language **1.20.0**, based on
 `a2daa6e` with the accompanying uncommitted changes. This record qualifies the
 specified implementations and fixtures. Complete OPC-standard conformance,
 3MF application conformance and parity in the other nine backends remain in the
-[central backlog](../xml_pending.md).
+[central backlog](../pending.md).
 
 The earlier [2.7 checkpoint](verification-opc-xsd-2026-10-19.md) retains its own
 eleven-SDK ordinary-XSD, managed-identity and migration results. Those historical

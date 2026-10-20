@@ -340,6 +340,26 @@ def run(command, directory, environment):
     subprocess.run([str(value) for value in command], cwd=directory, env=environment, check=True, timeout=300)
 
 
+def sdk_working_directory(directory, environment):
+    """Keep SDK child working-directory handles outside disposable projects while pinning the same SDK."""
+    working = Path(environment['DOTNET_CLI_HOME']) / 'sdk-working'
+    working.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(directory / 'global.json', working / 'global.json')
+    return working
+
+
+def build_project(dotnet, directory, environment):
+    """Build an explicit temporary project from a stable SDK directory without persistent workers."""
+    run([dotnet, 'build', directory / 'Compression.csproj', '--configuration', 'Release', '--nologo',
+         '--disable-build-servers', '-nodeReuse:false'], sdk_working_directory(directory, environment), environment)
+
+
+def run_model(dotnet, directory, environment, *arguments):
+    """Execute the prepared model without lending its disposable directory to runtime child processes."""
+    run([dotnet, directory / 'bin/Release/net8.0/Compression.dll', *arguments],
+        sdk_working_directory(directory, environment), environment)
+
+
 def generate(compiler, directory, schema=SCHEMA, output='Schema.cs', extra=()):
     """Generate the real C# model/helper and discover the selected collision-free container."""
     source = directory / 'model.serializer'
@@ -389,7 +409,11 @@ def main():
                        DOTNET_ADD_GLOBAL_TOOLS_TO_PATH='false', NUGET_PACKAGES=str(build / 'nuget'),
                        MSBUILDDISABLENODEREUSE='1')
     sizes = {}
-    with tempfile.TemporaryDirectory(prefix='csharp-compression-', dir=build) as temporary:
+    # Workspace project indexers can retain directory watches after an SDK exits.
+    # Keep disposable projects in the OS temporary area; caches and reports stay
+    # under --build, and cleanup failures remain visible.
+    temporary_root = Path(os.environ['LOCALAPPDATA']) / 'Temp' if os.name == 'nt' else None
+    with tempfile.TemporaryDirectory(prefix='serializer-csharp-compression-', dir=temporary_root) as temporary:
         directory = Path(temporary)
         count = common_fixtures(directory) + extra_fixtures(directory)
         rng = random.Random(28291)
@@ -398,8 +422,8 @@ def main():
         prefix, sizes['normal'] = generate(args.compiler.resolve(), directory)
         (directory / 'Program.cs').write_text(CSHARP.replace('Schema.SerializerCompression', 'Schema.' + prefix), encoding='utf-8')
         project(directory, sdk)
-        run([args.dotnet, 'build', '--configuration', 'Release', '--nologo'], directory, environment)
-        run([args.dotnet, 'bin/Release/net8.0/Compression.dll', directory], directory, environment)
+        build_project(args.dotnet, directory, environment)
+        run_model(args.dotnet, directory, environment, directory)
         for protocol in ('JSON', 'BINARY_NONE', 'BINARY_INTEGER', 'BINARY_STRING'):
             native = (directory / ('native-' + protocol + '.bin')).read_bytes()
             for name, bits in (('None', None), ('Gzip',31), ('Zlib',15), ('Deflate',-15)):
@@ -435,8 +459,8 @@ def main():
                 smoke += 'try{C.Encode(()=>value.Encode(S.Protocol.JSON));throw new Exception("Disabled protocol accepted");}catch(ArgumentException){}'
             (case / 'Program.cs').write_text(smoke + '}catch(Exception failure){Console.Error.WriteLine(failure);Environment.Exit(1);}}}', encoding='utf-8')
             project(case, sdk)
-            run([args.dotnet,'build','--configuration','Release','--nologo'],case,environment)
-            run([args.dotnet,'bin/Release/net8.0/Compression.dll'],case,environment)
+            build_project(args.dotnet, case, environment)
+            run_model(args.dotnet, case, environment)
     report = {'sdk': sdk, 'target': 'net8.0', 'independent_input_decisions': count,
               'independent_output_decisions': 16, 'generated_bytes': sizes,
               'compiler_sha256': hashlib.sha256(args.compiler.read_bytes()).hexdigest()}

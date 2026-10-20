@@ -102,11 +102,26 @@ initializer spelling, including opaque expressions. Include an explicit language
 
 Compiler 2.15 diagnoses out-of-range unsuffixed canonical decimal/hex integer
 defaults at the declaring member's original path, line and column, including
-included declarations and generic specializations. It preserves native scalar
-expressions, numeric Boolean defaults, suffixed/octal literals and legacy/headerless
-spelling. Existing portable aggregate/generic initializer failures also identify
-their original member declaration. Bit-field defaults and broader expression
-validation remain separate [pending work](../pending.md).
+included declarations and generic specializations. Compiler 2.16 extends these
+checks for explicit language `1.14.0` and later declarations:
+
+- Canonical unsuffixed decimal defaults for `float` and `double` diagnose overflow
+  at the declared floating width. For example, `float value {1e39}` fails before
+  generated outputs are replaced. Finite values that round to the target width
+  remain accepted; underflow keeps its existing native handling.
+- An enum default that explicitly qualifies a member with its declared enum type,
+  such as `kind::second` or `::kind::second`, must name an existing enumerator.
+  Unknown members retain the declaring member's original source location,
+  including after generic substitution and through included files.
+
+Native scalar expressions, numeric Boolean defaults, suffixed/octal/hexadecimal
+floating spellings, unrelated native enum qualifiers and unqualified native names
+retain their existing handling. Headerless, version `1` and earlier explicit
+language contracts retain their previous behavior. These checks introduce no
+expression evaluation or new rounding rules. Existing portable aggregate/generic
+initializer failures also identify their original member declaration. Bit-field
+defaults and broader expression validation remain separate
+[pending work](../pending.md).
 
 See [construction](construction.md) for authoring validation and initialization,
 and run [construction defaults](../../example/cpp/construction_defaults/README.md).

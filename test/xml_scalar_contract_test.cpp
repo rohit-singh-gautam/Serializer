@@ -3,6 +3,7 @@
 #include "../src/xml_scalar_contract.hpp"
 #include "../src/xml_schema.hpp"
 #include <rohit/xml_lexical_contract.hpp>
+#include <rohit/xml_tokens.hpp>
 
 #include <gtest/gtest.h>
 
@@ -33,6 +34,53 @@ TEST(xml_scalar_contract, generated_qname_enumeration_uses_expanded_schema_ident
   rule.qname_enumeration = {};
   EXPECT_NO_THROW(xml::validate_lexical_contract("schema:item", rule, scope));
   EXPECT_THROW(xml::validate_lexical_contract("p:item", rule, scope), std::invalid_argument);
+}
+
+// Namespace retention owns its strings and admits all map storage before publishing an occurrence.
+TEST(xml_scalar_contract, child_namespace_storage_preserves_scopes_and_callback_failures) {
+  xml::child_namespace_store retained{};
+  xml::element owner{};
+  owner.namespace_bindings.emplace("p", "urn:parent");
+  xml::element child{};
+  child.namespace_bindings.emplace("p", "urn:child");
+  child.namespace_bindings.emplace("", "");
+  auto& occurrences = xml::child_namespace_destination(retained, "value");
+  xml::retain_child_namespace_scope(occurrences, child);
+  child.namespace_bindings["p"] = "urn:edited";
+  EXPECT_EQ(xml::resolve_qname("p:item", xml::child_namespace_scope(retained, "value", 0U, owner)),
+      (xml::name{"item", "urn:child"}));
+  EXPECT_EQ(&xml::child_namespace_scope(retained, "value", 1U, owner), &owner);
+  EXPECT_EQ(&xml::child_namespace_scope(retained, "new", 0U, owner), &owner);
+  xml::operation_context failed{};
+  failed.charge = [](auto, auto) { throw std::invalid_argument{"caller retention failure"}; };
+  EXPECT_THROW(xml::retain_child_namespace_scope(occurrences, child, &failed), std::invalid_argument);
+  ASSERT_EQ(occurrences.size(), 1U);
+  EXPECT_THROW((void)xml::child_namespace_destination(retained, "failed", &failed),
+      std::invalid_argument);
+  EXPECT_EQ(retained.size(), 1U);
+}
+
+// Final generated tag aliases cannot activate an earlier QName member of a preserved string fallback.
+TEST(xml_scalar_contract, emitted_namespace_aliases_cannot_change_union_selection) {
+  std::array<xml::lexical_contract, 2U> members{};
+  members[0].kind = "QName";
+  members[1].kind = "string";
+  xml::lexical_contract rule{};
+  rule.union_members = members;
+  xml::element root{};
+  root.qualified_name = {"root", "urn:generated"};
+  xml::element child{};
+  child.qualified_name = {"value", ""};
+  child.text = "srl0:item";
+  child.namespace_bindings.emplace("", "");
+  child.namespace_contract = &rule;
+  root.children.push_back(child);
+  EXPECT_THROW((void)xml::write(root), std::invalid_argument);
+  xml::token_writer writer{};
+  writer.open(root.qualified_name);
+  writer.open(child.qualified_name, child.namespace_bindings);
+  EXPECT_THROW(writer.validate_namespace_value("srl:item", child, rule), std::invalid_argument);
+  EXPECT_THROW((void)writer.finish(), std::logic_error);
 }
 
 // First-member selection sees raw text; outer facets inspect that member's normalized value.

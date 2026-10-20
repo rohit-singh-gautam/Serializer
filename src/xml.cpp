@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: 0BSD
 #include <rohit/xml.hpp>
+#include <rohit/xml_name.hpp>
 #include <rohit/xml_tokens.hpp>
 
 #include <algorithm>
@@ -36,19 +37,10 @@ void consume(std::size_t& used, std::size_t amount, std::size_t bound) {
   if (used > bound || amount > bound - used) { throw std::length_error{"XML resource limit exceeded"}; }
   used += amount;
 }
-// Reject names outside the supported portable NCName subset rather than emitting invalid XML.
+// Validate complete UTF-8 XML names independently of the optional parsing provider.
 void check_name(std::string_view value) {
-  const auto initial = [](unsigned char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
-  };
-  if (value.empty() || !initial(static_cast<unsigned char>(value.front()))) {
-    throw std::invalid_argument{"XML mapping requires a nonempty ASCII NCName"};
-  }
-  for (const auto character : value) {
-    const auto c = static_cast<unsigned char>(character);
-    if (!initial(c) && !(c >= '0' && c <= '9') && c != '-' && c != '.') {
-      throw std::invalid_argument{"Invalid XML mapping NCName"};
-    }
+  if (!is_ncname(value)) {
+    throw std::invalid_argument{"Invalid XML mapping NCName"};
   }
 }
 // Validate canonical UTF-8 and XML 1.0 character ranges before any bytes are emitted.
@@ -201,11 +193,35 @@ class document_writer {
     append(value.local);
   }
   // Emit one already bounded record, with declarations centralized on the root.
-  void emit(const element& node, bool root, std::string_view inherited_default = {}) {
+  struct namespace_frame {
+    const element& node;
+    const namespace_frame* parent;
+  };
+  // Verify transient union metadata against the final inherited and generated namespace declarations.
+  void emit(const element& node, bool root, std::string_view inherited_default = {},
+      const namespace_frame* parent_scope = nullptr) {
     const auto default_binding = node.namespace_bindings.find("");
     auto effective_default = default_binding == node.namespace_bindings.end() ?
         inherited_default : std::string_view{default_binding->second};
     const bool reset_default = node.qualified_name.namespace_uri.empty() && !effective_default.empty();
+    const namespace_frame current_scope{node, parent_scope};
+    if (node.namespace_contract) {
+      const auto lookup = [&](const std::string& selected) -> std::string_view {
+        if (selected.empty()) { return reset_default ? std::string_view{} : effective_default; }
+        for (auto* frame = &current_scope; frame; frame = frame->parent) {
+          if (context_) { context_->consume(operation_resource::work_units, 1U); }
+          const auto found = frame->node.namespace_bindings.find(selected);
+          if (found != frame->node.namespace_bindings.end()) { return found->second; }
+        }
+        for (const auto& [uri, prefix] : prefixes_) {
+          if (context_) { context_->consume(operation_resource::work_units, 1U); }
+          if (prefix == selected) { return uri; }
+        }
+        return {};
+      };
+      const auto emitted_scope = lexical_namespace_scope(node.text, lookup, context_);
+      validate_lexical_namespace_identity(node.text, *node.namespace_contract, node, emitted_scope, context_);
+    }
     append("<"); emit_name(node.qualified_name);
     if (root) {
       for (const auto& [uri, prefix] : prefixes_) {
@@ -233,7 +249,7 @@ class document_writer {
     append(">");
     if (node.text_segments.empty()) {
       escaped(node.text, false);
-      for (const auto& child : node.children) { emit(child, false, effective_default); }
+      for (const auto& child : node.children) { emit(child, false, effective_default, &current_scope); }
     } else {
       std::size_t next_segment{};
       for (std::size_t index{}; index <= node.children.size(); ++index) {
@@ -241,7 +257,7 @@ class document_writer {
                node.text_segments[next_segment].before_child == index) {
           escaped(node.text_segments[next_segment++].value, false);
         }
-        if (index < node.children.size()) { emit(node.children[index], false, effective_default); }
+        if (index < node.children.size()) { emit(node.children[index], false, effective_default, &current_scope); }
       }
     }
     append("</"); emit_name(node.qualified_name); append(">");
@@ -395,6 +411,7 @@ void check_schema_references(const element& node) {
 
 // Keep interruption errors independent of package diagnostics; a bridge may throw richer errors.
 void operation_context::check() const {
+  if (check_location) { check_location(current_field); }
   if (is_cancelled && is_cancelled()) { throw std::runtime_error{"XML operation cancelled"}; }
   if (deadline && std::chrono::steady_clock::now() >= *deadline) {
     throw std::runtime_error{"XML operation deadline exceeded"};
@@ -405,6 +422,7 @@ void operation_context::check() const {
 void operation_context::consume(operation_resource selected, std::size_t amount) const {
   check();
   if (charge) { charge(selected, amount); }
+  if (charge_location) { charge_location(selected, amount, current_field); }
 }
 
 // Saturate durations rather than overflowing the steady-clock time-point representation.
@@ -1468,6 +1486,23 @@ void token_writer::open(const name& selected) {
   static const std::map<std::string, std::string> empty{};
   open(selected, empty);
 }
+// Compare semantic union identity after the pending tag and every inherited declaration are known.
+void token_writer::validate_namespace_value(std::string_view lexical, const element& original_scope,
+    const lexical_contract& contract) {
+  state_->apply([&] {
+    if (state_->stack.empty()) { throw std::invalid_argument{"XML union value requires an open element"}; }
+    const auto lookup = [&](const std::string& selected) -> std::string_view {
+      for (auto frame = state_->stack.rbegin(); frame != state_->stack.rend(); ++frame) {
+        if (state_->operation) { state_->operation->consume(operation_resource::work_units, 1U); }
+        const auto found = frame->start.namespaces.find(selected);
+        if (found != frame->start.namespaces.end()) { return found->second; }
+      }
+      return {};
+    };
+    const auto emitted_scope = lexical_namespace_scope(lexical, lookup, state_->operation);
+    validate_lexical_namespace_identity(lexical, contract, original_scope, emitted_scope, state_->operation);
+  });
+}
 // Choose generated prefixes around retained lexical bindings, leaving ordinary output unchanged.
 void token_writer::open(const name& selected, const std::map<std::string, std::string>& namespaces) {
   state_->apply([&] {
@@ -1716,6 +1751,7 @@ struct token_reader::implementation {
   limits bounds;
   std::deque<token> queue{};
   std::vector<std::map<std::string, std::string>> namespace_stack{};
+  std::size_t namespace_snapshot_bytes{};
   std::vector<std::size_t> child_counts{};
   std::vector<token_identity_pass> identities{};
   event_reader producer;
@@ -1830,13 +1866,24 @@ void token_reader::consume_attribute(const name& selected) {
     value.attributes.erase(found);
   } catch (...) { state_->failed = true; throw; }
 }
-// Copy only namespace context, admitting each owning map insertion before allocation.
+// Preserve the original snapshot API and its independent optional tree-budget admission.
 std::map<std::string, std::string> token_reader::namespace_scope(build_budget* budget) const {
+  return namespace_scope(budget, false);
+}
+// Bound new retained child snapshots without tightening existing owner-scope or raw-tree policies.
+std::map<std::string, std::string> token_reader::namespace_scope(build_budget* budget,
+    bool retain_child_scope) const {
   try {
     (void)current();
     std::map<std::string, std::string> result;
     const auto adopt = [&](const auto& bindings) {
       for (const auto& [prefix, uri] : bindings) {
+        if (retain_child_scope) {
+          consume(state_->namespace_snapshot_bytes,
+              sizeof(std::pair<const std::string, std::string>), state_->bounds.max_name_bytes);
+          consume(state_->namespace_snapshot_bytes, prefix.size(), state_->bounds.max_name_bytes);
+          consume(state_->namespace_snapshot_bytes, uri.size(), state_->bounds.max_name_bytes);
+        }
         if (budget) { budget->namespace_binding(prefix, uri); }
         else if (state_->operation) {
           state_->operation->consume(operation_resource::allocation_bytes,
@@ -1847,6 +1894,13 @@ std::map<std::string, std::string> token_reader::namespace_scope(build_budget* b
     };
     for (const auto& bindings : state_->namespace_stack) { adopt(bindings); }
     if (current().kind == event_kind::start_element) { adopt(current().namespaces); }
+    if (retain_child_scope && !result.contains("")) {
+      consume(state_->namespace_snapshot_bytes,
+          sizeof(std::pair<const std::string, std::string>), state_->bounds.max_name_bytes);
+      if (state_->operation) { state_->operation->consume(operation_resource::allocation_bytes,
+          sizeof(std::pair<const std::string, std::string>)); }
+      result.emplace("", "");
+    }
     return result;
   } catch (...) { state_->failed = true; throw; }
 }

@@ -268,7 +268,7 @@ runtime extent checks rather than fixed-length tuple types.
 ## Remaining work
 
 The authoritative remaining requirements are **MG01–MG10**, **MIG01–MIG03** and
-**DB01** in [the central backlog](../xml_pending.md#managed-state-and-storage).
+**DB01** in [the central backlog](../pending.md#managed-state-and-storage).
 Generated codecs and standalone patch APIs do not prove those broader engines
 or adapters.
 

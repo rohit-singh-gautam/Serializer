@@ -41,6 +41,9 @@ public:
   void open(const name& selected);
   // Retain lexical QName context for an opaque or explicitly namespaced value without prefix collisions.
   void open(const name& selected, const std::map<std::string, std::string>& namespaces);
+  // Verify namespace-sensitive union identity against the actual open element's emitted scope.
+  void validate_namespace_value(std::string_view lexical, const element& original_scope,
+      const lexical_contract& contract);
   // Emit one ordinary expanded attribute, rejecting duplicate expanded names.
   void attribute_value(const name& selected, std::string_view value);
   // Emit a QName-valued control attribute with an owned, unambiguous local namespace binding.
@@ -100,6 +103,9 @@ public:
   void consume_attribute(const name& selected);
   // Copy the current complete lexical namespace scope, admitting optional retained storage first.
   [[nodiscard]] std::map<std::string, std::string> namespace_scope(build_budget* budget = nullptr) const;
+  // New retained child snapshots cumulatively share max_name_bytes, independently of callbacks/tree bounds.
+  [[nodiscard]] std::map<std::string, std::string> namespace_scope(build_budget* budget,
+      bool retain_child_scope) const;
   // Count already consumed direct children of the current open owner, excluding nested descendants.
   [[nodiscard]] std::size_t child_position() const;
   // Observe this current start token and its descendants through exact local-scope completion.
@@ -153,6 +159,15 @@ struct token_namespace_projection {
   const element* owner{};
   bool list{}, prefixes{}, allow_empty{};
   const lexical_contract* contract{};
+  std::vector<element>* retained{};
+};
+
+// Borrow per-occurrence scopes while recursively traversing one optional/repeated scalar field.
+struct token_namespace_output {
+  std::span<const element> scopes{};
+  std::size_t occurrence{};
+  const lexical_contract* contract{};
+  const element* owner{};
 };
 // Keep digest byte storage scalar even though its native representation is a standard collection.
 template <typename T> inline constexpr bool digest_byte_storage = [] {
@@ -311,38 +326,66 @@ template <typename T> void write_token_list_value(token_writer& writer, const T&
 
 // Keep a missing optional list distinct from one present empty lexical list element.
 template <typename T> void write_token_list_child(token_writer& writer, const name& selected, const T& values,
-    std::optional<std::string_view> empty_default = {}, whitespace_policy whitespace = whitespace_policy::preserve) {
+    std::optional<std::string_view> empty_default, whitespace_policy whitespace,
+    detail::token_namespace_output* namespaces) {
   if constexpr (detail::optional_traits<T>::value) {
-    if (values) { write_token_list_child(writer, selected, *values, empty_default, whitespace); }
+    if (values) { write_token_list_child(writer, selected, *values, empty_default, whitespace, namespaces); }
   } else {
-    writer.open(selected);
+    const element* original_scope = namespaces ? namespaces->owner : nullptr;
+    if (namespaces && namespaces->occurrence < namespaces->scopes.size()) {
+      original_scope = &namespaces->scopes[namespaces->occurrence++];
+      writer.open(selected, original_scope->namespace_bindings);
+    } else { writer.open(selected); }
     write_token_list_value(writer, values, empty_default, whitespace);
     writer.close();
   }
 }
 
+// Preserve the original list-child API for callers without retained per-occurrence scopes.
+template <typename T> void write_token_list_child(token_writer& writer, const name& selected, const T& values,
+    std::optional<std::string_view> empty_default = {}, whitespace_policy whitespace = whitespace_policy::preserve) {
+  write_token_list_child(writer, selected, values, empty_default, whitespace, nullptr);
+}
+
 // Traverse optionals and contiguous repeated values without allocating intermediate nodes.
 template <typename T> void write_token_child(token_writer& writer,
-    const name& selected, const T& value, std::optional<std::string_view> empty_default = {},
-    whitespace_policy whitespace = whitespace_policy::preserve) {
+    const name& selected, const T& value, std::optional<std::string_view> empty_default,
+    whitespace_policy whitespace, detail::token_namespace_output* namespaces) {
   if constexpr (detail::optional_traits<T>::value) {
-    if (value) { write_token_child(writer, selected, *value, empty_default, whitespace); }
+    if (value) { write_token_child(writer, selected, *value, empty_default, whitespace, namespaces); }
   } else if constexpr (requires { typename T::reference_value_type; }) {
     // A weak owner must remain pinned while choosing lexical scope and visiting
     // the entire payload, including callbacks that can release external owners.
-    value.with_value([&](const auto& retained) { write_token_child(writer, selected, retained, empty_default, whitespace); });
+    value.with_value([&](const auto& retained) { write_token_child(writer, selected, retained, empty_default, whitespace, namespaces); });
   } else if constexpr (detail::collection_traits<T>::value) {
     for (const auto& item : value) {
       if constexpr (std::same_as<typename detail::collection_traits<T>::type, bool>) {
-        write_token_child(writer, selected, static_cast<bool>(item), empty_default, whitespace);
-      } else { write_token_child(writer, selected, item, empty_default, whitespace); }
+        write_token_child(writer, selected, static_cast<bool>(item), empty_default, whitespace, namespaces);
+      } else { write_token_child(writer, selected, item, empty_default, whitespace, namespaces); }
     }
   } else {
-    if constexpr (requires { value.xml_token_namespace_bindings(); }) { writer.open(selected, value.xml_token_namespace_bindings()); }
-    else { writer.open(selected); }
+    const element* original_scope = namespaces ? namespaces->owner : nullptr;
+    if (namespaces && namespaces->occurrence < namespaces->scopes.size()) {
+      original_scope = &namespaces->scopes[namespaces->occurrence++];
+      writer.open(selected, original_scope->namespace_bindings);
+    } else if constexpr (requires { value.xml_token_namespace_bindings(); }) {
+      writer.open(selected, value.xml_token_namespace_bindings());
+    } else { writer.open(selected); }
+    if (namespaces && namespaces->contract && original_scope) {
+      if constexpr (std::same_as<T, std::string>) {
+        writer.validate_namespace_value(value, *original_scope, *namespaces->contract);
+      }
+    }
     write_token_value(writer, value, empty_default, whitespace);
     writer.close();
   }
+}
+
+// Preserve the original child API and its ordinary allocation-free traversal.
+template <typename T> void write_token_child(token_writer& writer,
+    const name& selected, const T& value, std::optional<std::string_view> empty_default = {},
+    whitespace_policy whitespace = whitespace_policy::preserve) {
+  write_token_child(writer, selected, value, empty_default, whitespace, nullptr);
 }
 
 // Encode digest bytes as one hexadecimal scalar, with ordinary optional/repeated child placement.
@@ -367,18 +410,19 @@ template <typename T> void write_token_digest_attribute(token_writer& writer, co
 
 // Preserve absent/nil/value independently of an empty string or empty collection wrapper.
 template <typename T> void write_token_presence(token_writer& writer, const name& selected,
-    const T& value, token_presence presence, const name& wrapper_item = {},
-    std::optional<std::string_view> empty_default = {}, whitespace_policy whitespace = whitespace_policy::preserve) {
+    const T& value, token_presence presence, const name& wrapper_item,
+    std::optional<std::string_view> empty_default, whitespace_policy whitespace,
+    detail::token_namespace_output* namespaces) {
   const auto nil = [&] {
     writer.open(selected);
     writer.attribute_value({"nil", "http://www.w3.org/2001/XMLSchema-instance"}, "true");
     writer.close();
   };
   const auto present = [&](const auto& item) {
-    if (wrapper_item.local.empty()) { write_token_child(writer, selected, item, empty_default, whitespace); }
+    if (wrapper_item.local.empty()) { write_token_child(writer, selected, item, empty_default, whitespace, namespaces); }
     else {
       writer.open(selected);
-      write_token_child(writer, wrapper_item, item, empty_default, whitespace);
+      write_token_child(writer, wrapper_item, item, empty_default, whitespace, namespaces);
       writer.close();
     }
   };
@@ -394,6 +438,13 @@ template <typename T> void write_token_presence(token_writer& writer, const name
       else if (presence == token_presence::nil) { nil(); }
     }
   } else { present(value); }
+}
+
+// Keep the established explicit-presence entrypoint available with its original function signature.
+template <typename T> void write_token_presence(token_writer& writer, const name& selected,
+    const T& value, token_presence presence, const name& wrapper_item = {},
+    std::optional<std::string_view> empty_default = {}, whitespace_policy whitespace = whitespace_policy::preserve) {
+  write_token_presence(writer, selected, value, presence, wrapper_item, empty_default, whitespace, nullptr);
 }
 
 // Check item cardinality only for a present collection; absent and nil states have no item sequence.
@@ -461,7 +512,7 @@ template <typename T> void read_token_value(token_reader& reader, T& value,
             reader.current().qualified_name.local.size() + reader.current().qualified_name.namespace_uri.size());
       }
       scalar_scope.qualified_name = reader.current().qualified_name;
-      scalar_scope.namespace_bindings = reader.namespace_scope();
+      scalar_scope.namespace_bindings = reader.namespace_scope(nullptr, projection.retained != nullptr);
     }
     reader.advance();
     std::string lexical{};
@@ -476,7 +527,9 @@ template <typename T> void read_token_value(token_reader& reader, T& value,
     }
     if (projection.owner) {
       scalar_scope.text = std::move(lexical);
-      if (projection.contract) {
+      if (projection.retained) {
+        retain_child_namespace_scope(*projection.retained, scalar_scope, reader.context());
+      } else if (projection.contract) {
         validate_child_lexical_projection(std::span{&scalar_scope, 1U}, scalar_scope.qualified_name,
             *projection.owner, *projection.contract, reader.context());
       } else {

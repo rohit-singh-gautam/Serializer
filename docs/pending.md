@@ -1,17 +1,32 @@
 # Pending requirements across Serializer
 
-The 2.15 implementation slices below are recorded separately from their broader
+The 2.16 implementation slices below are recorded separately from their broader
 requirements. Checked slices do not close an entire backend/corpus/platform gate;
-see the [current scope and verification](verification/verification-pending-xml-2026-10-20.md).
+see the [2.16 QName scope and verification](verification/verification-qname-scopes-2026-10-20.md)
+and [compiler/package/managed batch](verification/verification-pending-batch-2026-10-20.md),
+the [five-SDK measurements](verification/verification-portable-xml-performance-2026-10-20.md),
+and [earlier 2.15 implementation scope](verification/verification-pending-xml-2026-10-20.md).
+
+The completed dependency batch covers **50 existing IDs**: `CS-P01`–`CS-P19`,
+`KT-P01`–`KT-P19`, and `Q05`–`Q07` for `KT`, `RS`, `SW` and `C`.
+Their prerequisites and acceptance checks pass for the documented Windows owning
+profiles. Each checked row links its evidence; broader parent and platform gates
+remain separately tracked.
+See the [batch dependencies and verification](verification/verification-pending-50-2026-10-20.md).
 
 ## OPC and 3MF requirements
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
 | [ ] | OPC-R01 | — | Complete qualified attributes, QName values and prefix lists in every backend; child-local/shadowed QName storage, equivalent prefixes, Unicode names and regenerated declarations preserve expanded identity. | — |
+| [x] | OPC-R01a | — | C++/Python scalar-child namespace scopes survive local declarations, shadowing, default namespace resets, optional/repeated occurrences and nested QName/QName-list unions. Native strings and wire codecs retain their contract; [2.16 checks](verification/verification-qname-scopes-2026-10-20.md). | — |
+| [x] | OPC-R01b | — | Shared UTF-8 XML NCName validation accepts Unicode mapping names and QName prefixes, with invalid encoding/name rejection; all eleven generators accept Unicode mappings. JavaScript/TypeScript independent XML checks verify qualified Unicode attributes, QName lists, prefix lists and child-local scopes; [2.16 checks](verification/verification-qname-scopes-2026-10-20.md). | — |
+| [x] | OPC-R01c | — | Go/Java/C# direct XML codecs retain plain QName, QName-list and prefix-list occurrence scopes and regenerate expanded identities, including qualified Unicode attributes, typed lists, copied native-authoring bindings and cumulative retention bounds. Thirteen independent namespace probes per backend plus 122 scalar probes and six binding gates pass; namespace-dependent unions/defaults/fixed/enumeration remain gated; [2.16 checks](verification/verification-qname-scopes-2026-10-20.md). | — |
+| [x] | OPC-R01d | — | Kotlin/Swift plain QName, QName-list and prefix-list scalar scopes retain local/shadowed declarations and explicit default absence; optional/repeated values, qualified attributes, native bindings and cumulative scope admission pass ten independent probes per actual SDK. Namespace-dependent union/default/fixed/enumeration combinations remain gated; [2.16 checks](verification/verification-qname-scopes-2026-10-20.md). | — |
+| [x] | OPC-R01e | — | C/Rust XML document companions retain plain QName/list/prefix-list occurrence scopes without changing native model structs or wire bytes. Thirteen namespace probes, independent retained-scope admission accounting and 29 existing extension probes pass in both actual SDKs. Wrapped/nil, mixed/all, revision/magic and other documented graph combinations remain gated; [2.16 checks](verification/verification-qname-scopes-2026-10-20.md). | — |
 | [ ] | OPC-R02 | — | Broaden namespace-aware reject/skip/preserve slots, exact wildcard positions/counts and required-capability handling beyond the selected generated graphs; unknown core names must still reject. | — |
 | [ ] | OPC-R03 | — | Complete lexical lists, exact facets, patterns and unions without duplicate INI inventories; broaden outer union enumeration/fixed values beyond the selected Python subset, namespace-dependent union defaults, QName-list enumeration/fixed values, child-local QName storage and broader numeric/provider boundaries; canonical numeric output satisfies its pattern. | — |
-| [x] | OPC-R03a | — | C++ inherited/equivalent-scope QName/QName-list child unions preserve the first successful member and expanded identities; Python namespace-independent outer union enumeration/fixed values compare primitive/list value identities. Child-local identity loss and unimplemented backend combinations remain explicit rejections; [2.15 scope](verification/verification-pending-xml-2026-10-20.md). | — |
+| [x] | OPC-R03a | — | C++ inherited/equivalent-scope QName/QName-list child unions preserve the first successful member and expanded identities; Python namespace-independent outer union enumeration/fixed values compare primitive/list value identities; [2.15 scope](verification/verification-pending-xml-2026-10-20.md). Child-local C++/Python scopes are implemented separately in OPC-R01a; broader backend/restriction combinations remain pending. | — |
 | [ ] | OPC-R04 | — | Complete multiple-typed-branch and grouped repeated choices plus ordered heterogeneous content; interleaving and occurrence semantics survive round trips. | — |
 | [ ] | OPC-R05 | — | Qualify the selected official Core 1.4 and XML XSD bundle against independent official 3MF corpus/conformance checks; required scalar/content constructs bind and unsupported external schemas reject precisely. | — |
 | [ ] | OPC-R06 | — | Complete generated profile/reference checks, target modes, vocabulary/type dispatch and fixed/default/runtime selection; automatically retarget preserved links when a loaded typed role changes to its declared canonical path; failures publish no aggregate/file. | — |
@@ -24,12 +39,20 @@ see the [current scope and verification](verification/verification-pending-xml-2
 | [ ] | OPC-R12 | — | Broaden fixed-XSD association/import/export, local bundle resolution and ambiguity diagnostics while preserving explicit native member IDs and reviewed schema evolution. | — |
 | [ ] | OPC-R13 | — | Retain one-source authoring: derive mapping from XSD or inline defaults/exceptions; qualify new/renamed-field and ambiguous-association workflows as coverage broadens. | — |
 
+`OPC-R01` remains open beyond the checked slices: namespace-dependent
+union/default/fixed/enumeration combinations still reject in the newly enabled
+backends; C/Rust QName companion graphs additionally gate wrapped/nil scalars,
+mixed/all and revision/magic graphs. These combinations require implementations
+and actual SDK checks before the parent requirement can be checked.
+
 ## Managed references and migration
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
 | [ ] | MR01 | — | Broaden native identity/reference lifecycle, corruption, resource and fault tests across allocation, complete-candidate validation, deletion, Undo/Redo, persistence and collaboration. | — |
+| [x] | MR01a | — | Eight existing C++ identity/storage profiles qualify cyclic deletion, complete-candidate edge cleanup, historical pins, Undo/Redo, persisted history, candidate allocation failure and post-reservation snapshot-admission rollback with nonreuse/recovery; [2.16 batch evidence](verification/verification-pending-batch-2026-10-20.md). Broader collaboration/resource faults remain pending. | — |
 | [ ] | MR02 | — | Broaden independent-import ownership/external-mapping failures, editable child moves/retirement, preview resource failures and journal/acceptance faults; preserve IDs and atomic publication. | — |
+| [x] | MR02a | — | Eight existing C++ profiles reject six external-map failures, five ownership-attachment failures and corrupt zero/duplicate source IDs without publishing state/history, then recover successfully. Five added tests per profile are part of 184 passing GTests; [2.16 batch evidence](verification/verification-pending-batch-2026-10-20.md). Wider preview/journal/acceptance gates remain pending. | — |
 | [ ] | MR03 | — | Define and qualify managed token codecs for other generated outputs; keep these distinct from full native managed engines. Resolve currently rejected recursive generic/reference combinations only under an explicit supported contract. | — |
 | [x] | MR04 | — | Typed C++ managed_ref, get_id, stable class_id and registry reference/resolution; document/type scope and complete-candidate validation (2.7 Windows direct/separated fixed/compact uint32/uint64 profiles; [evidence](verification/verification-opc-xsd-2026-10-19.md)). | Existing C++ managed runtime |
 | [x] | MR05 | — | Initialize required/self/cyclic managed references after native identity assignment and before first validation/publication/history snapshot (2.7 C++ typed-reference profiles; [evidence](verification/verification-opc-xsd-2026-10-19.md)). | MR04 |
@@ -67,6 +90,7 @@ see the [current scope and verification](verification/verification-pending-xml-2
 | [x] | SC01 | — | Define proposed signed/floating payload contracts, rounding, overflow, NaN/infinity, zero and scaled arithmetic before keywords or wire values; current syntax remains unavailable (76 vectors, exhaustive16-bit and independent conversion checks; [contract](design/compact_scalar_contract.md), [evidence](verification/verification-compact-scalar-contract-2026-10-20.md)). | — |
 | [ ] | SC02 | — | Broaden default-value validation, preserve useful input/member positions in diagnostics and define bit-field support with wire/compatibility tests; [Feature roadmap](project/feature_status.md#other-roadmap-items). | — |
 | [x] | SC02a | — | Diagnose out-of-range canonical decimal/hex integer literals in explicit language 1.14+ defaults and retain original member paths/positions through includes and generic binding. Preserve native expressions and legacy defaults; broader validation and bit fields remain pending; [2.15 scope](verification/verification-pending-xml-2026-10-20.md). | — |
+| [x] | SC02b | — | Explicit language 1.14+ canonical decimal float/double overflow and declared-type-qualified unknown enum defaults diagnose the original member, including included/generic source. Atomic compiler rejection and generated Python four-protocol checks pass; native expressions, numeric Boolean defaults, underflow and legacy spelling remain compatible; [2.16 batch evidence](verification/verification-pending-batch-2026-10-20.md). Bit fields and broader validation remain pending. | — |
 | [ ] | SC03 | — | Extend currently unsupported generic-function calls/defaults and fixed-array initializer/Protobuf combinations with explicit portable contracts and actual SDK checks; [Generics](schema/generics.md). | — |
 | [ ] | BE01 | — | Implement native-backend separate-file layout where currently unavailable; preserve naming, dependency includes/modules and editor navigation; [Native languages](languages/native_languages.md). | — |
 | [ ] | BE02 | — | Define and implement Java packed output and the proposed stream/channel, native-acceleration and output-buffer-reuse APIs, with ownership/resource tests; [Java output](languages/java.md#defaults-and-unsupported-schema-features). | — |
@@ -669,6 +693,7 @@ see the [current scope and verification](verification/verification-pending-xml-2
 | [x] | CP-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P13 |
 | [x] | CP-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing (2.14 generated C++ Windows/Linux reference profiles; [evidence](verification/verification-package-profiles-2026-10-20.md)). | CP-P14, S32 |
 | [ ] | CP-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | CP-P15 |
+| [x] | CP-P16a | — | Generated C++ package/XML operations share OPC-edge and supported XSD key/unique/keyref tuple admission. Instrumented native validation/reference admission retains part/field/link diagnostics; caller exception types and atomic load/Save behavior pass focused regression. Deferred presentation/provider attribution keeps CP-P16 open; [2.16 batch](verification/verification-pending-batch-2026-10-20.md). | CP-P15 |
 | [x] | CP-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass (2.14 native Windows/Linux reference profiles; [evidence](verification/verification-package-profiles-2026-10-20.md)). | CP-P15 |
 | [x] | CP-P18 | 3 h | Preserved whole-part namespace/link context; edited-package references are revalidated (2.14 native Windows/Linux reference profiles; [evidence](verification/verification-package-profiles-2026-10-20.md)). | CP-P17 |
 | [x] | CP-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P02, CP-P14 |
@@ -695,6 +720,7 @@ see the [current scope and verification](verification/verification-pending-xml-2
 | [x] | PY-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject (2.14 selected Python reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | PY-P13 |
 | [x] | PY-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing (2.14 Windows/Linux generated reference profile; [evidence](verification/verification-package-profiles-2026-10-20.md)). | PY-P14, S32 |
 | [ ] | PY-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | PY-P15 |
+| [x] | PY-P16a | — | Generated Python package/XML operations share OPC-edge and supported XSD identity-tuple admission, with instrumented field/constraint/link diagnostics, namespace-admission forwarding and same-instance caller exceptions. Package37/37, identity6/6 and rich17/17 checks pass, including atomic load/Save. Deferred presentation/provider attribution keeps PY-P16 open; [2.16 batch](verification/verification-pending-batch-2026-10-20.md). | PY-P15 |
 | [x] | PY-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass (2.14 Windows/Linux generated reference profile; [evidence](verification/verification-package-profiles-2026-10-20.md)). | PY-P15 |
 | [x] | PY-P18 | 3 h | Preserved whole-part namespace/link context; edited-package references are revalidated (2.14 Windows/Linux generated reference profile; [evidence](verification/verification-package-profiles-2026-10-20.md)). | PY-P17 |
 | [x] | PY-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations (2.14 Windows/Linux unordered part/link sets with stable identities; [evidence](verification/verification-package-lifecycle-2026-10-20.md)). | PY-P02, PY-P14 |
@@ -731,25 +757,25 @@ see the [current scope and verification](verification/verification-pending-xml-2
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | KT-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. | S31 |
-| [ ] | KT-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. | KT-P01 |
-| [ ] | KT-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. | KT-P01 |
-| [ ] | KT-P04 | 3 h | DEFLATE entry output; independent inflation agrees. | KT-P02, KT-Z07 |
-| [ ] | KT-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. | KT-P03, KT-Z08 |
-| [ ] | KT-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. | KT-P02 |
-| [ ] | KT-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. | KT-P03 |
-| [ ] | KT-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. | KT-P06 |
-| [ ] | KT-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | KT-P07 |
-| [ ] | KT-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. | KT-P05, KT-P07 |
-| [ ] | KT-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | KT-P03 |
-| [ ] | KT-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | KT-P02 |
-| [ ] | KT-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. | KT-P03 |
-| [ ] | KT-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. | KT-P13 |
-| [ ] | KT-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | KT-P14, S32 |
-| [ ] | KT-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | KT-P15 |
-| [ ] | KT-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | KT-P15 |
-| [ ] | KT-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | KT-P17 |
-| [ ] | KT-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. | KT-P02, KT-P14 |
+| [x] | KT-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | S31 |
+| [x] | KT-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P01 |
+| [x] | KT-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P01 |
+| [x] | KT-P04 | 3 h | DEFLATE entry output; independent inflation agrees. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P02, KT-Z07 |
+| [x] | KT-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P03, KT-Z08 |
+| [x] | KT-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P02 |
+| [x] | KT-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P03 |
+| [x] | KT-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P06 |
+| [x] | KT-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P07 |
+| [x] | KT-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P05, KT-P07 |
+| [x] | KT-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P03 |
+| [x] | KT-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P02 |
+| [x] | KT-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P03 |
+| [x] | KT-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P13 |
+| [x] | KT-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P14, S32 |
+| [x] | KT-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P15 |
+| [x] | KT-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P15 |
+| [x] | KT-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P17 |
+| [x] | KT-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. Selected Windows/Kotlin-JVM 17 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | KT-P02, KT-P14 |
 | [ ] | KT-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, KT-P15 |
 | [ ] | KT-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | KT-P16, KT-P20 |
 
@@ -757,25 +783,25 @@ see the [current scope and verification](verification/verification-pending-xml-2
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | CS-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. | S31 |
-| [ ] | CS-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. | CS-P01 |
-| [ ] | CS-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. | CS-P01 |
-| [ ] | CS-P04 | 3 h | DEFLATE entry output; independent inflation agrees. | CS-P02, CS-Z07 |
-| [ ] | CS-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. | CS-P03, CS-Z08 |
-| [ ] | CS-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. | CS-P02 |
-| [ ] | CS-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. | CS-P03 |
-| [ ] | CS-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. | CS-P06 |
-| [ ] | CS-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | CS-P07 |
-| [ ] | CS-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. | CS-P05, CS-P07 |
-| [ ] | CS-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | CS-P03 |
-| [ ] | CS-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | CS-P02 |
-| [ ] | CS-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. | CS-P03 |
-| [ ] | CS-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. | CS-P13 |
-| [ ] | CS-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | CS-P14, S32 |
-| [ ] | CS-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | CS-P15 |
-| [ ] | CS-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | CS-P15 |
-| [ ] | CS-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | CS-P17 |
-| [ ] | CS-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. | CS-P02, CS-P14 |
+| [x] | CS-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | S31 |
+| [x] | CS-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P01 |
+| [x] | CS-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P01 |
+| [x] | CS-P04 | 3 h | DEFLATE entry output; independent inflation agrees. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P02, CS-Z07 |
+| [x] | CS-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P03, CS-Z08 |
+| [x] | CS-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P02 |
+| [x] | CS-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P03 |
+| [x] | CS-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P06 |
+| [x] | CS-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P07 |
+| [x] | CS-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P05, CS-P07 |
+| [x] | CS-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P03 |
+| [x] | CS-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P02 |
+| [x] | CS-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P03 |
+| [x] | CS-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P13 |
+| [x] | CS-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P14, S32 |
+| [x] | CS-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P15 |
+| [x] | CS-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P15 |
+| [x] | CS-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P17 |
+| [x] | CS-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. Selected Windows/.NET 8 owning profile; [evidence](verification/verification-pending-50-2026-10-20.md). | CS-P02, CS-P14 |
 | [ ] | CS-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, CS-P15 |
 | [ ] | CS-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | CS-P16, CS-P20 |
 
@@ -971,9 +997,9 @@ see the [current scope and verification](verification/verification-pending-xml-2
 | [ ] | JV-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
 | [x] | JV-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [x] | JV-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
-| [ ] | JV-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
-| [ ] | JV-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
-| [ ] | JV-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [x] | JV-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. Selected Windows owning workloads; [evidence](verification/verification-portable-xml-performance-2026-10-20.md). | — |
+| [x] | JV-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. Selected Windows owning workloads; [evidence](verification/verification-portable-xml-performance-2026-10-20.md). | — |
+| [x] | JV-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. Selected Windows owning workloads; [evidence](verification/verification-portable-xml-performance-2026-10-20.md). | — |
 | [ ] | JV-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
 
 #### Kotlin qualification
@@ -984,9 +1010,9 @@ see the [current scope and verification](verification/verification-pending-xml-2
 | [ ] | KT-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
 | [x] | KT-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [x] | KT-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
-| [ ] | KT-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
-| [ ] | KT-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
-| [ ] | KT-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [x] | KT-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. Selected Windows owning workloads; [evidence](verification/verification-native-mobile-xml-performance-2026-10-20.md). | — |
+| [x] | KT-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. Selected Windows process high-water residency and explicitly limited allocation counters; [evidence](verification/verification-native-mobile-xml-performance-2026-10-20.md). | — |
+| [x] | KT-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. Selected Windows owning workloads; [evidence](verification/verification-native-mobile-xml-performance-2026-10-20.md). | — |
 | [ ] | KT-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
 
 #### C# qualification
@@ -997,9 +1023,9 @@ see the [current scope and verification](verification/verification-pending-xml-2
 | [ ] | CS-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
 | [x] | CS-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [x] | CS-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
-| [ ] | CS-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
-| [ ] | CS-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
-| [ ] | CS-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [x] | CS-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. Selected Windows owning workloads; [evidence](verification/verification-portable-xml-performance-2026-10-20.md). | — |
+| [x] | CS-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. Selected Windows owning workloads; [evidence](verification/verification-portable-xml-performance-2026-10-20.md). | — |
+| [x] | CS-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. Selected Windows owning workloads; [evidence](verification/verification-portable-xml-performance-2026-10-20.md). | — |
 | [ ] | CS-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
 
 #### Go qualification
@@ -1010,9 +1036,9 @@ see the [current scope and verification](verification/verification-pending-xml-2
 | [ ] | GO-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
 | [x] | GO-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [x] | GO-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
-| [ ] | GO-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
-| [ ] | GO-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
-| [ ] | GO-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [x] | GO-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. Selected Windows owning workloads; [evidence](verification/verification-portable-xml-performance-2026-10-20.md). | — |
+| [x] | GO-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. Selected Windows owning workloads; [evidence](verification/verification-portable-xml-performance-2026-10-20.md). | — |
+| [x] | GO-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. Selected Windows owning workloads; [evidence](verification/verification-portable-xml-performance-2026-10-20.md). | — |
 | [ ] | GO-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
 
 #### JavaScript qualification
@@ -1023,9 +1049,9 @@ see the [current scope and verification](verification/verification-pending-xml-2
 | [ ] | JS-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
 | [x] | JS-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [x] | JS-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
-| [ ] | JS-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
-| [ ] | JS-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
-| [ ] | JS-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [x] | JS-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. Selected Windows owning workloads; [evidence](verification/verification-portable-xml-performance-2026-10-20.md). | — |
+| [x] | JS-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. Selected Windows owning workloads; [evidence](verification/verification-portable-xml-performance-2026-10-20.md). | — |
+| [x] | JS-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. Selected Windows owning workloads; [evidence](verification/verification-portable-xml-performance-2026-10-20.md). | — |
 | [ ] | JS-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
 
 #### TypeScript qualification
@@ -1036,9 +1062,9 @@ see the [current scope and verification](verification/verification-pending-xml-2
 | [ ] | TS-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
 | [x] | TS-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [x] | TS-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
-| [ ] | TS-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
-| [ ] | TS-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
-| [ ] | TS-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [x] | TS-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. Selected Windows owning workloads; [evidence](verification/verification-portable-xml-performance-2026-10-20.md). | — |
+| [x] | TS-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. Selected Windows owning workloads; [evidence](verification/verification-portable-xml-performance-2026-10-20.md). | — |
+| [x] | TS-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. Selected Windows owning workloads; [evidence](verification/verification-portable-xml-performance-2026-10-20.md). | — |
 | [ ] | TS-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
 
 #### Rust qualification
@@ -1049,9 +1075,9 @@ see the [current scope and verification](verification/verification-pending-xml-2
 | [ ] | RS-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
 | [x] | RS-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [x] | RS-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
-| [ ] | RS-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
-| [ ] | RS-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
-| [ ] | RS-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [x] | RS-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. Selected Windows owning workloads; [evidence](verification/verification-native-mobile-xml-performance-2026-10-20.md). | — |
+| [x] | RS-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. Selected Windows process high-water residency and explicitly limited allocation counters; [evidence](verification/verification-native-mobile-xml-performance-2026-10-20.md). | — |
+| [x] | RS-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. Selected Windows owning workloads; [evidence](verification/verification-native-mobile-xml-performance-2026-10-20.md). | — |
 | [ ] | RS-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
 
 #### Swift qualification
@@ -1062,9 +1088,9 @@ see the [current scope and verification](verification/verification-pending-xml-2
 | [ ] | SW-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
 | [x] | SW-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [x] | SW-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
-| [ ] | SW-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
-| [ ] | SW-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
-| [ ] | SW-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [x] | SW-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. Selected Windows owning workloads; [evidence](verification/verification-native-mobile-xml-performance-2026-10-20.md). | — |
+| [x] | SW-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. Selected Windows process high-water residency and explicitly limited allocation counters; [evidence](verification/verification-native-mobile-xml-performance-2026-10-20.md). | — |
+| [x] | SW-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. Selected Windows owning workloads; [evidence](verification/verification-native-mobile-xml-performance-2026-10-20.md). | — |
 | [ ] | SW-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
 
 #### C qualification
@@ -1075,9 +1101,9 @@ see the [current scope and verification](verification/verification-pending-xml-2
 | [ ] | C-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
 | [x] | C-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [x] | C-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
-| [ ] | C-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
-| [ ] | C-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
-| [ ] | C-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [x] | C-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. Selected Windows owning workloads; [evidence](verification/verification-native-mobile-xml-performance-2026-10-20.md). | — |
+| [x] | C-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. Selected Windows process high-water residency and explicitly limited allocation counters; [evidence](verification/verification-native-mobile-xml-performance-2026-10-20.md). | — |
+| [x] | C-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. Selected Windows owning workloads; [evidence](verification/verification-native-mobile-xml-performance-2026-10-20.md). | — |
 | [ ] | C-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
 
 ### C++ document-state bridge tasks

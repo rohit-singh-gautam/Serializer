@@ -206,18 +206,21 @@ function srlXmlPortablePattern(text,program,limits) {
 // Validate complete normalized scalar restrictions before native conversion or returning any encoded XML bytes.
 function srlXmlCheckedText(text,rule,limits,scope=null,bindings=null) {
   text=srlXmlScalarWhitespace(text,rule);
+  const track=bindings!==null && bindings.srlXmlTrackSelection;
   if(rule.union.length){
     let matched=false;
     for(const alternative of rule.union){
       const selected=new Map();
-      try{srlXmlCheckedText(text,alternative,limits,scope,selected);if(bindings)srlXmlMergeBindings(bindings,selected);matched=true;break;}
+      selected.srlXmlTrackSelection=track;
+      try{srlXmlCheckedText(text,alternative,limits,scope,selected);if(bindings){srlXmlMergeBindings(bindings,selected);if(track)bindings.srlXmlSelection=selected.srlXmlSelection;}matched=true;break;}
       catch(error){if(!(error instanceof SrlXmlLexicalError))throw error;}
     }
     if(!matched)throw new SrlXmlLexicalError('XML value matches no union member');
   }
   const value=srlXmlScalarValue(text,rule,scope,bindings),compiled=srlXmlScalarRule(rule);
+  const prefixValues=track && rule.prefixList ? [] : null;
   if(rule.prefixList)for(const prefix of srlXmlLexicalTokens(text)){
-    srlXmlScalarQName(prefix+':item',scope,bindings);
+    const name=srlXmlScalarQName(prefix+':item',scope,bindings);if(prefixValues)prefixValues.push(name);
   }
   if(rule.finite && typeof value==='number' && !Number.isFinite(value))throw new SrlXmlLexicalError('XML finite scalar restriction');
   for(const [bound,minimum,inclusive] of compiled.bounds){
@@ -241,6 +244,7 @@ function srlXmlCheckedText(text,rule,limits,scope=null,bindings=null) {
   for(const group of rule.patterns){
     if(!group.some(program=>srlXmlPortablePattern(text,program,limits)))throw new SrlXmlLexicalError('XML scalar portable pattern');
   }
+  if(track && !rule.union.length)bindings.srlXmlSelection={rule,value:prefixValues || value};
   return text;
 }
 )jsscalar"

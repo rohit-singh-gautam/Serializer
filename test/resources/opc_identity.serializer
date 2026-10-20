@@ -1,0 +1,15 @@
+serializer version 1.20.0;
+
+include xml_identity_generated.serializer;
+
+namespace identity_package {
+  // Repeated identity owners qualify one cumulative package reference ledger.
+  package archive {
+    part registries : identity_xml::registry {
+      name(dynamic);
+      content_type("application/vnd.serializer.identity+xml");
+      relationship("urn:serializer:identity-registry");
+      occurs(3, 3);
+    }
+  }
+}

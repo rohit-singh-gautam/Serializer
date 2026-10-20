@@ -20,6 +20,9 @@ class _XmlPatternContext:
     def __init__(self, context, policy):
         """Preserve callback ownership and exceptions throughout one synchronous operation."""
         self.context, self.xml_pattern = context, policy
+    def __getattr__(self, name):
+        """Preserve optional shared package diagnostics and reference admission."""
+        return getattr(self.context, name)
     def consume(self, resource, count):
         """Delegate cumulative charging without swallowing application failures."""
         if self.context is not None:

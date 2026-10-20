@@ -1,13 +1,19 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: 0BSD
 #include <managed_entity_references.hpp>
+#include <rohit/binary_scalar.hpp>
 #include <gtest/gtest.h>
 
-#include <concepts>
+#include <algorithm>
 #include <array>
 #include <bit>
+#include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory>
+#include <memory_resource>
+#include <new>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -26,6 +32,7 @@ using node_traits = managed::model_traits<node>;
 using store_type = managed::model_store<root>;
 using token = managed::managed_ref<node, typename traits::id_type>;
 using other_token = managed::managed_ref<other, typename traits::id_type>;
+using id_type = typename traits::id_type;
 static_assert(!std::constructible_from<token, typename traits::id_type>);
 static_assert(!std::assignable_from<token&, other_token>);
 static_assert(!std::assignable_from<std::optional<token>&, other_token>);
@@ -42,6 +49,51 @@ root initial() {
   result.nodes[1].label = "second";
   result.ordinary_id = 1234U;
   return result;
+}
+
+// Decode a well-formed typed envelope independently of target membership for rejection probes.
+token decoded_node_token(managed::document_id document, id_type id) {
+  const auto text = std::string{"{\"document_high\":"} + std::to_string(document.high) +
+      ",\"document_low\":" + std::to_string(document.low) + ",\"class_id\":" +
+      std::to_string(node_traits::class_id) + ",\"object_id\":" + std::to_string(id) + "}";
+  const auto input = rohit::make_constant_full_stream(text.data(), text.size());
+  return serializer::deserialize_exact<token, serializer::json>(input);
+}
+
+// Fail only the documented scoped root/control-block hook, retaining independent allocation accounting.
+class failing_resource final : public std::pmr::memory_resource {
+public:
+  bool reject{};
+  std::size_t attempts{}, live_bytes{};
+private:
+  // Admit a scoped allocation before delegating to the ordinary owning resource.
+  void* do_allocate(std::size_t bytes, std::size_t alignment) override {
+    ++attempts;
+    if (reject) { throw std::bad_alloc{}; }
+    auto* result = std::pmr::new_delete_resource()->allocate(bytes, alignment);
+    live_bytes += bytes;
+    return result;
+  }
+  // Balance each successful scoped allocation, including candidates discarded after failure.
+  void do_deallocate(void* pointer, std::size_t bytes, std::size_t alignment) override {
+    live_bytes -= bytes;
+    std::pmr::new_delete_resource()->deallocate(pointer, bytes, alignment);
+  }
+  // Resource identity remains local to this deterministic fault injector.
+  bool do_is_equal(const std::pmr::memory_resource& value) const noexcept override {
+    return this == &value;
+  }
+};
+
+// Check the precise registry failure recorded after the transaction has released its candidate.
+void expect_registry_error(const managed::transaction_outcome& outcome, managed::registry_error_code code) {
+  EXPECT_EQ(outcome.status, managed::transaction_status::failed);
+  try {
+    outcome.throw_if_failed();
+    FAIL() << "Expected a recorded registry error";
+  } catch (const managed::registry_error& error) {
+    EXPECT_EQ(error.code(), code);
+  }
 }
 
 // Exercise the same four public native codecs through the token's additive metadata envelope.
@@ -320,4 +372,351 @@ TEST(managed_entity_references, staged_adoption_links_required_self_and_mutual_e
   });
   EXPECT_EQ(imported.status, managed::transaction_status::failed);
   EXPECT_EQ(store.read(), accepted);
+}
+
+// Mapping callbacks cannot smuggle malformed, foreign, absent or differently typed external targets.
+TEST(managed_entity_references, import_external_mapping_failures_preserve_history_and_burn_reservations) {
+  constexpr managed::document_id source_document{151U, 152U};
+  constexpr managed::document_id destination_document{161U, 162U};
+  store_type source{initial(), source_document};
+  const auto source_first = traits::payload(*source.read()).nodes[0].persistent_id;
+  const auto source_second = traits::payload(*source.read()).nodes[1].persistent_id;
+  const auto external = source.registry().reference<node>(source_second);
+  source.execute_transaction([&](auto& tx) {
+    tx.registry().template edit<node>(source_first).set_next(external);
+  }).throw_if_failed();
+  const auto source_snapshot = source.read();
+  const auto imported = traits::payload(*source_snapshot).nodes[0];
+  store_type destination{initial(), destination_document};
+  const auto accepted = destination.read();
+  const auto state = destination.state();
+  const auto existing = traits::payload(*accepted).nodes[0].persistent_id;
+  const auto different_type = traits::payload(*accepted).extra.persistent_id;
+  const auto attach = [](auto& storage, auto incoming) {
+    traits::payload(storage).nodes.push_back(std::move(incoming));
+  };
+  enum class mapping_failure { omitted, empty, foreign, missing, wrong_type, callback };
+  const std::array failures{mapping_failure::omitted, mapping_failure::empty, mapping_failure::foreign,
+      mapping_failure::missing, mapping_failure::wrong_type, mapping_failure::callback};
+  for (const auto failure : failures) {
+    SCOPED_TRACE(static_cast<int>(failure));
+    const auto allocation = destination.allocated_id();
+    std::size_t mapper_calls{};
+    const auto outcome = destination.execute_transaction([&](auto& tx) {
+      if (failure == mapping_failure::omitted) {
+        tx.registry().template import_storage<node>(source_document, imported, attach);
+      } else {
+        tx.registry().template import_storage<node>(source_document, imported, attach,
+            [&](const auto& reference) -> std::remove_cvref_t<decltype(reference)> {
+              using target_type = typename std::remove_cvref_t<decltype(reference)>::target_type;
+              ++mapper_calls;
+              if constexpr (std::same_as<target_type, node>) {
+                switch (failure) {
+                case mapping_failure::empty: return {};
+                case mapping_failure::foreign: return reference;
+                case mapping_failure::missing:
+                  return decoded_node_token(destination_document, std::numeric_limits<id_type>::max());
+                case mapping_failure::wrong_type: return decoded_node_token(destination_document, different_type);
+                case mapping_failure::callback: throw std::runtime_error{"mapping failed"};
+                default: return destination.registry().template reference<node>(existing);
+                }
+              } else {
+                return destination.registry().template reference<root>(accepted->persistent_id);
+              }
+            });
+      }
+    });
+    EXPECT_EQ(outcome.status, managed::transaction_status::failed);
+    if (failure == mapping_failure::empty) {
+      EXPECT_THROW(outcome.throw_if_failed(), std::invalid_argument);
+    } else if (failure == mapping_failure::callback) {
+      EXPECT_THROW(outcome.throw_if_failed(), std::runtime_error);
+    } else {
+      const auto code = failure == mapping_failure::missing ? managed::registry_error_code::missing_id :
+          failure == mapping_failure::wrong_type ? managed::registry_error_code::wrong_type :
+          managed::registry_error_code::foreign_document;
+      expect_registry_error(outcome, code);
+    }
+    EXPECT_EQ(mapper_calls, failure == mapping_failure::omitted ? 0U : 1U);
+    EXPECT_EQ(destination.read(), accepted);
+    EXPECT_EQ(destination.state(), state);
+    EXPECT_EQ(destination.history_cursor(), 0U);
+    EXPECT_GT(destination.allocated_id(), allocation);
+    EXPECT_EQ(source.read(), source_snapshot);
+    EXPECT_EQ(source.registry().resolve(external).id(), source_second);
+  }
+  const auto burned = destination.allocated_id();
+  id_type imported_id{};
+  destination.execute_transaction([&](auto& tx) {
+    imported_id = tx.registry().template import_storage<node>(source_document, imported, attach,
+        [&](const auto& reference) -> std::remove_cvref_t<decltype(reference)> {
+          using target_type = typename std::remove_cvref_t<decltype(reference)>::target_type;
+          if constexpr (std::same_as<target_type, node>) {
+            return destination.registry().template reference<node>(existing);
+          } else {
+            return destination.registry().template reference<root>(accepted->persistent_id);
+          }
+        });
+  }).throw_if_failed();
+  EXPECT_GT(imported_id, burned);
+  EXPECT_EQ(destination.registry().find<node>(imported_id).value().next->id(), existing);
+  EXPECT_EQ(source.registry().find<node>(source_first).value().next->id(), source_second);
+  destination.undo();
+  EXPECT_FALSE(destination.registry().contains(imported_id));
+  EXPECT_EQ(destination.history_cursor(), 0U);
+  destination.redo();
+  store_type loaded{initial(), {171U, 172U}};
+  loaded.load(destination.save());
+  EXPECT_EQ(loaded.allocated_id(), destination.allocated_id());
+  EXPECT_EQ(loaded.registry().find<node>(imported_id).value().next->id(), existing);
+}
+
+// The attachment must establish exactly one owned occurrence; all callback failures remain private.
+TEST(managed_entity_references, import_attachment_and_source_identity_failures_leave_no_partial_ownership) {
+  constexpr managed::document_id source_document{181U, 182U};
+  store_type source{initial(), source_document};
+  const auto imported = traits::payload(*source.read()).nodes[0];
+  store_type destination{initial(), {191U, 192U}};
+  const auto accepted = destination.read();
+  const auto state = destination.state();
+  const auto existing = traits::payload(*accepted).nodes[0].persistent_id;
+  enum class attachment_failure { dropped, duplicated, substituted, before_attachment, after_attachment };
+  const std::array failures{attachment_failure::dropped, attachment_failure::duplicated,
+      attachment_failure::substituted, attachment_failure::before_attachment, attachment_failure::after_attachment};
+  for (const auto failure : failures) {
+    SCOPED_TRACE(static_cast<int>(failure));
+    const auto allocation = destination.allocated_id();
+    bool attached{};
+    const auto outcome = destination.execute_transaction([&](auto& tx) {
+      tx.registry().template import_storage<node>(source_document, imported, [&](auto& storage, auto incoming) {
+        attached = true;
+        auto& nodes = traits::payload(storage).nodes;
+        switch (failure) {
+        case attachment_failure::dropped: return;
+        case attachment_failure::duplicated:
+          nodes.push_back(incoming);
+          nodes.push_back(std::move(incoming));
+          return;
+        case attachment_failure::substituted:
+          incoming.persistent_id = existing;
+          nodes.push_back(std::move(incoming));
+          return;
+        case attachment_failure::before_attachment: throw std::runtime_error{"attachment failed before insertion"};
+        case attachment_failure::after_attachment:
+          nodes.push_back(std::move(incoming));
+          throw std::runtime_error{"attachment failed after insertion"};
+        }
+      });
+    });
+    EXPECT_TRUE(attached);
+    EXPECT_EQ(outcome.status, managed::transaction_status::failed);
+    if (failure == attachment_failure::before_attachment || failure == attachment_failure::after_attachment) {
+      EXPECT_THROW(outcome.throw_if_failed(), std::runtime_error);
+    } else {
+      expect_registry_error(outcome, failure == attachment_failure::duplicated ?
+          managed::registry_error_code::invalid_identity : managed::registry_error_code::missing_id);
+    }
+    EXPECT_EQ(destination.read(), accepted);
+    EXPECT_EQ(destination.state(), state);
+    EXPECT_EQ(destination.history_cursor(), 0U);
+    EXPECT_GT(destination.allocated_id(), allocation);
+  }
+  for (const bool duplicate : {false, true}) {
+    auto invalid_source = *source.read();
+    if (duplicate) {
+      traits::payload(invalid_source).nodes[1].persistent_id = traits::payload(invalid_source).nodes[0].persistent_id;
+    } else {
+      traits::payload(invalid_source).nodes[0].persistent_id = 0U;
+    }
+    const auto allocation = destination.allocated_id();
+    bool attached{};
+    const auto outcome = destination.execute_transaction([&](auto& tx) {
+      tx.registry().template import_storage<root>(source_document, invalid_source,
+          [&](auto&, auto) { attached = true; });
+    });
+    expect_registry_error(outcome, managed::registry_error_code::invalid_identity);
+    EXPECT_FALSE(attached);
+    EXPECT_EQ(destination.read(), accepted);
+    EXPECT_EQ(destination.state(), state);
+    EXPECT_GT(destination.allocated_id(), allocation);
+  }
+  const auto burned = destination.allocated_id();
+  id_type accepted_id{};
+  destination.execute_transaction([&](auto& tx) {
+    accepted_id = tx.registry().template import_storage<node>(source_document, imported,
+        [](auto& storage, auto incoming) { traits::payload(storage).nodes.push_back(std::move(incoming)); });
+  }).throw_if_failed();
+  EXPECT_GT(accepted_id, burned);
+  EXPECT_EQ(destination.registry().find<node>(accepted_id).value().label, "first");
+  EXPECT_EQ(traits::payload(*destination.read()).nodes.size(), 3U);
+  destination.undo();
+  EXPECT_EQ(traits::payload(*destination.read()).nodes.size(), 2U);
+  EXPECT_FALSE(destination.registry().contains(accepted_id));
+}
+
+// Scoped allocation rejection occurs before import callbacks, releases its candidate and permits recovery.
+TEST(managed_entity_references, import_scoped_candidate_allocation_failure_is_atomic) {
+  auto resource = std::make_shared<failing_resource>();
+  managed::store_options options{};
+  options.allocation_resource = resource;
+  {
+    store_type source{initial(), {201U, 202U}};
+    const auto imported = traits::payload(*source.read()).nodes[0];
+    store_type destination{initial(), {211U, 212U}, options};
+    const auto accepted = destination.read();
+    const auto state = destination.state();
+    const auto allocation = destination.allocated_id();
+    const auto resident_bytes = destination.resident_bytes();
+    const auto live_bytes = resource->live_bytes;
+    const auto attempts = resource->attempts;
+    bool attached{};
+    resource->reject = true;
+    const auto failed = destination.execute_transaction([&](auto& tx) {
+      tx.registry().template import_storage<node>({201U, 202U}, imported,
+          [&](auto& storage, auto incoming) {
+            attached = true;
+            traits::payload(storage).nodes.push_back(std::move(incoming));
+          });
+    });
+    resource->reject = false;
+    EXPECT_THROW(failed.throw_if_failed(), std::bad_alloc);
+    EXPECT_FALSE(attached);
+    EXPECT_EQ(destination.read(), accepted);
+    EXPECT_EQ(destination.state(), state);
+    EXPECT_EQ(destination.allocated_id(), allocation);
+    EXPECT_EQ(destination.resident_bytes(), resident_bytes);
+    EXPECT_GT(resource->attempts, attempts);
+    EXPECT_EQ(resource->live_bytes, live_bytes);
+    id_type imported_id{};
+    destination.execute_transaction([&](auto& tx) {
+      imported_id = tx.registry().template import_storage<node>({201U, 202U}, imported,
+          [](auto& storage, auto incoming) { traits::payload(storage).nodes.push_back(std::move(incoming)); });
+    }).throw_if_failed();
+    EXPECT_EQ(imported_id, allocation + 1U);
+    EXPECT_EQ(destination.registry().find<node>(imported_id).value().label, "first");
+  }
+  EXPECT_EQ(resource->live_bytes, 0U);
+}
+
+// Post-import snapshot admission rolls back ownership while retaining every consumed reservation.
+TEST(managed_entity_references, import_snapshot_limit_failure_keeps_only_allocator_progress) {
+  store_type baseline{initial(), {221U, 222U}};
+  rohit::full_stream_auto_alloc encoded{};
+  serializer::serialize_to<serializer::binary_integer>(encoded, *baseline.read());
+  managed::store_options options{};
+  options.max_snapshot_bytes = encoded.current_offset();
+  store_type destination{initial(), {231U, 232U}, options};
+  store_type source{initial(), {241U, 242U}};
+  const auto imported = traits::payload(*source.read()).nodes[0];
+  const auto accepted = destination.read();
+  const auto state = destination.state();
+  const auto allocation = destination.allocated_id();
+  const auto resident_bytes = destination.resident_bytes();
+  bool attached{};
+  const auto failed = destination.execute_transaction([&](auto& tx) {
+    tx.registry().template import_storage<node>({241U, 242U}, imported,
+        [&](auto& storage, auto incoming) {
+          attached = true;
+          traits::payload(storage).nodes.push_back(std::move(incoming));
+        });
+  });
+  EXPECT_TRUE(attached);
+  EXPECT_EQ(failed.status, managed::transaction_status::failed);
+  EXPECT_THROW(failed.throw_if_failed(), rohit::exception::stream_overflow_exception);
+  EXPECT_EQ(destination.read(), accepted);
+  EXPECT_EQ(destination.state(), state);
+  EXPECT_GT(destination.allocated_id(), allocation);
+  EXPECT_EQ(destination.resident_bytes(), resident_bytes);
+  const auto burned = destination.allocated_id();
+  store_type loaded{initial(), {251U, 252U}};
+  loaded.load(destination.save());
+  EXPECT_EQ(loaded.allocated_id(), burned);
+  EXPECT_EQ(traits::payload(*loaded.read()).nodes.size(), 2U);
+  id_type imported_id{};
+  destination.execute_transaction([&](auto& tx) {
+    imported_id = tx.registry().template import_storage<node>({241U, 242U}, imported,
+        [](auto& storage, auto incoming) {
+          node_traits::payload(incoming).label.clear();
+          traits::payload(storage).nodes[0] = std::move(incoming);
+        });
+  }).throw_if_failed();
+  EXPECT_GT(imported_id, burned);
+  EXPECT_TRUE(destination.registry().find<node>(imported_id).value().label.empty());
+  destination.undo();
+  EXPECT_FALSE(destination.registry().contains(imported_id));
+  destination.redo();
+  EXPECT_TRUE(destination.registry().contains(imported_id));
+}
+
+// Cyclic entities retire as one complete candidate; pinned registries and history retain exact identities.
+TEST(managed_entity_references, cyclic_component_retirement_requires_edge_cleanup_and_survives_history) {
+  store_type store{initial(), {261U, 262U}};
+  const auto first = traits::payload(*store.read()).nodes[0].persistent_id;
+  const auto second = traits::payload(*store.read()).nodes[1].persistent_id;
+  const auto first_ref = store.registry().reference<node>(first);
+  const auto second_ref = store.registry().reference<node>(second);
+  store.execute_transaction([&](auto& tx) {
+    tx.update([&](auto& storage) {
+      auto& value = traits::payload(storage);
+      node_traits::payload(value.nodes[0]).next = second_ref;
+      node_traits::payload(value.nodes[1]).next = first_ref;
+      value.info.links = {first_ref, second_ref};
+      value.info.named_links.emplace(7U, second_ref);
+    });
+  }).throw_if_failed();
+  const auto linked = store.read();
+  const auto pinned = store.registry();
+  const auto state = store.state();
+  const auto allocation = store.allocated_id();
+  const auto remove = [](auto& storage, auto id) {
+    auto& values = traits::payload(storage).nodes;
+    std::erase_if(values, [id](const auto& value) { return value.persistent_id == id; });
+  };
+  const auto rejected = store.execute_transaction([&](auto& tx) {
+    tx.registry().template retire<node>(first, remove);
+  });
+  expect_registry_error(rejected, managed::registry_error_code::missing_id);
+  EXPECT_EQ(store.read(), linked);
+  EXPECT_EQ(store.state(), state);
+  EXPECT_EQ(store.allocated_id(), allocation);
+  store.execute_transaction([&](auto& tx) {
+    tx.update([](auto& storage) {
+      auto& value = traits::payload(storage);
+      value.info.links.clear();
+      value.info.named_links.clear();
+    });
+    const auto registry = tx.registry();
+    registry.template retire<node>(first, remove);
+    registry.template retire<node>(second, remove);
+  }).throw_if_failed();
+  EXPECT_FALSE(store.registry().contains(first));
+  EXPECT_FALSE(store.registry().contains(second));
+  EXPECT_EQ(pinned.resolve(first_ref).value().next, second_ref);
+  EXPECT_EQ(pinned.resolve(second_ref).value().next, first_ref);
+  EXPECT_EQ(store.allocated_id(), allocation);
+  const auto deleted = store.save();
+  store.undo();
+  EXPECT_EQ(store.registry().resolve(first_ref).value().next, second_ref);
+  EXPECT_EQ(store.registry().resolve(second_ref).value().next, first_ref);
+  EXPECT_EQ(traits::payload(*store.read()).info.named_links.at(7U), second_ref);
+  store.redo();
+  EXPECT_EQ(store.save(), deleted);
+  store_type loaded{initial(), {271U, 272U}};
+  loaded.load(deleted);
+  EXPECT_FALSE(loaded.registry().contains(first));
+  EXPECT_FALSE(loaded.registry().contains(second));
+  loaded.undo();
+  EXPECT_EQ(loaded.registry().resolve(first_ref).value().next, second_ref);
+  EXPECT_EQ(loaded.registry().resolve(second_ref).value().next, first_ref);
+  loaded.redo();
+  EXPECT_FALSE(loaded.registry().contains(first));
+  id_type created{};
+  loaded.execute_transaction([&](auto& tx) {
+    created = tx.registry().adopt(node{}, [](auto& storage, auto incoming) {
+      traits::payload(storage).nodes.push_back(std::move(incoming));
+    });
+  }).throw_if_failed();
+  EXPECT_GT(created, allocation);
+  EXPECT_EQ(pinned.resolve(first_ref).value().label, "first");
+  EXPECT_FALSE(loaded.registry().contains(first));
 }

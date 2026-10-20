@@ -138,6 +138,62 @@ class javascript_xml_lexical_test(unittest.TestCase):
                         '--moduleResolution', 'NodeNext', '--skipLibCheck', 'false', str(source)], check=True)
         subprocess.run(['node', str(source.with_suffix('.mjs'))], check=True)
 
+    def test_unicode_qualified_attributes_prefix_lists_and_expanded_identities(self):
+        """Independently resolve regenerated Unicode QName and prefix-list declarations after round trips."""
+        output = self.run_node('''
+        const source='<prefixes xmlns="'''+NS+'''" xmlns:t="'''+NS+'''" xmlns:π="urn:left" xmlns:名="urn:right" t:名="π 名 xml"><子 xmlns:π="urn:child">π 名</子></prefixes>';
+        const value=Model.JsLexicalPrefixes.decodeXmlChunks(chunks(source,1));
+        assert.equal(value.value,'π 名 xml');assert.equal(value.child,'π 名');
+        const names=Model.JsLexicalNames.decodeXmlChunks(chunks('<names xmlns="'''+NS+'''" xmlns:π="urn:left" xmlns:名="urn:right" values="π:項 名:é"/>',1));
+        assert.deepEqual(names.values,['π:項','名:é']);
+        const authored=new Model.JsLexicalPrefixes();authored.value='π';authored.child='名';
+        authored.xmlBindNamespace('π','urn:left').xmlBindNamespace('名','urn:right');
+        assert.throws(()=>Model.JsLexicalPrefixes.decodeXml(source.replace('π 名 xml','missing')));
+        for(const protocol of Object.values(Model.Protocol)){
+          const bytes=value.encode(protocol);assert.deepEqual(Native.JsLexicalPrefixes.decode(bytes,protocol).encode(protocol),bytes);
+        }
+        console.log(JSON.stringify([value.encodeXml(),names.encodeXml(),authored.encodeXml()]));
+        ''')
+        documents = json.loads(output)
+        self.assert_documents(output)
+        root = self.provider.fromstring(documents[0].encode())
+        self.assertEqual([root.nsmap.get(prefix) if prefix != 'xml' else 'http://www.w3.org/XML/1998/namespace'
+                          for prefix in root.get('{'+NS+'}名').split()],
+                         ['urn:left', 'urn:right', 'http://www.w3.org/XML/1998/namespace'])
+        child = root.find('{'+NS+'}子')
+        self.assertEqual([child.nsmap[prefix] for prefix in child.text.split()], ['urn:child', 'urn:right'])
+        names = self.provider.fromstring(documents[1].encode())
+        self.assertEqual([(names.nsmap[prefix], local) for prefix, local in
+                          (token.split(':') for token in names.get('values').split())],
+                         [('urn:left', '項'), ('urn:right', 'é')])
+
+    def test_generated_aliases_preserve_selected_union_members_and_empty_qnames(self):
+        """Reject inherited writer aliases that would turn an original string fallback into a QName."""
+        output = self.run_node('''
+        const head='<t:collision xmlns:t="'''+NS+'''" t:label="plain">';
+        for(const [first,second] of [['srl0:item','plain text'],['17','srl0:item srl0:other']]){
+          const source=head+'<t:value>'+first+'</t:value><t:names>'+second+'</t:names></t:collision>';
+          const value=Model.JsLexicalCollision.decodeXmlChunks(chunks(source,1));
+          const before=value.encode(Model.Protocol.BINARY_NONE);
+          for(let attempt=0;attempt<2;++attempt)assert.throws(()=>value.encodeXml(),/namespace presentation/);
+          assert.deepEqual(value.encode(Model.Protocol.BINARY_NONE),before);
+        }
+        const explicit=Model.JsLexicalCollision.decodeXml(head+'<t:value>srl0:item</t:value><t:names>srl0:one srl0:two</t:names></t:collision>');
+        explicit.xmlBindNamespace('srl0','urn:authored');const rebound=explicit.encodeXml();
+        assert.equal(Model.JsLexicalCollision.decodeXml(rebound).value,'srl0:item');
+        const source='<t:plain_collision xmlns:t="'''+NS+'''" t:label="plain"><t:value>local</t:value></t:plain_collision>';
+        const plain=Model.JsLexicalPlainCollision.decodeXmlChunks(chunks(source,1));
+        const encoded=plain.encodeXml();assert.equal(Model.JsLexicalPlainCollision.decodeXml(encoded).value,'local');
+        console.log(JSON.stringify([rebound,encoded]));
+        ''')
+        self.assert_documents(output)
+        rebound, plain = [self.provider.fromstring(item.encode()) for item in json.loads(output)]
+        child = rebound.find('{'+NS+'}value')
+        self.assertEqual(child.nsmap['srl0'], 'urn:authored')
+        child = plain.find('{'+NS+'}value')
+        self.assertEqual(child.text, 'local')
+        self.assertEqual(child.nsmap.get(None, ''), '')
+
 
 def main():
     """Generate real codecs/native controls, require locked SDKs and compile an independent schema oracle."""
@@ -180,6 +236,12 @@ def main():
           class repeated { xml(namespace("'''+NS+'''")); public array<string> values(1) xml(name("value"),wrapper("values")); }
           class union { public string value(1); } class fallback { public string value(1); }
           class namespace_union { public string value(1); } class names_kind { public string value(1); }
+          class prefixes { public string value(1) xml(attribute,name("名"),namespace("'''+NS+'''"),prefix_list);
+            public string child(2) xml(name("子"),prefix_list); }
+          class collision { public string value(1); public string names(2);
+            public string label(3) xml(attribute,namespace("'''+NS+'''")); }
+          class plain_collision { public string value(1);
+            public string label(2) xml(attribute,namespace("'''+NS+'''")); }
         }''', encoding='utf-8')
         schema.write_text('''<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="'''+NS+'''" xmlns:schema="urn:left"
           targetNamespace="'''+NS+'''" elementFormDefault="qualified">
@@ -192,6 +254,8 @@ def main():
           <xs:simpleType name="Either"><xs:union memberTypes="t:Code xs:unsignedLong"/></xs:simpleType>
           <xs:simpleType name="Fallback"><xs:union memberTypes="t:Code xs:string"/></xs:simpleType>
           <xs:simpleType name="NamespaceUnion"><xs:union memberTypes="t:Left xs:unsignedInt"/></xs:simpleType>
+          <xs:simpleType name="QNameOrString"><xs:union memberTypes="xs:QName xs:string"/></xs:simpleType>
+          <xs:simpleType name="NamesOrString"><xs:union memberTypes="t:QNameList xs:string"/></xs:simpleType>
           <xs:element name="lists"><xs:complexType><xs:attribute name="values" type="t:Ints" use="required"/>
           <xs:attribute name="flags" type="t:Bools"/><xs:attribute name="words" type="t:Words" use="required"/>
           <xs:attribute name="fixed" type="t:Ints" fixed="7 8"/><xs:attribute name="large" type="t:Large" use="required"/>
@@ -208,6 +272,13 @@ def main():
           <xs:element name="fallback"><xs:complexType><xs:attribute name="value" type="t:Fallback" use="required"/></xs:complexType></xs:element>
           <xs:element name="namespace_union"><xs:complexType><xs:attribute name="value" type="t:NamespaceUnion" use="required"/></xs:complexType></xs:element>
           <xs:element name="names_kind"><xs:complexType><xs:attribute name="value" type="xs:NCName" use="required"/></xs:complexType></xs:element>
+          <xs:element name="prefixes"><xs:complexType><xs:sequence><xs:element name="子" type="xs:string"/></xs:sequence>
+          <xs:attribute name="名" type="xs:string" form="qualified" use="required"/></xs:complexType></xs:element>
+          <xs:element name="collision"><xs:complexType><xs:sequence>
+          <xs:element name="value" type="t:QNameOrString"/><xs:element name="names" type="t:NamesOrString"/>
+          </xs:sequence><xs:attribute name="label" type="xs:string" form="qualified" use="required"/></xs:complexType></xs:element>
+          <xs:element name="plain_collision"><xs:complexType><xs:sequence><xs:element name="value" type="xs:QName"/>
+          </xs:sequence><xs:attribute name="label" type="xs:string" form="qualified" use="required"/></xs:complexType></xs:element>
           </xs:schema>''', encoding='utf-8')
         oracle = provider.XMLSchema(provider.parse(str(schema)))
         for filename, extra in (('lexical', []), ('native', ['--xml.enabled', 'false'])):

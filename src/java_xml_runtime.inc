@@ -161,6 +161,7 @@ private static final class SrlXmlInput implements AutoCloseable {
   final javax.xml.stream.XMLStreamReader reader;
   final java.util.ArrayList<java.util.Map<String,String>> namespaceDeclarations=new java.util.ArrayList<>();
   int depth;
+  int namespaceBytes;
   char kind;
   boolean acceptedType;
   boolean acceptedNil;

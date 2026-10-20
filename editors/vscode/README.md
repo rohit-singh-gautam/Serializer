@@ -1,11 +1,11 @@
 # Rohit Serializer for Visual Studio Code
 
-Version **2.0.8** reuses each generated output's lexical mask while resolving
-inherited fields across languages. The Visual Studio interpreter keeps its existing
-256 MiB request limit; source offsets, unsaved edits and reverse-navigation
-boundaries remain unchanged.
+Version **2.0.9** recognizes generated Kotlin package objects and C# package
+facades. Compiler-marked runtime support is excluded without shifting source
+offsets; inherited-field lookup reuses each output's lexical mask. The Visual
+Studio interpreter retains its 256 MiB request limit and native selection bounds.
 
-Version **2.0.8** supports schema language **1.20.0** XML defaults, field overrides,
+Version **2.0.9** supports schema language **1.20.0** XML defaults, field overrides,
 namespace `using schema` declarations and declarative package roles. Qualified
 role model types navigate to their declarations; fixed XSD paths open the local
 file without treating it as a Serializer include or fetching remote resources.
@@ -15,11 +15,11 @@ remain prerequisites; editor support does not establish format conformance.
 Typed C++ `managed_ref<T>` tokens navigate to the managed target, including forward
 and included declarations. `class_id(decimal)` preserves explicit class identity;
 its numeric metadata does not become a type reference. VS Code supplies token and
-class-identity snippets. Both local packages share version 2.0.8; building them does
+class-identity snippets. Both local packages share version 2.0.9; building them does
 not install or publish them.
 
 
-Generated Java package classes, JavaScript package factories and TypeScript namespace facades now
+Generated C#/Java package classes, Kotlin package objects, JavaScript package factories and TypeScript namespace facades
 navigate to their schema package declarations and back, preserving enum
 navigation, naming profiles, live edits and cursor boundaries.
 

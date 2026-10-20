@@ -1,7 +1,7 @@
 # Managed state, authorization, and collaboration proposal
 
 The current pending implementation/qualification list is consolidated under
-**MG01–MG10** in [the central backlog](../xml_pending.md#managed-state-and-storage).
+**MG01–MG10** in [the central backlog](../pending.md#managed-state-and-storage).
 This document retains the proposed contracts and rationale.
 
 Implemented collaboration now has a separate [C++ runtime guide](collaboration_runtime.md)

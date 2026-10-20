@@ -36,9 +36,9 @@ class namespace, `{uri}local` for an explicit expanded name, and `{}local` for
 the empty namespace. Ordinary `name.<member>` settings retain their local-name
 contract. Document
 prefixes never participate in these identities. Ordinary attribute defaults use
-the empty namespace. Configured names retain the existing portable ASCII NCName
-restriction; the byte event reader independently accepts provider-validated
-Unicode XML names. Namespace URI lists use XML whitespace, with commas treated
+the empty namespace. Compiler/runtime **2.16.0** accepts complete UTF-8 Unicode
+XML NCNames for configured names and QName prefixes, with provider-independent
+malformed-encoding and name-boundary checks. Namespace URI lists use XML whitespace, with commas treated
 as part of a URI. Configured expanded-name/wrapper namespace values must escape
 whitespace and URI characters rejected by the existing namespace checks.
 

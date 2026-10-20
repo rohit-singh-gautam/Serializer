@@ -1,6 +1,6 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction extended_construction overloaded_construction readonly_behavior derived_sizes conversion reference_fields stateless_layout generic_constraints readonly_function_calls readonly_function_overloads numeric_values)
+    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction scalar_defaults extended_construction overloaded_construction readonly_behavior derived_sizes conversion reference_fields stateless_layout generic_constraints readonly_function_calls readonly_function_overloads numeric_values)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
@@ -11,6 +11,7 @@ add_executable(core_serializer_test
   readonly_behavior_test.cpp
   readonly_function_calls_test.cpp
   construction_test.cpp
+  scalar_default_test.cpp
   extended_construction_test.cpp
   overloaded_construction_test.cpp
   auto_size_test.cpp
@@ -523,6 +524,9 @@ foreach(profile IN ITEMS serializer core google llvm gnu cert misra autosar qt)
 endforeach()
 find_package(Python3 3.10 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
+  add_test(NAME portable_default_validation_test
+    COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_default_validation_test.py"
+      --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_default_validation")
   if(CMAKE_GENERATOR MATCHES "Ninja")
     set(serializer_publication_ninja "${CMAKE_MAKE_PROGRAM}")
   else()
@@ -573,12 +577,20 @@ if(Python3_Interpreter_FOUND)
         --go "${serializer_compression_go}" ${serializer_go_opc_native_args})
   endif()
   find_program(serializer_compression_dotnet NAMES dotnet)
+  set(serializer_mobile_package_native_args)
+  if(SERIALIZER_WITH_XML AND SERIALIZER_WITH_ZLIB)
+    list(APPEND serializer_mobile_package_native_args --cpp-example "$<TARGET_FILE:serializer_opc_example>")
+  endif()
   find_program(serializer_compression_kotlinc NAMES kotlinc kotlinc.bat)
   if(serializer_compression_kotlinc)
     add_test(NAME serializer_compression_kotlin
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/kotlin_compression_test.py"
         --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/kotlin_compression"
         --kotlinc "${serializer_compression_kotlinc}")
+    add_test(NAME serializer_package_kotlin
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/kotlin_package_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/kotlin_package"
+        --kotlinc "${serializer_compression_kotlinc}" ${serializer_mobile_package_native_args})
   endif()
   find_program(serializer_compression_swiftc NAMES swiftc)
   if(serializer_compression_swiftc)
@@ -608,6 +620,10 @@ if(Python3_Interpreter_FOUND)
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/csharp_compression_test.py"
         --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/csharp_compression"
         --dotnet "${serializer_compression_dotnet}")
+    add_test(NAME serializer_package_csharp
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/csharp_package_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/csharp_package"
+        --dotnet "${serializer_compression_dotnet}" ${serializer_mobile_package_native_args})
   endif()
   find_package(Java 17 COMPONENTS Runtime Development QUIET)
   if(Java_FOUND)
@@ -1339,7 +1355,13 @@ if(SERIALIZER_WITH_XML)
   serializer_generate(TARGET opc_profile_test SCHEMAS resources/opc_profile.serializer
     CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/opc_profile.ini"
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/opc_profile")
-  target_link_libraries(opc_profile_test PRIVATE Serializer::runtime GTest::gtest_main)
+  add_library(opc_identity_fixture INTERFACE)
+  serializer_generate(TARGET opc_identity_fixture SCHEMAS resources/opc_identity.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/opc_identity.ini"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_identity_generated.serializer"
+      "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_identity_generated.xsd"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/opc_profile")
+  target_link_libraries(opc_profile_test PRIVATE Serializer::runtime GTest::gtest_main opc_identity_fixture)
   if(MSVC)
     target_compile_options(opc_profile_test PRIVATE /W4 /WX)
   else()
@@ -1578,6 +1600,19 @@ if(SERIALIZER_WITH_XML)
       add_test(NAME go_xml_facets_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/go_xml_facets_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/go_xml_facets")
+      add_test(NAME go_xml_namespace_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/go_xml_namespace_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/go_xml_namespace")
+      add_test(NAME portable_xml_namespace_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/go_xml_namespace_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_namespace"
+          --language java,csharp)
+      add_test(NAME native_xml_namespace_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_namespace_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_namespace")
+      add_test(NAME mobile_xml_namespace_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/mobile_xml_namespace_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/mobile_xml_namespace")
       add_test(NAME go_xml_pattern_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/go_xml_pattern_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/go_xml_pattern")

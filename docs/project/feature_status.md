@@ -1,5 +1,11 @@
 # Features and implementation status
 
+Compiler/runtime **2.16.0** adds per-occurrence QName namespace preservation,
+expanded default diagnostics and [C#/Kotlin ZIP/OPC facades](../languages/csharp_kotlin_packages.md).
+See the [batch evidence](../verification/verification-pending-50-2026-10-20.md)
+and [namespace verification](../verification/verification-qname-scopes-2026-10-20.md)
+for implemented scope and remaining gates. Schema language remains **1.20.0**.
+
 Compiler/runtime **2.8.0**, language **1.20.0**, enables XML by default and adds
 Python OPC facades plus richer C++/Python XSD checks and published Core schema
 consumers. See the [executed scope](../verification/verification-opc-backends-2026-10-19.md).
@@ -13,7 +19,7 @@ require live binding; ordinary owning schemas read their output. Existing named
 address references retain their separate contract.
 
 This is the central catalog for supported capabilities. Pending requirements and
-documented proposals are consolidated in [the central backlog](../xml_pending.md).
+documented proposals are consolidated in [the central backlog](../pending.md).
 The
 overview groups features; linked contracts and backend matrices define exact
 coverage and verification. Proposals are not delivery commitments.
@@ -28,7 +34,7 @@ coverage and verification. Proposals are not delivery commitments.
 | C++ output optimization | Binary views, constant evaluation, protocol selection and emission models; [constant evaluation](../serialization/constant_evaluation.md) and [performance](../serialization/performance.md). |
 | XML and XSD | XML support enabled by default; generated owning mappings across all outputs, richer C++/Python fixed-XSD subsets and explicit prepared validation; [usage and backend scope](../serialization/xml_packages.md). |
 | Streams and compression | C++ stream adapters, whole-message helpers and composable whole-object compression streams; [compression](../serialization/compression.md). General backend parity remains pending. |
-| ZIP and OPC | Codec-independent C++ ZIP32/ZIP64 and generated C++/Python OPC profiles, bounded spooling, metadata, preservation, canonical ordering and staged Save; [package APIs](../serialization/xml_packages.md#plain-zip-and-opc). Other-backend parity and broader profiles remain pending. |
+| ZIP and OPC | ZIP32/ZIP64 and generated C++/Python/Java/JS/TS/Go/C#/Kotlin OPC profiles under backend-specific contracts, bounded spooling, metadata, preservation, canonical ordering and staged Save; [package APIs](../serialization/xml_packages.md#plain-zip-and-opc). Remaining backends and broader profiles remain pending. |
 | Managed application state | C++ identity, transactions, snapshot history, journals, collaboration and typed registries; [managed index](../managed/README.md). Other outputs exchange records without native managed engines. |
 | Builds and examples | CLI/INI generation, CMake integration, standalone examples and native Go projects; [build guide](../guides/build_and_generation.md) and [examples](../../example/README.md). |
 | Editors | Visual Studio and VS Code schema editing and navigation; [editor index](../editors/README.md). |
@@ -37,7 +43,7 @@ coverage and verification. Proposals are not delivery commitments.
 
 | Capability | Proposal and boundary |
 | --- | --- |
-| Broader XML and XSD | [Pending report](../xml_pending.md): tree-free optimized tokens, richer vocabularies, XSD facets/identity constraints, broader export and wider model coverage. |
+| Broader XML and XSD | [Pending report](../pending.md): tree-free optimized tokens, richer vocabularies, XSD facets/identity constraints, broader export and wider model coverage. |
 | ZIP/OPC parity and profiles | [Package requirements](../design/xml_support.md#multipart-packages-and-opc): all-language APIs/qualification, generated typed profiles, preservation and reproducibility. |
 | Reusable document-file profiles | [Proposed profile](../design/xml_support.md#reusable-document-file-profiles): complete saved files, side-channel-only history/recovery and independent external/internal codecs. Current native C++ formats remain unchanged. |
 | Compression parity | Whole-object stream wrappers across outputs with exact framing, limits and optional providers. Incremental records/object serialization are not required. |
@@ -628,7 +634,7 @@ The managed dual-codec document bridge is not implemented.
 The [full design](../design/xml_support.md) retains PKG01–PKG09 and completion
 gates. General features must support every output; missing compression/package
 backends, broader XML/XSD, additional typed profiles and wider preservation remain
-[explicit pending work](../xml_pending.md). Compression handles complete objects;
+[explicit pending work](../pending.md). Compression handles complete objects;
 incremental record callbacks are not required.
 
 The [managed-state design index](../managed/README.md) groups the proposals under
@@ -704,5 +710,5 @@ These names and capabilities are proposals, not implemented features.
 
 ### Other roadmap items
 
-See **SC02** in [the central backlog](../xml_pending.md#compiler-and-backend-proposals)
+See **SC02** in [the central backlog](../pending.md#compiler-and-backend-proposals)
 for default validation, input positions and bit-field proposals.

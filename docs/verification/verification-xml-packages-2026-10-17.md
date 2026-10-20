@@ -3,7 +3,7 @@
 Compiler/runtime **2.3.0**, schema language **1.17.0**. These results qualify the
 [implemented subset](../serialization/xml_packages.md), not the entire
 [design](../design/xml_support.md). General backend gaps remain in the
-[pending report](../xml_pending.md).
+[pending report](../pending.md).
 
 ## Completed checks
 

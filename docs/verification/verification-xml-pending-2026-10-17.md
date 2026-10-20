@@ -2,7 +2,7 @@
 
 Compiler/runtime **2.4.0**, schema language **1.17.0**. Source is the uncommitted
 working tree based on `83dd2a4`; no Git commit was created. This record covers the
-implemented increment, not completion of [the pending requirements](../xml_pending.md).
+implemented increment, not completion of [the pending requirements](../pending.md).
 The [2.3.0 verification](verification-xml-packages-2026-10-17.md) remains a separate
 historical qualification and is not evidence that every new path was exercised.
 

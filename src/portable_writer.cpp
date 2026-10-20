@@ -7,6 +7,7 @@
 #include "xml_portable_writer.hpp"
 #include "javascript_package_writer.hpp"
 #include "go_package_writer.hpp"
+#include "csharp_package_writer.hpp"
 #include "generated_notices.hpp"
 #include "version_writer.hpp"
 #include "behavior_writer.hpp"
@@ -176,7 +177,8 @@ std::string go_package_support(const std::set<std::string>& schema_names,
 }
 
 // Add one C# helper container without reserving a previously valid model or output-unit name.
-std::string csharp_compression_support(const std::set<std::string>& schema_names) {
+std::string csharp_compression_support(const std::set<std::string>& schema_names,
+                                       std::string& selected_name) {
   const std::string base{"SerializerCompression"};
   auto name = base;
   std::size_t suffix{1};
@@ -197,7 +199,22 @@ std::string csharp_compression_support(const std::set<std::string>& schema_names
     result.replace(position, base.size(), name);
     position += name.size();
   }
+  selected_name = name;
   return "// Generated C# compression helper name: " + name + "\n" + result;
+}
+
+// Keep the package helper disjoint from every authored model and outer output unit.
+std::string csharp_package_name(const std::set<std::string>& schema_names) {
+  const std::string base{"SerializerPackage"};
+  auto name = base;
+  std::size_t suffix{1U};
+  while (schema_names.contains(name)) {
+    if (suffix == std::numeric_limits<std::size_t>::max()) {
+      throw std::length_error{"C# package helper names exhausted"};
+    }
+    name = base + '_' + std::to_string(++suffix);
+  }
+  return name;
 }
 
 // Keep one matching JS implementation/declaration container without reserving a schema name.
@@ -374,6 +391,7 @@ class emitter {
   std::vector<const syntax_node*> nodes{};
   std::vector<const package_node*> packages{};
   std::string go_package_prefix{};
+  std::string csharp_package_prefix{};
   std::map<const syntax_node*, std::string> names{};
   std::map<std::string, std::size_t> wire_names{};
   std::set<std::string> globals{"ReadPolicy",   "STRICT",   "COMPATIBLE",    "FLEXIBLE",
@@ -655,8 +673,7 @@ class emitter {
         throw std::invalid_argument{"Generated type name collision: " + generated};
       }
       names.emplace(value.get(), generated);
-      if (value->type == object_type::package_type &&
-          (language == target::js || language == target::typescript || language == target::go)) {
+      if (value->type == object_type::package_type) {
         packages.push_back(static_cast<const package_node*>(value.get()));
         continue;
       }
@@ -2732,6 +2749,13 @@ class emitter {
     if (language == target::go) {
       source += reference_support::go_binding_fields(value, identifier,
           [&](const auto& item) { return type(item); });
+      if (options.xml.enabled && !value.reference && !xml_mixed_storage_only_.contains(&value)) {
+        const auto xml_contract = xml_schema_.bind(value);
+        if (std::any_of(xml_contract.fields.begin(), xml_contract.fields.end(), xml_portable::namespace_dependent)) {
+          line("// XML-only QName scopes preserve field occurrences without changing native wire fields.");
+          line("srlXmlNamespaces map[int][]map[string]string");
+        }
+      }
       if(options.xml.enabled&&!value.reference&&!xml_mixed_storage_only_.contains(&value)&&xml_schema_.bind(value).extensions){
         line("// XML-only opaque preservation is excluded from native fields and wire codecs.");
         line("srlXmlPreserved *srlXmlPreserved");
@@ -3151,8 +3175,13 @@ public:
         open("namespace " + options.namespace_name);
       }
       open("public static partial class " + unit);
+      source += "// Serializer runtime support begins.\n";
       source += csharp_runtime;
-      source += csharp_compression_support(globals);
+      std::string compression_prefix;
+      source += csharp_compression_support(globals, compression_prefix);
+      csharp_package_prefix = csharp_package_name(globals);
+      source += "// Generated C# package helper name: " + csharp_package_prefix + '\n';
+      source += package_codegen::csharp_runtime(csharp_package_prefix, compression_prefix, !packages.empty());
       if (options.xml.enabled) { source += xml_csharp::runtime(); }
       source += behavior::helpers("csharp", arithmetic_helpers);
     } else if (language == target::js) {
@@ -3183,6 +3212,7 @@ public:
     if (language != target::typescript) {
       emit_fields();
     }
+    if (language == target::csharp) { source += "// Serializer schema declarations begin.\n"; }
     for (const auto* node : nodes) {
       if (node->type == object_type::enum_type) {
         enumeration(static_cast<const enum_node&>(*node));
@@ -3197,6 +3227,13 @@ public:
         source += package_codegen::go(*package, names.at(package), go_package_prefix,
             [&](const auto& value) { return type(value); },
             [&](const auto value) { return field(value); }, [&](const auto value) { return quote(value); });
+      } else if (language == target::csharp) {
+        const auto qualified_name = (options.namespace_name.empty() ? "" : options.namespace_name + ".") +
+            unit + "." + names.at(package);
+        source += package_codegen::csharp(*package, names.at(package), qualified_name, csharp_package_prefix,
+            [&](const auto& value) { return type(value); },
+            [&](const auto value) { return field(value); },
+            [&](const auto value) { return quote(value); });
       } else {
         source += package_codegen::javascript(*package, names.at(package), javascript_package_name(globals),
             language == target::typescript, [&](const auto& value) { return type(value); },

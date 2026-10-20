@@ -7,6 +7,16 @@ R"serializer(
   /// <summary>Immutable per-message limits; collection entries accumulate.</summary>
   public enum ReadPolicy { STRICT, COMPATIBLE, FLEXIBLE }
   public sealed class Limits {
+    // Optional package composition remains internal and cannot collide with generated model types.
+    internal enum OperationResource { AllocationBytes, WorkUnits, References, PreservedBytes }
+    internal interface IOperation {
+      void Consume(OperationResource resource,long amount);
+      global::System.IDisposable EnterOwner();
+      void SelectField(string member);
+      IOperation Capture();
+      void RethrowFailure();
+    }
+    internal IOperation? Operation { get; init; }
     public ReadPolicy ReadPolicy { get; }
     public int MaxBytes { get; }
     public int MaxStringBytes { get; }

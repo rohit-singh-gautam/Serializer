@@ -284,6 +284,7 @@ class emitter {
       return;
     }
     const auto contract = xml_contract.bind(value);
+    const bool namespace_values = std::any_of(contract.fields.begin(), contract.fields.end(), xml_portable::namespace_dependent);
     const bool export_graph = readonly || xml_codegen::native_xml_export_graph(value);
     const bool all = xml_portable::supports_all(contract);
     if (!contract.all_groups.empty() && !all) {
@@ -307,7 +308,8 @@ class emitter {
           "srlXmlParse", "srlXmlScalarText", "srlXmlInteger", "srlXmlBoolean", "srlXmlFloat",
           "srlXmlFloatText", "srlXmlWrite", "srlXmlEscape", "xmlWrite", "xmlRead", "srlXmlIdentityMetadata",
           "srlXmlRevisionLexical", "srlXmlHexDigit", "srlXmlDigestRead", "srlXmlDigestText"};
-      if (methods.contains(selected)) {
+      if (methods.contains(selected) || (namespace_values &&
+          (selected == "setXmlNamespaces" || selected == "srlXmlNamespaces"))) {
         throw std::invalid_argument{"Java XML method collides with declared behavior: " + selected};
       }
     };
@@ -385,6 +387,19 @@ class emitter {
       line("/** Immutable foreign-only permissions and XML-only preservation state. */");
       line("private static final SrlXmlExtensionContract srlXmlExtensionMetadata="+xml_codegen::portable_extension_metadata(*contract.extensions,quote,expanded,"java")+';');
       if(!readonly)line("private SrlXmlPreserved srlXmlPreserved;");
+    }
+    if (namespace_values) {
+      if (std::any_of(value.member_list.begin(), value.member_list.end(), [&](const auto& item) {
+            return field(item.name) == "srlXmlNamespaces";
+          }) || std::any_of(value.functions.begin(), value.functions.end(), [&](const auto& item) {
+            return field(item.name) == "setXmlNamespaces";
+          })) {
+        throw std::invalid_argument{"Java XML namespace metadata collides with a declared member"};
+      }
+      line("/** XML-only occurrence bindings never participate in native field codecs. */");
+      line("private final SrlXmlNamespaceValues srlXmlNamespaces=new SrlXmlNamespaceValues();");
+      line("/** Replace QName scopes with copied validated bindings for native-authored XML values. */");
+      line("public void setXmlNamespaces(java.util.Map<String,String> bindings){srlXmlNamespaces.set(bindings);}");
     }
     std::map<const member*, std::size_t> rule_indices{};
     for (std::size_t index{}; index < contract.fields.size(); ++index) {
@@ -467,7 +482,8 @@ class emitter {
       line(readonly?"var srlScope=java.util.Map.<String,String>of();":"var srlScope=srlXmlPreserved==null?java.util.Map.<String,String>of():srlXmlPreserved.scope;");
       line("var srlExtensions=new SrlXmlExtensions(srlXmlExtensionMetadata,srlScope,output.extensionOptions,"+std::string{state}+");");
       line("output.open(name,srlScope);");
-    }else line("output.open(name);");
+    } else if (namespace_values) { line("output.open(name,java.util.Map.of(\"\",\"\"));"); }
+    else { line("output.open(name);"); }
     if (contract.identity) { line("var srlIdentity=output.identityScope(srlXmlIdentityMetadata);"); }
     line("if (typeIdentity != null) output.typeName(typeIdentity);");
     for (const auto& path : base_paths) {
@@ -521,6 +537,7 @@ class emitter {
       const bool optional = source_field.type_name_list.front().is_optional();
       std::string selected = access;
       line("{"); ++level;
+      if (xml_portable::namespace_dependent(item)) { line("int srlNamespaceIndex=0;"); }
       if (item.wrapper) {
         line("output.open(" + expanded(*item.wrapper) + ");");
       }
@@ -568,6 +585,9 @@ class emitter {
     }
     if (contract.identity) { line("var srlIdentity=input.identityScope(srlXmlIdentityMetadata);"); }
     if(contract.extensions)line("var srlExtensions=new SrlXmlExtensions(srlXmlExtensionMetadata,input.namespaceScope(),input.extensionOptions,null);");
+    if (std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& item) {
+          return (item.attribute || item.text) && xml_portable::namespace_dependent(item);
+        })) { line("var srlNamespaceScope=input.namespaceScope();"); }
     line("var fields = input.open(name);"); line("var result = new " + name + "();");
     if (const auto* revision = contract.model.revision) {
       const auto text = "srlXmlRevisionLexical(fields.attribute(" +

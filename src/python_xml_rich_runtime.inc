@@ -7,6 +7,7 @@ import decimal as _xml_decimal
 _XML_PATTERN_SCHEMAS = {}
 _XML_TYPES = {}
 _XML_UNION_LIST_ITEM_ALLOCATION_BYTES = 16
+_XML_NAMESPACE_BINDING_ALLOCATION_BYTES = 64
 _XML_NAME_LIST_ITEM_KINDS = {'NMTOKENS': 'NMTOKEN', 'IDREFS': 'IDREF', 'ENTITIES': 'ENTITY'}
 
 
@@ -14,7 +15,49 @@ class _XmlLexicalError(ValueError):
     """Distinguish a rejected union value from an exception raised by the operation's caller."""
 
 
-def _xml_builtin_scalar(value, kind, width=0, unsigned=False):
+class _XmlNamespaceContext:
+    """Bound cumulative new scalar-scope retention even when no shared callback was supplied."""
+    def __init__(self, context, limits):
+        """Borrow the caller's operation while keeping one admission counter for the complete graph."""
+        self.context, self.limits = context, limits
+        self.namespace_bytes, self.namespace_entries = 0, 0
+    def __getattr__(self, name):
+        """Preserve optional pattern policies and other operation-specific capabilities."""
+        return getattr(self.context, name)
+    def consume(self, resource, count):
+        """Propagate original callback exceptions before changing retained namespace state."""
+        if self.context is not None: self.context.consume(resource, count)
+    def check(self):
+        """Keep interruption checks visible to a caller-provided operation."""
+        if self.context is not None: self.context.check()
+    def check_buffer(self, amount):
+        """Forward shared buffer limits without requiring a callback for ordinary XML decoding."""
+        callback = getattr(self.context, 'check_buffer', None)
+        if callback is not None: callback(amount)
+    def retain_namespace(self, bindings):
+        """Admit map entries and logical UTF-8 storage before allocating an owning scalar snapshot."""
+        self._xml_retain_namespace_at(bindings, self)
+    def _xml_retain_namespace_at(self, bindings, context):
+        """Keep one namespace ledger while forwarding its charges through the selected field scope."""
+        count = len(bindings) + ('' not in bindings)
+        size = count * _XML_NAMESPACE_BINDING_ALLOCATION_BYTES
+        for prefix, uri in bindings.items():
+            size += len(prefix.encode('utf-8')) + len(uri.encode('utf-8'))
+        if count > self.limits.max_elements - self.namespace_entries or size > self.limits.max_string_bytes - self.namespace_bytes:
+            raise ValueError('XML scalar namespace retention limit exceeded')
+        context.consume('work_units', count)
+        context.consume('decoder_allocation_bytes', size)
+        self.namespace_entries += count
+        self.namespace_bytes += size
+
+
+def _xml_namespace_context(limits, context):
+    """Share one lexical namespace-retention budget across every owning record in a tree decode."""
+    return context if isinstance(context, _XmlNamespaceContext) else _XmlNamespaceContext(context, limits or Limits())
+
+
+)richpython"
+R"richpython(def _xml_builtin_scalar(value, kind, width=0, unsigned=False):
     """Adapt ordinary scalar failures without catching operation callbacks outside this helper."""
     try:
         return _xml_scalar(value, kind, width, unsigned)
@@ -51,7 +94,7 @@ def _xml_resolve_qname(value, bindings):
         return (bindings[pieces[0]], pieces[1])
     raise _XmlLexicalError('Invalid or unbound XML QName')
 
-def _xml_qualify_qname(value, bindings):
+def _xml_qualify_qname(value, bindings, reserved=()):
     """Allocate a collision-free declaration when a schema default uses another presentation prefix."""
     uri, local = value
     if not uri:
@@ -61,10 +104,26 @@ def _xml_qualify_qname(value, bindings):
         if selected == uri:
             return prefix + ':' + local if prefix else local
     index = 0
-    while 'q' + str(index) in bindings: index += 1
+    while 'q' + str(index) in bindings or 'q' + str(index) in reserved: index += 1
     prefix = 'q' + str(index)
     bindings[prefix] = uri
     return prefix + ':' + local
+
+def _xml_reserved_qname_prefixes(node, context=None):
+    """Avoid assigning schema-default prefixes that would reinterpret an existing union string."""
+    reserved = set()
+    def inspect(selected):
+        """Reserve only the allocator's prefix family while scanning already bounded lexical storage."""
+        for text in (selected[3], *selected[1].values()):
+            if context is not None: context.consume('work_units', len(text))
+            for match in _re.finditer(r'(q[0-9]+):', text):
+                prefix = match.group(1)
+                if prefix not in reserved:
+                    if context is not None: context.consume('decoder_allocation_bytes', _XML_NAMESPACE_BINDING_ALLOCATION_BYTES + len(prefix))
+                    reserved.add(prefix)
+        for child in selected[2]: inspect(child)
+    inspect(node)
+    return reserved
 
 def _xml_normalize(value, whitespace):
     """Apply XML Schema whitespace rules using only the four XML whitespace characters."""
@@ -382,7 +441,28 @@ class _XmlFieldsRich(_XmlFields):
         self.item = 0
         if context is not None: context.consume('decoder_allocation_bytes', len(contract['wildcards']) * 8)
         self.counts = [0] * len(contract['wildcards'])
-        self.attributes, self.children_kept = {}, []
+        self.attributes, self.children_kept, self.scalar_scopes = {}, [], {}
+        self.qname_prefixes = None
+    def reserved_prefixes(self):
+        """Scan source text at most once before choosing prefixes for any schema QName defaults."""
+        if self.qname_prefixes is None:
+            self.qname_prefixes = _xml_reserved_qname_prefixes(self.node, self.context)
+        return self.qname_prefixes
+    def scalar_scope(self, field, item, node):
+        """Retain child-local union bindings without rewriting text that selects its first member."""
+        source = node[4]
+        retain = getattr(self.context, 'retain_namespace', None)
+        if retain is not None:
+            retain(source)
+        elif self.context is not None:
+            self.context.consume('work_units', len(source))
+            self.context.consume('decoder_allocation_bytes', (len(source) + ('' not in source)) * _XML_NAMESPACE_BINDING_ALLOCATION_BYTES)
+        # An absent default declaration must remain absent when the owning record
+        # acquires another default namespace later. XML1.0 can explicitly reset it.
+        retained = dict(source)
+        retained.setdefault('', '')
+        self.scalar_scopes[(field, item)] = (retained, node[3])
+        return source
     def unknown(self, name, node=None):
         """Apply namespace, position, processContents and optional extension policy before skipping anything."""
         uri = _xml_namespace(name)
@@ -474,19 +554,45 @@ class _XmlFieldsRich(_XmlFields):
     def state(self):
         """Retain semantic extension slots and QName bindings independently of the original tree owner."""
         if self.context is not None: self.context.consume('decoder_allocation_bytes', len(self.node[4]) * 64)
-        return (dict(self.node[4]), self.attributes, self.children_kept)
+        scope = dict(self.node[4])
+        scope.setdefault('', '')
+        state = (scope, self.attributes, self.children_kept)
+        return state + (self.scalar_scopes,) if self.scalar_scopes else state
+
+)richpython"
+R"richpython(def _xml_scope_copy(bindings, budget):
+    """Validate and charge retained declarations before copying an XML-only lexical scope."""
+    for prefix, uri in bindings.items():
+        if prefix and not _xml_ncname(prefix) or prefix == 'xmlns' or prefix == 'xml' and uri != 'http://www.w3.org/XML/1998/namespace' or prefix != 'xml' and uri == 'http://www.w3.org/XML/1998/namespace' or uri == 'http://www.w3.org/2000/xmlns/' or prefix and not uri:
+            raise ValueError('Invalid XML namespace binding')
+        budget.text(prefix)
+        budget.text(uri)
+    if budget.context is not None:
+        budget.context.consume('decoder_allocation_bytes', len(bindings) * _XML_NAMESPACE_BINDING_ALLOCATION_BYTES)
+    return dict(bindings)
+
+def _xml_scalar_scope_open(state, field, item, parent, budget, rule=None, value=None):
+    """Restore a scalar child's local declarations before union selection and output validation."""
+    scope = _xml_scope_copy(parent, budget)
+    if state is not None and len(state) > 3:
+        local = state[3].get((field, item))
+        if local is not None:
+            original, lexical = local
+            scope.update(_xml_scope_copy(original, budget))
+            if rule is not None and rule['union'] and value == lexical:
+                # XML1.0 cannot undeclare a newly inherited nondefault prefix. A
+                # source string fallback must never become a QName after rebinding.
+                before, source_rule = _xml_union_member(value, rule, original, budget.context)
+                after, output_rule = _xml_union_member(value, rule, scope, budget.context)
+                if source_rule is not output_rule or _xml_value_identity(before, source_rule, original, budget.context) != _xml_value_identity(after, output_rule, scope, budget.context):
+                    raise ValueError('XML namespace context would change the selected union value')
+    return scope
 
 def _xml_state_open(model, node, budget):
     """Restore XML-only namespace and attribute state without adding native codec fields."""
     state = getattr(model, '_srl_xml_state', None)
     if state is not None:
-        for prefix, uri in state[0].items():
-            if prefix and not _xml_ncname(prefix) or prefix == 'xmlns' or prefix == 'xml' and uri != 'http://www.w3.org/XML/1998/namespace' or prefix != 'xml' and uri == 'http://www.w3.org/XML/1998/namespace' or prefix and not uri:
-                raise ValueError('Invalid XML namespace binding')
-            budget.text(prefix)
-            budget.text(uri)
-        if budget.context is not None: budget.context.consume('decoder_allocation_bytes', len(state[0]) * 64)
-        node[4] = dict(state[0])
+        node[4] = _xml_scope_copy(state[0], budget)
         for name, value in state[1].items(): _xml_attribute(node, name, value, budget)
     return state
 

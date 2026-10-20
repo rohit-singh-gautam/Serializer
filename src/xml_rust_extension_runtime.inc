@@ -32,10 +32,40 @@ impl XmlExtensionState {
     pub fn preserved_bytes(&self)->usize {self.bytes}
 }
 /// Static field edges describe ordinary native ownership without reading or copying native values.
-struct SrlXmlExtensionField {uri:&'static str,local:&'static str,attribute:bool,repeated:bool,child:Option<fn()->&'static SrlXmlExtensionModel>}
+struct SrlXmlExtensionField {uri:&'static str,local:&'static str,attribute:bool,repeated:bool,child:Option<fn()->&'static SrlXmlExtensionModel>,namespace_kind:u8}
 struct SrlXmlExtensionSlot {attribute:bool,position:usize,uris:&'static[&'static str],policy:u8,minimum:usize,maximum:Option<usize>}
 struct SrlXmlExtensionContract {core:&'static str,required:&'static[&'static str],slots:&'static[SrlXmlExtensionSlot]}
-struct SrlXmlExtensionModel {identity:&'static str,fields:&'static[SrlXmlExtensionField],contract:Option<&'static SrlXmlExtensionContract>}
+struct SrlXmlExtensionModel {identity:&'static str,fields:&'static[SrlXmlExtensionField],contract:Option<&'static SrlXmlExtensionContract>,namespace_text:u8}
+/// Give QName scalar occurrences independent namespace scopes without adding native record fields.
+fn srl_xml_namespace_model_1()->&'static SrlXmlExtensionModel {
+    static MODEL:SrlXmlExtensionModel=SrlXmlExtensionModel{identity:"serializer:QName",fields:&[],contract:None,namespace_text:1};&MODEL
+}
+/// Keep each QName-list child bound to its original local namespace declarations.
+fn srl_xml_namespace_model_2()->&'static SrlXmlExtensionModel {
+    static MODEL:SrlXmlExtensionModel=SrlXmlExtensionModel{identity:"serializer:QName-list",fields:&[],contract:None,namespace_text:2};&MODEL
+}
+/// Retain expanded prefix-list identities independently of the typed owner's namespace scope.
+fn srl_xml_namespace_model_3()->&'static SrlXmlExtensionModel {
+    static MODEL:SrlXmlExtensionModel=SrlXmlExtensionModel{identity:"serializer:prefix-list",fields:&[],contract:None,namespace_text:3};&MODEL
+}
+/// Use XML fifth-edition NCNames rather than locale-dependent alphabetic classifications.
+fn srl_xml_namespace_name(value:&str)->bool {
+    !value.is_empty()&&value.chars().enumerate().all(|(index,value)|srl_xml_scalar_name_character(value as u32,index==0,false))
+}
+/// Validate the exact QName/prefix-list tokens against a complete saved namespace scope.
+fn srl_xml_namespace_value(raw:&str,kind:u8,scope:&[(String,String)],maximum:usize)->Result<(),Error> {
+    if kind==0 {return Ok(());}let mut count=0usize;
+    let bound=|prefix:&str|prefix=="xml"||scope.iter().rev().any(|(name,uri)|name==prefix&&!uri.is_empty());
+    for value in raw.split([' ','\t','\r','\n']).filter(|value|!value.is_empty()) {
+        if count==maximum {return Err(Error("XML namespace token limit"));}count+=1;
+        if kind==3 {
+            if value=="xmlns"||!srl_xml_namespace_name(value)||!bound(value) {return Err(Error("Invalid or unbound XML prefix-list token"));}
+        } else if let Some((prefix,local))=value.split_once(':') {
+            if prefix=="xmlns"||!srl_xml_namespace_name(prefix)||!srl_xml_namespace_name(local)||!bound(prefix) {return Err(Error("Invalid or unbound XML QName"));}
+        } else if !srl_xml_namespace_name(value) {return Err(Error("Invalid XML QName"));}
+    }
+    if kind==1&&count!=1 {return Err(Error("XML QName requires one token"));}Ok(())
+}
 /// A graph path uses static field/repeated-item positions, never unstable native object addresses.
 struct SrlXmlExtensionOwner {path:Vec<(usize,usize)>,identity:&'static str,scope:Vec<(String,String)>,attributes:Vec<(String,String,String)>,children:Vec<SrlXmlExtensionChild>}
 struct SrlXmlExtensionChild {position:usize,item:usize,uri:String,xml:String}
@@ -64,7 +94,7 @@ fn srl_xml_extension_capabilities(contract:&SrlXmlExtensionContract,scope:&[(Str
     for uri in contract.required {if !understood(uri) {return Err(Error("Required XML capability is not understood"));}}
     let mut count=0;for prefix in options.required_prefixes.split([' ','\t','\r','\n']).filter(|value|!value.is_empty()) {
         count+=1;if count>options.limits.max_items || prefix=="xmlns" || !srl_xml_extension_prefix(prefix) {return Err(Error("Invalid required XML capability prefix"));}
-        let uri=scope.iter().rev().find(|(name,_)|name==prefix).map(|(_,uri)|uri.as_str()).filter(|uri|!uri.is_empty()).ok_or(Error("Unbound required XML capability prefix"))?;
+        let uri=if prefix=="xml" {SRL_XML_NAMESPACE}else{scope.iter().rev().find(|(name,_)|name==prefix).map(|(_,uri)|uri.as_str()).filter(|uri|!uri.is_empty()).ok_or(Error("Unbound required XML capability prefix"))?};
         if !understood(uri) {return Err(Error("Required XML capability is not understood"));}
     }Ok(())
 }
@@ -120,7 +150,9 @@ fn srl_xml_extension_replay_owner(input:&mut SrlXmlInput<'_>,output:&mut String,
         if !srl_xml_extension_admit(admission,model,&mut counts,slot,options)? {return Err(Error("Preserved XML attribute no longer has a preserve slot"));}
         attributes.push((SrlXmlTokenName {uri:uri.clone(),local},value.clone()));
     }}
+    for (name,value) in &attributes {if let Some(field)=model.fields.iter().find(|field|field.attribute&&field.uri==name.uri&&field.local==name.local) {srl_xml_namespace_value(value,field.namespace_kind,&scope,input.limits.max_nodes)?;}}
     let lexical=srl_xml_extension_start(output,input,&attributes,Some(&scope),maximum)?;input.advance()?;
+    let mut namespace_value=String::new();
     let mut items=vec![0usize;model.fields.len()];let mut cursor=0;
     loop {match &input.current {
         SrlXmlToken::Start(name,_)=>{
@@ -130,8 +162,9 @@ fn srl_xml_extension_replay_owner(input:&mut SrlXmlInput<'_>,output:&mut String,
             if let Some(child)=model.fields[index].child {path.push((index,item));srl_xml_extension_replay_owner(input,output,child(),path,state,used,admission,options,&scope,maximum)?;path.pop();}
             else {srl_xml_extension_foreign(input,Some(output),maximum,false)?;}
         },
-        SrlXmlToken::Text(value)=>{srl_xml_extension_escape(output,value,false,maximum)?;input.advance()?;},
+        SrlXmlToken::Text(value)=>{if model.namespace_text!=0 {srl_xml_extension_put(&mut namespace_value,value,input.limits.max_text_bytes)?;}srl_xml_extension_escape(output,value,false,maximum)?;input.advance()?;},
         SrlXmlToken::End(_)=>{
+            srl_xml_namespace_value(&namespace_value,model.namespace_text,&scope,input.limits.max_nodes)?;
             srl_xml_extension_replay_children(output,owner,&mut cursor,model.fields.len(),&items,model,&mut counts,admission,options,maximum)?;
             if owner.is_some_and(|owner|cursor!=owner.children.len()) {return Err(Error("Preserved XML extension has an edited field position"));}
             if let Some(contract)=model.contract {for (slot,count) in contract.slots.iter().zip(counts) {if count<slot.minimum {return Err(Error("Required XML extension occurrence missing"));}}}
@@ -215,19 +248,26 @@ fn srl_xml_extension_owner(state:&mut XmlExtensionState,model:&SrlXmlExtensionMo
     // Charge all active declarations conservatively before flattening; shadowed bindings may cost more, never less.
     let mut prefixes=std::collections::BTreeSet::new();for (prefix,uri) in input.bindings[..binding_end].iter().rev() {if prefixes.insert(*prefix) {size=size.checked_add(64+prefix.len()+uri.len()).ok_or(Error("XML extension scope limit"))?;}}
     if !prefixes.contains("") {size=size.checked_add(64).ok_or(Error("XML extension scope limit"))?;}
-    srl_xml_extension_charge(state,options.limits,size)?;let mut scope=std::collections::BTreeMap::new();scope.insert("xml".to_owned(),SRL_XML_NAMESPACE.to_owned());scope.insert(String::new(),String::new());for (prefix,uri) in &input.bindings[..binding_end] {scope.insert((*prefix).to_owned(),uri.clone());}
+    // The xml binding is implicit in every resolver; store it only when explicitly declared and charged.
+    srl_xml_extension_charge(state,options.limits,size)?;let mut scope=std::collections::BTreeMap::new();scope.insert(String::new(),String::new());for (prefix,uri) in &input.bindings[..binding_end] {scope.insert((*prefix).to_owned(),uri.clone());}
     let index=state.owners.len();state.owners.push(SrlXmlExtensionOwner {path:path.to_vec(),identity:model.identity,scope:scope.into_iter().collect(),attributes:Vec::new(),children:Vec::new()});Ok(index)
 }
 /// Filter one typed ordinary owner, preserving only explicitly admitted foreign roots and attributes.
 fn srl_xml_extension_filter_owner(input:&mut SrlXmlInput<'_>,output:&mut String,model:&'static SrlXmlExtensionModel,path:&mut Vec<(usize,usize)>,state:&mut XmlExtensionState,options:&XmlExtensionOptions,maximum:usize)->Result<(),Error> {
     let original_owners=state.owners.len();let binding_end=input.bindings.len();if let Some(contract)=model.contract {srl_xml_extension_capabilities(contract,&srl_xml_extension_scope(input),options)?;}
+    let mut namespace_owner=model.namespace_text!=0;let mut namespace_value=String::new();
     let mut counts=vec![0;model.contract.map_or(0,|contract|contract.slots.len())];let mut known=Vec::new();
     let attributes=match std::mem::replace(&mut input.current,SrlXmlToken::Eof) {SrlXmlToken::Start(name,values)=>{input.current=SrlXmlToken::Start(name,Vec::new());values},_=>return Err(Error("Expected typed XML start"))};
     for (name,value) in attributes {
-        if model.fields.iter().any(|field|field.attribute && field.uri==name.uri && field.local==name.local) || name.uri=="urn:serializer:xml:model" {known.push((name,value));continue;}
+        if let Some(field)=model.fields.iter().find(|field|field.attribute && field.uri==name.uri && field.local==name.local) {
+            if field.namespace_kind!=0 {namespace_owner=true;srl_xml_namespace_value(&value,field.namespace_kind,&srl_xml_extension_scope(input),input.limits.max_nodes)?;}known.push((name,value));continue;
+        }
+        if name.uri=="urn:serializer:xml:model" {known.push((name,value));continue;}
         let slot=srl_xml_extension_slot(model,&name.uri,name.local,true,0).ok_or(Error("XML extension attribute has no permitted slot"))?;
         if srl_xml_extension_admit(state,model,&mut counts,slot,options)? {let index=srl_xml_extension_owner(state,model,path,input,binding_end,options)?;srl_xml_extension_charge(state,options.limits,48+name.uri.len()+name.local.len()+value.len())?;state.owners[index].attributes.push((name.uri,name.local.to_owned(),value));}
     }
+    if namespace_owner {srl_xml_extension_owner(state,model,path,input,binding_end,options)?;}
+    let namespace_scope=if model.namespace_text!=0 {srl_xml_extension_scope(input)}else{Vec::new()};
     let lexical=srl_xml_extension_start(output,input,&known,None,maximum)?;input.advance()?;
     let mut position=0usize;let mut items=vec![0usize;model.fields.len()];
     loop {match &input.current {
@@ -243,8 +283,8 @@ fn srl_xml_extension_filter_owner(input:&mut SrlXmlInput<'_>,output:&mut String,
                 else {srl_xml_extension_foreign(input,None,maximum,false)?;}
             }
         },
-        SrlXmlToken::Text(value)=>{srl_xml_extension_escape(output,value,false,maximum)?;input.advance()?;},
-        SrlXmlToken::End(_)=>{if state.owners.len()>original_owners {srl_xml_extension_owner(state,model,path,input,binding_end,options)?;}if let Some(contract)=model.contract {for (slot,count) in contract.slots.iter().zip(counts) {if count<slot.minimum {return Err(Error("Required XML extension occurrence missing"));}}}srl_xml_extension_end(output,&lexical,maximum)?;input.advance()?;return Ok(());},
+        SrlXmlToken::Text(value)=>{if model.namespace_text!=0 {srl_xml_extension_put(&mut namespace_value,value,input.limits.max_text_bytes)?;}srl_xml_extension_escape(output,value,false,maximum)?;input.advance()?;},
+        SrlXmlToken::End(_)=>{srl_xml_namespace_value(&namespace_value,model.namespace_text,&namespace_scope,input.limits.max_nodes)?;if state.owners.len()>original_owners {srl_xml_extension_owner(state,model,path,input,binding_end,options)?;}if let Some(contract)=model.contract {for (slot,count) in contract.slots.iter().zip(counts) {if count<slot.minimum {return Err(Error("Required XML extension occurrence missing"));}}}srl_xml_extension_end(output,&lexical,maximum)?;input.advance()?;return Ok(());},
         SrlXmlToken::Eof=>return Err(Error("Unterminated typed XML owner")),
     }}
 }

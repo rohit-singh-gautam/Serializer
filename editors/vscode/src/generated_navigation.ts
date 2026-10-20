@@ -74,22 +74,23 @@ function generatedCode(text: string, language: string): string {
   return codeOnly(text.replace(/`(?:\\[\s\S]|[^`\\])*`/g, hide));
 }
 
+/** Hide compiler-marked runtime declarations while preserving every source offset and line. */
+function schemaDeclarations(text: string, language: string | undefined): string {
+  if (!['java', 'csharp', 'kotlin'].includes(language ?? '') || !generatedBanner(text)) { return text; }
+  const begin = /^[ \t]*\/\/ Serializer runtime support begins\.\r?$/m.exec(text);
+  const suffix = begin && text.slice(begin.index + begin[0].length);
+  const end = suffix && /^[ \t]*\/\/ Serializer schema declarations begin\.\r?$/m.exec(suffix);
+  if (!begin || !end) { return text; }
+  const finish = begin.index + begin[0].length + end.index;
+  return text.slice(0, begin.index) + text.slice(begin.index, finish)
+    .replace(/[^\r\n]+/g, line => ' '.repeat(line.length)) + text.slice(finish);
+}
+
 /** Index the actual declaration forms emitted by each generator, excluding runtime references. */
 export function indexGeneratedSource(text: string, file: string): SourceIndex {
   const language = generatedLanguage(file, text);
+  const declarations = schemaDeclarations(text, language);
   if (language === 'cpp' || language === 'java' || language === 'csharp' || language === 'c') {
-    let declarations = text;
-    if (language === 'java' && generatedBanner(text)) {
-      const begin = /^[ \t]*\/\/ Serializer runtime support begins\.\r?$/m.exec(text);
-      const suffix = begin && text.slice(begin.index + begin[0].length);
-      const end = suffix && /^[ \t]*\/\/ Serializer schema declarations begin\.\r?$/m.exec(suffix);
-      if (begin && end) {
-        const finish = begin.index + begin[0].length + end.index;
-        // Runtime tokens have no schema destination; retain UTF-16 offsets and all line boundaries.
-        declarations = text.slice(0, begin.index) + text.slice(begin.index, finish)
-          .replace(/[^\r\n]+/g, line => ' '.repeat(line.length)) + text.slice(finish);
-      }
-    }
     const result = indexSource(declarations, false, language === 'java');
     if (language === 'csharp') {
       // Schema namespaces are flattened; the configurable C# namespace is only a wrapper.
@@ -124,13 +125,13 @@ export function indexGeneratedSource(text: string, file: string): SourceIndex {
     }
     return bindGenericSources(result);
   }
-  const code = generatedCode(text, language ?? '');
+  const code = generatedCode(declarations, language ?? '');
   const patterns: Record<string, RegExp> = {
     python: /^class\s+([A-Za-z_]\w*)\s*(\([^\r\n]*\))?\s*:/gm,
     go: /^type\s+([A-Za-z_]\w*)\s+(struct\s*\{|int32\b)/gm,
     rust: /^pub\s+(struct|enum)\s+([A-Za-z_]\w*)\b/gm,
     swift: /^public\s+(struct|enum|class)\s+([A-Za-z_]\w*)\b/gm,
-    kotlin: /^(enum\s+class|class)\s+([A-Za-z_]\w*)\b/gm,
+    kotlin: /^(enum\s+class|class|object)\s+([A-Za-z_]\w*)\b/gm,
     javascript: /^export\s+(class|const)\s+([A-Za-z_]\w*)\b/gm,
     typescript: /^export\s+(?:declare\s+)?(class|const|namespace)\s+([A-Za-z_]\w*)\b/gm
   };
@@ -190,7 +191,7 @@ export function generatedMember(text: string, file: string, index: SourceIndex,
 export function generatedMemberReader(text: string, file: string,
   index: SourceIndex): (offset: number) => ReturnType<typeof generatedMember> {
   const language = generatedLanguage(file, text);
-  const code = generatedCode(text, language ?? '');
+  const code = generatedCode(schemaDeclarations(text, language), language ?? '');
   return offset => generatedMemberAt(code, language, index, offset);
 }
 

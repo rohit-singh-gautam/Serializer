@@ -1,0 +1,16 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.14.0;
+
+enum scalar_default_kind {
+  first,
+  second
+}
+
+class scalar_default_record stable_ids {
+  public float single (1) {340282346638528859811704183484516925440.0};
+  public double extended (2) {1.7976931348623157e308};
+  public float negative_zero (3) {-0.0};
+  public scalar_default_kind selection (4) {scalar_default_kind::second};
+  public bool enabled (5) {true};
+}

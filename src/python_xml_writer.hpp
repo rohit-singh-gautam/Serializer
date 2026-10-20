@@ -177,10 +177,19 @@ inline std::string record(const xml_binding::record& value) {
   return result + ")}";
 }
 
-// Select lexical QName adapters whose presentation scopes still use the legacy whole-document path.
+// Find namespace-dependent leaves recursively, including branches nested under an XSD union.
+inline bool needs_namespace_state(const xml_binding::scalar_facets& value) {
+  return value.lexical_kind == "QName" || value.list_item_kind == "QName" ||
+      std::any_of(value.union_members.begin(), value.union_members.end(),
+          [](const auto& selected) { return needs_namespace_state(selected); });
+}
+
+// Select lexical QName adapters whose presentation scopes use the whole-document path.
 inline bool needs_namespace_state(const xml_binding::record& value) {
   return std::any_of(value.fields.begin(), value.fields.end(),
-      [](const auto& selected) { return selected.qname || selected.prefix_list || selected.facets.list_item_kind == "QName"; });
+      [](const auto& selected) {
+        return selected.qname || selected.prefix_list || needs_namespace_state(selected.facets);
+      });
 }
 // Select records whose XML-only state retains namespace declarations or permitted foreign payloads.
 inline bool needs_state(const xml_binding::record& value) {

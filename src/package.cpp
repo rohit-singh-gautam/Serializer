@@ -329,19 +329,43 @@ std::uint64_t budget::available_buffer_bytes() const noexcept {
   return limits_.max_buffer_bytes - reserved_buffer_bytes_;
 }
 
-// Poll cancellation without introducing implicit global policy.
-void budget::check_cancelled() const {
+// Let original callback exceptions escape before constructing any runtime interruption error.
+std::optional<error_code> budget::interruption() const {
   if (limits_.is_cancelled && limits_.is_cancelled()) {
-    throw error{error_code::cancelled, "Package operation cancelled"};
+    return error_code::cancelled;
   }
   if (limits_.deadline && std::chrono::steady_clock::now() >= *limits_.deadline) {
-    throw error{error_code::deadline_exceeded, "Package operation deadline exceeded"};
+    return error_code::deadline_exceeded;
+  }
+  return {};
+}
+
+// Poll cancellation without introducing implicit global policy.
+void budget::check_cancelled() const {
+  if (const auto selected = interruption()) {
+    throw error{*selected, *selected == error_code::cancelled ?
+        "Package operation cancelled" : "Package operation deadline exceeded"};
   }
 }
 
 // Reject cumulative overflow before charging the selected category.
 void budget::consume(resource selected, std::uint64_t count, std::string_view part_name) {
-  check_cancelled();
+  consume_at(selected, count, budget_location{part_name});
+}
+
+// Decorate only failures constructed by this runtime; user callback errors retain their identity.
+void budget::consume_at(resource selected, std::uint64_t count, const budget_location& location) {
+  if (const auto interrupted = interruption()) {
+    throw error{*interrupted, *interrupted == error_code::cancelled ?
+        "Package operation cancelled" : "Package operation deadline exceeded",
+        std::string{location.part}, 0, 0, 0, std::string{location.field_path},
+        std::string{location.reference}, std::string{location.relationship_id}};
+  }
+  consume_available(selected, count, location);
+}
+
+// Reject cumulative overflow before charging the selected category, without calling user code.
+void budget::consume_available(resource selected, std::uint64_t count, const budget_location& location) {
   std::uint64_t* current{};
   std::uint64_t maximum{};
   switch (selected) {
@@ -361,7 +385,9 @@ void budget::consume(resource selected, std::uint64_t count, std::string_view pa
   }
   if (count > maximum - *current) {
     throw error{error_code::resource_limit, "Shared package budget exceeded",
-                std::string{part_name}, 0, count, maximum - *current};
+                std::string{location.part}, 0, count, maximum - *current,
+                std::string{location.field_path}, std::string{location.reference},
+                std::string{location.relationship_id}};
   }
   *current += count;
 }

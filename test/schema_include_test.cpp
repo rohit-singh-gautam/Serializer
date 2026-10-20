@@ -19,6 +19,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -85,6 +86,26 @@ TEST_F(schema_include_test, portable_default_diagnostics_retain_included_member_
   EXPECT_EQ(item.member_list.front().source_column, 3u);
   EXPECT_EQ(item.member_list.front().source_path,
       std::filesystem::canonical(directory / "common.serializer").generic_string());
+}
+
+// Floating and enum diagnostics remain attached to the declaring included member and its contract.
+TEST_F(schema_include_test, floating_and_enum_defaults_retain_included_member_positions) {
+  write("root.serializer", "serializer version 1.20.0;\ninclude common;\n"
+      "class root { public item value; }\n");
+  for (const auto& [type, value] : std::vector<std::pair<std::string, std::string>>{
+           {"float", "1e39"}, {"double", "1e400"}, {"kind", "kind::missing"}}) {
+    write("common.serializer", "serializer version 1.14.0;\n"
+        "enum kind { first, second }\nclass item {\n  public " + type + " code { " + value + " };\n}\n");
+    reject("common.serializer:4:3: member code:");
+    write("common.serializer", "serializer version 1.13.0;\n"
+        "enum kind { first, second }\nclass item {\n  public " + type + " code { " + value + " };\n}\n");
+    EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
+  }
+  write("common.serializer", "serializer version 1.14.0;\n"
+      "class box<T> {\n  public T code { 1e39 };\n}\n");
+  write("root.serializer", "serializer version 1.20.0;\ninclude common;\n"
+      "instantiate float_box = box<float>;\n");
+  reject("common.serializer:3:3: member code:");
 }
 
 // A dependency's own language header controls variant syntax independently of its includer.

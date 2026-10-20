@@ -811,7 +811,8 @@ TEST(xml_tokens, qualified_scalar_lists_and_schema_defaults_keep_expanded_namesp
   }
 }
 
-TEST(xml_tokens, child_qname_projection_rejects_namespace_context_that_native_storage_cannot_represent) {
+// Scalar child scopes retain local aliases and shadowing without requiring a retained XML tree.
+TEST(xml_tokens, child_qname_projection_retains_local_namespace_identity) {
   static_assert(xml_xsd_fixture::qname_children::xml_tokens_supported);
   xml::limits bounds{}; bounds.max_tree_bytes = 0U;
   const std::string prefix{"<qname_children xmlns='urn:serializer:xsd' xmlns:p='urn:parent'>"};
@@ -820,8 +821,16 @@ TEST(xml_tokens, child_qname_projection_rejects_namespace_context_that_native_st
   ASSERT_EQ(value.values.size(), 2U);
   EXPECT_EQ(value.values[1], "p:second");
   EXPECT_EQ(xml::deserialize_tokens<xml_xsd_fixture::qname_children>(xml::serialize_tokens(value, bounds), bounds).values, value.values);
+  for (const auto& [child, uri] : std::array<std::pair<std::string_view, std::string_view>, 2U>{{
+      {"<value xmlns:p='urn:child'>p:item</value>", "urn:child"},
+      {"<value xmlns:r='urn:parent'>r:item</value>", "urn:parent"}}}) {
+    const auto scoped = xml::deserialize_tokens<xml_xsd_fixture::qname_children>(
+        prefix + std::string{child} + "</qname_children>", bounds, nullptr, 1U);
+    const auto output = xml::parse(xml::serialize_tokens(scoped, bounds));
+    ASSERT_EQ(output.children.size(), 1U);
+    const auto& emitted = output.children.front();
+    EXPECT_EQ(xml::resolve_qname(emitted.text, emitted), (xml::name{"item", std::string{uri}}));
+  }
   EXPECT_THROW((void)xml::deserialize_tokens<xml_xsd_fixture::qname_children>(
-      prefix + "<value xmlns:p='urn:child'>p:item</value></qname_children>", bounds), std::invalid_argument);
-  EXPECT_THROW((void)xml::deserialize_tokens<xml_xsd_fixture::qname_children>(
-      prefix + "<value xmlns:r='urn:parent'>r:item</value></qname_children>", bounds), std::invalid_argument);
+      prefix + "<value>missing:item</value></qname_children>", bounds), std::invalid_argument);
 }

@@ -1006,7 +1006,8 @@ void validate_options(const std::vector<std::unique_ptr<syntax_node>>& statement
             if (language != "xsd") { validate_backend(contract, language); }
           }
         } else if (node->type == object_type::package_type && language != "cpp" && language != "python" &&
-                   language != "js" && language != "typescript" && language != "java" && language != "go") {
+                   language != "js" && language != "typescript" && language != "java" && language != "go" &&
+                   language != "csharp" && language != "kotlin") {
           throw std::invalid_argument{"Generated OPC package profiles are not implemented for " +
                                       std::string{language}};
         }
@@ -2127,6 +2128,10 @@ void validate_backend(const record& contract, std::string_view language) {
     for (const auto& alternative : facets.union_members) { self(self, alternative); }
   };
   for (const auto& field : contract.fields) {
+    if (field.facets.list_item_kind == "QName" && field.default_value &&
+        !lexical_words(*field.default_value).empty()) {
+      throw std::invalid_argument{"XSD QName list defaults require expanded schema-scope item identities"};
+    }
     check_unions(check_unions, field.facets);
     if (!field.facets.union_members.empty() && field.fixed_value &&
         (language != "python" || namespace_value(namespace_value, field.facets))) {
@@ -2174,7 +2179,7 @@ void validate_backend(const record& contract, std::string_view language) {
     for (const auto& value : contract.fields) {
       if (value.facets.list_item_kind == "QName" &&
           (value.fixed_value || !value.facets.enumeration.empty())) {
-        throw std::invalid_argument{"QName list fixed/enumeration values require expanded item identities"};
+        throw std::invalid_argument{"QName list default/fixed/enumeration values require expanded item identities"};
       }
       check(check, value.facets);
     }
@@ -2197,13 +2202,24 @@ void validate_backend(const record& contract, std::string_view language) {
       "unsignedShort", "int", "unsignedInt", "long", "unsignedLong", "float", "double",
       "normalizedString", "token", "anyURI", "decimal", "integer", "positiveInteger", "negativeInteger",
       "nonPositiveInteger", "nonNegativeInteger", "language", "Name", "NCName", "NMTOKEN", "ID", "IDREF", "ENTITY"};
+  const bool namespace_backend = language == "go" || language == "c" || language == "rust" ||
+      language == "kotlin" || language == "swift" || language == "java" || language == "csharp";
   const auto managed_facets = [&](auto&& self, const scalar_facets& facets) -> bool {
-    return managed_kinds.contains(facets.lexical_kind) && managed_kinds.contains(facets.list_item_kind) &&
+    const auto supported_kind = [&](const std::string& kind) {
+      return managed_kinds.contains(kind) || (namespace_backend && kind == "QName");
+    };
+    return supported_kind(facets.lexical_kind) && supported_kind(facets.list_item_kind) &&
         facets.qname_enumeration.empty() && std::all_of(facets.union_members.begin(), facets.union_members.end(),
             [&](const auto& branch) { return self(self, branch); });
   };
   for (const auto& value : contract.fields) {
     const auto& facets = value.facets;
+    if (namespace_backend && (value.qname || value.prefix_list || namespace_value(namespace_value, facets)) &&
+        (!facets.union_members.empty() || value.default_value || value.fixed_value ||
+            !facets.enumeration.empty() || !facets.qname_enumeration.empty())) {
+      throw std::invalid_argument{std::string{language} +
+          " XML QName unions/defaults/fixed/enumeration require expanded value identities: " + value.source->name};
+    }
     const bool portable_scalar_facets = managed_scalar || javascript_backend;
     if (portable_scalar_facets && value.compiled_facets &&
         !value.compiled_facets->patterns_portable()) {
@@ -2233,7 +2249,7 @@ void validate_backend(const record& contract, std::string_view language) {
         (facets.lexical_kind == "normalizedString" || facets.lexical_kind == "token" || facets.lexical_kind == "anyURI" ||
          facets.lexical_kind == "decimal" || facets.lexical_kind == "integer" || facets.lexical_kind == "positiveInteger" ||
          facets.lexical_kind == "negativeInteger" || facets.lexical_kind == "nonPositiveInteger" || facets.lexical_kind == "nonNegativeInteger");
-    if ((!managed_scalar && value.list) || value.qname || value.prefix_list ||
+    if ((!managed_scalar && value.list) || ((value.qname || value.prefix_list) && !namespace_backend) ||
         (value.value_projection && language != "c" && language != "rust" && language != "kotlin" && language != "swift" &&
             language != "java" && language != "csharp" && language != "go") ||
         (!javascript_backend && !managed_scalar && (value.default_value || value.fixed_value)) ||

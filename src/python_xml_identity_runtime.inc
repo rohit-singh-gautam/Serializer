@@ -260,6 +260,8 @@ class _XmlTokenIdentity:
                 raise ValueError('XML identity tuple-count limit exceeded')
             if candidate['bytes'] > self.limits.max_tuple_bytes - self.tuple_bytes:
                 raise ValueError('XML identity tuple-byte limit exceeded')
+            if getattr(self.context, 'admit_reference', None) is not None:
+                _xml_field_context(self.context, constraint['id'][1]).admit_reference()
             self.tuples += 1
             self.tuple_bytes += candidate['bytes']
             self._work(candidate['bytes'] + 1)

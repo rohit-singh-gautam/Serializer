@@ -13,3 +13,4 @@ outside C++ remain unimplemented.
 | [JavaScript, Go, and C#](portable_languages.md) | Owning models and codecs, JavaScript's TypeScript declarations, target mappings, and backend limits. |
 | [Rust, Python, Swift, Kotlin, and C](native_languages.md) | Generation, model APIs, encoding and decoding, SDK requirements, and qualification boundaries. |
 | [XML across all outputs](../serialization/xml_packages.md) | Optional typed XML, fixed XSD mapping, explicit runtime validators and all-language examples. |
+| [C# and Kotlin/JVM packages](csharp_kotlin_packages.md) | Owning ZIP/OPC, typed XML roles, shared budgets, private spooling and staged Save. |

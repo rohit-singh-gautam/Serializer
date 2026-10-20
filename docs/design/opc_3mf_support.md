@@ -1,7 +1,7 @@
 # Open Packaging Conventions and 3MF authoring requirements
 
 [Documentation index](../README.md) · [XML/package design](xml_support.md) ·
-[Implemented APIs](../serialization/xml_packages.md) · [Pending work](../xml_pending.md)
+[Implemented APIs](../serialization/xml_packages.md) · [Pending work](../pending.md)
 
 Status: implemented subsets and remaining requirements, **19 October 2026**.
 The source release is compiler/runtime **2.8.0**, schema language **1.20.0**.
@@ -87,7 +87,7 @@ treated as implemented by this example.
 
 The authoritative status, remaining requirements and completion evidence for
 **OPC-R01–OPC-R13** are consolidated in
-[the central pending backlog](../xml_pending.md#opc-and-3mf-requirements).
+[the central pending backlog](../pending.md#opc-and-3mf-requirements).
 Those IDs refine the existing
 [PKG01–PKG09 contracts](xml_support.md#pkg01-named-parts-and-standard-metadata).
 This document retains responsibility boundaries, design rationale and examples;

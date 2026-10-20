@@ -307,5 +307,21 @@ SerializerNavigationTest.exe <repository> <complex-output> <generic-output> <inh
 The preserved prior resolver fails this single request with
 `MemoryLimitExceededException`; the repaired resolver passes all twelve checks.
 The regular native test also includes these checks among its complete navigation
-suite. Both local package versions are synchronized at **2.0.8**; package builds
+suite. Both local package versions are synchronized at **2.0.9**; package builds
 do not install extensions or update Marketplace listings.
+
+## C# and Kotlin package facades (2.0.9)
+
+Generated C# package classes and Kotlin package objects navigate to the owning
+schema `package` declaration and back. Kotlin objects have class-like package
+identity; ordinary generated enum identity remains distinct. Source renames and
+native token selection endpoints follow the same live dependency resolution.
+
+Compiler-marked C#/Kotlin runtime sections use the existing offset-preserving
+masking contract. Runtime types have no authored schema destination; their
+declarations are excluded while all original line and character offsets remain
+valid. Legacy output without those markers retains its previous indexing path.
+The shared unit regression covers both backends, all package token positions,
+runtime exclusion, enum identity, legacy fallback and live renames. Fresh
+generated-output and native adapter results belong to the
+[50-item qualification record](../verification/verification-pending-50-2026-10-20.md).

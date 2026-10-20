@@ -176,7 +176,124 @@ void validate_integer_default(const member& field) {
   }
 }
 
-// Retain native scalar expressions while checking known integer bounds and portable aggregates.
+// Recognize canonical unsuffixed decimal literals in linear space, preserving native spellings.
+bool canonical_floating_default(std::string_view text) {
+  std::size_t offset = text.starts_with('-') ? 1U : 0U;
+  const auto digit = [](char character) { return character >= '0' && character <= '9'; };
+  if (offset == text.size() || !digit(text[offset])) { return false; }
+  if (text[offset] == '0') { ++offset; }
+  else { while (offset < text.size() && digit(text[offset])) { ++offset; } }
+  if (offset < text.size() && text[offset] == '.') {
+    ++offset;
+    const auto start = offset;
+    while (offset < text.size() && digit(text[offset])) { ++offset; }
+    if (offset == start) { return false; }
+  }
+  if (offset < text.size() && (text[offset] == 'e' || text[offset] == 'E')) {
+    ++offset;
+    if (offset < text.size() && (text[offset] == '-' || text[offset] == '+')) { ++offset; }
+    const auto start = offset;
+    while (offset < text.size() && digit(text[offset])) { ++offset; }
+    if (offset == start) { return false; }
+  }
+  return offset == text.size();
+}
+
+// Classify a canonical decimal literal's magnitude without overflowing its written exponent.
+bool floating_default_at_least_one(std::string_view text) {
+  if (text.starts_with('-')) { text.remove_prefix(1); }
+  const auto exponent_position = text.find_first_of("eE");
+  const auto mantissa = text.substr(0, exponent_position);
+  const auto decimal_position = mantissa.find('.');
+  const auto integer_digits = decimal_position == std::string_view::npos ?
+      mantissa.size() : decimal_position;
+  std::size_t first_nonzero = std::string_view::npos;
+  std::size_t digits{};
+  for (const auto character : mantissa) {
+    if (character == '.') { continue; }
+    if (first_nonzero == std::string_view::npos && character != '0') { first_nonzero = digits; }
+    ++digits;
+  }
+  if (first_nonzero == std::string_view::npos) { return false; }
+  std::size_t exponent{};
+  bool negative_exponent{};
+  if (exponent_position != std::string_view::npos) {
+    auto lexical = text.substr(exponent_position + 1U);
+    negative_exponent = lexical.starts_with('-');
+    if (lexical.starts_with('-') || lexical.starts_with('+')) { lexical.remove_prefix(1); }
+    const auto parsed = std::from_chars(lexical.data(), lexical.data() + lexical.size(), exponent);
+    // An exponent exceeding size_t also exceeds every possible mantissa position.
+    if (parsed.ec == std::errc::result_out_of_range) { return !negative_exponent; }
+  }
+  if (negative_exponent) {
+    return first_nonzero < integer_digits && exponent <= integer_digits - first_nonzero - 1U;
+  }
+  return first_nonzero < integer_digits || exponent >= first_nonzero - integer_digits + 1U;
+}
+
+// Diagnose only known finite-width overflow; preserve underflow and opaque native expressions.
+void validate_floating_default(const member& field) {
+  const auto& type = field.type_name_list.front();
+  if (field.modifier != member::modifier_type::none || type.type != object_type::primitive ||
+      (type.name != "float" && type.name != "double")) { return; }
+  const auto text = schema_version::trim(field.default_value);
+  if (!canonical_floating_default(text)) { return; }
+  float single{};
+  double extended{};
+  const auto parsed = type.name == "float" ?
+      std::from_chars(text.data(), text.data() + text.size(), single) :
+      std::from_chars(text.data(), text.data() + text.size(), extended);
+  // from_chars reports both overflow and underflow as out_of_range. Values with
+  // magnitude below one retain their established native underflow behavior.
+  if (parsed.ec == std::errc::result_out_of_range && floating_default_at_least_one(text)) {
+    throw std::invalid_argument{"Floating default exceeds the declared " + type.name + " range"};
+  }
+}
+
+// Recognize simple qualified names without accepting native calls, casts or member expressions.
+bool qualified_enum_default(std::string_view text) {
+  if (text.starts_with("::")) { text.remove_prefix(2U); }
+  const auto first_character = [](char character) {
+    return character == '_' || (character >= 'a' && character <= 'z') ||
+        (character >= 'A' && character <= 'Z');
+  };
+  std::size_t components{};
+  while (!text.empty()) {
+    if (!first_character(text.front())) { return false; }
+    std::size_t end{1U};
+    while (end < text.size() && (first_character(text[end]) ||
+        (text[end] >= '0' && text[end] <= '9'))) { ++end; }
+    ++components;
+    text.remove_prefix(end);
+    if (text.empty()) { return components > 1U; }
+    if (!text.starts_with("::")) { return false; }
+    text.remove_prefix(2U);
+  }
+  return false;
+}
+
+// Validate closed enum inventories only when a default explicitly names its declared enum type.
+void validate_qualified_enum_default(const member& field) {
+  const auto& type = field.type_name_list.front();
+  if (field.modifier != member::modifier_type::none || type.type != object_type::enum_type ||
+      !type.resolved_node) { return; }
+  const auto text = schema_version::trim(field.default_value);
+  if (!qualified_enum_default(text)) { return; }
+  std::string_view qualified{text};
+  if (qualified.starts_with("::")) { qualified.remove_prefix(2U); }
+  const auto separator = qualified.rfind("::");
+  const auto owner = qualified.substr(0, separator);
+  const auto alternative = qualified.substr(separator + 2U);
+  const auto& declaration = static_cast<const enum_node&>(*type.resolved_node);
+  if (owner != type.name && owner != declaration.name && owner != declaration.get_full_name()) { return; }
+  if (std::find(declaration.enum_name_list.begin(), declaration.enum_name_list.end(), alternative) ==
+      declaration.enum_name_list.end()) {
+    throw std::invalid_argument{"Unknown enumerator in default for " + type.name + ": " +
+        std::string{alternative}};
+  }
+}
+
+// Retain native scalar expressions while checking known scalar contracts and portable aggregates.
 void validate_portable_default(const rohit::type_check::schema_input_buffer auto& input,
                               member& field, const class_node& owner,
                               bool empty_record_default_enabled = false,
@@ -197,6 +314,8 @@ void validate_portable_default(const rohit::type_check::schema_input_buffer auto
   try {
     if (!aggregate && !parameter && !owner_default) {
       validate_integer_default(field);
+      validate_floating_default(field);
+      validate_qualified_enum_default(field);
       return;
     }
     field.initializer = bind_value_initializer(input, field, owner, text, 0, nullptr,

@@ -4,7 +4,7 @@ Status: implementation specification and remaining requirements, **2026-10-17**.
 Compiler/runtime **2.4.0**, schema language **1.17.0**. See the
 [implemented API and exact subset](../serialization/xml_packages.md),
 [generated-language examples](../../example/xml/README.md) and the
-[central pending backlog](../xml_pending.md). XML generation now covers all output
+[central pending backlog](../pending.md). XML generation now covers all output
 backends; compression streams and ZIP/OPC have a C++ implementation. Cross-language
 parity and qualification remain completion gates. Examples marked **proposed**
 remain design sketches, not accepted syntax or options.
@@ -740,7 +740,7 @@ decoded allocations, reference indexes, retained parts, staging and work. A
 100 MiB expanded-byte budget means 100 MiB for the package, not for each entry.
 
 The following target ownership split includes mechanisms still pending in the
-[implementation report](../xml_pending.md). The library owns reusable mechanics;
+[implementation report](../pending.md). The library owns reusable mechanics;
 applications own vocabulary and policy:
 
 | Serializer provides | Application supplies |
@@ -1249,5 +1249,5 @@ XSD/XML versions and payload revisions remain independent. Update README,
 integration skill, usage/wire/migration docs, both editors and synchronized editor
 patch versions when their implementation changes. The implementation increments
 the compiler/runtime minor release to **2.3.0**; schema grammar stays **1.17.0**.
-The [pending report](../xml_pending.md) records remaining gates; qualification
+The [pending report](../pending.md) records remaining gates; qualification
 results must describe executed builds and checks separately from this specification.

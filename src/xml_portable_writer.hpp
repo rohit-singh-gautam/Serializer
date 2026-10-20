@@ -11,6 +11,8 @@ using field_name = std::function<std::string(const member&)>;
 using type_name_fn = std::function<std::string(const type_name&)>;
 using scalar_codec = std::function<std::string(const type_name&, const std::string&, bool)>;
 using alternative_name = std::function<std::string(std::string_view)>;
+// Identify scalar names whose lexical spelling depends on an XML namespace scope.
+[[nodiscard]] bool namespace_dependent(const xml_binding::field& field);
 // Recognize one complete singleton all-group that portable pull readers can dispatch directly.
 [[nodiscard]] bool supports_all(const xml_binding::record& contract);
 // Recognize one nonrepeated singleton choice represented by ordinary single-layer optional fields.

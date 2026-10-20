@@ -50,6 +50,18 @@ public:
         std::string reference = {}, std::string relationship_id = {});
 };
 
+namespace detail {
+// Fill missing logical locations while preserving the original error code and numeric bounds.
+inline error locate_error(const error& source, std::string_view part = {},
+    std::string_view field = {}, std::string_view reference = {}, std::string_view link = {}) {
+  return error{source.code, source.what(), source.part.empty() ? std::string{part} : source.part,
+      source.offset_bytes, source.required, source.permitted,
+      source.field_path.empty() ? std::string{field} : source.field_path,
+      source.reference.empty() ? std::string{reference} : source.reference,
+      source.relationship_id.empty() ? std::string{link} : source.relationship_id};
+}
+} // namespace detail
+
 struct limits {
   std::uint64_t max_archive_bytes{256 * mebibyte};
   std::uint64_t max_io_bytes{1024 * mebibyte};
@@ -72,6 +84,14 @@ enum class resource {
   decoder_allocation_bytes, work_units, references, preserved_bytes
 };
 
+// Borrow declared diagnostic identities for one synchronous budget charge; no payload is retained.
+struct budget_location {
+  std::string_view part{};
+  std::string_view field_path{};
+  std::string_view reference{};
+  std::string_view relationship_id{};
+};
+
 // One caller-owned, non-thread-safe budget follows nested archive/OPC operations.
 // Counters are cumulative, including repeated reads; failed work is not refunded.
 class budget {
@@ -87,6 +107,10 @@ class budget {
   std::uint64_t references_{};
   std::uint64_t preserved_bytes_{};
   std::uint64_t reserved_buffer_bytes_{};
+  // Invoke user cancellation outside all runtime-error annotation handlers.
+  [[nodiscard]] std::optional<error_code> interruption() const;
+  // Charge counters after interruption has been checked; only runtime budget failures originate here.
+  void consume_available(resource selected, std::uint64_t count, const budget_location& location);
 public:
   // Keep the cancellation callback and immutable limits for this operation.
   explicit budget(limits configured = {});
@@ -100,10 +124,14 @@ public:
   void check_cancelled() const;
   // Charge work before allocation/I/O; failure never wraps a counter.
   void consume(resource selected, std::uint64_t count, std::string_view part = {});
+  // Retain caller-declared reference diagnostics without changing callback exception types.
+  void consume_at(resource selected, std::uint64_t count, const budget_location& location);
   // Bound a simultaneous per-operation scratch allocation without charging retained metadata.
   void check_buffer(std::uint64_t count, std::string_view part = {}) const;
   // Borrow this budget into XML codecs; the returned context must not outlive the budget.
   [[nodiscard]] xml::operation_context xml_context(std::string_view part = {});
+  // Include the owning relationship when generated typed-role codecs exhaust shared resources.
+  [[nodiscard]] xml::operation_context xml_context(std::string_view part, std::string_view relationship_id);
 };
 
 // Reserve caller-owned scratch across nested archive/compression operations on the same budget.

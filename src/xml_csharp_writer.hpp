@@ -127,6 +127,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
                            bool needs_base_bridges, bool readonly = false,
                            const xml_portable::field_name& projection = {}) {
   const bool export_graph = readonly || xml_codegen::native_xml_export_graph(object);
+  const bool namespace_values = std::any_of(contract.fields.begin(), contract.fields.end(), xml_portable::namespace_dependent);
   const bool all = xml_portable::supports_all(contract);
   if (!contract.all_groups.empty() && !all) {
     throw std::invalid_argument{"C# XML all traversal requires one complete unwrapped singleton group"};
@@ -260,6 +261,15 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
     line("private static readonly SrlXmlExtensionContract SrlXmlExtensionMetadata="+xml_codegen::portable_extension_metadata(*contract.extensions,quote,expanded,"csharp")+';');
     if(!readonly)line("private SrlXmlPreserved? SrlXmlPreservedState;");
   }
+  if (namespace_values) {
+    if (native_names.contains("srlXmlNamespaces") || native_names.contains("SetXmlNamespaces")) {
+      throw std::invalid_argument{"C# XML namespace metadata collides with a native field"};
+    }
+    line("// XML-only occurrence scopes stay separate from native field codecs.");
+    line("private readonly SrlXmlNamespaceValues srlXmlNamespaces=new();");
+    line("// Replace QName scopes using copied validated bindings for native-authored values.");
+    line("public void SetXmlNamespaces(System.Collections.Generic.IDictionary<string,string> bindings)=>srlXmlNamespaces.Set(bindings);");
+  }
   std::map<const member*, std::size_t> rule_indices{};
   for (std::size_t index{}; index < contract.fields.size(); ++index) {
     const auto& item = contract.fields[index]; rule_indices.emplace(item.source, index);
@@ -334,11 +344,14 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
   line("XmlWrite(output, name, null);"); --indent; line("}");
   line("// Add an explicit type before native attributes without changing ordinary callers.");
   line("internal void XmlWrite(SrlXmlOutput output, string name, string? typeIdentity) {"); ++indent;
+  line("using var srlOperationOwner=output.FieldOwner();");
   if(contract.extensions){
     line(readonly?"var srlScope=new System.Collections.Generic.Dictionary<string,string>();":"var srlScope=SrlXmlPreservedState?.Scope??new System.Collections.Generic.Dictionary<string,string>();");
     line("var srlExtensions=new SrlXmlExtensions(SrlXmlExtensionMetadata,srlScope,output.ExtensionOptions,"+std::string{readonly?"null":"SrlXmlPreservedState"}+");");
     line("output.Open(name,srlScope);");
-  }else line("output.Open(name);");
+  } else if (namespace_values) {
+    line("output.Open(name,new System.Collections.Generic.Dictionary<string,string>{{\"\",\"\"}});");
+  } else { line("output.Open(name);"); }
   if (contract.identity) { line("var srlIdentity=output.IdentityScope(SrlXmlIdentityMetadata);"); }
   line("if (typeIdentity != null) output.TypeName(typeIdentity);");
   for (const auto& path : base_paths) {
@@ -360,6 +373,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
   if(contract.extensions&&!attributes)line("srlExtensions.EmitAttributes(output);");
   for (const auto& item : contract.fields) {
     if (item.attribute != attributes) { continue; }
+    line("output.Field(" + quote(item.source->name) + ");");
     const auto extensions=extension_scope(item,"this.",true);
     const auto active = active_scope(*item.source, "this.");
     if (xml_portable::typed_list(item)) {
@@ -391,6 +405,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
     const bool optional = value.type_name_list.front().is_optional();
     std::string selected = access;
     line("{"); ++indent;
+    if (xml_portable::namespace_dependent(item)) { line("int srlNamespaceIndex=0;"); }
     if (item.wrapper) {
       line("output.Open(" + expanded(*item.wrapper) + ");");
     }
@@ -421,9 +436,11 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
   }
   }
   if (contract.mixed) {
+    line("output.Field(" + quote(contract.mixed->source->name) + ");");
     line(xml_portable::mixed_write(*contract.mixed, "this." + mapped_field(*contract.mixed->source),
         field_name, alternative, "csharp"));
   }
+  line("output.Field(\"\");");
   if(contract.extensions){line("srlExtensions.EmitAt(output,"+std::to_string(contract.fields.size())+",0);");line("srlExtensions.FinishOutput();");}
   line("output.Close();");
   if (contract.identity) { line("output.IdentityFinish(srlIdentity);"); }
@@ -435,8 +452,12 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
     line("throw new System.FormatException(\"Readonly XML projections are export-only; decode the owning target\");");
     --indent; line("}"); return source;
   }
+  line("using var srlOperationOwner=input.FieldOwner();");
   if (contract.identity) { line("var srlIdentity=input.IdentityScope(SrlXmlIdentityMetadata);"); }
   if(contract.extensions)line("var srlExtensions=new SrlXmlExtensions(SrlXmlExtensionMetadata,input.NamespaceScope(),input.ExtensionOptions,null);");
+  if (std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& item) {
+        return (item.attribute || item.text) && xml_portable::namespace_dependent(item);
+      })) { line("var srlNamespaceScope=input.NamespaceScope();"); }
   line("var fields = input.Open(name);"); line("var result = new " + std::string{model_name} + "();");
   if (const auto* revision = contract.model.revision) {
     const auto text = "SrlXmlRevisionLexical(fields.Attribute(" +
@@ -454,6 +475,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
     if(contract.extensions&&!attributes)line("foreach(var entry in fields.Attributes)srlExtensions.Attribute(entry.Key,entry.Value);fields.Attributes.Clear();");
     for (const auto& item : contract.fields) {
       if (item.attribute != attributes) { continue; }
+      line("input.Field(" + quote(item.source->name) + ");");
       const auto extensions=extension_scope(item,"result.",false);
       const auto active = active_scope(*item.source, "result.");
       if (xml_portable::typed_list(item)) {
@@ -538,6 +560,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
       const auto& type = leaf(*item.source);
       const auto seen = "seen[" + std::to_string(index) + "]";
       line("case " + expanded(item.qualified_name) + ": {"); ++indent;
+      line("input.Field(" + quote(item.source->name) + ");");
       line("if (" + seen + ") throw new System.FormatException(\"Duplicate XML all child\");");
       if (xml_portable::typed_list(item)) {
         line(xml_portable::list_read(item, rule_indices.at(item.source), "result." + mapped_field(*item.source),
@@ -574,9 +597,11 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
     if (optional_group) { --indent; line("}"); }
   }
   if (contract.mixed) {
+    line("input.Field(" + quote(contract.mixed->source->name) + ");");
     line(xml_portable::mixed_read(*contract.mixed, "result." + mapped_field(*contract.mixed->source),
         native_type, field_name, alternative, "csharp"));
   }
+  line("input.Field(\"\");");
   if(contract.extensions){line("srlExtensions.ReadAt(input,"+std::to_string(contract.fields.size())+",0);");line("srlExtensions.Finish();");line("result.SrlXmlPreservedState=srlExtensions.State;");}
   line("fields.Finish();");
   if (contract.identity) { line("input.IdentityFinish(srlIdentity);"); }

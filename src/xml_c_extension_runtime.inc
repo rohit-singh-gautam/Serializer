@@ -13,10 +13,16 @@ static inline srl_xml_extension_options srl_xml_default_extension_options(void) 
   const srl_xml_extension_options result = {{srl_xml_extension_max_slots,srl_xml_extension_max_items,srl_xml_extension_max_preserved_bytes},NULL,0,""}; return result;
 }
 typedef struct srl_xml_extension_model srl_xml_extension_model;
-typedef struct srl_xml_extension_field { const char* uri; const char* local; bool attribute; bool repeated; const srl_xml_extension_model* (*child)(void); } srl_xml_extension_field;
+typedef struct srl_xml_extension_field { const char* uri; const char* local; bool attribute; bool repeated; const srl_xml_extension_model* (*child)(void); unsigned namespace_kind; } srl_xml_extension_field;
 typedef struct srl_xml_extension_slot { bool attribute; size_t position; const char* const* uris; size_t uri_count; unsigned policy; size_t minimum; size_t maximum; } srl_xml_extension_slot;
 typedef struct srl_xml_extension_contract { const char* core; const char* const* required; size_t required_count; const srl_xml_extension_slot* slots; size_t slot_count; } srl_xml_extension_contract;
-struct srl_xml_extension_model { const char* identity; const srl_xml_extension_field* fields; size_t field_count; const srl_xml_extension_contract* contract; };
+struct srl_xml_extension_model { const char* identity; const srl_xml_extension_field* fields; size_t field_count; const srl_xml_extension_contract* contract; unsigned namespace_text; };
+/* Scalar children use ordinary occurrence paths, with no application record or wire-field changes. */
+static inline const srl_xml_extension_model* srl_xml_namespace_model_1(void) { static const srl_xml_extension_model model={"serializer:QName",NULL,0,NULL,1};return &model; }
+/* Keep a QName list's local scope through the same scalar occurrence inventory. */
+static inline const srl_xml_extension_model* srl_xml_namespace_model_2(void) { static const srl_xml_extension_model model={"serializer:QName-list",NULL,0,NULL,2};return &model; }
+/* Prefix-list items retain URI identity while their original lexical prefixes remain unchanged. */
+static inline const srl_xml_extension_model* srl_xml_namespace_model_3(void) { static const srl_xml_extension_model model={"serializer:prefix-list",NULL,0,NULL,3};return &model; }
 typedef struct srl_ext_binding { char* prefix; char* uri; } srl_ext_binding;
 typedef struct srl_ext_scope { srl_ext_binding* data; size_t size; size_t capacity; const struct srl_ext_scope* parent; } srl_ext_scope;
 typedef struct srl_ext_attribute { char* uri; char* local; char* value; } srl_ext_attribute;
@@ -72,6 +78,30 @@ static inline const char* srl_ext_namespace(const srl_ext_scope* scope, const ch
   if (!strcmp(prefix,"xml")) { return "http://www.w3.org/XML/1998/namespace"; }
   for (; scope; scope=scope->parent) { for (size_t index=scope->size; index; --index) { if (!strcmp(scope->data[index-1].prefix,prefix)) { return scope->data[index-1].uri; } } } return NULL;
 }
+/* Validate namespace-dependent tokens in their own complete scope, after bounded XML admission. */
+static inline srl_status srl_ext_namespace_value(const char* raw, unsigned kind,
+    const srl_ext_scope* scope, size_t maximum_items) {
+  if (!kind) { return srl_ok; }
+  srl_string normalized={0};srl_status status=srl_xml_scalar_normalize(raw,strlen(raw),"collapse",&normalized);
+  if (status!=srl_ok) { return status; }
+  size_t offset=0,begin=0,size=0,count=0;
+  while (status==srl_ok && srl_xml_scalar_token(normalized.data,&offset,&begin,&size)) {
+    if (count==maximum_items) { status=srl_limit;break; } ++count;
+    char* token=normalized.data+begin;const char saved=token[size];token[size]=0;
+    char* colon=strchr(token,':');
+    if (kind==3) {
+      const char* uri=srl_ext_namespace(scope,token);
+      if (srl_xml_scalar_lexical("NCName",token)!=srl_ok || !strcmp(token,"xmlns") || !uri || !*uri) { status=srl_invalid; }
+    } else if (colon) {
+      *colon=0;const char* uri=srl_ext_namespace(scope,token);
+      if (srl_xml_scalar_lexical("NCName",token)!=srl_ok || !strcmp(token,"xmlns") || !uri || !*uri ||
+          srl_xml_scalar_lexical("NCName",colon+1)!=srl_ok) { status=srl_invalid; } *colon=':';
+    } else if (srl_xml_scalar_lexical("NCName",token)!=srl_ok) { status=srl_invalid; }
+    token[size]=saved;
+  }
+  if (status==srl_ok && kind==1 && count!=1) { status=srl_invalid; }
+  srl_string_free(&normalized);return status;
+}
 /* Append a namespace binding transactionally to one active or retained frame. */
 static inline bool srl_ext_binding_add(srl_ext_scope* scope, const char* prefix, const char* uri) {
   srl_ext_binding value={srl_ext_copy(prefix),srl_ext_copy(uri)};
@@ -93,6 +123,15 @@ static inline bool srl_ext_put(srl_ext_output* output, const char* value, size_t
   if (output->writer.status != srl_ok) { return false; }
   if (output->writer.buffer.size > output->maximum || size > output->maximum-output->writer.buffer.size) { output->writer.status=srl_limit; return false; }
   srl_put(&output->writer,value,size); return output->writer.status==srl_ok;
+}
+/* Validate complete provider-split scalar text, adding only an uncharged private terminator. */
+static inline srl_status srl_ext_namespace_finish(srl_ext_output* value, unsigned kind,
+    const srl_ext_scope* scope, size_t maximum_items) {
+  if (!kind) { return srl_ok; }
+  if (value->writer.buffer.size==SIZE_MAX) { return srl_limit; }
+  if (!srl_reserve(&value->writer.buffer,1u)) { return srl_allocation; }
+  value->writer.buffer.data[value->writer.buffer.size]=0;
+  return srl_ext_namespace_value((const char*)value->writer.buffer.data,kind,scope,maximum_items);
 }
 /* Append a trusted static framing fragment. */
 static inline bool srl_ext_raw(srl_ext_output* output, const char* value) { return srl_ext_put(output,value,strlen(value)); }
@@ -236,13 +275,16 @@ static inline srl_status srl_ext_foreign(srl_xml_input* input, srl_ext_output* o
 /* Filter an ordinary typed owner while recording exact static-field/repeated-item positions. */
 static inline srl_status srl_ext_filter_owner(srl_xml_input* input, srl_ext_output* output, const srl_xml_extension_model* model, srl_writer* path, srl_xml_extension_state* state, const srl_xml_extension_options* options, const srl_ext_scope* parent) {
   srl_ext_head head; srl_status status=srl_ext_head_read(input,&head,parent); char* lexical=NULL; size_t position=0;
+  srl_ext_output namespace_value={0};namespace_value.maximum=input->limits.max_string_bytes;bool namespace_owner=model->namespace_text!=0;
   const size_t original_owners=state->owner_count;
   const size_t slot_count=model->contract ? model->contract->slot_count : 0;
   size_t* counts=(size_t*)calloc(slot_count ? slot_count : 1,sizeof(size_t)); size_t* items=(size_t*)calloc(model->field_count ? model->field_count : 1,sizeof(size_t));
   srl_ext_attributes known={0}; if (!counts || !items) { status=srl_allocation; }
   if (status==srl_ok) { status=srl_ext_capabilities(model->contract,&head.scope,options); }
   for (size_t index=0; status==srl_ok && index<head.attributes.size; ++index) { srl_ext_attribute* attribute=&head.attributes.data[index]; bool recognized=!strcmp(attribute->uri,"urn:serializer:xml:model");
-    for (size_t field=0; !recognized && field<model->field_count; ++field) { recognized=model->fields[field].attribute && !strcmp(attribute->uri,model->fields[field].uri) && !strcmp(attribute->local,model->fields[field].local); }
+    for (size_t field=0; !recognized && field<model->field_count; ++field) { recognized=model->fields[field].attribute && !strcmp(attribute->uri,model->fields[field].uri) && !strcmp(attribute->local,model->fields[field].local);
+      if (recognized && model->fields[field].namespace_kind) { namespace_owner=true;status=srl_ext_namespace_value(attribute->value,model->fields[field].namespace_kind,&head.scope,input->limits.max_elements); }
+    }
     if (recognized) { if (!srl_ext_grow((void**)&known.data,&known.capacity,known.size+1,sizeof(*known.data))) { status=srl_allocation; break; } known.data[known.size++]=*attribute; }
     else { const size_t slot=srl_ext_slot(model,attribute->uri,attribute->local,true,0); bool preserve=false; status=srl_ext_admit(state,model,counts,slot,options,&preserve);
       if (status==srl_ok && preserve) { size_t owner=0; status=srl_ext_owner_get(state,model,&path->buffer,&head.scope,options,&owner);
@@ -253,6 +295,7 @@ static inline srl_status srl_ext_filter_owner(srl_xml_input* input, srl_ext_outp
       }
     }
   }
+  if (status==srl_ok && namespace_owner) { size_t owner=0;status=srl_ext_owner_get(state,model,&path->buffer,&head.scope,options,&owner); }
   if (status==srl_ok) { status=srl_ext_start(output,&head,&head.scope,&known,&lexical); } free(known.data);
   if (status==srl_ok && !srl_xml_input_next(input)) { status=input->status; }
   while (status==srl_ok && input->kind!=XML_READER_TYPE_END_ELEMENT) {
@@ -276,11 +319,14 @@ static inline srl_status srl_ext_filter_owner(srl_xml_input* input, srl_ext_outp
         } else if (status==srl_ok) { status=srl_ext_foreign(input,NULL,&head.scope); }
       }
     } else if (input->kind==XML_READER_TYPE_NONE) { status=srl_invalid; }
-    else { if (!srl_ext_escape(output,(const char*)xmlTextReaderConstValue(input->reader),false)) { status=output->writer.status; } if (status==srl_ok && !srl_xml_input_next(input)) { status=input->status; } }
+    else { const char* text=(const char*)xmlTextReaderConstValue(input->reader);
+      if (model->namespace_text && !srl_ext_put(&namespace_value,text,strlen(text))) { status=namespace_value.writer.status; }
+      if (status==srl_ok && !srl_ext_escape(output,text,false)) { status=output->writer.status; } if (status==srl_ok && !srl_xml_input_next(input)) { status=input->status; } }
   }
+  if (status==srl_ok) { status=srl_ext_namespace_finish(&namespace_value,model->namespace_text,&head.scope,input->limits.max_elements); }
   if (status==srl_ok && state->owner_count>original_owners) { size_t context_owner=0; status=srl_ext_owner_get(state,model,&path->buffer,&head.scope,options,&context_owner); }
   if (status==srl_ok) { status=srl_ext_minimum(model,counts); } if (status==srl_ok) { status=srl_ext_end(output,lexical); } if (status==srl_ok && !srl_xml_input_next(input)) { status=input->status; }
-  free(counts); free(items); free(lexical); srl_ext_head_free(&head); return status;
+  srl_buffer_free(&namespace_value.writer.buffer);free(counts); free(items); free(lexical); srl_ext_head_free(&head); return status;
 }
 )cext"
 R"cext(
@@ -299,6 +345,7 @@ static inline srl_status srl_ext_replay_owner(srl_xml_input* input, srl_ext_outp
   for (size_t index=0; index<state->owner_count; ++index) { const srl_buffer* stored=&state->owners[index].path; if (stored->size==path->buffer.size && (!stored->size || !memcmp(stored->data,path->buffer.data,stored->size))) { owner=&state->owners[index]; used[index]=true; break; } }
   if (owner && strcmp(owner->identity,model->identity)) { return srl_invalid; }
   srl_ext_head head; srl_status status=srl_ext_head_read(input,&head,parent); char* lexical=NULL; size_t cursor=0;
+  srl_ext_output namespace_value={0};namespace_value.maximum=input->limits.max_string_bytes;
   srl_ext_scope overlay={0}; const srl_ext_scope* scope=&head.scope;
   // A retained owner scope is complete. Exclude canonical known-writer aliases that were absent from original opaque XML.
   if (owner) { overlay=owner->scope; overlay.parent=NULL; scope=&overlay; }
@@ -311,6 +358,15 @@ static inline srl_status srl_ext_replay_owner(srl_xml_input* input, srl_ext_outp
   if (owner) { for (size_t index=0; status==srl_ok && index<owner->attributes.size; ++index) { const srl_ext_attribute* value=&owner->attributes.data[index]; const size_t slot=srl_ext_slot(model,value->uri,value->local,true,0); bool preserve=false;
     status=srl_ext_admit(admission,model,counts,slot,options,&preserve); if (status==srl_ok && !preserve) { status=srl_invalid; } if (status==srl_ok) { attributes.data[attributes.size++]=*value; }
   }}
+  for (size_t index=0;status==srl_ok && index<attributes.size;++index) {
+    const srl_ext_attribute* attribute=&attributes.data[index];
+    for (size_t field=0;status==srl_ok && field<model->field_count;++field) {
+      const srl_xml_extension_field* selected=&model->fields[field];
+      if (selected->attribute && selected->namespace_kind && !strcmp(attribute->uri,selected->uri) && !strcmp(attribute->local,selected->local)) {
+        status=srl_ext_namespace_value(attribute->value,selected->namespace_kind,scope,input->limits.max_elements);
+      }
+    }
+  }
   if (status==srl_ok) { status=srl_ext_start(output,&head,scope,&attributes,&lexical); } free(attributes.data);
   if (status==srl_ok && !srl_xml_input_next(input)) { status=input->status; }
   while (status==srl_ok && input->kind!=XML_READER_TYPE_END_ELEMENT) {
@@ -323,12 +379,15 @@ static inline srl_status srl_ext_replay_owner(srl_xml_input* input, srl_ext_outp
         if (status==srl_ok) { status=srl_ext_replay_owner(input,output,field->child(),path,state,used,admission,options,scope); } path->buffer.size=rollback;
       } else if (status==srl_ok) { status=srl_ext_foreign(input,output,scope); }
     } else if (input->kind==XML_READER_TYPE_NONE) { status=srl_invalid; }
-    else { if (!srl_ext_escape(output,(const char*)xmlTextReaderConstValue(input->reader),false)) { status=output->writer.status; } if (status==srl_ok && !srl_xml_input_next(input)) { status=input->status; } }
+    else { const char* text=(const char*)xmlTextReaderConstValue(input->reader);
+      if (model->namespace_text && !srl_ext_put(&namespace_value,text,strlen(text))) { status=namespace_value.writer.status; }
+      if (status==srl_ok && !srl_ext_escape(output,text,false)) { status=output->writer.status; } if (status==srl_ok && !srl_xml_input_next(input)) { status=input->status; } }
   }
+  if (status==srl_ok) { status=srl_ext_namespace_finish(&namespace_value,model->namespace_text,scope,input->limits.max_elements); }
   if (status==srl_ok) { status=srl_ext_replay_children(output,owner,&cursor,model->field_count,items,model,counts,admission,options); }
   if (status==srl_ok && owner && cursor!=owner->child_count) { status=srl_invalid; }
   if (status==srl_ok) { status=srl_ext_minimum(model,counts); } if (status==srl_ok) { status=srl_ext_end(output,lexical); } if (status==srl_ok && !srl_xml_input_next(input)) { status=input->status; }
-  free(counts); free(items); free(lexical); srl_ext_head_free(&head); return status;
+  srl_buffer_free(&namespace_value.writer.buffer);free(counts); free(items); free(lexical); srl_ext_head_free(&head); return status;
 }
 /* Admit canonical framing only after the original document has passed all logical resource limits. */
 static inline srl_status srl_xml_extension_transport_limits(size_t size, const srl_limits* original, srl_limits* result) {

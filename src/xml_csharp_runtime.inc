@@ -14,13 +14,14 @@ R"xmlcs(
   // Charge the complete generated/parsed document before retaining its logical tree storage.
   internal sealed class SrlXmlBudget {
     internal readonly Limits Limits;
+    internal Limits.IOperation? Operation => Limits.Operation;
     internal int Nodes, Attributes, TextBytes;
     // Retain a validated per-operation policy without global mutable counters.
     internal SrlXmlBudget(Limits limits) { Limits = limits ?? throw new System.ArgumentNullException(nameof(limits)); }
     // Validate XML1.0 characters and bound cumulative UTF8 text and expanded names.
-    internal string Text(string value) { System.Xml.XmlConvert.VerifyXmlChars(value); int count = SrlUtf8.GetByteCount(value); if (count > Limits.MaxStringBytes - TextBytes) throw new System.FormatException("XML text limit exceeded"); TextBytes += count; return value; }
+    internal string Text(string value) { System.Xml.XmlConvert.VerifyXmlChars(value); int count = SrlUtf8.GetByteCount(value); Operation?.Consume(Limits.OperationResource.WorkUnits,count);Operation?.Consume(Limits.OperationResource.AllocationBytes,(long)count*2);if (count > Limits.MaxStringBytes - TextBytes) throw new System.FormatException("XML text limit exceeded"); TextBytes += count; return value; }
     // Bound depth and nodes before creating a child record.
-    internal SrlXmlNode Node(string name, int depth) { if (depth > Limits.MaxDepth || Nodes >= Limits.MaxElements) throw new System.FormatException("XML node or depth limit exceeded"); ++Nodes; return new SrlXmlNode(Text(name)); }
+    internal SrlXmlNode Node(string name, int depth) { if (depth > Limits.MaxDepth || Nodes >= Limits.MaxElements) throw new System.FormatException("XML node or depth limit exceeded");Operation?.Consume(Limits.OperationResource.WorkUnits,1);Operation?.Consume(Limits.OperationResource.AllocationBytes,64); ++Nodes; return new SrlXmlNode(Text(name)); }
     // Bound attribute metadata before inserting it into the current element.
     internal void Attribute(SrlXmlNode node, string name, string value) { if (Attributes >= Limits.MaxElements) throw new System.FormatException("XML attribute limit exceeded"); ++Attributes; if (!node.Attributes.TryAdd(Text(name), Text(value))) throw new System.FormatException("Duplicate XML attribute"); }
   }
@@ -97,6 +98,13 @@ R"xmlcs(
     internal char Kind;
     // Expose native collection admission without exposing mutable counters.
     internal int ListLimit => budget.Limits.MaxElements;
+    // Borrow the current native owner only when a package supplies shared accounting.
+    internal global::System.IDisposable? FieldOwner()=>budget.Operation?.EnterOwner();
+    // Select a native sibling before its scalar or descendant work is admitted.
+    internal void Field(string member)=>budget.Operation?.SelectField(member);
+    internal int NamespaceBytes;
+    // Bound retained QName bindings independently of provider scope restoration.
+    internal int NamespaceByteLimit => budget.Limits.MaxStringBytes;
     // Bind an independent no-fetch provider after complete byte and UTF8 checks.
     internal SrlXmlInput(byte[] bytes, Limits limits) : this(bytes, limits, new XmlMapLimits()) { }
     // Carry one immutable map policy through every nested typed decoder.
@@ -106,11 +114,14 @@ R"xmlcs(
     // Carry explicit owner-local identity bounds through every nested candidate.
     internal SrlXmlInput(byte[] bytes, Limits limits, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity) : this(bytes,limits,maps,mixed,identity,new XmlDigestLimits()) { }
     // Carry immutable per-digest admission through every nested owning candidate.
-    internal SrlXmlInput(byte[] bytes, Limits limits, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity, XmlDigestLimits digests) : this(bytes,limits,maps,mixed,identity,digests,new XmlExtensionOptions()) { }
+)xmlcs"
+R"xmlcs(    internal SrlXmlInput(byte[] bytes, Limits limits, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity, XmlDigestLimits digests) : this(bytes,limits,maps,mixed,identity,digests,new XmlExtensionOptions()) { }
     // Share explicit opaque-vocabulary policies through every descendant.
     internal SrlXmlInput(byte[] bytes, Limits limits, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity, XmlDigestLimits digests, XmlExtensionOptions extensions) {
       ExtensionOptions=extensions??throw new System.ArgumentNullException(nameof(extensions));
       if (bytes.Length > limits.MaxBytes) throw new System.FormatException("XML byte limit exceeded");
+      limits.Operation?.Consume(Limits.OperationResource.WorkUnits,bytes.Length);
+      limits.Operation?.Consume(Limits.OperationResource.AllocationBytes,(long)bytes.Length*2);
       SrlUtf8.GetString(bytes); budget = new SrlXmlBudget(limits); MapLimits = maps ?? throw new System.ArgumentNullException(nameof(maps)); MixedLimits = mixed ?? throw new System.ArgumentNullException(nameof(mixed)); IdentityLimits = identity ?? throw new System.ArgumentNullException(nameof(identity)); DigestLimits=digests ?? throw new System.ArgumentNullException(nameof(digests));
       reader = System.Xml.XmlReader.Create(new System.IO.MemoryStream(bytes, false), new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = limits.MaxBytes, CloseInput = true });
       Advance();
@@ -120,7 +131,9 @@ R"xmlcs(
     // Expose the active secure provider only to bounded foreign-subtree capture.
     internal System.Xml.XmlReader ExtensionReader=>reader;
     // Snapshot namespace context only for explicit preservation, including unused QName prefixes.
-    internal System.Collections.Generic.Dictionary<string,string> NamespaceScope(){if(reader is not System.Xml.IXmlNamespaceResolver resolver)throw new System.FormatException("XML provider cannot expose namespace scope");return new(resolver.GetNamespacesInScope(System.Xml.XmlNamespaceScope.All),System.StringComparer.Ordinal);}
+    internal System.Collections.Generic.Dictionary<string,string> NamespaceScope(){if(reader is not System.Xml.IXmlNamespaceResolver resolver)throw new System.FormatException("XML provider cannot expose namespace scope");var bindings=resolver.GetNamespacesInScope(System.Xml.XmlNamespaceScope.All);if(budget.Operation!=null){budget.Operation.Consume(Limits.OperationResource.WorkUnits,bindings.Count);long size=64L+bindings.Count*64L;foreach(var entry in bindings){int count=SrlUtf8.GetByteCount(entry.Key)+SrlUtf8.GetByteCount(entry.Value);budget.Operation.Consume(Limits.OperationResource.WorkUnits,count);size+=count*2L;}budget.Operation.Consume(Limits.OperationResource.AllocationBytes,size);}return new(bindings,System.StringComparer.Ordinal);}
+    // Admit retained used bindings before QName sidecars grow beyond the provider lifetime.
+    internal void NamespaceRetention(long size){budget.Operation?.Consume(Limits.OperationResource.WorkUnits,size+1);budget.Operation?.Consume(Limits.OperationResource.AllocationBytes,64L+size*2);}
     // Charge names, attributes and text before exposing the next provider event.
     internal void Advance() {
       if (emptyEnd) { emptyEnd = false; Kind = 'e'; IdentityEvent(); return; }
@@ -138,12 +151,12 @@ R"xmlcs(          else if (reader.NodeType == System.Xml.XmlNodeType.Element) {
           else if (reader.NodeType == System.Xml.XmlNodeType.EntityReference || reader.NodeType == System.Xml.XmlNodeType.DocumentType) throw new System.FormatException("XML entities and DTDs are prohibited");
         }
         Kind = '\0';
-      } catch (System.Xml.XmlException failure) { throw new System.FormatException("Malformed or unsupported XML document", failure); }
+      } catch (System.Xml.XmlException failure) { budget.Operation?.RethrowFailure();throw new System.FormatException("Malformed or unsupported XML document", failure); }
     }
     // Snapshot only active start-tag attributes for synchronous observers; descendants stay unretained.
     private System.Collections.Generic.Dictionary<string,string> IdentityAttributes() { var result=new System.Collections.Generic.Dictionary<string,string>();if(reader.MoveToFirstAttribute()){do{if(reader.NamespaceURI!="http://www.w3.org/2000/xmlns/")result.Add(SrlXmlName(reader.NamespaceURI,reader.LocalName),reader.Value);}while(reader.MoveToNextAttribute());reader.MoveToElement();}return result; }
     // Attach a nested owner before its already-current start token advances.
-    internal SrlXmlIdentity IdentityScope(SrlXmlIdentityScope scope) { if(Kind!='s')throw new System.FormatException("Missing XML identity owner");var result=new SrlXmlIdentity(scope,IdentityLimits);result.Start(Name,IdentityAttributes(),reader.LookupNamespace);identities.Add(result);return result; }
+    internal SrlXmlIdentity IdentityScope(SrlXmlIdentityScope scope) { if(Kind!='s')throw new System.FormatException("Missing XML identity owner");var result=new SrlXmlIdentity(scope,IdentityLimits,budget.Operation?.Capture());result.Start(Name,IdentityAttributes(),reader.LookupNamespace);identities.Add(result);return result; }
     // Require local forward references before publishing the complete native candidate.
     internal void IdentityFinish(SrlXmlIdentity identity) { identity.Finish();if(!identities.Remove(identity))throw new System.FormatException("Unknown XML identity scope"); }
     // Deliver each active provider event while its exact namespace scope still exists.
@@ -152,6 +165,8 @@ R"xmlcs(          else if (reader.NodeType == System.Xml.XmlNodeType.Element) {
     internal void SkipSpace() { while (Kind == 't') { if (SrlXmlTrim(reader.Value).Length != 0) throw new System.FormatException("Unexpected XML record text"); Advance(); } }
     // Inspect a child identity without retaining or consuming its subtree.
     internal bool Has(string name) { SkipSpace(); return Kind == 's' && Name == name; }
+    // Admit native scalar normalization after deferred attributes regain their actual member context.
+    internal void AdmitScalar(string value){if(budget.Operation!=null){int count=SrlUtf8.GetByteCount(value);budget.Operation.Consume(Limits.OperationResource.WorkUnits,count);budget.Operation.Consume(Limits.OperationResource.AllocationBytes,count*2L);}}
     // Retain only active start-tag attributes across descendant traversal.
     internal SrlXmlInputFields Open(string name) {
       if (!Has(name)) throw new System.FormatException("Unexpected XML element");
@@ -217,7 +232,7 @@ R"xmlcs(          else if (reader.NodeType == System.Xml.XmlNodeType.Element) {
     // Bind one current start tag before recursive traversal.
     internal SrlXmlInputFields(SrlXmlInput input, System.Collections.Generic.Dictionary<string, string> attributes) { this.input = input; Attributes = attributes; }
     // Consume one exact required or optional attribute identity.
-    internal string? Attribute(string name, bool optional) { if (Attributes.Remove(name, out string? value)) return value; if (!optional) throw new System.FormatException("Required XML attribute missing"); return null; }
+    internal string? Attribute(string name, bool optional) { if (Attributes.Remove(name, out string? value)) { input.AdmitScalar(value);return value; } if (!optional) throw new System.FormatException("Required XML attribute missing"); return null; }
     // Consume simple content after all mapped attributes have been checked.
     internal string Text() { if (Attributes.Count != 0) throw new System.FormatException("Unexpected XML attribute"); string text = input.Text(); closed = true; return text; }
     // Exhaust unknown attributes and require the matching record or wrapper end token.
@@ -260,6 +275,10 @@ R"xmlcs(
     }
     // Create independent output and budgets for one complete operation.
     internal SrlXmlOutput(Limits limits) : this(limits, new XmlMapLimits()) { }
+    // Borrow the current native owner only when a package supplies shared accounting.
+    internal global::System.IDisposable? FieldOwner()=>budget.Operation?.EnterOwner();
+    // Select a native sibling before its scalar or descendant work is admitted.
+    internal void Field(string member)=>budget.Operation?.SelectField(member);
     // Carry one immutable map policy through every nested typed encoder.
     internal SrlXmlOutput(Limits limits, XmlMapLimits maps) : this(limits, maps, new XmlMixedLimits()) { }
     // Share immutable mixed/map policies while each sequence keeps independent counters.
@@ -271,9 +290,9 @@ R"xmlcs(
     // Preserve earlier constructor contracts while carrying independent extension policies.
     internal SrlXmlOutput(Limits limits, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity, XmlDigestLimits digests, XmlExtensionOptions extensions) { ExtensionOptions=extensions??throw new System.ArgumentNullException(nameof(extensions)); budget = new SrlXmlBudget(limits); MapLimits = maps ?? throw new System.ArgumentNullException(nameof(maps)); MixedLimits = mixed ?? throw new System.ArgumentNullException(nameof(mixed)); IdentityLimits=identity ?? throw new System.ArgumentNullException(nameof(identity)); DigestLimits=digests ?? throw new System.ArgumentNullException(nameof(digests)); }
     // Attach metadata after opening its still-pending owner start tag.
-    internal SrlXmlIdentity IdentityScope(SrlXmlIdentityScope scope) { var result=new SrlXmlIdentity(scope,IdentityLimits);identities.Add(result);stack[^1].IdentityAttributes=new();return result; }
+    internal SrlXmlIdentity IdentityScope(SrlXmlIdentityScope scope) { var result=new SrlXmlIdentity(scope,IdentityLimits,budget.Operation?.Capture());identities.Add(result);stack[^1].IdentityAttributes=new();return result; }
     // Resolve only declarations actually emitted by the direct writer.
-    private string? IdentityNamespace(string prefix) {if(prefix=="xml")return "http://www.w3.org/XML/1998/namespace";for(int index=stack.Count-1;index>=0;--index){var frame=stack[index];if(frame.IdentityNamespaces!=null&&frame.IdentityNamespaces.TryGetValue(prefix,out string? value))return value;int colon=frame.Name.IndexOf(':');if(!frame.Scoped&&colon>=0&&frame.Name[..colon]==prefix)return frame.Namespace;}return prefix.Length==0?"":null;}
+    internal string? IdentityNamespace(string prefix) {if(prefix=="xml")return "http://www.w3.org/XML/1998/namespace";for(int index=stack.Count-1;index>=0;--index){var frame=stack[index];if(frame.IdentityNamespaces!=null&&frame.IdentityNamespaces.TryGetValue(prefix,out string? value))return value;int colon=frame.Name.IndexOf(':');if(!frame.Scoped&&colon>=0&&frame.Name[..colon]==prefix)return frame.Namespace;}return prefix.Length==0?"":null;}
     // Observe a complete pending start tag after native attributes pass all checks.
     private void IdentityStart(Frame frame) { foreach(var identity in identities)if(!identity.Complete)identity.Start(frame.Expanded,frame.IdentityAttributes??new(),IdentityNamespace); }
     // Resolve every local forward reference before releasing its owner index.
@@ -281,7 +300,7 @@ R"xmlcs(
     // Split compiler-owned expanded-name spelling.
     private static (string Uri, string Local) Parts(string value) { int close = value.StartsWith("{", System.StringComparison.Ordinal) ? value.IndexOf('}') : -1; return close < 0 ? ("", value) : (value[1..close], value[(close + 1)..]); }
     // Charge encoded bytes before growing owned output storage.
-    private void Append(string value) { int count = SrlUtf8.GetByteCount(value); if (count > budget.Limits.MaxBytes - bytes.Length) throw new System.FormatException("XML output byte limit exceeded"); bytes.Write(SrlUtf8.GetBytes(value)); }
+    private void Append(string value) { int count = SrlUtf8.GetByteCount(value);budget.Operation?.Consume(Limits.OperationResource.WorkUnits,count);budget.Operation?.Consume(Limits.OperationResource.AllocationBytes,count); if (count > budget.Limits.MaxBytes - bytes.Length) throw new System.FormatException("XML output byte limit exceeded"); bytes.Write(SrlUtf8.GetBytes(value)); }
     // Escape only XML syntax and whitespace requiring lexical preservation.
     private void Escaped(string value, bool attribute) { int begin = 0; for (int index = 0; index < value.Length; ++index) { string? replacement = value[index] switch { '&' => "&amp;", '<' => "&lt;", '>' => "&gt;", '\r' => "&#13;", '"' => attribute ? "&quot;" : null, '\n' => attribute ? "&#10;" : null, '\t' => attribute ? "&#9;" : null, _ => null }; if (replacement != null) { Append(value[begin..index]); Append(replacement); begin = index + 1; } } Append(value[begin..]); }
     // Complete a pending start tag before writing content.
@@ -289,11 +308,13 @@ R"xmlcs(
     // Admit and emit an element before visiting any model descendants.
     internal void Open(string name) { if(stack.Count!=0&&stack[^1].Scoped){Open(name,null);return;} if (stack.Count >= budget.Limits.MaxDepth || budget.Nodes >= budget.Limits.MaxElements) throw new System.FormatException("XML node or depth limit exceeded"); budget.Text(name); ++budget.Nodes; Seal(); var (uri, local) = Parts(name); string prefix = uri == "http://www.w3.org/XML/1998/namespace" ? "xml" : "srl"; string qualified = uri.Length == 0 ? local : prefix + ":" + local; Append("<" + qualified); if (uri.Length != 0 && prefix != "xml" && (stack.Count == 0 || stack[^1].Namespace != uri)) { Append(" xmlns:srl=\""); Escaped(uri, true); Append("\""); } stack.Add(new Frame(qualified, uri, name)); }
     // Choose a deterministic prefix without shadowing an opaque lexical QName binding.
-    private string FreshPrefix(string basis,string uri){for(int index=0;;++index){string prefix=basis+(index==0?"":index.ToString(System.Globalization.CultureInfo.InvariantCulture));string? bound=IdentityNamespace(prefix);if(bound==null||bound==uri)return prefix;}}
+    internal string FreshPrefix(string basis,string uri){for(int index=0;;++index){string prefix=basis+(index==0?"":index.ToString(System.Globalization.CultureInfo.InvariantCulture));string? bound=IdentityNamespace(prefix);if(bound==null||bound==uri)return prefix;}}
+    // Admit the private rewritten QName lexical builder before retaining its tokens.
+    internal void NamespaceRetention(long size){budget.Operation?.Consume(Limits.OperationResource.WorkUnits,size+1);budget.Operation?.Consume(Limits.OperationResource.AllocationBytes,64L+size*2);}
     // Reuse existing bindings so retained semantic scope charges stay stable across roundtrips.
-    private string? MatchingPrefix(string uri,bool attribute){if(!attribute&&IdentityNamespace("")==uri)return "";for(int index=stack.Count-1;index>=0;--index){var frame=stack[index];if(frame.IdentityNamespaces!=null)foreach(var entry in frame.IdentityNamespaces)if((!attribute||entry.Key.Length!=0)&&entry.Value==uri&&IdentityNamespace(entry.Key)==uri)return entry.Key;if(!frame.Scoped&&frame.Namespace==uri){int colon=frame.Name.IndexOf(':');if(colon>=0){string prefix=frame.Name[..colon];if(IdentityNamespace(prefix)==uri)return prefix;}}}return null;}
+    internal string? MatchingPrefix(string uri,bool attribute){if(!attribute&&IdentityNamespace("")==uri)return "";for(int index=stack.Count-1;index>=0;--index){var frame=stack[index];if(frame.IdentityNamespaces!=null)foreach(var entry in frame.IdentityNamespaces)if((!attribute||entry.Key.Length!=0)&&entry.Value==uri&&IdentityNamespace(entry.Key)==uri)return entry.Key;if(!frame.Scoped&&frame.Namespace==uri){int colon=frame.Name.IndexOf(':');if(colon>=0){string prefix=frame.Name[..colon];if(IdentityNamespace(prefix)==uri)return prefix;}}}return null;}
     // Charge and emit only declarations which differ from their inherited scope.
-    private void Declare(string prefix,string uri){if(IdentityNamespace(prefix)==uri)return;if(budget.Attributes>=budget.Limits.MaxElements)throw new System.FormatException("XML namespace limit exceeded");++budget.Attributes;budget.Text(prefix);budget.Text(uri);var frame=stack[^1];frame.IdentityNamespaces??=new();frame.IdentityNamespaces[prefix]=uri;Append(prefix.Length==0?" xmlns=\"":" xmlns:"+prefix+"=\"");Escaped(uri,true);Append("\"");}
+    internal void Declare(string prefix,string uri){if(IdentityNamespace(prefix)==uri)return;if(budget.Attributes>=budget.Limits.MaxElements)throw new System.FormatException("XML namespace limit exceeded");++budget.Attributes;budget.Text(prefix);budget.Text(uri);var frame=stack[^1];frame.IdentityNamespaces??=new();frame.IdentityNamespaces[prefix]=uri;Append(prefix.Length==0?" xmlns=\"":" xmlns:"+prefix+"=\"");Escaped(uri,true);Append("\"");}
     // Pin every preserved binding before selecting a known or opaque element prefix.
     internal void Open(string name,System.Collections.Generic.Dictionary<string,string>? scope){
       if(stack.Count>=budget.Limits.MaxDepth||budget.Nodes>=budget.Limits.MaxElements)throw new System.FormatException("XML node or depth limit exceeded");budget.Text(name);++budget.Nodes;Seal();var (uri,local)=Parts(name);string prefix="";
@@ -324,7 +345,7 @@ R"xmlcs(
     // Release each completed ancestor after its matching end token.
     internal void Close() { var frame = stack[^1];if(frame.Pending)IdentityStart(frame);foreach(var identity in identities)if(!identity.Complete)identity.End(IdentityNamespace);stack.RemoveAt(stack.Count - 1);Append(frame.Pending ? "/>" : "</" + frame.Name + ">"); }
     // Publish bytes only after the generated traversal completes.
-    internal byte[] Finish() { if (stack.Count != 0 || identities.Count != 0) throw new System.FormatException("Incomplete XML output or identity scope"); return bytes.ToArray(); }
+    internal byte[] Finish() { if (stack.Count != 0 || identities.Count != 0) throw new System.FormatException("Incomplete XML output or identity scope");budget.Operation?.Consume(Limits.OperationResource.AllocationBytes,bytes.Length);return bytes.ToArray(); }
   }
   // Optional immutable prepared XSD1.0 bundle; validation contexts are created per call.
   public sealed class XmlSchema {

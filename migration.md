@@ -1,5 +1,53 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.16.0
+
+Regenerate XML output and rebuild C++ applications with matching headers/runtime.
+Schema language **1.20.0**, native wire values and managed storage formats are
+unchanged. C++/Python namespace-dependent scalar children retain their own XML
+scope, including child-local/shadowed prefixes and default namespace resets.
+Optional/repeated QName/list and nested-union values retain expanded identities.
+Keep XML-only scope metadata associated with its field/occurrence when editing
+values; reordering identical lexical strings with different namespace meanings
+requires corresponding metadata association.
+
+Go/Java/C# add plain QName, QName-list and prefix-list codecs. Go
+`SetXMLNamespaces`, Java `setXmlNamespaces` and C# `SetXmlNamespaces` copy
+validated authored bindings and replace captured scopes on that record; nested
+owning records bind independently. Namespace-dependent union/default/fixed/enumeration
+combinations still fail during generation. Unicode XML mapping names/prefixes
+now use the complete UTF-8 XML NCName contract, including provider-free validation.
+See [executed checks and remaining gates](docs/verification/verification-qname-scopes-2026-10-20.md).
+
+Kotlin/Swift owning codecs retain plain QName/list/prefix-list scopes. C/Rust use
+their XML document companions to retain namespace state; use document decode and
+encode-with-extensions APIs and respect the remaining graph capability gates.
+
+Explicit language 1.14+ canonical unsuffixed decimal floating defaults now reject
+overflow at the declared width, and enum defaults explicitly naming their declared
+type reject unknown members. Original declaration locations survive included and
+generic source. Underflow, numeric Boolean defaults, native expressions and legacy
+spelling retain their existing handling.
+
+C++/Python OPC edges and supported XSD key/unique/keyref tuples now share the
+package reference counter. Existing limits may need to admit these previously
+uncharged references; failed/repeated operations remain cumulative. Active
+generated fields/constraints add diagnostic locations; deferred presentation and
+provider work still have documented attribution/classification gaps. The original context overload and legacy
+callback resource vocabulary remain supported. Managed runtime/storage formats
+are unchanged; this batch adds eight-profile fault/lifecycle qualification. See
+the [batch record](docs/verification/verification-pending-batch-2026-10-20.md).
+
+Regenerated C# and Kotlin/JVM now include physical ZIP helpers and typed schema
+OPC facades. Ordinary XML-disabled models retain provider independence; package
+declarations require the existing XML capability. Use the collision-selected
+helper discovery comment, one shared operation budget, explicit private spooling
+and complete-aggregate validation. Owning byte-array results have platform array
+limits. See the [API and staged Save contract](docs/languages/csharp_kotlin_packages.md)
+and [acceptance record](docs/verification/verification-pending-50-2026-10-20.md).
+Both editor packages are **2.0.9** and recognize C#/Kotlin package facades while
+excluding marked compiler runtime declarations from schema navigation.
+
 ## Compiler/runtime 2.15.0
 
 Regenerate C++/Python XML/package output and rebuild C++ consumers with matching

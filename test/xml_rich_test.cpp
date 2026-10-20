@@ -30,16 +30,25 @@ std::string floating_document(std::string_view attributes) {
 }
 } // namespace
 
-// Legacy inherited QName child bindings still work; unretained child-local rebinding must fail safely.
-TEST(xml_rich, qname_child_scope_changes_cannot_silently_change_value_identity) {
+// Child-local QName bindings retain their expanded identity in both XML output paths.
+TEST(xml_rich, qname_child_scope_changes_preserve_value_identity) {
   const auto value = xml::deserialize<xml_numeric_projection::qname_sample>(
       "<qname_sample xmlns='urn:serializer:numeric-projection' xmlns:p='urn:parent'>"
       "<value>p:item</value></qname_sample>");
   EXPECT_EQ(value.value, "p:item");
   EXPECT_NO_THROW((void)xml::deserialize<xml_numeric_projection::qname_sample>(xml::serialize(value)));
-  EXPECT_THROW((void)xml::deserialize<xml_numeric_projection::qname_sample>(
+  const auto shadowed = xml::deserialize<xml_numeric_projection::qname_sample>(
       "<qname_sample xmlns='urn:serializer:numeric-projection' xmlns:p='urn:parent'>"
-      "<value xmlns:p='urn:child'>p:item</value></qname_sample>"), std::invalid_argument);
+      "<value xmlns:p='urn:child'>p:item</value></qname_sample>");
+  EXPECT_EQ(shadowed.value, "p:item");
+  const auto output = xml::parse(xml::serialize(shadowed));
+  ASSERT_EQ(output.children.size(), 1U);
+  EXPECT_EQ(xml::resolve_qname(output.children[0].text, output.children[0]),
+      (xml::name{"item", "urn:child"}));
+  const auto direct = xml::parse(xml::serialize_tokens(shadowed));
+  ASSERT_EQ(direct.children.size(), 1U);
+  EXPECT_EQ(xml::resolve_qname(direct.children[0].text, direct.children[0]),
+      (xml::name{"item", "urn:child"}));
 }
 
 // Arbitrary-precision string projections retain numeric enumeration/fixed identity and lexical bounds.

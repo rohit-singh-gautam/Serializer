@@ -313,6 +313,11 @@ tested environments, measurements, and outstanding qualification.
 
 ## Additional native targets
 
+C#/.NET 8 also supports [owning ZIP/OPC package facades](csharp_kotlin_packages.md)
+with typed XML roles, shared operation budgets and staged Save in 2.16. Physical
+ZIP support remains independent of XML; package declarations enable metadata
+providers. See the guide for sources, ownership and remaining profile contracts.
+
 Rust, Python, Swift, Kotlin, and C now use the same C++ compiler and wire protocols.
 See [native language APIs](native_languages.md) and [four examples per language](../../example/README.md).
 The full opt-in suite expands the five-runtime subset above to all ten runtimes

@@ -38,11 +38,36 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.15.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.16.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.20.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.16.0** preserves C++/Python scalar-child QName scopes through local
+declarations, prefix shadowing and default namespace resets, including repeated
+values and nested QName/list unions. Go/Java/C#/Kotlin/Swift add direct
+QName/list/prefix-list codecs with per-occurrence scope storage and copied
+native-authoring bindings; C/Rust retain these scopes in XML document companions. Shared
+XML mapping names and prefixes now accept valid Unicode NCNames. Native wire
+formats and schema language **1.20.0** retain their contracts. See
+[executed checks and remaining boundaries](docs/verification/verification-qname-scopes-2026-10-20.md);
+the broader `OPC-R01` requirement remains tracked in [the backlog](docs/pending.md).
+
+The same release checks canonical decimal float/double default overflow and
+explicitly qualified enum defaults in language 1.14+ declarations. C++/Python
+package codecs share relationship and supported XSD identity-reference budgets
+and retain active field/link diagnostics. Eight C++ managed profiles add import
+failure and cyclic-deletion qualification. See the
+[batch scope and verification](docs/verification/verification-pending-batch-2026-10-20.md).
+
+C#/.NET 8 and Kotlin/JVM 17 also gain
+[owning ZIP/OPC packages](docs/languages/csharp_kotlin_packages.md): bounded
+sources, ZIP64/descriptors, private spooling, typed XML roles, extension policies
+and staged Save. Their package/XML operations share a cumulative budget. The
+[50-item dependency batch](docs/verification/verification-pending-50-2026-10-20.md)
+records acceptance evidence and remaining gates. Existing schema language and
+native codecs retain their contracts.
 
 Release **2.15.0** adds selected C++ child QName unions and Python namespace-independent
 union enumeration/fixed values. Generated C++/Python OPC facades retain discovered
@@ -165,7 +190,7 @@ The [external JSON document example](example/managed/external_document/README.md
 demonstrates bounded callbacks, native Save/reopen, retained redo and burned
 allocation gaps with the existing sidecar API.
 Schema language **1.20.0**, existing model APIs and wire formats are unchanged.
-Both editor source packages are **2.0.8**, with navigation to the new generated
+Both editor source packages are **2.0.9**, with navigation to the new generated
 package facades and bounded indexing of marked generated runtime support.
 
 Release **2.13.0** adds differential C++ sidecar journals and an
@@ -451,7 +476,7 @@ arithmetic operator mappings with owning constructor calls in portable expressio
 Existing fields, wire formats and managed protocols retain their contracts.
 Run the [four focused examples](example/README.md#owning-record-apis) and consult
 [qualification](docs/verification/verification-owning-api-2026-10-12.md) for tested
-backends and limits. Both current editor packages are **2.0.8**, with separate
+backends and limits. Both current editor packages are **2.0.9**, with separate
 C++ generated-header navigation. See
 [editor verification](docs/editors/editor_extension.md#verification-performed)
 for package checks and navigation qualification.
@@ -895,7 +920,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editors/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **2.0.8**, versioned independently from
+Both extensions use source release version **2.0.9**, versioned independently from
 the compiler/runtime. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
 available language grammars for syntax highlighting. Install the language's grammar
 provider where the editor does not bundle it; this does not add embedded IntelliSense.

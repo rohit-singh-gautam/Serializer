@@ -26,6 +26,31 @@ internal val srlXmlNilName = SrlXmlName("nil", "http://www.w3.org/2001/XMLSchema
 // Pull one operation-local provider event without retaining completed model subtrees.
 internal class SrlXmlInput(bytes: ByteArray, limits: XmlLimits, val mapLimits: XmlMapLimits = XmlMapLimits(), val mixedLimits: XmlMixedLimits = XmlMixedLimits(), val digestLimits: XmlDigestLimits = XmlDigestLimits(), val identityLimits: XmlIdentityLimits = XmlIdentityLimits(), val extensionOptions: XmlExtensionOptions = XmlExtensionOptions(), private val preserveNamespaces: Boolean = false) : java.io.Closeable {
     private val budget = SrlXmlBudget(limits)
+    private val operation = limits.srlPackageContext
+    val packageActive: Boolean get() = operation != null
+    // Borrow the active package ledger adapter without copying its namespace or field state.
+    fun packageContext(): SrlXmlBudget.Operation? = operation
+    private data class PackageRecord(val depth: Int, val owner: String, val children: Map<SrlXmlName,String>, val attributes: Map<SrlXmlName,String>)
+    private val packageRecords = mutableListOf<PackageRecord>()
+    private val packagePaths = mutableListOf<String>()
+    // Register source member names only for package calls, before entering record content.
+    fun packageRecord(children: Map<SrlXmlName,String>, attributes: Map<SrlXmlName,String>): java.io.Closeable? {
+        val selected = operation ?: return null
+        val owner = selected.field; val scope = selected.record()
+        packageRecords.add(PackageRecord(depth,owner,children,attributes))
+        return java.io.Closeable { packageRecords.removeAt(packageRecords.lastIndex); scope.close() }
+    }
+    // Select a schema member before lexical conversion or native construction.
+    fun packageField(name: String) { operation?.member(name) }
+    // Reattribute semantic failures after lookahead has already admitted a sibling provider token.
+    fun packageFailure() { operation?.failure() }
+    // A provider token uses its original element scope rather than the traversal's lookahead cursor.
+    private fun packagePath(name: SrlXmlName, selectedDepth: Int): String {
+        val scope = packageRecords.lastOrNull { it.depth+1 == selectedDepth }
+        val member = scope?.children?.get(name)
+        if (scope != null && member != null) return listOf(scope.owner,member).filter { it.isNotEmpty() }.joinToString(".")
+        return packagePaths.lastOrNull() ?: operation?.field ?: ""
+    }
     val listLimit: Int get() = budget.limits.maxNodes
     private val reader: javax.xml.stream.XMLStreamReader
     private var depth = 0
@@ -39,6 +64,7 @@ internal class SrlXmlInput(bytes: ByteArray, limits: XmlLimits, val mapLimits: X
     init {
         require(limits.maxBytes >= 0 && limits.maxNodes >= 0 && limits.maxDepth >= 0 && limits.maxTextBytes >= 0) { "Negative XML limit" }
         require(bytes.size <= limits.maxBytes) { "XML byte limit" }
+        operation?.charge("work",bytes.size.toLong()); operation?.charge("allocation",bytes.size.toLong())
         srlXmlCheckUtf8(bytes)
         val factory = javax.xml.stream.XMLInputFactory.newFactory()
         factory.setProperty(javax.xml.stream.XMLInputFactory.SUPPORT_DTD, false)
@@ -61,8 +87,23 @@ internal class SrlXmlInput(bytes: ByteArray, limits: XmlLimits, val mapLimits: X
     // Snapshot complete vocabulary only for graphs with explicit foreign-preservation mappings.
     fun namespaceScope(): Map<String,String> {
         require(preserveNamespaces) { "XML namespace preservation was not enabled for this graph" }
+        if (operation != null) for (scope in namespaceScopes) for ((prefix,uri) in scope) {
+            operation.charge("work",prefix.length+uri.length+1L); operation.charge("allocation",64L+prefix.length*2L+uri.length*2L)
+        }
         val result=linkedMapOf("xml" to "http://www.w3.org/XML/1998/namespace")
         for (scope in namespaceScopes) { result.putAll(scope) }; return result
+    }
+    // Admit every inherited entry before retaining a namespace-dependent scalar's owning snapshot.
+    fun namespaceValueScope(): Map<String,String> {
+        require(preserveNamespaces) { "XML namespace preservation was not enabled for this graph" }
+        budget.node(depth); budget.text("xml"); budget.text("http://www.w3.org/XML/1998/namespace")
+        budget.node(depth)
+        for (scope in namespaceScopes) for ((prefix,uri) in scope) {
+            budget.node(depth); budget.text(prefix); budget.text(uri)
+        }
+        val result=linkedMapOf("xml" to "http://www.w3.org/XML/1998/namespace", "" to "")
+        for (scope in namespaceScopes) { result.putAll(scope) }
+        return result
     }
     // Expose only the current provider token to the opaque foreign-only capture helper.
     fun extensionText(): String { require(kind == 't') { "Missing XML extension text" }; return reader.text }
@@ -75,7 +116,7 @@ internal class SrlXmlInput(bytes: ByteArray, limits: XmlLimits, val mapLimits: X
     // Start an owner-local index on the current event, which ancestor indexes already observed exactly once.
     fun observe(scope: SrlXmlIdentityScope) {
         require(kind == 's') { "XML identity owner must start on an element" }
-        val identity=SrlXmlIdentity(scope,identityLimits)
+        val identity=SrlXmlIdentity(scope,identityLimits,operation)
         identity.start(name(),identityAttributes()) { prefix -> reader.getNamespaceURI(prefix) }
         identities.add(Identity(identity,depth))
     }
@@ -83,8 +124,14 @@ internal class SrlXmlInput(bytes: ByteArray, limits: XmlLimits, val mapLimits: X
     fun advance() {
       srlXmlTokenCheck {
         while (reader.hasNext()) {
+            operation?.charge("work",1)
             when (reader.next()) {
                 javax.xml.stream.XMLStreamConstants.START_ELEMENT -> {
+                    val packagePath = if (operation == null) "" else packagePath(name(),depth+1)
+                    if (operation != null) packagePaths.add(packagePath)
+                    val previousPackagePath = operation?.field
+                    if (operation != null) operation.field = packagePath
+                    try {
                     budget.node(++depth); budget.text(name().local); budget.text(name().namespace)
                     if (preserveNamespaces) {
                         val declarations=linkedMapOf<String,String>()
@@ -103,6 +150,7 @@ internal class SrlXmlInput(bytes: ByteArray, limits: XmlLimits, val mapLimits: X
                         val attributes=identityAttributes()
                         for (identity in identities) identity.value.start(name(),attributes) { prefix -> reader.getNamespaceURI(prefix) }
                     }
+                    } finally { if (operation != null) operation.field = previousPackagePath!! }
                     kind = 's'; return
                 }
                 javax.xml.stream.XMLStreamConstants.END_ELEMENT -> {
@@ -110,11 +158,13 @@ internal class SrlXmlInput(bytes: ByteArray, limits: XmlLimits, val mapLimits: X
                     val iterator=identities.iterator()
                     while (iterator.hasNext()) { val identity=iterator.next(); if (identity.depth == depth) { identity.value.finish(); iterator.remove() } }
                     if (preserveNamespaces) { namespaceScopes.removeAt(namespaceScopes.lastIndex) }
+                    if (operation != null) packagePaths.removeAt(packagePaths.lastIndex)
                     --depth; kind = 'e'; return
                 }
                 javax.xml.stream.XMLStreamConstants.CHARACTERS, javax.xml.stream.XMLStreamConstants.CDATA,
                 javax.xml.stream.XMLStreamConstants.SPACE -> {
-                    budget.text(reader.text); for (identity in identities) identity.value.text(reader.text)
+                    val action = { budget.text(reader.text); for (identity in identities) identity.value.text(reader.text) }
+                    operation?.at(packagePaths.lastOrNull() ?: "",action) ?: action()
                     kind = 't'; return
                 }
                 javax.xml.stream.XMLStreamConstants.DTD, javax.xml.stream.XMLStreamConstants.ENTITY_REFERENCE ->
@@ -135,12 +185,19 @@ internal class SrlXmlInput(bytes: ByteArray, limits: XmlLimits, val mapLimits: X
     fun has(name: SrlXmlName): Boolean { skipSpace(); return kind == 's' && name() == name }
     // Snapshot only this record's attributes before advancing into its content.
     fun open(name: SrlXmlName): SrlXmlInputFields {
-        require(has(name)) { "Unexpected XML element" }
+)serializer"
+R"serializer(        require(has(name)) { "Unexpected XML element" }
         val attributes = linkedMapOf<SrlXmlName, String>()
         for (index in 0 until reader.attributeCount) {
             val key = SrlXmlName(reader.getAttributeLocalName(index), reader.getAttributeNamespace(index) ?: "")
             if (consumeNil && key == srlXmlNilName) continue
             if (consumeType && key == SrlXmlName("type", "http://www.w3.org/2001/XMLSchema-instance")) continue
+            if (operation != null) {
+                val scope = packageRecords.lastOrNull { it.depth == depth }
+                val field = scope?.attributes?.get(key)
+                val selected = if (scope != null && field != null) listOf(scope.owner,field).filter { it.isNotEmpty() }.joinToString(".") else operation.field
+                operation.charge("allocation",64L+reader.getAttributeValue(index).length*2,selected)
+            }
             require(attributes.put(key, reader.getAttributeValue(index)) == null) { "Duplicate XML attribute" }
         }
         consumeNil = false
@@ -185,10 +242,10 @@ internal class SrlXmlInput(bytes: ByteArray, limits: XmlLimits, val mapLimits: X
     // Join only the active bounded scalar across entity and CDATA provider boundaries.
     fun text(): String {
         val text = StringBuilder()
-        while (kind == 't') { text.append(reader.text); advance() }
+        while (kind == 't') { operation?.charge("allocation",reader.textLength*2L); text.append(reader.text); advance() }
         require(kind == 'e') { "XML scalar contains nested content" }
         advance()
-        return text.toString()
+        operation?.charge("allocation",text.length*2L); return text.toString()
     }
     // Coalesce adjacent provider chunks through comments and CDATA until the next typed child.
     fun mixedText(mixed: SrlXmlMixedBudget): String {

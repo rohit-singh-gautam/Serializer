@@ -609,6 +609,15 @@ const part* find_part(const std::vector<part>& parts, std::string_view name) {
   return found == parts.end() ? nullptr : &*found;
 }
 
+// Admit each authored relationship once, sharing reference capacity with nested typed indexes.
+void admit_relationship(budget& shared, const relationship& link) {
+  const budget_location location{link.source, "relationships", link.target, link.id};
+  shared.consume_at(resource::relationships, 1, location);
+  shared.consume_at(resource::references, 1, location);
+  shared.consume_at(resource::metadata_bytes, sizeof(relationship) + link.source.size() +
+      link.id.size() + link.type.size() + link.target.size(), location);
+}
+
 // Validate reference existence after all declarations, including forward links, are known.
 void validate_links(const std::vector<part>& parts, const std::vector<relationship>& links,
                     budget& shared) {
@@ -1123,18 +1132,58 @@ std::string extension_of(std::string_view name) {
 
 // Adapt only selected XML operations; native binary/JSON codecs retain their existing fast paths.
 xml::operation_context budget::xml_context(std::string_view part) {
+  return xml_context(part, {});
+}
+
+namespace {
+// Materialize only a failing diagnostic path; traversal nodes borrow bounded generated names.
+std::string xml_field_path(const xml::diagnostic_field* field) {
+  if (!field) { return {}; }
+  auto result = xml_field_path(field->parent);
+  if (!result.empty() && !field->member.empty()) { result += '.'; }
+  result += field->member;
+  return result;
+}
+} // namespace
+
+// Keep location-aware accounting separate from legacy XML callback resource vocabularies.
+xml::operation_context budget::xml_context(std::string_view part, std::string_view relationship_id) {
   xml::operation_context result{};
-  result.is_cancelled = [this] { check_cancelled(); return false; };
-  result.charge = [this, source = std::string{part}](xml::operation_resource selected,
-      std::size_t amount) {
-    switch (selected) {
-    case xml::operation_resource::allocation_bytes:
-      consume(resource::decoder_allocation_bytes, amount, source); break;
-    case xml::operation_resource::work_units:
-      consume(resource::work_units, amount, source); break;
-    case xml::operation_resource::preserved_bytes:
-      consume(resource::preserved_bytes, amount, source); break;
+  result.check_location = [this, source = std::string{part}, link = std::string{relationship_id}](const xml::diagnostic_field* field) {
+    if (const auto selected = interruption()) {
+      throw error{*selected, *selected == error_code::cancelled ?
+          "Package operation cancelled" : "Package operation deadline exceeded",
+          source, 0, 0, 0, xml_field_path(field), {}, link};
     }
+  };
+  result.charge_location = [this, source = std::string{part}, link = std::string{relationship_id}](xml::operation_resource selected,
+      std::size_t amount, const xml::diagnostic_field* field) {
+    if (const auto selected_interrupt = interruption()) {
+      throw error{*selected_interrupt, *selected_interrupt == error_code::cancelled ?
+          "Package operation cancelled" : "Package operation deadline exceeded",
+          source, 0, 0, 0, xml_field_path(field), {}, link};
+    }
+    try {
+      switch (selected) {
+      case xml::operation_resource::allocation_bytes:
+        consume_available(resource::decoder_allocation_bytes, amount, budget_location{source}); break;
+      case xml::operation_resource::work_units:
+        consume_available(resource::work_units, amount, budget_location{source}); break;
+      case xml::operation_resource::preserved_bytes:
+        consume_available(resource::preserved_bytes, amount, budget_location{source}); break;
+      }
+    } catch (const error& failure) {
+      throw detail::locate_error(failure, source, xml_field_path(field), {}, link);
+    }
+  };
+  result.admit_reference = [this, source = std::string{part}, link = std::string{relationship_id}](const xml::diagnostic_field* field) {
+    if (const auto selected = interruption()) {
+      throw error{*selected, *selected == error_code::cancelled ?
+          "Package operation cancelled" : "Package operation deadline exceeded",
+          source, 0, 0, 0, xml_field_path(field), {}, link};
+    }
+    try { consume_available(resource::references, 1, budget_location{source}); }
+    catch (const error& failure) { throw detail::locate_error(failure, source, xml_field_path(field), {}, link); }
   };
   return result;
 }
@@ -1244,9 +1293,7 @@ void opc_writer::add_relationship(relationship link) {
     }
   }
   auto& shared = *archive_.shared_budget();
-  shared.consume(resource::relationships, 1, link.source);
-  shared.consume(resource::metadata_bytes, sizeof(relationship) + link.source.size() +
-      link.id.size() + link.type.size() + link.target.size(), link.source);
+  admit_relationship(shared, link);
   relationships_.push_back(std::move(link));
 }
 
@@ -1410,9 +1457,7 @@ opc_reader::opc_reader(std::istream& input, std::shared_ptr<budget> shared, inpu
         }
       }
       validate_relationship(link);
-      archive_.shared_budget()->consume(resource::relationships, 1, source);
-      archive_.shared_budget()->consume(resource::metadata_bytes, sizeof(relationship) +
-          link.source.size() + link.id.size() + link.type.size() + link.target.size(), source);
+      admit_relationship(*archive_.shared_budget(), link);
       relationships_.push_back(std::move(link));
     }
   }

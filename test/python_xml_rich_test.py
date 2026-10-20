@@ -1,7 +1,6 @@
 """Qualify generated Python XSD facets, QName state, lists and positioned extension handling."""
 import argparse
 import importlib.util
-import io
 import math
 from pathlib import Path
 import subprocess
@@ -202,15 +201,15 @@ class python_xml_rich_test(unittest.TestCase):
             with self.assertRaises(ValueError): self.floating_lists.FloatingListsSample.decode_xml(invalid)
 
     def test_qname_children_keep_conflicting_lexical_prefix_scopes(self):
-        """Resolve child-local QName declarations before promoting identities into owning XML state."""
+        """Keep each scalar's original lexical scope independent of its conflicting sibling."""
+        from lxml import etree as provider
         data = b'<scope_sample xmlns="urn:scoped" xmlns:p="urn:parent"><left xmlns:p="urn:left">p:item</left><right xmlns:p="urn:right">p:item</right></scope_sample>'
         model = self.scoped.ScopedScopeSample.decode_xml(data)
         output = model.encode_xml()
-        namespaces = dict(item for unused, item in etree.iterparse(io.BytesIO(output), events=('start-ns',)))
-        document = etree.fromstring(output)
+        document = provider.fromstring(output)
         for child, expected in zip(document, ('urn:left', 'urn:right')):
             prefix, local = child.text.split(':')
-            self.assertEqual((namespaces[prefix], local), (expected, 'item'))
+            self.assertEqual((child.nsmap[prefix], local), (expected, 'item'))
         self.scoped.ScopedScopeSample.decode_xml(output)
 
     def test_typed_numeric_patterns_validate_original_lexical_input(self):
@@ -223,6 +222,176 @@ class python_xml_rich_test(unittest.TestCase):
             with self.assertRaises(ValueError): self.scoped.ScopedPatternSample.decode_xml(invalid)
         # The model's canonical numeric formatter cannot satisfy this authored lexical contract.
         with self.assertRaises(ValueError): model.encode_xml()
+
+    def test_union_children_retain_shadowed_unicode_and_default_namespaces(self):
+        """Preserve selected primitive/list identities when each scalar owns a different QName scope."""
+        from lxml import etree as provider
+        cases = (
+            '''<union_scope xmlns="urn:scoped" xmlns:p="urn:parent" xmlns:a="urn:scoped" a:qualified="p:root" prefixes="p">
+              <value xmlns:p="urn:child">  p:item  </value>
+              <names xmlns:p="urn:list">p:first p:second</names>
+              <optional xmlns:p="urn:optional">p:other</optional>
+              <entry xmlns:p="urn:first">p:item</entry><entry xmlns:p="urn:second">p:item</entry>
+            </union_scope>''',
+            '''<t:union_scope xmlns:t="urn:scoped" xmlns="urn:parent" xmlns:p="urn:parent">
+              <t:value xmlns="urn:child">item</t:value>
+              <t:names xmlns="">first second</t:names>
+              <t:entry xmlns:名="urn:unicode">名:項目</t:entry>
+              <t:entry xmlns:p="urn:equivalent" xmlns:other="urn:equivalent">other:item</t:entry>
+            </t:union_scope>''',
+            '''<union_scope xmlns="urn:scoped" xmlns:p="urn:parent">
+              <value xmlns:p="urn:child">17</value><names xmlns:p="urn:list">27</names>
+            </union_scope>''',
+            '''<union_scope xmlns="urn:scoped">
+              <value xmlns:n0="urn:generated-prefix">n0:item</value>
+              <names xmlns:n0="urn:other-prefix">n0:first n0:second</names>
+            </union_scope>''',
+        )
+        model_type = self.scoped.ScopedUnionScope
+        oracle = provider.XMLSchema(provider.fromstring(self.scoped_xsd.encode()))
+        for text in cases:
+            data = text.encode()
+            with self.subTest(data=data):
+                self.assertTrue(oracle.validate(provider.fromstring(data)))
+                with mock.patch.dict(sys.modules, {'lxml': None}):
+                    model = model_type.decode_xml(data)
+                    native = model.encode(self.scoped.Protocol.BINARY_INTEGER)
+                    encoded = model.encode_xml()
+                self.assertTrue(oracle.validate(provider.fromstring(encoded)))
+                original, output = provider.fromstring(data), provider.fromstring(encoded)
+                for source, target in zip(original, output):
+                    local = provider.QName(source).localname
+                    index = {'value': 0, 'names': 1, 'optional': 2, 'entry': 3}[local]
+                    rule = model_type._xml_rules[index]
+                    source_scope = {prefix or '': uri for prefix, uri in source.nsmap.items()}
+                    target_scope = {prefix or '': uri for prefix, uri in target.nsmap.items()}
+                    self.assertEqual(self.scoped._xml_value_identity(source.text, rule, source_scope),
+                                     self.scoped._xml_value_identity(target.text, rule, target_scope))
+                    self.assertEqual(target.text, source.text)
+                self.assertEqual(model_type.decode_xml(encoded).encode(self.scoped.Protocol.BINARY_INTEGER), native)
+                self.assertEqual(model.encode(self.scoped.Protocol.BINARY_INTEGER), native)
+
+    def test_child_union_presentation_preserves_earlier_string_branch(self):
+        """Keep lexical patterns and padded spellings from selecting a different primitive on output."""
+        from lxml import etree as provider
+        model_type = self.scoped.ScopedLexicalScope
+        oracle = provider.XMLSchema(provider.fromstring(self.scoped_xsd.encode()))
+        rule = model_type._xml_rules[0]
+        for lexical, kind in (('p:item', 'string'), ('  p:item  ', 'QName')):
+            data = ('<lexical_scope xmlns="urn:scoped" xmlns:p="urn:parent">'
+                    '<value xmlns:p="urn:child">' + lexical + '</value></lexical_scope>').encode()
+            self.assertTrue(oracle.validate(provider.fromstring(data)))
+            model = model_type.decode_xml(data)
+            self.assertEqual(model.value, lexical)
+            output = model.encode_xml()
+            self.assertTrue(oracle.validate(provider.fromstring(output)))
+            child = provider.fromstring(output)[0]
+            scope = {prefix or '': uri for prefix, uri in child.nsmap.items()}
+            identity = self.scoped._xml_value_identity(child.text, rule, scope)
+            self.assertEqual(identity[0], kind)
+            self.assertEqual(identity, self.scoped._xml_value_identity(lexical, rule, {'p': 'urn:child'}))
+            # A fresh namespace binding must not shadow an existing child's retained declaration.
+            model.xml_bind_namespace('p', 'urn:edited-parent')
+            child = provider.fromstring(model.encode_xml())[0]
+            self.assertEqual(child.nsmap['p'], 'urn:child')
+
+    def test_namespace_union_input_output_failures_preserve_owner_state(self):
+        """Reject malformed QName-only branches and edited scopes before producing any output."""
+        model_type = self.scoped.ScopedUnionScope
+        data = b'<union_scope xmlns="urn:scoped"><value xmlns:p="urn:child">p:item</value><names xmlns:p="urn:list">p:a p:b</names></union_scope>'
+        for invalid in (data.replace(b'p:item', b'unbound:item'), data.replace(b'p:a p:b', b'p:a unbound:b')):
+            with self.assertRaises(ValueError):
+                model_type.decode_xml(invalid)
+        model = model_type.decode_xml(data)
+        original = model.encode_xml()
+        model._srl_xml_state[3][(0, 0)][0]['p'] = ''
+        with self.assertRaisesRegex(ValueError, 'namespace binding'):
+            model.encode_xml()
+        model._srl_xml_state[3][(0, 0)][0]['p'] = 'urn:child'
+        self.assertEqual(model.encode_xml(), original)
+        marker = ValueError('namespace scope callback marker')
+        class rejecting_context:
+            """Interrupt scalar namespace retention without disguising a resource failure."""
+            def consume(self, resource, count):
+                """Raise the caller's original exception at the first scope admission."""
+                raise marker
+        budget = self.scoped._XmlBudget()
+        budget.context = rejecting_context()
+        with self.assertRaises(ValueError) as failure:
+            self.scoped._xml_scalar_scope_open(model._srl_xml_state, 0, 0, {}, budget)
+        self.assertIs(failure.exception, marker)
+        self.assertEqual(model.encode_xml(), original)
+
+    def test_namespace_scope_retention_has_cumulative_admission_without_callbacks(self):
+        """Bound repeated inherited-scope copies under one operation before publishing any model."""
+        model_type = self.scoped.ScopedUnionScope
+        data = (b'<union_scope xmlns="urn:scoped" xmlns:p="urn:parent"><value>p:item</value>'
+                b'<names>p:a p:b</names>' + b'<entry>p:item</entry>' * 10 + b'</union_scope>')
+        with self.assertRaisesRegex(ValueError, 'namespace retention'):
+            model_type.decode_xml(data, self.scoped.Limits(max_string_bytes=2000))
+        candidate = model_type.decode_xml(data, self.scoped.Limits(max_string_bytes=5000))
+        self.assertEqual(len(candidate.entry), 10)
+        model_type.decode_xml(candidate.encode_xml())
+        bindings = {'p': 'urn:exact', '': ''}
+        size = self.scoped._XML_NAMESPACE_BINDING_ALLOCATION_BYTES * len(bindings) + len('purn:exact')
+        context = self.scoped._xml_namespace_context(
+            self.scoped.Limits(max_string_bytes=size * 2, max_elements=len(bindings) * 2), None)
+        context.retain_namespace(bindings)
+        context.retain_namespace(bindings)
+        with self.assertRaisesRegex(ValueError, 'namespace retention'):
+            context.retain_namespace(bindings)
+
+    def test_namespace_absence_and_generated_prefixes_preserve_union_selection(self):
+        """Keep generated declarations from binding fallback strings; reject changed inherited prefixes."""
+        from lxml import etree as provider
+        model_type = self.scoped.ScopedFallbackScope
+        rule = model_type._xml_rules[0]
+        for prefix in ('missing', 'n0', 'q0'):
+            data = ('<t:fallback_scope xmlns:t="urn:scoped"><t:value>' + prefix +
+                    ':item</t:value></t:fallback_scope>').encode()
+            model = model_type.decode_xml(data)
+            encoded = model.encode_xml()
+            child = provider.fromstring(encoded)[0]
+            scope = {key or '': uri for key, uri in child.nsmap.items()}
+            self.assertEqual(self.scoped._xml_value_identity(child.text, rule, scope), ('string', prefix + ':item'))
+            root = provider.fromstring(encoded)
+            default_prefix, default_local = root.attrib['schema_default'].split(':')
+            self.assertEqual((root.nsmap[default_prefix], default_local), ('urn:left', 'default'))
+            model.xml_bind_namespace(prefix, 'urn:introduced')
+            state = dict(model._srl_xml_state[0])
+            with self.assertRaisesRegex(ValueError, 'selected union value'):
+                model.encode_xml()
+            self.assertEqual(model._srl_xml_state[0], state)
+        data = b'<t:union_scope xmlns:t="urn:scoped"><t:value>local</t:value><t:names>first second</t:names></t:union_scope>'
+        model = self.scoped.ScopedUnionScope.decode_xml(data)
+        model.xml_bind_namespace('', 'urn:introduced')
+        output = provider.fromstring(model.encode_xml())
+        for child in output:
+            self.assertFalse(child.nsmap.get(None))
+
+    def test_namespace_dependent_list_defaults_reject_before_output_publication(self):
+        """Require expanded schema item metadata before emitting a nonempty QName-list default."""
+        source = self.directory / 'qname_list_default.serializer'
+        schema = self.directory / 'qname_list_default.xsd'
+        target = self.directory / 'qname_list_default.py'
+        source.write_text('''serializer version 1.20.0; namespace qname_list_default {
+          using schema "qname_list_default.xsd";
+          class sample { public array<string> names xml(list); }
+        }''', encoding='utf-8')
+        schema.write_text('''<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+          xmlns:t="urn:qname-list-default" xmlns:q="urn:default" targetNamespace="urn:qname-list-default"
+          elementFormDefault="qualified">
+          <xs:simpleType name="Names"><xs:list itemType="xs:QName"/></xs:simpleType>
+          <xs:element name="sample"><xs:complexType><xs:sequence>
+            <xs:element name="names" type="t:Names" default="q:item"/>
+          </xs:sequence></xs:complexType></xs:element></xs:schema>''', encoding='utf-8')
+        sentinel = b'previous valid generated output\n'
+        target.write_bytes(sentinel)
+        result = subprocess.run([str(self.compiler), '--language', 'python', '--input', str(source),
+                                 '--python.output', str(target)], capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('QName list defaults require expanded schema-scope item identities', result.stdout + result.stderr)
+        self.assertEqual(target.read_bytes(), sentinel)
 
 
 def main():
@@ -239,6 +408,7 @@ def main():
     build.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='python-xml-rich-', dir=build) as temporary:
         directory = Path(temporary)
+        python_xml_rich_test.directory, python_xml_rich_test.compiler = directory, args.compiler.resolve()
         generated = directory / 'rich.py'
         command = [str(args.compiler.resolve()), '--language', 'python']
         subprocess.run([*command, '--input', str(ROOT / 'test/resources/xml_rich.serializer'), '--python.output', str(generated)], check=True)
@@ -292,15 +462,42 @@ def main():
         scoped_source = directory / 'scoped.serializer'
         scoped_source.write_text('''serializer version 1.20.0; namespace scoped { using schema "scoped.xsd";
           class scope_sample { public string left(1); public string right(2); }
+          class union_scope { public string value(1); public string names(2);
+          public optional<string> optional(3); public array<string> entry(4);
+          public optional<string> qualified(5) xml(attribute, namespace("urn:scoped"), qname);
+          public optional<string> prefixes(6) xml(attribute, prefix_list); }
+          class lexical_scope { public string value(1); }
+          class fallback_scope { public string value(1); public optional<string> schema_default(2) xml(attribute, qname); }
           class pattern_sample { public int32 code(1); public array<int32> numbers(2) xml(attribute,list); }}''', encoding='utf-8')
-        (directory / 'scoped.xsd').write_text('''<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:scoped"
+        python_xml_rich_test.scoped_xsd = '''<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:scoped"
           xmlns:left="urn:left" xmlns:right="urn:right" targetNamespace="urn:scoped" elementFormDefault="qualified">
           <xs:simpleType name="Left"><xs:restriction base="xs:QName"><xs:enumeration value="left:item"/></xs:restriction></xs:simpleType>
           <xs:simpleType name="Right"><xs:restriction base="xs:QName"><xs:enumeration value="right:item"/></xs:restriction></xs:simpleType>
           <xs:simpleType name="Code"><xs:restriction base="xs:int"><xs:pattern value="[0-9]{2}"/></xs:restriction></xs:simpleType>
           <xs:simpleType name="Numbers"><xs:restriction><xs:simpleType><xs:list itemType="xs:int"/></xs:simpleType><xs:pattern value="0[0-9] 0[0-9]"/></xs:restriction></xs:simpleType>
+          <xs:simpleType name="QNameFirst"><xs:union memberTypes="xs:QName xs:unsignedShort"/></xs:simpleType>
+          <xs:simpleType name="Nested"><xs:union memberTypes="xs:boolean t:QNameFirst"/></xs:simpleType>
+          <xs:simpleType name="Names"><xs:list itemType="xs:QName"/></xs:simpleType>
+          <xs:simpleType name="ListFirst"><xs:union memberTypes="t:Names xs:unsignedShort"/></xs:simpleType>
+          <xs:simpleType name="Lexical"><xs:union><xs:simpleType><xs:restriction base="xs:string">
+            <xs:pattern value="p:item"/></xs:restriction></xs:simpleType>
+            <xs:simpleType><xs:restriction base="xs:QName"/></xs:simpleType></xs:union></xs:simpleType>
+          <xs:element name="lexical_scope"><xs:complexType><xs:sequence>
+            <xs:element name="value" type="t:Lexical"/></xs:sequence></xs:complexType></xs:element>
+          <xs:simpleType name="QNameString"><xs:union memberTypes="xs:QName xs:string"/></xs:simpleType>
+          <xs:element name="fallback_scope"><xs:complexType><xs:sequence>
+            <xs:element name="value" type="t:QNameString"/></xs:sequence>
+            <xs:attribute name="schema_default" type="xs:QName" default="left:default"/>
+          </xs:complexType></xs:element>
+          <xs:element name="union_scope"><xs:complexType><xs:sequence>
+            <xs:element name="value" type="t:Nested"/><xs:element name="names" type="t:ListFirst"/>
+            <xs:element name="optional" type="t:QNameFirst" minOccurs="0"/>
+            <xs:element name="entry" type="t:QNameFirst" minOccurs="0" maxOccurs="unbounded"/>
+          </xs:sequence><xs:attribute name="qualified" type="xs:QName" form="qualified"/>
+          <xs:attribute name="prefixes" type="xs:string"/></xs:complexType></xs:element>
           <xs:element name="scope_sample"><xs:complexType><xs:sequence><xs:element name="left" type="t:Left"/><xs:element name="right" type="t:Right"/></xs:sequence></xs:complexType></xs:element>
-          <xs:element name="pattern_sample"><xs:complexType><xs:attribute name="code" type="t:Code" use="required"/><xs:attribute name="numbers" type="t:Numbers" use="required"/></xs:complexType></xs:element></xs:schema>''', encoding='utf-8')
+          <xs:element name="pattern_sample"><xs:complexType><xs:attribute name="code" type="t:Code" use="required"/><xs:attribute name="numbers" type="t:Numbers" use="required"/></xs:complexType></xs:element></xs:schema>'''
+        (directory / 'scoped.xsd').write_text(python_xml_rich_test.scoped_xsd, encoding='utf-8')
         scoped_module = directory / 'scoped.py'
         subprocess.run([*command, '--input', str(scoped_source), '--python.output', str(scoped_module)], check=True)
         python_xml_rich_test.scoped = load_module(scoped_module, 'serializer_python_scoped_fixture')

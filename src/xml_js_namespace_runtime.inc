@@ -3,6 +3,14 @@
 // Serializer runtime template source; emitted support may also be used under 0BSD.
 R"jsnamespace(
 const srlXmlNamespaceState=new WeakMap();
+const srlXmlNamespaceRules=new WeakMap();
+
+// Cache whether a complete rule can select a namespace-dependent primitive or list member.
+function srlXmlNeedsNamespace(rule) {
+  if(srlXmlNamespaceRules.has(rule))return srlXmlNamespaceRules.get(rule);
+  const selected=rule.kind==='QName' || rule.listItem==='QName' || rule.prefixList || rule.union.some(srlXmlNeedsNamespace);
+  srlXmlNamespaceRules.set(rule,selected);return selected;
+}
 
 // Recognize complete XML names using the pinned provider's public Unicode character rules.
 function srlXmlCompleteName(expression,value) {
@@ -65,8 +73,21 @@ function srlXmlReadField(field,text,limits,scope,bindings,defaulted=false) {
 
 // Validate authored output in each field's own minimal namespace scope before opening its element head.
 function srlXmlPrepareField(owner,field,value,limits,index=0) {
-  const bindings=new Map(),text=field.write(value,limits,field,srlXmlFieldScope(owner,field,index),bindings);
-  return {text,bindings};
+  const bindings=new Map();bindings.srlXmlTrackSelection=srlXmlNeedsNamespace(field.rule);
+  const text=field.write(value,limits,field,srlXmlFieldScope(owner,field,index),bindings);
+  return {text,bindings,selection:bindings.srlXmlSelection};
+}
+
+// Reject generated presentation aliases that change the first selected leaf or its expanded value identity.
+function srlXmlCheckPreparedNamespace(field,scalar,output) {
+  if(!scalar.selection)return;
+  let scope=null;for(const bindings of output.prefixes)scope={parent:scope,bindings};
+  const checked=new Map();checked.srlXmlTrackSelection=true;
+  srlXmlCheckedText(scalar.text,field.rule,output.limits,scope,checked);
+  const selected=checked.srlXmlSelection;
+  if(selected.rule!==scalar.selection.rule || !srlXmlScalarEqual(selected.value,scalar.selection.value)) {
+    throw new Error('XML scalar namespace presentation changes its selected member or value identity');
+  }
 }
 
 // Merge declarations needed by attributes/simple content; incompatible authored vocabularies fail atomically.

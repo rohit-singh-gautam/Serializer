@@ -4,7 +4,7 @@ const path = require('node:path');
 const { test } = require('node:test');
 const { Navigator } = require('../out/navigator');
 const { indexSource, generatedNames, dependencySchemas, cppIncludeAt, resolveType } = require('../out/navigation_model');
-const { generatedIncludes, generatedSource, indexGeneratedSource, outputNames } = require('../out/generated_navigation');
+const { generatedIncludes, generatedSource, indexGeneratedSource, generatedMember, outputNames } = require('../out/generated_navigation');
 
 const root = path.resolve('navigation workspace');
 const file = name => path.join(root, name);
@@ -120,6 +120,53 @@ test('compiler-marked Java runtime is excluded without moving schema declaration
   const legacy = source.replace('  // Serializer runtime support begins.\n', '')
     .replace('  // Serializer schema declarations begin.\n', '');
   assert.ok(indexGeneratedSource(legacy, 'Schema.java').symbols.some(symbol => symbol.name === 'RuntimeOnly'));
+});
+
+test('generated C# and Kotlin package facades retain identity and offsets through runtime masking', async () => {
+  const source = 'serializer version 1.20.0; namespace pkg { class model {} enum state { ready } ' +
+    'package archive { part main : model { name("/model.xml"); content_type("application/xml"); relationship("urn:main"); } } }';
+  const begin = '// Serializer runtime support begins.\n';
+  const end = '// Serializer schema declarations begin.\n';
+  const outputs = ['build/Schema.cs', 'build/Schema.kt'];
+  const csharp = banner + 'namespace Custom { public static class Schema {\n' + begin +
+    'public static class RuntimeOnly { public class PkgPhantom {} }\n' + end +
+    'public class PkgModel { public int X = 0; }\npublic enum PkgState { Ready }\npublic static class PkgArchive {}\n}}\n';
+  const kotlin = banner + '@file:OptIn(ExperimentalUnsignedTypes::class)\n' + begin +
+    'object RuntimeOnly {}\nclass PkgPhantom {}\n' + end +
+    'class PkgModel {\n    var x: Int = 0\n}\nenum class PkgState { Ready }\nobject PkgArchive {}\n';
+  const state = fixture({ 'model.serializer': source, [outputs[0]]: csharp, [outputs[1]]: kotlin,
+    [outputs[0] + '.d']: `${escapeDependency(file(outputs[0]))}: ${escapeDependency(file('model.serializer'))}`,
+    [outputs[1] + '.d']: `${escapeDependency(file(outputs[1]))}: ${escapeDependency(file('model.serializer'))}` }, [], outputs);
+  const start = source.indexOf('archive');
+  for (let cursor = start; cursor <= start + 'archive'.length; ++cursor) {
+    assert.deepEqual(selected(state, await state.resolver().schema(file('model.serializer'), cursor, true)),
+      outputs.map(name => [name, 'PkgArchive']));
+  }
+  for (const output of outputs) {
+    const generated = state.files.get(file(output));
+    const index = indexGeneratedSource(generated, output);
+    assert.equal(index.symbols.find(symbol => symbol.name === 'PkgState').kind, 'enum');
+    assert.ok(!index.symbols.some(symbol => ['RuntimeOnly', 'PkgPhantom'].includes(symbol.name)));
+    const field = output.endsWith('.cs') ? 'X' : 'x';
+    const fieldPosition = generated.indexOf(output.endsWith('.cs') ? 'X = 0' : 'x: Int');
+    const member = generatedMember(generated, output, index, fieldPosition);
+    assert.equal(member?.name, field);
+    assert.equal(member?.owner.name, 'PkgModel');
+    for (const symbol of index.symbols) {
+      assert.equal(generated.slice(symbol.start, symbol.end), symbol.name);
+    }
+    const position = generated.indexOf('PkgArchive');
+    for (let cursor = position; cursor <= position + 'PkgArchive'.length; ++cursor) {
+      assert.deepEqual(selected(state, await state.resolver().generatedDeclaration(file(output), cursor)),
+        [['model.serializer', 'archive']]);
+    }
+    const legacy = generated.replace(begin, '').replace(end, '');
+    assert.ok(indexGeneratedSource(legacy, output).symbols.some(symbol => symbol.name === 'RuntimeOnly'));
+  }
+  state.files.set(file('model.serializer'), source.replace('package archive', 'package renamed'));
+  for (const output of outputs) {
+    assert.deepEqual(await state.resolver().generatedDeclaration(file(output), state.files.get(file(output)).indexOf('PkgArchive')), []);
+  }
 });
 
 test('schema dependencies reject remote or incomplete paths and preserve older contextual names', async () => {

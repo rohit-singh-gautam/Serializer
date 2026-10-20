@@ -13,6 +13,13 @@
 #include <string_view>
 
 namespace rohit::serializer::writer::xml_codegen {
+// Select namespace-dependent scalar storage without changing its native string/list representation.
+inline unsigned native_namespace_kind(const xml_binding::field& field) {
+  if (field.prefix_list) { return 3U; }
+  if (field.facets.list_item_kind == "QName") { return 2U; }
+  return field.qname || field.facets.lexical_kind == "QName" ? 1U : 0U;
+}
+
 // Derive generated admission defaults from the shared XML extension policy source of truth.
 inline std::string native_extension_constants(bool rust) {
   const xml::extension_limits bounds{};
@@ -46,7 +53,8 @@ inline bool native_extension_graph(const class_node& source, const xml_binding::
       return selected.type == object_type::class_type && self(self, static_cast<const class_node&>(*selected.resolved_node));
     }
     const auto contract = bindings.bind(owner);
-    if (contract.extensions) { return true; }
+    if (contract.extensions || std::any_of(contract.fields.begin(), contract.fields.end(),
+        [](const auto& field) { return native_namespace_kind(field) != 0U; })) { return true; }
     return std::any_of(contract.fields.begin(), contract.fields.end(), [&](const auto& field) {
       if (field.map_binding) {
         auto selected = field; selected.map_binding.reset();
@@ -82,6 +90,9 @@ inline void validate_native_extension_graph(const class_node& source, const xml_
       throw std::invalid_argument{"Native positioned XML companions with revision/magic metadata require additional known attribute adapters for " + std::string{language}};
     }
     for (const auto& field : contract.fields) {
+      if (native_namespace_kind(field) && (field.wrapper || field.presence.allows_nil)) {
+        throw std::invalid_argument{"Native QName companions in wrapped or nil scalar fields are not implemented for " + std::string{language}};
+      }
       if (field.map_binding || field.variant_binding) {
         const auto nested = [&](const type_name& type) {
           auto selected = field; selected.map_binding.reset(); selected.variant_binding.reset();
@@ -120,15 +131,20 @@ inline std::string native_extension_metadata(const xml_binding::record& contract
     for (const auto& field : contract.fields) {
       const auto& name = field.wrapper ? *field.wrapper : field.qualified_name;
       const auto* child = field.wrapper ? nullptr : native_extension_child(field);
-      const auto callback = child ? child_getter(*child) : std::string{};
+      const auto namespace_kind = native_namespace_kind(field);
+      const auto callback = child ? child_getter(*child) :
+          namespace_kind && !field.attribute && !field.text && !field.wrapper ?
+          "srl_xml_namespace_model_" + std::to_string(namespace_kind) : std::string{};
       const auto boolean = [](bool value) { return value ? "true" : "false"; };
       if (rust) {
         result += "SrlXmlExtensionField {uri:" + quote(name.namespace_uri) + ",local:" + quote(name.local) +
             ",attribute:" + boolean(field.attribute) + ",repeated:" + boolean(field.repeated && !field.wrapper) +
-            ",child:" + (callback.empty() ? "None" : "Some(" + callback + ')') + "},\n";
+            ",child:" + (callback.empty() ? "None" : "Some(" + callback + ')') +
+            ",namespace_kind:" + count(namespace_kind) + "},\n";
       } else {
         result += '{' + quote(name.namespace_uri) + ',' + quote(name.local) + ',' + boolean(field.attribute) + ',' +
-            boolean(field.repeated && !field.wrapper) + ',' + (callback.empty() ? "NULL" : callback) + "},\n";
+            boolean(field.repeated && !field.wrapper) + ',' + (callback.empty() ? "NULL" : callback) + ',' +
+            count(namespace_kind) + "},\n";
       }
     }
     result += rust ? "];\n" : "};\n";
@@ -173,13 +189,17 @@ inline std::string native_extension_metadata(const xml_binding::record& contract
           (extensions.slots.empty() ? "NULL" : "slots") + ',' + count(extensions.slots.size()) + "};\n";
     }
   }
+  const auto text = std::find_if(contract.fields.begin(), contract.fields.end(),
+      [](const auto& field) { return field.text; });
+  const auto text_kind = text == contract.fields.end() ? 0U : native_namespace_kind(*text);
   if (rust) {
     result += "static MODEL:SrlXmlExtensionModel=SrlXmlExtensionModel {identity:" + quote(identity) + ",fields:" +
-        (contract.fields.empty() ? "&[]" : "FIELDS") + ",contract:" + (contract.extensions ? "Some(&CONTRACT)" : "None") + "}; &MODEL\n}\n";
+        (contract.fields.empty() ? "&[]" : "FIELDS") + ",contract:" + (contract.extensions ? "Some(&CONTRACT)" : "None") +
+        ",namespace_text:" + count(text_kind) + "}; &MODEL\n}\n";
   } else {
     result += "static const srl_xml_extension_model model={" + quote(identity) + ',' +
         (contract.fields.empty() ? "NULL" : "fields") + ',' + count(contract.fields.size()) + ',' +
-        (contract.extensions ? "&contract" : "NULL") + "}; return &model;\n}\n";
+        (contract.extensions ? "&contract" : "NULL") + ',' + count(text_kind) + "}; return &model;\n}\n";
   }
   return result;
 }

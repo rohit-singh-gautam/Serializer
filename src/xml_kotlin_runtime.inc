@@ -4,7 +4,9 @@
 R"serializer(
 // Optional complete-object XML runtime; no entity, DTD, network or schema fetching is permitted.
 data class XmlLimits(val maxBytes: Int = 16777216, val maxNodes: Int = 100000,
-                     val maxDepth: Int = 64, val maxTextBytes: Int = 8388608)
+                     val maxDepth: Int = 64, val maxTextBytes: Int = 8388608) {
+    internal var srlPackageContext: SrlXmlBudget.Operation? = null
+}
 internal data class SrlXmlName(val local: String, val namespace: String = "")
 internal data class SrlXmlAttribute(val name: SrlXmlName, val value: String)
 // Count UTF-8 bytes without allocating a second copy of model text.
@@ -18,10 +20,31 @@ internal fun srlXmlUtf8Size(value: String): Long {
     return bytes
 }
 internal class SrlXmlBudget(val limits: XmlLimits) {
+    // An optional operation belongs to one package codec; ordinary XML/native calls allocate none.
+    class Operation(private val checkPolicy: () -> Unit, private val admission: (String,Long,String) -> Unit) {
+        var field = ""
+        private var failureField: String? = null
+        private val owners = mutableListOf<String>()
+        // Capture an immutable owner prefix before nested member traversal changes the selected field.
+        fun record(): java.io.Closeable {
+            val previous = field; owners.add(previous)
+            return java.io.Closeable { owners.removeAt(owners.lastIndex); field = previous }
+        }
+        // Select the source schema member independently of an XML presentation name.
+        fun member(name: String) { field = listOf(owners.lastOrNull() ?: "",name).filter { it.isNotEmpty() }.joinToString("."); charge("work",0) }
+        // Poll around every provider/admission callback without wrapping its original exception.
+        fun charge(kind: String, count: Long, selected: String = field) { checkPolicy(); admission(kind,count,selected); checkPolicy() }
+        // Pin the first failing observer/member scope before nested traversal unwinds into another owner.
+        fun failure(selected: String = field) { if (failureField == null) failureField = selected; charge("work",0,failureField!!) }
+        // Retain a caller-selected member while running deferred observer/provider work.
+        fun at(selected: String, action: () -> Unit) { val previous = field; field = selected; try { action() } finally { field = previous } }
+    }
     private var nodes = 0
     private var textBytes = 0L
-    fun node(depth: Int) { require(depth <= limits.maxDepth && ++nodes <= limits.maxNodes) { "XML output tree limit" } }
-    fun text(value: String) { textBytes += srlXmlUtf8Size(value); require(textBytes <= limits.maxTextBytes && textBytes <= limits.maxBytes) { "XML output text limit" } }
+    // Admit each logical node against both operation-wide and per-document bounds.
+    fun node(depth: Int) { limits.srlPackageContext?.charge("work",1); limits.srlPackageContext?.charge("allocation",64); require(depth <= limits.maxDepth && ++nodes <= limits.maxNodes) { "XML output tree limit" } }
+    // Account for retained/provider text before copying its UTF-16 representation.
+    fun text(value: String) { val size = srlXmlUtf8Size(value); limits.srlPackageContext?.charge("work",size); limits.srlPackageContext?.charge("allocation",size*2); textBytes += size; require(textBytes <= limits.maxTextBytes && textBytes <= limits.maxBytes) { "XML output text limit" } }
 }
 internal class SrlXmlNode(val name: SrlXmlName, private val budget: SrlXmlBudget? = null, private val depth: Int = 1) {
     var text: String = ""
@@ -37,7 +60,8 @@ internal class SrlXmlNode(val name: SrlXmlName, private val budget: SrlXmlBudget
     }
 }
 // Validate Unicode scalars and escape XML syntax without locale-sensitive conversions.
-internal fun srlXmlEscape(value: String, attribute: Boolean): String {
+internal fun srlXmlEscape(value: String, attribute: Boolean, operation: SrlXmlBudget.Operation? = null): String {
+    operation?.charge("work",value.length.toLong()); operation?.charge("allocation",value.length*12L)
     val out = StringBuilder()
     val iterator = value.codePoints().iterator()
     while (iterator.hasNext()) {

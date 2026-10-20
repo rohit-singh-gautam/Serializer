@@ -1,10 +1,32 @@
 # Generated XML token codecs
 
-Compiler/runtime **2.15.0** additionally accepts selected C++ child unions with
+Compiler/runtime **2.16.0** retains C++/Python namespace-dependent scalar-child
+scopes by field and occurrence. Local/shadowed QName prefixes, QName-list items,
+default namespace resets and nested union branch identities survive output;
+native string values and JSON/binary encoding keep their contract. C++ direct
+and retained-tree paths share the scope store. Python selects whole-document
+decoding for these graphs. Scope metadata follows occurrence positions; editing
+or reordering indistinguishable lexical values requires keeping their namespace
+metadata associated. Valid Unicode XML mapping names and QName prefixes are
+accepted independently of the native parsing provider.
+
+Go/Java/C# add direct plain QName, QName-list and prefix-list codecs. Use Go
+`SetXMLNamespaces`, Java `setXmlNamespaces` or C# `SetXmlNamespaces` to validate
+and copy explicit authored bindings. These replace captured scopes on that record;
+nested records bind independently.
+Kotlin/Swift owning records support the same plain scalar scope contracts.
+C/Rust preserve them through XML document companions; use document decode and
+encode-with-extensions entry points. Their wrapped/nil, mixed/all, revision/magic
+and other graph combinations still have explicit capability gates.
+Namespace-dependent union/default/fixed/enumeration combinations remain gated.
+See [current executed checks](../verification/verification-qname-scopes-2026-10-20.md)
+and the [remaining requirements](../pending.md#opc-and-3mf-requirements).
+
+Compiler/runtime **2.15.0** introduced selected C++ child unions with
 QName or QName-list members. The first successful member and its expanded names
 must agree in the child and owning record namespace scopes. Optional, repeated
 and nested-union fields use that same check; child-local/shadowed bindings
-that would lose identity reject explicitly. Python supports outer enumeration and
+that would lose identity rejected in that release. Python supports outer enumeration and
 fixed restrictions on namespace-independent unions, comparing through the first
 successful member's primitive value space. Numeric, Boolean and string values
 remain distinct; ordered list values compare item by item. QName-dependent outer

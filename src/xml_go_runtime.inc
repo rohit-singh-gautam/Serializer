@@ -93,9 +93,9 @@ func srlXmlParse(data []byte, limits XmlLimits) (*srlXmlNode,error) {
 }
 type srlXmlSink struct { text strings.Builder; maximum int }
 // A single lookahead event replaces retained input trees for generated readers.
-type srlXmlInputToken struct { kind byte; name srlxml.Name; attrs []srlxml.Attr; text string }
+type srlXmlInputToken struct { kind byte; name srlxml.Name; attrs []srlxml.Attr; text string; closed map[string]string }
 type srlXmlInputFrame struct { raw srlxml.Name; changes []srlXmlBindingChange }
-type srlXmlInput struct { decoder *srlxml.Decoder; budget srlXmlBudget; mapLimits XmlMapLimits; mixedLimits XmlMixedLimits; identityLimits XmlIdentityLimits; digestLimits XmlDigestLimits; extensionOptions XmlExtensionOptions; identities []*srlXmlIdentity; stack []srlXmlInputFrame; namespaces map[string]string; look *srlXmlInputToken; seen, root bool }
+type srlXmlInput struct { decoder *srlxml.Decoder; budget srlXmlBudget; mapLimits XmlMapLimits; mixedLimits XmlMixedLimits; identityLimits XmlIdentityLimits; digestLimits XmlDigestLimits; extensionOptions XmlExtensionOptions; identities []*srlXmlIdentity; stack []srlXmlInputFrame; namespaces map[string]string; look *srlXmlInputToken; seen, root, captureNamespaces bool; namespaceBytes int }
 // Bind the original byte slice after complete-message byte and UTF-8 admission checks.
 func srlXmlInputStart(data []byte,limits XmlLimits,maps ...XmlMapLimits)(*srlXmlInput,error) {
   if len(data)>limits.MaxBytes{return nil,fmt.Errorf("XML input limit exceeded")};if !utf8.Valid(data){return nil,fmt.Errorf("Invalid XML UTF-8")}
@@ -134,7 +134,8 @@ func (r *srlXmlInput) read()(*srlXmlInputToken,error) {
       r.stack=append(r.stack,srlXmlInputFrame{value.Name,changes});if err:=r.identityEvent(event);err!=nil{return nil,err};return event,nil
     case srlxml.EndElement:
       if len(r.stack)==0||r.stack[len(r.stack)-1].raw!=value.Name{return nil,fmt.Errorf("Unexpected XML end")};frame:=r.stack[len(r.stack)-1];if err:=r.identityEvent(&srlXmlInputToken{kind:'e'});err!=nil{return nil,err};r.stack=r.stack[:len(r.stack)-1]
-      for _,change:=range frame.changes{if change.existed{r.namespaces[change.prefix]=change.previous}else{delete(r.namespaces,change.prefix)}};return &srlXmlInputToken{kind:'e'},nil
+      event:=&srlXmlInputToken{kind:'e'};if r.captureNamespaces{event.closed=make(map[string]string,len(frame.changes));for _,change:=range frame.changes{event.closed[change.prefix]=r.namespaces[change.prefix]}}
+      for _,change:=range frame.changes{if change.existed{r.namespaces[change.prefix]=change.previous}else{delete(r.namespaces,change.prefix)}};return event,nil
     case srlxml.CharData:
       text:=string(value);if err:=r.budget.textValue(text);err!=nil{return nil,err};if len(r.stack)==0{if strings.Trim(text," \r\n\t")!=""{return nil,fmt.Errorf("Text outside XML root")};continue};event:=&srlXmlInputToken{kind:'t',text:text};if err:=r.identityEvent(event);err!=nil{return nil,err};return event,nil
     case srlxml.Directive:return nil,fmt.Errorf("XML DTDs and directives are prohibited")

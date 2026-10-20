@@ -49,20 +49,20 @@ internal class SrlXmlPreserved(val scope: Map<String,String>,
     val children: MutableList<SrlXmlForeignChild> = mutableListOf())
 
 // Validate retained namespace context without interpreting opaque attribute or text lexical values.
-internal fun srlXmlExtensionBindings(scope: Map<String,String>) {
+internal fun srlXmlExtensionBindings(scope: Map<String,String>, operation: SrlXmlBudget.Operation? = null) {
     val xmlNamespace="http://www.w3.org/XML/1998/namespace"
     val xmlnsNamespace="http://www.w3.org/2000/xmlns/"
     for ((prefix,uri) in scope) {
         require((prefix.isEmpty() || srlXmlNcName(prefix)) && prefix != "xmlns" &&
             (prefix == "xml") == (uri == xmlNamespace) && (prefix.isEmpty() || uri.isNotEmpty()) &&
             uri != xmlnsNamespace && uri.trim() == uri) { "Invalid preserved XML namespace binding" }
-        srlXmlEscape(uri,true)
+        srlXmlEscape(uri,true,operation)
     }
 }
 
 // Keep exact slot counts and only explicitly preserved foreign content for one owning record.
 internal class SrlXmlExtensions private constructor(val meta: SrlXmlExtensionContract,
-    val scope: Map<String,String>, private val options: XmlExtensionOptions, existing: SrlXmlPreserved?) {
+    val scope: Map<String,String>, private val options: XmlExtensionOptions, existing: SrlXmlPreserved?, private val operation: SrlXmlBudget.Operation?) {
     private val bounds=options.limits
     private var counts=IntArray(0)
     private var items=0
@@ -73,6 +73,8 @@ internal class SrlXmlExtensions private constructor(val meta: SrlXmlExtensionCon
     init {
         require(meta.slots.size <= bounds.maxSlots && meta.known.size <= bounds.maxItems &&
             meta.required.size <= bounds.maxItems) { "XML extension slot limit" }
+        operation?.charge("allocation",64L+meta.slots.size*4L+options.understoodNamespaces.size*32L+options.requiredPrefixes.length*4L)
+        operation?.charge("work",options.requiredPrefixes.length+1L)
         counts=IntArray(meta.slots.size)
         val understood=options.understoodNamespaces.toSet()
         for (uri in meta.required) { require(uri == meta.core || uri in understood) { "Required XML capability is not understood" } }
@@ -86,7 +88,7 @@ internal class SrlXmlExtensions private constructor(val meta: SrlXmlExtensionCon
         if (existing != null) { charge(addSize(ownerOverheadBytes,scopeBytes(scope))) }
     }
     // Admit semantic bytes before allocating corresponding owning extension storage.
-    fun charge(amount: Long) { bytes=addSize(bytes,amount) }
+    fun charge(amount: Long) { operation?.charge("work",amount); operation?.charge("allocation",amount); bytes=addSize(bytes,amount) }
     // Check the selected limit before arithmetic, including caller-selected maximum native bounds.
     private fun addSize(current: Long, amount: Long): Long {
         require(current >= 0 && amount >= 0 && current <= bounds.maxPreservedBytes && amount <= bounds.maxPreservedBytes-current) { "XML extension preserved-byte limit" }
@@ -94,7 +96,7 @@ internal class SrlXmlExtensions private constructor(val meta: SrlXmlExtensionCon
     }
     // Count complete retained prefix context, including bindings used only by unknown lexical values.
     private fun scopeBytes(bindings: Map<String,String>): Long {
-        srlXmlExtensionBindings(bindings); var size=0L
+        srlXmlExtensionBindings(bindings,operation); var size=0L
         for ((prefix,uri) in bindings) { size=addSize(size,scopeEntryOverheadBytes+srlXmlUtf8Size(prefix)+srlXmlUtf8Size(uri)) }
         return size
     }
@@ -205,11 +207,11 @@ R"xmlextension(
         private const val scopeEntryOverheadBytes=64L
         private const val attributeOverheadBytes=48L
         // Validate input capabilities in its original complete namespace scope before consuming known fields.
-        fun input(meta: SrlXmlExtensionContract, scope: Map<String,String>, options: XmlExtensionOptions): SrlXmlExtensions =
-            SrlXmlExtensions(meta,scope,options,null)
+        fun input(meta: SrlXmlExtensionContract, scope: Map<String,String>, options: XmlExtensionOptions, operation: SrlXmlBudget.Operation? = null): SrlXmlExtensions =
+            SrlXmlExtensions(meta,scope,options,null,operation)
         // Borrow retained state during output and validate the same original vocabulary requirements.
-        fun output(meta: SrlXmlExtensionContract, state: SrlXmlPreserved?, options: XmlExtensionOptions): SrlXmlExtensions =
-            SrlXmlExtensions(meta,state?.scope ?: mapOf("xml" to "http://www.w3.org/XML/1998/namespace"),options,state)
+        fun output(meta: SrlXmlExtensionContract, state: SrlXmlPreserved?, options: XmlExtensionOptions, operation: SrlXmlBudget.Operation? = null): SrlXmlExtensions =
+            SrlXmlExtensions(meta,state?.scope ?: mapOf("xml" to "http://www.w3.org/XML/1998/namespace"),options,state,operation)
     }
 }
 )xmlextension"

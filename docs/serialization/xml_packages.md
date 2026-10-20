@@ -1,12 +1,20 @@
 # XML, compression streams and packages
 
-Compiler/runtime **2.15.0**, schema language **1.20.0**. Baseline XML generation
+Compiler/runtime **2.16.0**, schema language **1.20.0**. Baseline XML generation
 covers all output languages; the stream and package API examples below use C++20.
 Supported XML feature combinations are qualified per backend. Generated OPC
-profiles are available in C++, Python, Java, JavaScript/TypeScript and Go;
+profiles are available in C++, Python, Java, JavaScript/TypeScript, Go, C# and Kotlin;
 unsupported backend combinations reject before output publication. Existing
 native wire formats and managed journals are unchanged.
 See [remaining work](../pending.md) and the [full design](../design/xml_support.md).
+
+The [C# and Kotlin/JVM package APIs](../languages/csharp_kotlin_packages.md) add
+standard-provider ZIP32/ZIP64, descriptors, bounded sources/private spooling,
+typed XML aggregates, opaque policies and staged Save in 2.16. Existing schema
+package declarations select these facades. Their automatic XML operation contexts
+share the package budget; the [50-item record](../verification/verification-pending-50-2026-10-20.md)
+tracks actual acceptance evidence. Fixed/default/runtime profile dispatch and
+declarative application references remain separate backlog requirements.
 
 Compiler/runtime **2.14.0** also supplies selected asynchronous
 [JavaScript/TypeScript ZIP/OPC APIs](../languages/javascript_packages.md):
@@ -220,8 +228,9 @@ part of the pending cross-backend resource contract.
 All outputs now have direct generated output paths. Supported C++/Python token
 graphs and Java/C#/Go/Kotlin input use direct/pull traversal; richer C++/Python mappings
 and other input adapters retain their documented trees. Complete output bytes
-are staged. See [token paths and boundaries](xml_tokens.md). Configured names use
-an ASCII NCName subset; values are XML 1.0 UTF-8. DTDs,
+are staged. See [token paths and boundaries](xml_tokens.md). Configured names and
+QName prefixes accept UTF-8 Unicode XML NCNames from compiler/runtime 2.16.0;
+values are XML 1.0 UTF-8. DTDs,
 user-declared/external entities and non-1.0 XML are rejected. Predefined entities
 and character references are supported.
 Bundled parsers load no XML external resources; caller-supplied validators must
@@ -231,6 +240,11 @@ lexical formatting. QName-valued fields need the explicit namespace-aware
 adapters described below; ordinary strings do not retain QName semantics.
 Schema-location hints do not select a validator. The strict generated mapping
 rejects undeclared attributes, including unbound `xsi:schemaLocation` hints.
+
+C++ clients constructing XML names can include `<rohit/xml_name.hpp>` and call
+`xml::is_ncname(text)`. This allocation-free `constexpr` check returns false for
+empty names, namespace separators, invalid XML name characters or malformed UTF-8;
+it does not require the XML provider. Namespace URIs have their separate contract.
 
 ## Fixed XSD and optional runtime validation
 
@@ -354,7 +368,10 @@ CRC. Call `validate_all()` when the operation requires checking all entries.
 One shared `package::budget` accumulates metadata, I/O, expanded bytes, entries
 and relationships; failed/repeated work is not refunded. It also exposes cumulative
 decoder-allocation, work, reference and preserved-byte categories for profile
-callbacks. Limits bound scratch and part/archive sizes. DEFLATE checks cancellation
+callbacks. OPC relationship admission and supported XML key/unique/keyref observers
+automatically use the same reference category. Each complete candidate tuple
+counts, including repeated equal keyref requests; incomplete optional tuples do
+not count. Limits bound scratch and part/archive sizes. DEFLATE checks cancellation
 at provider output boundaries, including zero-output batches. The compression
 options' `check_cancelled` callback can supply the same policy outside packages;
 custom providers must cooperate with their sink's output boundaries.
@@ -417,11 +434,13 @@ aggregate callback. Throw `package::error` with `field_path`, `reference` and
 part and link when absent; payload contents are never copied into diagnostics.
 
 `<rohit/package_profile.hpp>` adds `reference_index<Key>` for integral or string
-payload keys. Register `add_target<Model>(scope, key, {part, field_path})`, retain
+payload keys. Register `add_target<Model>(scope, key, {part, field_path, relationship_id})`, retain
 forward references with `require_target<Model>`, then call `validate()` before
 returning from the aggregate callback. The shared budget bounds key/index storage,
 reference counts and validation work. Duplicate keys within a scope, missing
-targets and wrong model types report the source part, field and key. Equal keys
+targets and wrong model types report the source part, field and key. Reference
+admission and validation-work exhaustion retain these locations and an optional
+relationship ID. The original two-string location initializer remains valid. Equal keys
 in distinct scopes are independent. The index retains no model pointers; the
 application resolves validated IDs into its own model relationships.
 This optional reference-index helper requires C++ RTTI for local expected-type
@@ -527,6 +546,14 @@ backends that cannot enforce them. C++ preservation adds an XML-only one-pointer
 its opaque storage allocates on the first retained unknown value. Use `.get()`
 to test whether storage exists and `.value()` to inspect retained data.
 QName/prefix-list mappings similarly retain only their needed namespace bindings.
+Compiler/runtime 2.16.0 additionally retains complete C++/Python scalar-child
+scopes by field and occurrence, including local/shadowed declarations and default
+namespace resets. Keep these XML-only scopes associated with the corresponding
+values when editing. Go/Java/C#/Kotlin/Swift support plain QName/list/prefix-list mappings with
+per-occurrence bindings; their namespace-dependent union/default/fixed/enumeration
+combinations remain explicit generation errors. C/Rust retain plain scalar scopes
+through their XML document companions with additional graph capability gates. See the
+[current namespace checks](../verification/verification-qname-scopes-2026-10-20.md).
 Unknown core names remain errors. Extension policies preserve semantic content
 and placement, not original prefixes, formatting or signatures.
 
@@ -582,6 +609,11 @@ uses staged full-file replacement. `load(stream, limits, extension_policy,
 validate)` constructs an owning aggregate before returning. An optional validation
 callback `(const value&, package::budget&)` checks application references/domain
 rules before publication. It throws on failure and shares the operation budget.
+Generated XML codecs automatically borrow that budget for allocations, work,
+preservation and complete identity tuples. Resource, cancellation and deadline
+failures retain the part URI, selected generated member path or identity-constraint
+name, and owning relationship ID. Failures before a member is selected report
+the known outer location. These diagnostics contain no scalar payloads.
 Pass a retained `preserved_extensions` pointer as `input.extensions` to write
 opaque parts and links after editing; finalization revalidates their targets.
 
@@ -615,6 +647,9 @@ assert loaded.value.main.label == "example"
 The facade also supplies `encode(input)`, `write(stream, input)` and
 `load(bytes_or_path_or_stream)`. `PackageLimits` and `PackageBudget` share
 cumulative XML/ZIP accounting, cancellation and an optional monotonic deadline.
+Generated typed-role codecs also share reference admission with OPC relationships;
+Save's staged typed validation continues spending the original budget. Exhaustion
+retains the selected part, member or identity-constraint path and relationship ID.
 An optional `validate(candidate, budget)` callback rejects domain-invalid data
 before publication. Pass retained `loaded.extensions` as `Input.extensions` to
 preserve permitted unknown parts and links after editing. External targets remain
@@ -665,7 +700,21 @@ C++ `xml::serialize`, `deserialize`, `parse` and `write` accept an optional
 steady-clock deadline and allocation/work accounting. Generated package facades
 bridge these checks to their single `package::budget`; nested XML operations do
 not start a fresh cumulative budget. `package::limits::deadline` is optional.
-Direct builder callbacks can use `budget.xml_context()` for the same composition.
+Direct builder callbacks can use `budget.xml_context(part, relationship_id)` for
+the same composition; the existing no-argument and part-only C++ calls remain
+valid. Python `PackageBudget.xml_context(part, relationship_id)` supplies the
+equivalent borrowed context for custom generated XML codecs. Field diagnostics
+borrow generated member names during traversal and materialize paths only on
+failure; Python admits its optional diagnostic wrappers through the shared
+allocation category. Ordinary XML callbacks retain their original resource events
+and exceptions. Declarative application-key discovery remains separate from the
+existing XSD identity observers and caller-authored reference checks.
+Deferred start-tag/attribute presentation, retained-tree rendering and provider
+work outside an instrumented native validation/admission scope can retain only
+the part and relationship. Native field paths are not persisted into XML trees.
+Provider-local admission may also produce a codec error before a shared resource
+callback runs. The broader automatic diagnostic gate remains open for attribution
+and classification in these phases.
 The borrowed context and callback captures must outlive the synchronous operation.
 
 Ordinary XML input remains UTF-8. C++ and Python OPC infrastructure metadata additionally

@@ -212,7 +212,8 @@ async function main() {
   const directory = fs.mkdtempSync(path.join(parent, 'generated-navigation-'));
   let checks = await verify(path.join(repository, 'example/schemas/complex/model.serializer'), path.join(directory, 'complex'));
   checks += await verify(path.join(repository, 'test/resources/opc_profile.serializer'),
-    path.join(directory, 'opc-packages'), [], { java: outputs.java, js: outputs.js, typescript: outputs.typescript }, true, true);
+    path.join(directory, 'opc-packages'), [], { java: outputs.java, js: outputs.js, typescript: outputs.typescript,
+      csharp: outputs.csharp, kotlin: outputs.kotlin }, true, true);
   const xmlAuthoringInput = path.join(directory, 'xml-authoring.serializer');
   fs.writeFileSync(xmlAuthoringInput, `serializer version 1.20.0;
 namespace xml_models {

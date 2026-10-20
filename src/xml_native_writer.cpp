@@ -6,6 +6,7 @@
 #include "xml_mobile_variant_writer.hpp"
 #include "xml_mobile_mixed_writer.hpp"
 #include "xml_mobile_scalar_writer.hpp"
+#include "xml_mobile_namespace.hpp"
 #include "xml_mobile_identity_writer.hpp"
 #include "xml_mobile_extension_writer.hpp"
 #include "xml_portable_writer.hpp"
@@ -43,6 +44,7 @@ constexpr std::string_view kotlin_runtime =
 #include "xml_kotlin_output_runtime.inc"
 #include "xml_kotlin_map_runtime.inc"
 #include "xml_kotlin_variant_runtime.inc"
+#include "xml_kotlin_namespace_runtime.inc"
 #include "xml_kotlin_mixed_runtime.inc"
 #include "xml_kotlin_html_runtime.inc"
 #include "xml_kotlin_scalar_runtime.inc"
@@ -56,6 +58,7 @@ constexpr std::string_view swift_runtime =
 #include "xml_swift_output_runtime.inc"
 #include "xml_swift_map_runtime.inc"
 #include "xml_swift_variant_runtime.inc"
+#include "xml_swift_namespace_runtime.inc"
 #include "xml_swift_mixed_runtime.inc"
 #include "xml_swift_html_runtime.inc"
 #include "xml_swift_scalar_runtime.inc"
@@ -141,7 +144,7 @@ class generator {
     inspect = [&](const class_node& owner) -> bool {
       if (owner.reference || !visited.insert(&owner).second) { return false; }
       const auto contract = bindings_.bind(owner);
-      if (contract.extensions) { return true; }
+      if (contract.extensions || mobile_namespace_value(contract)) { return true; }
       return std::any_of(contract.fields.begin(), contract.fields.end(), [&](const auto& field) {
         return std::any_of(field.source->type_name_list.begin(), field.source->type_name_list.end(), inspect_type) ||
             (field.source->key_type && inspect_type(*field.source->key_type));
@@ -242,20 +245,33 @@ class generator {
         "srlXmlIntegerText(" + text + ").to" + type(value) + "()";
   }
   // Apply the immutable field rule before native conversion or escaped token publication.
-  std::string field_scalar(const xml_binding::field& field, std::string expression, bool encoding) const {
+  std::string field_scalar(const xml_binding::field& field, std::string expression, bool encoding,
+      std::string namespace_scope = {}) const {
     const auto found = scalar_rules_.find(field.source);
-    if (found == scalar_rules_.end()) { return expression; }
     const auto& fallback = field.fixed_value ? field.fixed_value : field.default_value;
     if (!encoding && fallback) {
       expression = "SrlXmlRule.defaultText(" + expression + ',' + quote(*fallback) + ',' + (field.attribute ? "true" : "false") + ')';
     }
     const auto limit = encoding ? "output.listLimit" : swift_ ? "listLimit" : "input.listLimit";
-    return select("try ", "") + found->second + (encoding && fallback && !field.attribute ?
-        ".output(" + expression + ',' + quote(*fallback) + ',' + limit + ')' : ".check(" + expression + ',' + limit + ')');
+    if (found != scalar_rules_.end()) {
+      expression = select("try ", "") + found->second + (encoding && fallback && !field.attribute ?
+          ".output(" + expression + ',' + quote(*fallback) + ',' + limit + ')' : ".check(" + expression + ',' + limit + ')');
+    }
+    if (mobile_namespace_value(field)) {
+      if (namespace_scope.empty()) {
+        namespace_scope = encoding ? select("output.namespace", "output::namespace") :
+            select("state.value.srlXmlNamespaces.owner", "namespaces.owner");
+      }
+      expression = select("try ", "") + "srlXmlNamespaceChecked(" + expression + ',' +
+          (field.facets.list_item_kind == "QName" || field.list ? "true" : "false") + ',' +
+          (field.prefix_list ? "true" : "false") + ',' + namespace_scope + ',' + limit + ')';
+    }
+    return expression;
   }
   // Decode lexical lists into native owning arrays while retaining optional and fixed extents.
-  std::string field_read(const xml_binding::field& field, const std::string& raw) const {
-    const auto checked = field_scalar(field, raw, false);
+  std::string field_read(const xml_binding::field& field, const std::string& raw,
+      const std::string& namespace_scope = {}) const {
+    const auto checked = field_scalar(field, raw, false, namespace_scope);
     if (!field.list || !field.presence.collection) { return read_value(leaf(*field.source), checked, true); }
     const auto item = read_value(leaf(*field.source), "item", true);
     if (swift_) {
@@ -378,7 +394,9 @@ class generator {
     } else if (value_type.type == object_type::class_type) {
       line(select("try ", "") + expression + ".srlXmlEmit(output, " + name(field.qualified_name) + ")");
     } else {
-      line(select("try ", "") + "output.open(" + name(field.qualified_name) + ")");
+      const auto scope = mobile_namespace_value(field) ? ", namespaces.scope(" +
+          quote(*member_path(*current_owner_, *field.source)) + ')' : std::string{};
+      line(select("try ", "") + "output.open(" + name(field.qualified_name) + scope + ")");
       line(select("try ", "") + "output.text(" + text + ")");
       line(select("try ", "") + "output.close()");
     }
@@ -388,6 +406,11 @@ class generator {
     const auto& value_type = leaf(*field.source);
     if (value_type.type == object_type::class_type) {
       return type(value_type) + ".srlXmlRead(input, " + name(field.qualified_name) + ")";
+    }
+    if (mobile_namespace_value(field)) {
+      return "namespaces.scalar(input, " + name(field.qualified_name) + ',' +
+          quote(*member_path(*current_owner_, *field.source)) + ") { text, scope -> " +
+          field_read(field, "text", "scope") + " }";
     }
     return field_read(field, "input.scalar(" + name(field.qualified_name) + ")");
   }
@@ -546,6 +569,7 @@ class generator {
       const auto& field = contract.fields[index];
       if (field.attribute) { continue; }
       open(name(field.qualified_name) + " ->");
+      line("input.packageField(" + quote(field.source->name) + ")");
       const auto position = "seen[" + std::to_string(index) + "]";
       line("require(!" + position + ") { \"Duplicate XML all child\" }");
       line(position + " = true");
@@ -582,15 +606,30 @@ class generator {
       line("throw IllegalArgumentException(\"Export-only XML reference graph: decode into the owning target\")");
       close(); return;
     }
+    std::string package_children{"if (input.packageActive) mapOf("};
+    std::string package_attributes{"if (input.packageActive) mapOf("};
+    for (const auto& field : contract.fields) {
+      auto& selected = field.attribute ? package_attributes : package_children;
+      selected += name(field.wrapper ? *field.wrapper : field.qualified_name) + " to " + quote(field.source->name) + ',';
+    }
+    package_children += ") else emptyMap()";
+    package_attributes += ") else emptyMap()";
+    line("val srlPackageScope = input.packageRecord(" + package_children + "," + package_attributes + ")");
+    open("try");
     if (contract.identity) {
       line("input.observe(" + mobile_identity_metadata(*contract.identity, [&](auto value) { return quote(value); },
           [&](const auto& value) { return name(value); }, false) + ')');
     }
     if (contract.extensions) {
-      line("val extensions = SrlXmlExtensions.input(srlXmlExtensions" + model_name + ", input.namespaceScope(), input.extensionOptions)");
+      line("val extensions = SrlXmlExtensions.input(srlXmlExtensions" + model_name + ", input.namespaceScope(), input.extensionOptions, input.packageContext())");
     }
+    if (mobile_namespace_value(contract)) { line("val namespaceScope = input.namespaceValueScope()"); }
     line("val fields = input.open(name)");
     line("val result = " + model_name + "()");
+    if (mobile_namespace_value(contract)) {
+      line("val namespaces = result.srlXmlNamespaces");
+      line("namespaces.owner = namespaceScope");
+    }
     mobile_model_input(contract, "result.");
     for (const bool attributes : {true, false}) {
       if (!attributes && contract.extensions) { line("fields.extensions(extensions)"); }
@@ -600,6 +639,12 @@ class generator {
       }
       for (const auto& field : contract.fields) {
         if (field.attribute != attributes) { continue; }
+        line("input.packageField(" + quote(field.source->name) + ")");
+        open("try");
+        const model_emission_scope package_field_end{[&] {
+          close(" catch (failure: IllegalArgumentException) {"); ++indent_;
+          line("input.packageFailure(); throw failure"); close();
+        }};
         const auto position = std::to_string(&field - contract.fields.data());
         const auto boundary = contract.extensions && !field.attribute && field.repeated && !field.wrapper && !field.list ? position : std::string{};
         if (contract.extensions && !field.attribute && !field.text) { line("extensions.readAt(input, " + position + ", 0)"); }
@@ -661,6 +706,7 @@ class generator {
     }
     line("fields.finish()");
     line("return result");
+    close(" finally {"); ++indent_; line("srlPackageScope?.close()"); close();
     close();
   }
   // Return one Swift typed child frame whose completed value updates only its private owner.
@@ -671,10 +717,17 @@ class generator {
       line("return try " + type(value_type) + ".srlXmlFrame(" + std::string{child} + ", " +
           std::string{attributes} + ", mapLimits, mixedLimits, digestLimits, identityLimits, extensionOptions, listLimit) { item in");
     } else {
-      line("return try srlXmlScalarFrame(" + std::string{child} + ", " + std::string{attributes} + ") { text in");
+      line("return try " + std::string{mobile_namespace_value(field) ? "srlXmlNamespaceScalarFrame" : "srlXmlScalarFrame"} +
+          "(" + std::string{child} + ", " + std::string{attributes} + ") { " +
+          (mobile_namespace_value(field) ? "text, scope in" : "text in"));
     }
     ++indent_;
-    if (value_type.type != object_type::class_type) { line("let item = " + field_read(field, "text")); }
+    if (value_type.type != object_type::class_type) {
+      line("let item = " + field_read(field, "text", mobile_namespace_value(field) ? "scope" : ""));
+      if (mobile_namespace_value(field)) {
+        line("state.value.srlXmlNamespaces.scalar(" + quote(*member_path(*current_owner_, *field.source)) + ", scope)");
+      }
+    }
     auto item = std::string{"item"};
     if (!append) {
       for (std::size_t depth{}; depth < field.presence.optional_depth; ++depth) {
@@ -733,37 +786,55 @@ class generator {
     mobile_model_input(contract, "state.value.");
     std::vector<const xml_binding::field*> elements{};
     const xml_binding::field* text_field{};
+    std::string namespace_attributes{};
     for (const auto& field : contract.fields) {
-      const auto target = "state.value." + member_name(*field.source);
-      const auto active = mobile_active_scope(contract, *field.source, "state.value.");
-      const bool optional = field.source->type_name_list.front().is_optional();
-      if (field.attribute) {
-        if (optional && !field.default_value && !field.fixed_value) {
-          line("if let text = try fields.take(" + name(field.qualified_name) + ", true) {");
-          ++indent_;
-          line(target + " = " + field_read(field, "text"));
-          close(" else {"); ++indent_; line(target + " = nil"); close();
-        } else {
-          line("do {"); ++indent_;
-          const bool defaulted = field.default_value || field.fixed_value;
-          line("let text = try fields.take(" + name(field.qualified_name) + (defaulted ? ", true)" : ")!") );
-          line(target + " = " + field_read(field, "text"));
-          close();
+      const auto attribute_start = output_.size();
+      {
+        const auto target = "state.value." + member_name(*field.source);
+        const auto active = mobile_active_scope(contract, *field.source, "state.value.");
+        const bool optional = field.source->type_name_list.front().is_optional();
+        if (field.attribute) {
+          if (optional && !field.default_value && !field.fixed_value) {
+            line("if let text = try fields.take(" + name(field.qualified_name) + ", true) {");
+            ++indent_;
+            line(target + " = " + field_read(field, "text"));
+            close(" else {"); ++indent_; line(target + " = nil"); close();
+          } else {
+            line("do {"); ++indent_;
+            const bool defaulted = field.default_value || field.fixed_value;
+            line("let text = try fields.take(" + name(field.qualified_name) + (defaulted ? ", true)" : ")!") );
+            line(target + " = " + field_read(field, "text"));
+            close();
+          }
+        } else if (field.text) { text_field = &field; }
+        else {
+          elements.push_back(&field);
+          if (optional) { line(target + " = nil"); }
+          else if (field.repeated) { line(target + " = []"); }
         }
-      } else if (field.text) { text_field = &field; }
-      else {
-        elements.push_back(&field);
-        if (optional) { line(target + " = nil"); }
-        else if (field.repeated) { line(target + " = []"); }
+      }
+      if (field.attribute && mobile_namespace_value(field)) {
+        namespace_attributes += output_.substr(attribute_start);
+        output_.resize(attribute_start);
       }
     }
-    if (has_attributes && !contract.extensions) { line("try fields.finish()"); }
+    if (has_attributes && !contract.extensions && !mobile_namespace_value(contract)) { line("try fields.finish()"); }
     line("let frame = SrlXmlTokenFrame(name)");
-    if (contract.extensions) {
-      line("var extensions: SrlXmlExtensions?");
+    if (contract.extensions) { line("var extensions: SrlXmlExtensions?"); }
+    if (contract.extensions || mobile_namespace_value(contract)) {
+      if (mobile_namespace_value(contract)) { line("frame.namespaceValue = true"); }
       line("frame.scopeStart = { scope in"); ++indent_;
-      line("let tracker = try SrlXmlExtensions.input(srlXmlExtensions" + model_name + ", scope, extensionOptions)");
-      line("try fields.extensions(tracker); try fields.finish(); extensions = tracker"); close();
+      if (mobile_namespace_value(contract)) {
+        line("state.value.srlXmlNamespaces.owner = scope");
+        line("if state.value.srlXmlNamespaces.owner[WireString(\"\")] == nil { state.value.srlXmlNamespaces.owner[WireString(\"\")]=\"\" }");
+        output_ += namespace_attributes;
+      }
+      if (contract.extensions) {
+        line("let tracker = try SrlXmlExtensions.input(srlXmlExtensions" + model_name + ", scope, extensionOptions)");
+        line("try fields.extensions(tracker); extensions = tracker");
+      }
+      if (has_attributes) { line("try fields.finish()"); }
+      close();
     }
     if (contract.identity) {
       line("frame.identity = try SrlXmlIdentity(" + mobile_identity_metadata(*contract.identity,
@@ -897,12 +968,25 @@ class generator {
       }
       close(); return;
     }
+    if (!swift_) { line("val srlPackageScope = output.packageRecord()"); open("try"); }
     line(native_choice_checks(contract, [&](const member& field) { return (swift_ ? "self." : "this.") + member_name(field); }, language_));
     if (contract.extensions) {
       line(select("let extensions = try ", "val extensions = ") + "SrlXmlExtensions.output(srlXmlExtensions" + model_.names.at(&source) + ", " +
-          (mobile_projection_ ? select("nil", "null") : select("self.srlXmlExtensions", "this.srlXmlExtensions")) + ", output.extensionOptions)");
+          (mobile_projection_ ? select("nil", "null") : select("self.srlXmlExtensions", "this.srlXmlExtensions")) + ", output.extensionOptions" + (swift_ ? "" : ", output.packageContext()") + ")");
     }
-    line(select("try ", "") + "output.open(name" + (contract.extensions ? ", extensions.scope" : "") + ")");
+    if (mobile_namespace_value(contract)) {
+      if (mobile_projection_) {
+        line(select("throw SerializerError.invalid(\"QName XML projections require owning namespace state\")",
+            "throw IllegalArgumentException(\"QName XML projections require owning namespace state\")"));
+        if (!swift_) { close(" finally {"); ++indent_; line("srlPackageScope?.close()"); close(); }
+        close(); return;
+      }
+      line(select("let namespaces = try ", "val namespaces = ") + "SrlXmlNamespaceOutput(" +
+          select("self.srlXmlNamespaces", "this.srlXmlNamespaces") +
+          (contract.extensions ? ", extensions.scope" : swift_ ? "" : ", null") + (swift_ ? "" : ", output.packageContext()") + ")");
+    }
+    line(select("try ", "") + "output.open(name" + (mobile_namespace_value(contract) ? ", namespaces.owner" :
+        contract.extensions ? ", extensions.scope" : "") + ")");
     if (contract.identity) {
       line(select("try ", "") + "output.observe(" + mobile_identity_metadata(*contract.identity,
           [&](auto value) { return quote(value); }, [&](const auto& value) { return name(value); }, swift_) + ')');
@@ -913,6 +997,11 @@ class generator {
     if (!attributes && contract.extensions) { line(select("try ", "") + "extensions.emitAttributes(output)"); }
     for (const auto& field : contract.fields) {
       if (field.attribute != attributes) { continue; }
+      if (!swift_) { line("output.packageField(" + quote(field.source->name) + ")"); open("try"); }
+      const model_emission_scope package_field_end{swift_ ? std::function<void()>{} : std::function<void()>{[&] {
+        close(" catch (failure: IllegalArgumentException) {"); ++indent_;
+        line("output.packageFailure(); throw failure"); close();
+      }}};
       const auto position = std::to_string(&field - contract.fields.data());
       const auto boundary = contract.extensions && !field.attribute && field.repeated && !field.wrapper && !field.list ? position : std::string{};
       if (contract.extensions && !field.attribute && !field.text) { line(select("try ", "") + "extensions.emitAt(output, " + position + ", 0)"); }
@@ -968,6 +1057,7 @@ class generator {
       line(select("try ", "") + "extensions.finishOutput()");
     }
     line(select("try ", "") + "output.close()");
+    if (!swift_) { close(" finally {"); ++indent_; line("srlPackageScope?.close()"); close(); }
     close();
   }
   // Emit complete-object XML methods for one native Swift/Kotlin owning record.
@@ -990,6 +1080,16 @@ class generator {
               [&](const auto& value) { return name(value); }, swift_));
     }
     if (swift_) { open("extension " + model_name); }
+    if (mobile_namespace_value(contract) && !source.reference) {
+      line("// Bind newly authored lexical QName values without adding native wire fields.");
+      open(swift_ ? "public mutating func xmlBindNamespace(_ prefix: String, _ uri: String) throws" :
+          "fun " + model_name + ".xmlBindNamespace(prefix: String, uri: String)");
+      line(select("var selected = self.srlXmlNamespaces.owner", "val selected = this.srlXmlNamespaces.owner.toMutableMap()"));
+      line(select("selected[WireString(prefix)] = uri", "selected[prefix] = uri"));
+      line(select("try ", "") + "srlXmlExtensionBindings(selected)");
+      line(select("self.srlXmlNamespaces.owner = selected", "this.srlXmlNamespaces.owner = selected"));
+      close();
+    }
     line("// Encode one complete object with the fixed XML root and field mapping.");
     const auto validator = options_.runtime_xsd ? select(", validator: (any XmlValidator)? = nil", ", validator: XmlValidator? = null") : "";
     const auto legacy_validator = options_.runtime_xsd ? select(", validator: (any XmlValidator)?", ", validator: XmlValidator?") : "";
@@ -1628,7 +1728,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
     } else {
       const bool optional = source_type.is_optional();
       if (optional) {
-        open("if (" + target + ".has_value)"); free_leaf(value_type, target + ".value"); close();
+        free_owned(free_owned, source_type, target);
         line("memset(&" + target + ", 0, sizeof(" + target + "));");
       }
       const auto destination = target + (optional ? ".value" : "");
@@ -1832,7 +1932,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
     } else {
       const bool optional = source_type.is_optional();
       if (optional) {
-        open("if (" + target + ".has_value)"); free_leaf(value_type, target + ".value"); close();
+        free_owned(free_owned, source_type, target);
         line("memset(&" + target + ", 0, sizeof(" + target + "));");
         open("if (srl_xml_input_has(input, " + quote(field.qualified_name.local) + ", " + quote(field.qualified_name.namespace_uri) + "))");
         line(target + ".has_value = true;"); initialize_leaf(value_type, target + ".value");
@@ -2050,8 +2150,10 @@ std::string generator::generate() {
   }
   if (!c_) {
     reserved_runtime_names.insert({"XmlExtensionLimits", "XmlExtensionOptions", "SrlXmlExtensionSlot", "SrlXmlExtensionContract",
-        "SrlXmlForeignContent", "SrlXmlForeignNode", "SrlXmlForeignChild", "SrlXmlPreserved", "SrlXmlExtensions"});
-    reserved_runtime_functions.insert("srlXmlExtensionBindings");
+        "SrlXmlForeignContent", "SrlXmlForeignNode", "SrlXmlForeignChild", "SrlXmlPreserved", "SrlXmlExtensions",
+        "SrlXmlNamespaceState", "SrlXmlNamespaceOutput"});
+    reserved_runtime_functions.insert({"srlXmlExtensionBindings", "srlXmlNamespaceChecked", "srlXmlNamespaceScalarFrame"});
+    reserved_mobile_methods.insert("xmlBindNamespace");
   }
   // These additional Foundation/provider types are referenced unqualified only by XML support.
   const std::set<std::string> swift_provider_names{"XMLParser", "XMLParserDelegate", "NSObject", "NSError", "CharacterSet"};

@@ -44,6 +44,8 @@ struct attribute {
   std::string value{};
 };
 
+struct lexical_contract;
+
 // Bounded typed XML tree; opaque opt-in extension subtrees may retain ordered text segments.
 struct element {
   struct text_segment {
@@ -57,6 +59,8 @@ struct element {
   // In-scope prefix bindings are retained for QName-valued metadata such as XSD type names.
   std::map<std::string, std::string> namespace_bindings{};
   std::vector<text_segment> text_segments{};
+  // Generated transient output borrows static union metadata until final namespace emission completes.
+  const lexical_contract* namespace_contract{};
 };
 
 enum class operation_resource { allocation_bytes, work_units, preserved_bytes };
@@ -64,6 +68,13 @@ enum class unknown_policy { reject, skip, preserve };
 enum class input_encoding_policy { utf8_only, utf8_or_utf16 };
 struct identity_limits;
 struct extension_limits;
+
+// Borrow static generated member names through one synchronous nested codec traversal.
+// Callbacks must not retain node pointers or copies of active paths beyond that traversal.
+struct diagnostic_field {
+  std::string_view member{};
+  const diagnostic_field* parent{};
+};
 
 // An opt-in, caller-owned context follows one XML/package operation. It is not thread-safe.
 // Callbacks and the context must outlive every borrowed generated decoder or builder.
@@ -85,12 +96,41 @@ struct operation_context {
   // Borrow preservation bounds and explicitly understood vocabularies through synchronous XML use.
   const extension_limits* extension_bounds{};
   const std::vector<std::string>* understood_namespaces{};
+  // Package bridges may retain structured locations without allocating on ordinary XML paths.
+  std::function<void(const diagnostic_field*)> check_location{};
+  std::function<void(operation_resource, std::size_t, const diagnostic_field*)> charge_location{};
+  const diagnostic_field* current_field{};
+  // Identity observers admit each complete key/unique/keyref tuple before retaining it.
+  std::function<void(const diagnostic_field*)> admit_reference{};
   // Check cancellation and the monotonic deadline without resetting cumulative counters.
   void check() const;
   // Check interruption and charge before retaining storage or performing bounded work.
   void consume(operation_resource selected, std::size_t amount) const;
   // Select a deadline relative to now; nonpositive durations expire immediately.
   void set_timeout(std::chrono::steady_clock::duration duration);
+};
+
+// Select sibling fields without building paths; nested generated codecs borrow the active node.
+class field_scope {
+  operation_context* context_{};
+  diagnostic_field field_{};
+public:
+  // Activate diagnostics only for a location-aware bridge; the context outlives this scope.
+  explicit field_scope(operation_context* context) noexcept
+      : context_{context && (context->check_location || context->charge_location || context->admit_reference) ? context : nullptr},
+        field_{{}, context_ ? context_->current_field : nullptr} {}
+  field_scope(const field_scope&) = delete;
+  field_scope& operator=(const field_scope&) = delete;
+  // Restore the enclosing field even when a provider or caller throws.
+  ~field_scope() { if (context_) { context_->current_field = field_.parent; } }
+  // An empty member ends this owner's field traversal; transitions retain cancellation checks.
+  void select(std::string_view member) {
+    if (context_) {
+      field_.member = member;
+      context_->current_field = member.empty() ? field_.parent : &field_;
+      context_->check();
+    }
+  }
 };
 
 // Inspect original text with its lexical namespace scope before any typed scalar/list conversion.

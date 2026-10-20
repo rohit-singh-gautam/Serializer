@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 namespace xml = rohit::serializer::xml;
@@ -153,7 +154,7 @@ template <typename T> void accept_qname_union(std::string_view document,
   }
 }
 
-// Reject scope loss and malformed union values in both generated entry points.
+// Reject malformed union values in both generated entry points.
 template <typename T> void reject_qname_union(std::string_view document,
     const xml::limits& bounds) {
   bool direct_rejected{}, tree_rejected{};
@@ -163,6 +164,34 @@ template <typename T> void reject_qname_union(std::string_view document,
   catch (const std::invalid_argument&) { tree_rejected = true; }
   if (!direct_rejected || !tree_rejected) {
     throw std::runtime_error{"QName union child lost its original namespace identity"};
+  }
+}
+
+// Compare expanded names independently of regenerated namespace declaration placement.
+template <typename T> void check_child_qname_identities(std::string_view document, bool list,
+    const xml::limits& bounds) {
+  const auto source = xml::parse(document);
+  const auto identities = [&](const xml::element& owner) {
+    std::vector<xml::name> result{};
+    for (const auto& child : owner.children) {
+      auto lexical = xml::detail::trim(child.text);
+      do {
+        const auto end = list ? lexical.find_first_of(" \t\r\n") : std::string_view::npos;
+        result.push_back(xml::resolve_qname(lexical.substr(0U, end), child));
+        lexical = end == std::string_view::npos ? std::string_view{} :
+            xml::detail::trim(lexical.substr(end));
+      } while (!lexical.empty());
+    }
+    return result;
+  };
+  const auto expected = identities(source);
+  const auto direct_value = xml::deserialize_tokens<T>(document, bounds, nullptr, 1U);
+  const auto tree_value = xml::deserialize<T>(document);
+  for (const auto& output : {xml::serialize_tokens(direct_value, bounds), xml::serialize(tree_value),
+      xml::serialize_tokens(tree_value, bounds), xml::serialize(direct_value)}) {
+    if (identities(xml::parse(output)) != expected) {
+      throw std::runtime_error{"Child-local QName expanded identities changed during XML output"};
+    }
   }
 }
 
@@ -176,26 +205,84 @@ void check_qname_unions(const xml::limits& bounds) {
         "resources/xml_scalar/qname_union.xsd"));
   }
   const auto* reference = oracle ? &*oracle : nullptr;
+  check_child_qname_identities<qname_union::sample>(
+      "<sample xmlns:p='urn:parent'><value xmlns:p='urn:child'>p:item</value>"
+      "<optional xmlns:p='urn:optional'>p:item</optional>"
+      "<entry xmlns:p='urn:first'>p:item</entry><entry xmlns:p='urn:second'>p:item</entry></sample>",
+      false, bounds);
+  check_child_qname_identities<qname_union::lists>(
+      "<lists xmlns:p='urn:parent'><value xmlns:p='urn:first' xmlns:q='urn:second'>p:one q:two</value></lists>",
+      true, bounds);
+  check_child_qname_identities<qnames::qname_children>(
+      "<qname_children xmlns='urn:serializer:xsd' xmlns:x='urn:serializer:xsd'>"
+      "<x:value xmlns='urn:first'>item</x:value><x:value xmlns=''>item</x:value>"
+      "<x:value xmlns:p='urn:types'>p:item</x:value></qname_children>", false, bounds);
+  // Full inherited scopes must remain cumulatively bounded without an optional charge callback.
+  std::string amplified{"<sample xmlns:p='urn:types'"};
+  for (std::size_t index{}; index < 12U; ++index) {
+    amplified += " xmlns:alias" + std::to_string(index) + "='urn:alias'";
+  }
+  amplified += "><value>p:item</value>";
+  for (std::size_t index{}; index < 80U; ++index) { amplified += "<entry>p:item</entry>"; }
+  amplified += "</sample>";
+  auto limited = bounds; limited.max_name_bytes = 4096U;
+  bool amplified_rejected{};
+  try { (void)xml::deserialize_tokens<qname_union::sample>(amplified, limited, nullptr, 1U); }
+  catch (const std::length_error&) { amplified_rejected = true; }
+  if (!amplified_rejected) { throw std::runtime_error{"Inherited namespace scope amplification bypassed bounds"}; }
+  auto fallback = xml::deserialize_tokens<qname_union::fallback>(
+      "<fallback><value>new:item</value></fallback>", bounds);
+  fallback.xml_namespace_bindings["new"] = "urn:allowed";
+  bool direct_scope_rejected{}, tree_scope_rejected{};
+  try { (void)xml::serialize_tokens(fallback, bounds); }
+  catch (const std::invalid_argument&) { direct_scope_rejected = true; }
+  try { (void)xml::serialize(fallback); }
+  catch (const std::invalid_argument&) { tree_scope_rejected = true; }
+  if (!direct_scope_rejected || !tree_scope_rejected) {
+    throw std::runtime_error{"New inherited binding silently changed a union's selected member"};
+  }
+  fallback.xml_namespace_bindings["new"] = "urn:other";
+  (void)xml::serialize_tokens(fallback, bounds);
+  (void)xml::serialize(fallback);
+  auto default_absence = xml::deserialize_tokens<qnames::qname_children>(
+      "<n:qname_children xmlns:n='urn:serializer:xsd'><n:value>item</n:value></n:qname_children>", bounds);
+  default_absence.xml_namespace_bindings[""] = "urn:new-default";
+  for (const auto& output : {xml::serialize_tokens(default_absence, bounds), xml::serialize(default_absence)}) {
+    const auto tree = xml::parse(output);
+    if (xml::resolve_qname(tree.children.at(0U).text, tree.children.at(0U)) != xml::name{"item", ""}) {
+      throw std::runtime_error{"An originally absent default namespace leaked from the edited parent"};
+    }
+  }
   for (const auto text : {
       "<sample xmlns:p='urn:types'><value>p:item</value><optional>12</optional><entry>p:one</entry><entry xmlns:p='urn:types'>p:two</entry></sample>",
       "<sample><value>65535</value></sample>",
       "<sample xmlns=''><value>item</value></sample>",
-      "<sample xmlns:p='urn:types' xmlns:alias='urn:types'><value>alias:item</value><entry>p:other</entry></sample>"}) {
+      "<sample xmlns:p='urn:types' xmlns:alias='urn:types'><value>alias:item</value><entry>p:other</entry></sample>",
+      "<sample xmlns:p='urn:parent'><value xmlns:p='urn:child'>p:item</value></sample>",
+      "<sample><value xmlns:p='urn:child'>p:item</value></sample>",
+      "<sample xmlns:p='urn:parent'><value>1</value><optional xmlns:p='urn:child'>p:item</optional></sample>",
+      "<sample xmlns:p='urn:parent'><value>1</value><entry xmlns:p='urn:child'>p:item</entry><entry xmlns:p='urn:other'>p:item</entry></sample>"}) {
     accept_qname_union<qname_union::sample>(text, reference, bounds);
   }
   for (const auto text : {
       "<lists xmlns:p='urn:types'><value>p:one p:two</value></lists>",
       "<lists xmlns:p='urn:types'><value xmlns:p='urn:types'>p:one\tp:two</value></lists>",
+      "<lists xmlns:p='urn:parent'><value xmlns:p='urn:child'>p:one p:two</value></lists>",
+      "<lists><value xmlns:p='urn:child'>p:one p:two</value></lists>",
+      "<lists><value/></lists>",
       "<lists><value>42</value></lists>"}) {
     accept_qname_union<qname_union::lists>(text, reference, bounds);
   }
   for (const auto text : {
       "<nested xmlns:p='urn:types'><value>p:item</value></nested>",
+      "<nested xmlns:p='urn:parent'><value xmlns:p='urn:child'>p:item</value></nested>",
       "<nested><value>true</value></nested>", "<nested><value>42</value></nested>"}) {
     accept_qname_union<qname_union::nested>(text, reference, bounds);
   }
   for (const auto text : {
       "<fallback xmlns:p='urn:allowed'><value>p:item</value></fallback>",
+      "<fallback xmlns:p='urn:allowed'><value xmlns:p='urn:other'>p:item</value></fallback>",
+      "<fallback xmlns:p='urn:other'><value xmlns:p='urn:allowed'>p:item</value></fallback>",
       "<fallback><value>free form text</value></fallback>",
       "<fallback xmlns:p='urn:other'><value>p:item</value></fallback>"}) {
     accept_qname_union<qname_union::fallback>(text, reference, bounds);
@@ -210,6 +297,8 @@ void check_qname_unions(const xml::limits& bounds) {
       "<whitespace xmlns:p='urn:parent'><value> p:item </value></whitespace>", reference, bounds);
   accept_qname_union<qname_union::whitespace>(
       "<whitespace xmlns:p='urn:parent'><value xmlns:p='urn:child'>p:item</value></whitespace>", reference, bounds);
+  accept_qname_union<qname_union::whitespace>(
+      "<whitespace xmlns:p='urn:parent'><value xmlns:p='urn:child'> p:item </value></whitespace>", reference, bounds);
   const auto whitespace = xml::deserialize_tokens<qname_union::whitespace>(
       "<whitespace xmlns:p='urn:parent'><value> p:item </value></whitespace>", bounds);
   if (whitespace.value != " p:item ") {
@@ -217,23 +306,10 @@ void check_qname_unions(const xml::limits& bounds) {
   }
   for (const auto text : {
       "<sample><value>unbound:item</value></sample>", "<sample><value>65536</value></sample>",
-      "<sample xmlns:p='urn:parent'><value xmlns:p='urn:child'>p:item</value></sample>",
-      "<sample><value xmlns:p='urn:child'>p:item</value></sample>",
-      "<sample xmlns:p='urn:parent'><value>1</value><optional xmlns:p='urn:child'>p:item</optional></sample>",
-      "<sample xmlns:p='urn:parent'><value>1</value><entry xmlns:p='urn:child'>p:item</entry></sample>"}) {
+      "<sample><value xmlns:p='urn:child'>p:one:two</value></sample>"}) {
     reject_qname_union<qname_union::sample>(text, bounds);
   }
-  reject_qname_union<qname_union::lists>(
-      "<lists xmlns:p='urn:parent'><value xmlns:p='urn:child'>p:one p:two</value></lists>", bounds);
-  reject_qname_union<qname_union::nested>(
-      "<nested xmlns:p='urn:parent'><value xmlns:p='urn:child'>p:item</value></nested>", bounds);
-  reject_qname_union<qname_union::whitespace>(
-      "<whitespace xmlns:p='urn:parent'><value xmlns:p='urn:child'> p:item </value></whitespace>", bounds);
-  // Moving a string fallback into an owner scope must never reactivate an earlier QName branch.
-  reject_qname_union<qname_union::fallback>(
-      "<fallback xmlns:p='urn:allowed'><value xmlns:p='urn:other'>p:item</value></fallback>", bounds);
-  reject_qname_union<qname_union::fallback>(
-      "<fallback xmlns:p='urn:other'><value xmlns:p='urn:allowed'>p:item</value></fallback>", bounds);
+  reject_qname_union<qname_union::lists>("<lists><value>unbound:one</value></lists>", bounds);
   auto invalid = xml::deserialize_tokens<qname_union::sample>(
       "<sample xmlns:p='urn:types'><value>p:item</value></sample>", bounds);
   invalid.value = "unbound:item";

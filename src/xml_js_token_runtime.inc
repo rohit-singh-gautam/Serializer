@@ -61,6 +61,8 @@ function srlXmlTokenWrite(owner,meta,output,local,uri,variantType=null) {
   if(extension && extension.state)for(const [name,value] of extension.state.attributes){
     const [uri,local]=srlXmlExtensionName(name);output.attribute(local,uri,value,attributeIndex++);
   }
+  // All generated attribute/type aliases now exist; compare against the scope actually being published.
+  for(const [index,scalar] of prepared)srlXmlCheckPreparedNamespace(meta.fields[index],scalar,output);
   output.put('>');
   if(meta.mixed)srlXmlMixedWrite(owner,meta.mixed,output);
   for (let index=0;index<meta.fields.length;++index) {
@@ -82,7 +84,8 @@ function srlXmlTokenWrite(owner,meta,output,local,uri,variantType=null) {
       if (field.mode==='text') output.escaped(prepared.get(index).text,false);
       else if (field.model) (field.projection ? value.readValue() : value)._srlXmlWrite(output,field.local,field.uri);
       else {const scalar=srlXmlPrepareField(owner,field,value,output.limits,itemIndex);
-        srlXmlVariantStart(output,field.local,field.uri,null,scalar.bindings);output.put('>');
+        srlXmlVariantStart(output,field.local,field.uri,null,scalar.bindings);
+        srlXmlCheckPreparedNamespace(field,scalar,output);output.put('>');
         output.escaped(scalar.text,false);output.close(field.local);}
     }
     if (field.wrapper!==null) output.close(local);
