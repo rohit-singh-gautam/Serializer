@@ -5,6 +5,13 @@ R"jsscalar(
 import {NAME_RE as SrlXmlNameRule,NMTOKEN_RE as SrlXmlTokenRule} from 'xmlchars/xml/1.0/ed5.js';
 // Distinguish a failed lexical alternative from resource/provider/caller failures that unions must propagate.
 class SrlXmlLexicalError extends Error {}
+// Runtime-owned local quota failures remain distinct from malformed data and caller errors.
+class SrlXmlLimitError extends Error {}
+let srlXmlPackageQuotaDepth=0;
+// Native codecs are synchronous; scoped tagging never spans an asynchronous provider or caller await.
+function srlXmlWithPackageQuota(action){++srlXmlPackageQuotaDepth;try{return action();}finally{--srlXmlPackageQuotaDepth;}}
+// Preserve ordinary Error instances and messages outside package-owned codec invocation.
+function srlXmlQuotaError(message){return srlXmlPackageQuotaDepth?new SrlXmlLimitError(message):new Error(message);}
 // Explicit portable-pattern execution bounds; work is cumulative across one encode/decode operation.
 export class XmlPatternLimits {
   constructor(values={}) {
@@ -175,8 +182,8 @@ R"jsscalar(
 // Execute immutable Thompson instructions with reusable closure inventories and a complete-operation work fence.
 function srlXmlPortablePattern(text,program,limits) {
   const bounds=limits.pattern,states=program[1],count=states.length;
-  if(count>bounds.maxStates || srlXmlUtf8Length(text)>bounds.maxInputBytes) throw new Error('XML pattern state/input limit');
-  const charge=()=>{if(limits.patternWork>=bounds.maxWorkUnits)throw new Error('XML pattern work limit');++limits.patternWork;};
+  if(count>bounds.maxStates || srlXmlUtf8Length(text)>bounds.maxInputBytes) throw srlXmlQuotaError('XML pattern state/input limit');
+  const charge=()=>{if(limits.operation)limits.operation("work",1,limits.operationField||"");if(limits.patternWork>=bounds.maxWorkUnits)throw srlXmlQuotaError('XML pattern work limit');++limits.patternWork;};
   const seen=new Uint32Array(count),pending=[],seeds=[];let generation=0,current=[],following=[];
   const closure=(output,input)=>{
     output.length=0;pending.length=0;

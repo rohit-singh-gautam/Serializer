@@ -23,12 +23,21 @@ public static final class Limits {
   public final int maxElements;
   public final int maxDepth;
   public final ReadPolicy readPolicy;
+  /** Optional operation-owned accounting; implementations retain their own failure identity. */
+  public interface XmlOperation { void consume(String resource,long amount,String field); }
+  public final XmlOperation xmlOperation;
+  public String xmlExpectedRoot,xmlExpectedType;
 
   /** Construct a nonnegative resource policy. */
   public Limits(int maxBytes, int maxStringBytes, int maxElements, int maxDepth) { this(maxBytes, maxStringBytes, maxElements, maxDepth, ReadPolicy.STRICT); }
 
   /** Construct a bounded decoding session with revision policy. */
   public Limits(int maxBytes, int maxStringBytes, int maxElements, int maxDepth, ReadPolicy readPolicy) {
+    this(maxBytes,maxStringBytes,maxElements,maxDepth,readPolicy,null);
+  }
+  /** Attach cumulative XML admission without changing existing constructor behavior. */
+  public Limits(int maxBytes,int maxStringBytes,int maxElements,int maxDepth,ReadPolicy readPolicy,XmlOperation operation) {
+    this.xmlOperation=operation;
     this.readPolicy = java.util.Objects.requireNonNull(readPolicy);
     if (maxBytes < 0 || maxStringBytes < 0 || maxElements < 0 || maxDepth < 0) {
       throw new java.lang.IllegalArgumentException("Negative decode limit");
@@ -300,7 +309,8 @@ private static final class Reader {
     if (length < 0 || length > bytes.length - offset) { throw error("Truncated input"); }
   }
 
-  /** Consume only the four JSON whitespace characters. */
+)java"
+R"java(  /** Consume only the four JSON whitespace characters. */
   void whitespace() {
     while (offset < bytes.length) {
       int value = bytes[offset];

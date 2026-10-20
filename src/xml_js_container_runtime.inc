@@ -21,7 +21,7 @@ class SrlXmlMapFrame {
     const key={...meta.key,get:value=>value.key,set:(owner,value)=>{owner.key=value;},read:text=>{
       const value=meta.key.read(text),canonical=meta.key.write(value);
       const bytes=Math.max(srlXmlUtf8Length(text),srlXmlUtf8Length(canonical));
-      if(bytes>this.bounds.maxKeyBytes-this.keyBytes) throw new Error('XML map key-byte limit');
+      if(bytes>this.bounds.maxKeyBytes-this.keyBytes) throw srlXmlQuotaError('XML map key-byte limit');
       return {value,bytes};
     }};
     const value={...meta.value,get:value=>value.value,set:(owner,value)=>{owner.value=value;}};
@@ -33,7 +33,7 @@ class SrlXmlMapFrame {
   // Reject excess entries before allocating the next pending key/value pair.
   child(name) {
     if(name!==this.field.map.entry) throw new Error('Unexpected XML map entry');
-    if(this.values.size>=this.bounds.maxEntries) throw new Error('XML map entry limit');
+    if(this.values.size>=this.bounds.maxEntries) throw srlXmlQuotaError('XML map entry limit');
     return [this.entry,null,false];
   }
   // Commit one complete entry after exact native-key duplicate and cumulative byte validation.
@@ -50,14 +50,15 @@ class SrlXmlMapFrame {
 // Write native entries in iteration order through their exact statically checked key/value codecs.
 function srlXmlMapWrite(field,value,output) {
   const meta=field.map,bounds=output.limits.map;
-  if(!(value instanceof Map) || value.size>bounds.maxEntries) throw new Error('XML map entry limit or native type');
+  if(!(value instanceof Map)) throw new Error('XML map entry limit or native type');
+  if(value.size>bounds.maxEntries) throw srlXmlQuotaError('XML map entry limit or native type');
   output.open(field.wrapperLocal,field.wrapperUri);output.put('>');
   let count=0,keyBytes=0;const selectedKeys=meta.key.projection ? new Set() : null;
   for(const [key,item] of value) {
-    if(++count>bounds.maxEntries) throw new Error('XML map entry limit');
+    if(++count>bounds.maxEntries) throw srlXmlQuotaError('XML map entry limit');
     const text=meta.key.write(key),size=srlXmlUtf8Length(text);
     if(selectedKeys){const selected=meta.key.read(text);if(selectedKeys.has(selected))throw new Error('Duplicate XML projected map key');selectedKeys.add(selected);}
-    if(size>bounds.maxKeyBytes-keyBytes) throw new Error('XML map key-byte limit');
+    if(size>bounds.maxKeyBytes-keyBytes) throw srlXmlQuotaError('XML map key-byte limit');
     keyBytes+=size;output.open(meta.entryLocal,meta.entryUri);
     if(meta.key.mode==='attribute') output.attribute(meta.key.local,meta.key.uri,text,0);
     output.put('>');

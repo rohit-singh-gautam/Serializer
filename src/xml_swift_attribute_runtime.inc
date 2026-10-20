@@ -33,12 +33,12 @@ fileprivate final class SrlXmlLexicalAttributes {
         return value
     }
     // Normalize physical attribute whitespace and decode the five predefined or numeric references.
-    private func value(_ begin: Int, _ end: Int, _ maximum: Int) throws -> String {
+    private func value(_ begin: Int, _ end: Int, _ maximum: Int, _ limits: XmlLimits) throws -> String {
         var result: [UInt8] = []
         var position = begin
         // Bound each decoded contribution before expanding its active native value buffer.
         func append(_ decoded: UInt8) throws {
-            guard result.count < maximum else { throw SerializerError.invalid("XML attribute text limit") }
+            guard result.count < maximum else { throw srlXmlLimitFailure(limits,"XML attribute text limit") }
             result.append(decoded)
         }
         while position < end {
@@ -113,7 +113,7 @@ fileprivate final class SrlXmlLexicalAttributes {
                 guard offset < bytes.count else { throw SerializerError.invalid("Incomplete XML attribute") }
                 let finish = offset; offset += 1
                 let maximum = min(budget.limits.maxTextBytes - budget.textBytes, budget.limits.maxBytes - budget.textBytes)
-                try consume(raw, value(begin, finish, maximum))
+                try consume(raw, value(begin, finish, maximum, budget.limits))
             }
         }
         throw SerializerError.invalid("Missing XML lexical start element")

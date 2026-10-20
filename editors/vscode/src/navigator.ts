@@ -291,7 +291,7 @@ export class Navigator {
     for (let index = 0; index < projection.length; ++index) {
       const name = projection[index];
       const selected = members.filter(member => member.name === name &&
-        inherited(owners).some(owner => owner.qualified === member.owner));
+        (reference.direct ? owners : inherited(owners)).some(owner => owner.qualified === member.owner));
       if (index === projection.length - 1) { return selected; }
       owners = selected.flatMap(member => member.type
         ? resolveType({ ...member.type, start: member.start, end: member.end }, symbols) : []);
@@ -337,8 +337,8 @@ export class Navigator {
           (names.includes(symbol.qualified) || symbol.schemaQualified === declaration.qualified));
         // Preserve distinct identifiers in naming=preserve outputs that normalize alike.
         const preferredName = names.find(name => matches.some(symbol => symbol.qualified === name));
-        for (const symbol of matches.filter(symbol => preferredName ? symbol.qualified === preferredName :
-            symbol.schemaQualified === declaration.qualified)) {
+        for (const symbol of matches.filter(symbol => !symbol.schemaCompanion && (preferredName ? symbol.qualified === preferredName :
+            symbol.schemaQualified === declaration.qualified))) {
           targets.push({ file: header, start: symbol.start, end: symbol.end });
         }
       }

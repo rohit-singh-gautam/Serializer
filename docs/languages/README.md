@@ -14,3 +14,6 @@ outside C++ remain unimplemented.
 | [Rust, Python, Swift, Kotlin, and C](native_languages.md) | Generation, model APIs, encoding and decoding, SDK requirements, and qualification boundaries. |
 | [XML across all outputs](../serialization/xml_packages.md) | Optional typed XML, fixed XSD mapping, explicit runtime validators and all-language examples. |
 | [C# and Kotlin/JVM packages](csharp_kotlin_packages.md) | Owning ZIP/OPC, typed XML roles, shared budgets, private spooling and staged Save. |
+| [Rust packages](rust_packages.md) | Owning bounded-memory ZIP/OPC, explicit profiles and typed application references. |
+| [Swift packages](swift_packages.md) | Owning ZIP/OPC, typed roles, private spooling, preservation and staged Save. |
+| [C packages](c_packages.md) | C11 ownership, typed ZIP/OPC facades, allocation rollback and atomic Save. |

@@ -15,6 +15,11 @@ private static final class SrlXmlNode {
 private static final class SrlXmlBudget {
   final Limits limits;
   int nodes, attributes, textBytes;
+  String field="";
+  /** Admit native work before retaining parser/model state. */
+  void charge(String resource,long amount){if(limits.xmlOperation!=null)limits.xmlOperation.consume(resource,amount,field);}
+  /** Keep expanded-name local context without retaining payload text. */
+  void select(String name){int end=name.lastIndexOf('}');field=end<0?name:name.substring(end+1);charge("work",1);}
   /** Require a validated policy before accepting XML bytes or model fields. */
   SrlXmlBudget(Limits limits) { this.limits = java.util.Objects.requireNonNull(limits); }
   /** Reject non-XML Unicode and cumulatively bound UTF-8 text before retention. */
@@ -25,17 +30,17 @@ private static final class SrlXmlBudget {
       if (!(cp == 9 || cp == 10 || cp == 13 || cp >= 0x20 && cp <= 0xd7ff || cp >= 0xe000 && cp <= 0xfffd || cp >= 0x10000 && cp <= 0x10ffff)) throw new IllegalArgumentException("Invalid XML1.0 character");
     }
     int size = utf8(text).length;
-    if (size > limits.maxStringBytes - textBytes) throw new IllegalArgumentException("XML text limit exceeded");
-    textBytes += size; return text;
+    if (size > limits.maxStringBytes - textBytes) throw SrlXmlRule.quota("XML text limit exceeded");
+    charge("work",size);charge("allocation",size+2L*text.length());textBytes += size; return text;
   }
   /** Charge a node before allocating its descendants. */
   SrlXmlNode node(String name, int depth) {
-    if (depth > limits.maxDepth || nodes >= limits.maxElements) throw new IllegalArgumentException("XML node or depth limit exceeded");
-    ++nodes; return new SrlXmlNode(text(name));
+    if (depth > limits.maxDepth || nodes >= limits.maxElements) throw SrlXmlRule.quota("XML node or depth limit exceeded");
+    select(name);charge("allocation",128);++nodes; return new SrlXmlNode(text(name));
   }
   /** Charge attributes and their names/values before adding them to the tree. */
   void attribute(SrlXmlNode node, String name, String value) {
-    if (attributes >= limits.maxElements) throw new IllegalArgumentException("XML attribute limit exceeded");
+    if (attributes >= limits.maxElements) throw SrlXmlRule.quota("XML attribute limit exceeded");
     ++attributes;
     if (node.attributes.put(text(name), text(value)) != null) throw new IllegalArgumentException("Duplicate XML attribute");
   }
@@ -46,7 +51,7 @@ private static String srlXmlName(String uri, String local) { return uri == null 
 private static String srlXmlTrim(String text) { return text.replaceAll("^[ \\t\\r\\n]+|[ \\t\\r\\n]+$", ""); }
 /** Parse one exact UTF-8 XML1.0 document with bounded SAX callbacks and no DTDs or entities. */
 private static SrlXmlNode srlXmlParse(byte[] bytes, Limits limits) {
-  if (bytes.length > limits.maxBytes) throw new IllegalArgumentException("XML byte limit exceeded");
+  if (bytes.length > limits.maxBytes) throw SrlXmlRule.quota("XML byte limit exceeded");
   String decoded = utf8(bytes, 0, bytes.length);
   var encoding = java.util.regex.Pattern.compile("(?s)^\\uFEFF?<\\?xml\\s+[^?]*\\bencoding\\s*=\\s*(['\"])([^'\"]+)\\1").matcher(decoded);
   if (encoding.find() && !encoding.group(2).replace("-", "").equalsIgnoreCase("UTF8")) throw new IllegalArgumentException("XML UTF8 required");
@@ -69,7 +74,7 @@ private static SrlXmlNode srlXmlParse(byte[] bytes, Limits limits) {
       @Override public void setDocumentLocator(org.xml.sax.Locator value) { locator = value; }
       /** Charge namespace declarations although fixed mappings retain only expanded names. */
       @Override public void startPrefixMapping(String prefix, String uri) {
-        if (budget.attributes >= limits.maxElements) throw new IllegalArgumentException("XML namespace limit exceeded");
+        if (budget.attributes >= limits.maxElements) throw SrlXmlRule.quota("XML namespace limit exceeded");
         ++budget.attributes; budget.text(prefix); budget.text(uri);
       }
       /** Bound each element and attribute before linking the new node. */
@@ -186,7 +191,7 @@ private static final class SrlXmlInput implements AutoCloseable {
   /** Carry explicit opaque-vocabulary policies independently from earlier overloads. */
   SrlXmlInput(byte[] bytes, Limits limits, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity, XmlDigestLimits digests, XmlExtensionOptions extensions) {
     extensionOptions=java.util.Objects.requireNonNull(extensions);
-    if (bytes.length > limits.maxBytes) throw new IllegalArgumentException("XML byte limit exceeded");
+    if (bytes.length > limits.maxBytes) throw SrlXmlRule.quota("XML byte limit exceeded");
     utf8(bytes, 0, bytes.length); budget = new SrlXmlBudget(limits); mapLimits = java.util.Objects.requireNonNull(maps); mixedLimits = java.util.Objects.requireNonNull(mixed); identityLimits = java.util.Objects.requireNonNull(identity); digestLimits=java.util.Objects.requireNonNull(digests);
     try {
       var factory = javax.xml.stream.XMLInputFactory.newFactory();
@@ -210,7 +215,7 @@ private static final class SrlXmlInput implements AutoCloseable {
   /** Snapshot only the active start tag for synchronous observers, never descendants. */
   java.util.Map<String,String> identityAttributes() { var result=new java.util.LinkedHashMap<String,String>();for(int index=0;index<reader.getAttributeCount();++index)result.put(srlXmlName(reader.getAttributeNamespace(index),reader.getAttributeLocalName(index)),reader.getAttributeValue(index));return result; }
   /** Begin one nested owner scope before its already-current start token advances. */
-  SrlXmlIdentity identityScope(SrlXmlIdentityScope scope) { if(kind!='s')throw new IllegalArgumentException("Missing XML identity owner");var result=new SrlXmlIdentity(scope,identityLimits);result.start(name(),identityAttributes(),reader::getNamespaceURI);identities.add(result);return result; }
+  SrlXmlIdentity identityScope(SrlXmlIdentityScope scope) { if(kind!='s')throw new IllegalArgumentException("Missing XML identity owner");var result=new SrlXmlIdentity(scope,identityLimits,budget.limits.xmlOperation,budget.field);result.start(name(),identityAttributes(),reader::getNamespaceURI);identities.add(result);return result; }
   /** Require local forward-reference completion before publishing its native candidate. */
   void identityFinish(SrlXmlIdentity identity) { identity.finish();if(!identities.remove(identity))throw new IllegalArgumentException("Unknown XML identity scope"); }
   /** Deliver each provider event synchronously while its namespace context is still active. */
@@ -222,11 +227,11 @@ private static final class SrlXmlInput implements AutoCloseable {
       while (reader.hasNext()) {
         int event = reader.next();
         if (event == javax.xml.stream.XMLStreamConstants.START_ELEMENT) {
-          if (++depth > budget.limits.maxDepth || budget.nodes >= budget.limits.maxElements) throw new IllegalArgumentException("XML node or depth limit exceeded");
-          ++budget.nodes; budget.text(name());
+          if (++depth > budget.limits.maxDepth || budget.nodes >= budget.limits.maxElements) throw SrlXmlRule.quota("XML node or depth limit exceeded");
+          budget.select(name());budget.charge("allocation",128);++budget.nodes; budget.text(name());
           java.util.Map<String,String> declared=null;if(reader.getNamespaceCount()!=0){declared=new java.util.LinkedHashMap<>();for(int index=0;index<reader.getNamespaceCount();++index){String prefix=reader.getNamespacePrefix(index),uri=reader.getNamespaceURI(index);declared.put(prefix==null?"":prefix,uri==null?"":uri);}}namespaceDeclarations.add(declared);
-          for (int index = 0; index < reader.getNamespaceCount(); ++index) { if (budget.attributes >= budget.limits.maxElements) throw new IllegalArgumentException("XML namespace limit exceeded"); ++budget.attributes; String prefix = reader.getNamespacePrefix(index), uri = reader.getNamespaceURI(index); budget.text(prefix == null ? "" : prefix); budget.text(uri == null ? "" : uri); }
-          for (int index = 0; index < reader.getAttributeCount(); ++index) { if (budget.attributes >= budget.limits.maxElements) throw new IllegalArgumentException("XML attribute limit exceeded"); ++budget.attributes; budget.text(srlXmlName(reader.getAttributeNamespace(index), reader.getAttributeLocalName(index))); budget.text(reader.getAttributeValue(index)); }
+          for (int index = 0; index < reader.getNamespaceCount(); ++index) { if (budget.attributes >= budget.limits.maxElements) throw SrlXmlRule.quota("XML namespace limit exceeded"); ++budget.attributes; String prefix = reader.getNamespacePrefix(index), uri = reader.getNamespaceURI(index); budget.text(prefix == null ? "" : prefix); budget.text(uri == null ? "" : uri); }
+          for (int index = 0; index < reader.getAttributeCount(); ++index) { if (budget.attributes >= budget.limits.maxElements) throw SrlXmlRule.quota("XML attribute limit exceeded"); ++budget.attributes; budget.text(srlXmlName(reader.getAttributeNamespace(index), reader.getAttributeLocalName(index))); budget.text(reader.getAttributeValue(index)); }
           kind = 's'; identityEvent(); return;
         }
         if (event == javax.xml.stream.XMLStreamConstants.END_ELEMENT) { --depth; kind = 'e'; identityEvent(); return; }
@@ -325,13 +330,13 @@ private static final class SrlXmlOutput {
   int listItem(String text, StringBuilder joined, int used) {
     int remaining = budget.limits.maxStringBytes - budget.textBytes;
     int separator = joined.length() == 0 ? 0 : 1;
-    if (separator > remaining - used) throw new IllegalArgumentException("XML list text limit exceeded");
+    if (separator > remaining - used) throw SrlXmlRule.quota("XML list text limit exceeded");
     int count = separator;
     for (int offset = 0; offset < text.length();) {
       int value = text.codePointAt(offset); offset += Character.charCount(value);
       if (!(value == 9 || value == 10 || value == 13 || value >= 32 && value <= 0xd7ff || value >= 0xe000 && value <= 0xfffd || value >= 0x10000 && value <= 0x10ffff)) throw new IllegalArgumentException("Invalid XML character");
       int width = value < 0x80 ? 1 : value < 0x800 ? 2 : value < 0x10000 ? 3 : 4;
-      if (width > remaining - used - count) throw new IllegalArgumentException("XML list text limit exceeded"); count += width;
+      if (width > remaining - used - count) throw SrlXmlRule.quota("XML list text limit exceeded"); count += width;
     }
     if (separator != 0) joined.append(' '); joined.append(text); return used + count;
   }
@@ -358,7 +363,7 @@ private static final class SrlXmlOutput {
   /** Share explicit extension policies without modifying earlier constructor contracts. */
   SrlXmlOutput(Limits limits, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity, XmlDigestLimits digests, XmlExtensionOptions extensions) { budget = new SrlXmlBudget(limits); mapLimits = java.util.Objects.requireNonNull(maps); mixedLimits = java.util.Objects.requireNonNull(mixed); identityLimits=java.util.Objects.requireNonNull(identity); digestLimits=java.util.Objects.requireNonNull(digests);extensionOptions=java.util.Objects.requireNonNull(extensions); }
   /** Attach metadata after opening its still-pending owner start tag. */
-  SrlXmlIdentity identityScope(SrlXmlIdentityScope scope) { var result=new SrlXmlIdentity(scope,identityLimits);identities.add(result);stack.get(stack.size()-1).identityAttributes=new java.util.LinkedHashMap<>();return result; }
+  SrlXmlIdentity identityScope(SrlXmlIdentityScope scope) { var result=new SrlXmlIdentity(scope,identityLimits,budget.limits.xmlOperation,budget.field);identities.add(result);stack.get(stack.size()-1).identityAttributes=new java.util.LinkedHashMap<>();return result; }
   /** Resolve only namespace declarations the direct writer actually emits. */
   String identityNamespace(String prefix) {if(prefix.equals("xml"))return "http://www.w3.org/XML/1998/namespace";for(int index=stack.size()-1;index>=0;--index){var frame=stack.get(index);if(frame.identityNamespaces!=null&&frame.identityNamespaces.containsKey(prefix))return frame.identityNamespaces.get(prefix);int colon=frame.name.indexOf(':');if(!frame.scoped&&colon>=0&&frame.name.substring(0,colon).equals(prefix))return frame.namespace;}return prefix.isEmpty()?"":null;}
   /** Observe one pending start tag after all attributes have been validated. */
@@ -368,22 +373,22 @@ private static final class SrlXmlOutput {
   /** Split a compiler-owned expanded name. */
   String[] parts(String value) { int close = value.startsWith("{") ? value.indexOf('}') : -1; return close < 0 ? new String[]{"", value} : new String[]{value.substring(1, close), value.substring(close + 1)}; }
   /** Check encoded length before appending the next fragment. */
-  void append(String text) { byte[] chunk = utf8(text); if (chunk.length > budget.limits.maxBytes - bytes.size()) throw new IllegalArgumentException("XML output byte limit exceeded"); bytes.writeBytes(chunk); }
+  void append(String text) { budget.charge("work",text.length());budget.charge("allocation",2L*text.length());byte[] chunk = utf8(text); if (chunk.length > budget.limits.maxBytes - bytes.size()) throw SrlXmlRule.quota("XML output byte limit exceeded"); bytes.writeBytes(chunk); }
   /** Escape syntax and normalized whitespace while batching ordinary text runs. */
   void escaped(String text, boolean attribute) { int begin = 0; for (int i = 0; i < text.length(); ++i) { String replacement = switch (text.charAt(i)) { case '&' -> "&amp;"; case '<' -> "&lt;"; case '>' -> "&gt;"; case '\r' -> "&#13;"; case '"' -> attribute ? "&quot;" : null; case '\n' -> attribute ? "&#10;" : null; case '\t' -> attribute ? "&#9;" : null; default -> null; }; if (replacement != null) { append(text.substring(begin, i)); append(replacement); begin = i + 1; } } append(text.substring(begin)); }
   /** Finish the pending start tag before content is emitted. */
   void seal() { if (!stack.isEmpty()) { var frame = stack.get(stack.size() - 1); if (frame.pending) { identityStart(frame); append(">"); frame.pending = false; } } }
   /** Admit and emit an element before traversing any of its descendants. */
-  void open(String name) { if(!stack.isEmpty()&&stack.get(stack.size()-1).scoped){open(name,null);return;} if (stack.size() >= budget.limits.maxDepth || budget.nodes >= budget.limits.maxElements) throw new IllegalArgumentException("XML node or depth limit exceeded"); budget.text(name); ++budget.nodes; seal(); var parts = parts(name); String prefix = parts[0].equals("http://www.w3.org/XML/1998/namespace") ? "xml" : "srl"; String qualified = parts[0].isEmpty() ? parts[1] : prefix + ":" + parts[1]; append("<" + qualified); if (!parts[0].isEmpty() && !prefix.equals("xml") && (stack.isEmpty() || !stack.get(stack.size() - 1).namespace.equals(parts[0]))) { append(" xmlns:srl=\""); escaped(parts[0], true); append("\""); } stack.add(new Frame(qualified, parts[0], name)); }
+  void open(String name) { if(!stack.isEmpty()&&stack.get(stack.size()-1).scoped){open(name,null);return;} if (stack.size() >= budget.limits.maxDepth || budget.nodes >= budget.limits.maxElements) throw SrlXmlRule.quota("XML node or depth limit exceeded"); budget.select(name);budget.charge("allocation",128);budget.text(name); ++budget.nodes; seal(); var parts = parts(name); String prefix = parts[0].equals("http://www.w3.org/XML/1998/namespace") ? "xml" : "srl"; String qualified = parts[0].isEmpty() ? parts[1] : prefix + ":" + parts[1]; append("<" + qualified); if (!parts[0].isEmpty() && !prefix.equals("xml") && (stack.isEmpty() || !stack.get(stack.size() - 1).namespace.equals(parts[0]))) { append(" xmlns:srl=\""); escaped(parts[0], true); append("\""); } stack.add(new Frame(qualified, parts[0], name)); }
   /** Choose a deterministic prefix without shadowing an opaque lexical QName binding. */
   String freshPrefix(String base,String uri){for(int index=0;;++index){String prefix=base+(index==0?"":Integer.toString(index));String bound=identityNamespace(prefix);if(bound==null||bound.equals(uri))return prefix;}}
   /** Reuse an existing binding to keep retained namespace storage stable across roundtrips. */
   String matchingPrefix(String uri,boolean attribute){if(!attribute&&uri.equals(identityNamespace("")))return "";for(int index=stack.size()-1;index>=0;--index){var frame=stack.get(index);if(frame.identityNamespaces!=null)for(var entry:frame.identityNamespaces.entrySet())if((!attribute||!entry.getKey().isEmpty())&&entry.getValue().equals(uri)&&uri.equals(identityNamespace(entry.getKey())))return entry.getKey();if(!frame.scoped&&!frame.namespace.isEmpty()&&frame.namespace.equals(uri)){int colon=frame.name.indexOf(':');if(colon>=0){String prefix=frame.name.substring(0,colon);if(uri.equals(identityNamespace(prefix)))return prefix;}}}return null;}
   /** Charge and emit only namespace bindings which differ from their inherited scope. */
-  void declare(String prefix,String uri){String current=identityNamespace(prefix);if(uri.equals(current))return;if(budget.attributes>=budget.limits.maxElements)throw new IllegalArgumentException("XML namespace limit exceeded");++budget.attributes;budget.text(prefix);budget.text(uri);var frame=stack.get(stack.size()-1);if(frame.identityNamespaces==null)frame.identityNamespaces=new java.util.LinkedHashMap<>();frame.identityNamespaces.put(prefix,uri);append(prefix.isEmpty()?" xmlns=\"":" xmlns:"+prefix+"=\"");escaped(uri,true);append("\"");}
+  void declare(String prefix,String uri){String current=identityNamespace(prefix);if(uri.equals(current))return;if(budget.attributes>=budget.limits.maxElements)throw SrlXmlRule.quota("XML namespace limit exceeded");++budget.attributes;budget.text(prefix);budget.text(uri);var frame=stack.get(stack.size()-1);if(frame.identityNamespaces==null)frame.identityNamespaces=new java.util.LinkedHashMap<>();frame.identityNamespaces.put(prefix,uri);append(prefix.isEmpty()?" xmlns=\"":" xmlns:"+prefix+"=\"");escaped(uri,true);append("\"");}
   /** Pin every preserved binding before selecting the known or foreign element's prefix. */
   void open(String name,java.util.Map<String,String> scope){
-    if(stack.size()>=budget.limits.maxDepth||budget.nodes>=budget.limits.maxElements)throw new IllegalArgumentException("XML node or depth limit exceeded");budget.text(name);++budget.nodes;seal();var selected=parts(name);String prefix="";
+    if(stack.size()>=budget.limits.maxDepth||budget.nodes>=budget.limits.maxElements)throw SrlXmlRule.quota("XML node or depth limit exceeded");budget.select(name);budget.charge("allocation",128);budget.text(name);++budget.nodes;seal();var selected=parts(name);String prefix="";
     java.util.Map<String,String> old=null;var temporary=new Frame("",selected[0],name);temporary.scoped=true;stack.add(temporary);
     if(scope!=null){old=temporary.identityNamespaces;temporary.identityNamespaces=scope;}
     if(!selected[0].isEmpty()){prefix=matchingPrefix(selected[0],false);if(prefix==null)prefix=selected[0].equals("http://www.w3.org/XML/1998/namespace")?"xml":freshPrefix("srl",selected[0]);}
@@ -392,11 +397,11 @@ private static final class SrlXmlOutput {
     if(selected[0].isEmpty()){if(!identityNamespace("").isEmpty())declare("","");}else declare(prefix,selected[0]);
   }
   /** Admit attributes in a pinned scope while preserving their expanded duplicate identity. */
-  void scopedAttribute(String name,String text){var frame=stack.get(stack.size()-1);if(!frame.pending||!frame.attributes.add(name))throw new IllegalArgumentException("Invalid XML attribute position or duplicate");if(budget.attributes>=budget.limits.maxElements)throw new IllegalArgumentException("XML attribute limit exceeded");++budget.attributes;budget.text(name);budget.text(text);var selected=parts(name);String prefix="";if(!selected[0].isEmpty()){prefix=matchingPrefix(selected[0],true);if(prefix==null)prefix=selected[0].equals("http://www.w3.org/XML/1998/namespace")?"xml":freshPrefix("a",selected[0]);declare(prefix,selected[0]);}append(" "+(prefix.isEmpty()?selected[1]:prefix+":"+selected[1])+"=\"");escaped(text,true);append("\"");if(!identities.isEmpty()){if(frame.identityAttributes==null)frame.identityAttributes=new java.util.LinkedHashMap<>();frame.identityAttributes.put(name,text);}}
+  void scopedAttribute(String name,String text){var frame=stack.get(stack.size()-1);if(!frame.pending||!frame.attributes.add(name))throw new IllegalArgumentException("Invalid XML attribute position or duplicate");if(budget.attributes>=budget.limits.maxElements)throw SrlXmlRule.quota("XML attribute limit exceeded");++budget.attributes;budget.text(name);budget.text(text);var selected=parts(name);String prefix="";if(!selected[0].isEmpty()){prefix=matchingPrefix(selected[0],true);if(prefix==null)prefix=selected[0].equals("http://www.w3.org/XML/1998/namespace")?"xml":freshPrefix("a",selected[0]);declare(prefix,selected[0]);}append(" "+(prefix.isEmpty()?selected[1]:prefix+":"+selected[1])+"=\"");escaped(text,true);append("\"");if(!identities.isEmpty()){if(frame.identityAttributes==null)frame.identityAttributes=new java.util.LinkedHashMap<>();frame.identityAttributes.put(name,text);}}
 )xmljava"
 R"xmljava(
   /** Emit each attribute exactly once before text or child elements. */
-  void attribute(String name, String text) { if(stack.get(stack.size()-1).scoped){scopedAttribute(name,text);return;} var frame = stack.get(stack.size() - 1); if (!frame.pending || !frame.attributes.add(name)) throw new IllegalArgumentException("Invalid XML attribute position or duplicate"); if (budget.attributes >= budget.limits.maxElements) throw new IllegalArgumentException("XML attribute limit exceeded"); ++budget.attributes; budget.text(name); budget.text(text); var parts = parts(name); String prefix = parts[0].equals("http://www.w3.org/XML/1998/namespace") ? "xml" : "a" + frame.attributes.size(); if (!parts[0].isEmpty() && !prefix.equals("xml")) { append(" xmlns:" + prefix + "=\""); escaped(parts[0], true); append("\""); } append(" " + (parts[0].isEmpty() ? parts[1] : prefix + ":" + parts[1]) + "=\""); escaped(text, true); append("\""); if(!identities.isEmpty()){if(frame.identityAttributes==null)frame.identityAttributes=new java.util.LinkedHashMap<>();frame.identityAttributes.put(name,text);if(!parts[0].isEmpty()&&!prefix.equals("xml")){if(frame.identityNamespaces==null)frame.identityNamespaces=new java.util.LinkedHashMap<>();frame.identityNamespaces.put(prefix,parts[0]);}} }
+  void attribute(String name, String text) { if(stack.get(stack.size()-1).scoped){scopedAttribute(name,text);return;} var frame = stack.get(stack.size() - 1); if (!frame.pending || !frame.attributes.add(name)) throw new IllegalArgumentException("Invalid XML attribute position or duplicate"); if (budget.attributes >= budget.limits.maxElements) throw SrlXmlRule.quota("XML attribute limit exceeded"); ++budget.attributes; budget.text(name); budget.text(text); var parts = parts(name); String prefix = parts[0].equals("http://www.w3.org/XML/1998/namespace") ? "xml" : "a" + frame.attributes.size(); if (!parts[0].isEmpty() && !prefix.equals("xml")) { append(" xmlns:" + prefix + "=\""); escaped(parts[0], true); append("\""); } append(" " + (parts[0].isEmpty() ? parts[1] : prefix + ":" + parts[1]) + "=\""); escaped(text, true); append("\""); if(!identities.isEmpty()){if(frame.identityAttributes==null)frame.identityAttributes=new java.util.LinkedHashMap<>();frame.identityAttributes.put(name,text);if(!parts[0].isEmpty()&&!prefix.equals("xml")){if(frame.identityNamespaces==null)frame.identityNamespaces=new java.util.LinkedHashMap<>();frame.identityNamespaces.put(prefix,parts[0]);}} }
   /** Declare a QName prefix on this pending payload before emitting its xsi:type attribute. */
   void typeName(String identity) {
     var frame = stack.get(stack.size() - 1);
@@ -405,7 +410,7 @@ R"xmljava(
     if(frame.scoped){if(!selected[0].isEmpty()){String prefix=selected[0].equals("http://www.w3.org/XML/1998/namespace")?"xml":freshPrefix("t",selected[0]);declare(prefix,selected[0]);lexical=prefix+":"+lexical;}else if(!identityNamespace("").isEmpty())throw new IllegalArgumentException("Unqualified XML type conflicts with preserved default namespace");attribute("{http://www.w3.org/2001/XMLSchema-instance}type",lexical);return;}
     if (selected[0].equals("http://www.w3.org/XML/1998/namespace")) lexical = "xml:" + lexical;
     else if (!selected[0].isEmpty()) {
-      if (budget.attributes >= budget.limits.maxElements) throw new IllegalArgumentException("XML namespace limit exceeded");
+      if (budget.attributes >= budget.limits.maxElements) throw SrlXmlRule.quota("XML namespace limit exceeded");
       ++budget.attributes; budget.text("t" + selected[0]); if(!identities.isEmpty()){if(frame.identityNamespaces==null)frame.identityNamespaces=new java.util.LinkedHashMap<>();frame.identityNamespaces.put("t",selected[0]);} append(" xmlns:t=\""); escaped(selected[0], true); append("\""); lexical = "t:" + lexical;
     }
     attribute("{http://www.w3.org/2001/XMLSchema-instance}type", lexical);

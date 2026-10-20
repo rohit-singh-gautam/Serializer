@@ -30,3 +30,6 @@ identify unsupported combinations in their respective contracts.
 ownership with ordinary value output and record translators that borrow arrays.
 [Field references and scoped translators](references.md) describe language 1.18.0
 ownership, durable address resolution and synchronous projected output.
+
+[Package application contracts](../serialization/package_application_contracts.md)
+describe language 1.21.0 fixed/default storage policies and scoped scalar keys/references.

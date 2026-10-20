@@ -13,7 +13,11 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.20.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, `1.15.0`, `1.16.0`, `1.17.0`, `1.18.0`, and `1.19.0` remain supported.
+Use `serializer version 1.21.0;` for new schemas; earlier 1.x language releases
+through `1.20.0` remain supported.
+
+Language `1.21.0` adds [package policies and scalar application keys/references](../serialization/package_application_contracts.md).
+Each declaring file selects its own required language version, including includes.
 
 Language `1.20.0` adds [inline XML mappings and schema association](../serialization/xsd_tooling.md),
 [C++ package declarations](../serialization/xml_packages.md#declarative-c-package-profiles)

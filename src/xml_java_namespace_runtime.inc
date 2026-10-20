@@ -19,7 +19,7 @@ private static final class SrlXmlNamespaceValues {
   /** Retain only used bindings after cumulative scope-byte admission, preserving absent optionals. */
   String capture(SrlXmlInput input,int field,String text,java.util.Map<String,String> scope,int mode){
     if(text==null)return null;String[] tokens=SrlXmlRule.tokens(text,input.listLimit());if(mode==0&&tokens.length!=1)throw new IllegalArgumentException("XML QName requires one name");var retained=new java.util.LinkedHashMap<String,String>();
-    for(String token:tokens){var name=resolve(token,mode,scope);if(!retained.containsKey(name[0])){int size=utf8(name[0]).length+utf8(name[1]).length;if(size>input.budget.limits.maxStringBytes-input.namespaceBytes)throw new IllegalArgumentException("XML QName scope byte limit exceeded");input.namespaceBytes+=size;retained.put(name[0],name[1]);}}
+    for(String token:tokens){var name=resolve(token,mode,scope);if(!retained.containsKey(name[0])){int size=utf8(name[0]).length+utf8(name[1]).length;if(size>input.budget.limits.maxStringBytes-input.namespaceBytes)throw SrlXmlRule.quota("XML QName scope byte limit exceeded");input.budget.charge("allocation",128L+size);input.budget.charge("work",size);input.namespaceBytes+=size;retained.put(name[0],name[1]);}}
     fields.computeIfAbsent(field,ignored->new java.util.ArrayList<>()).add(retained);return text;
   }
   /** Capture child-local overrides before consuming its scalar and restoring its parent scope. */

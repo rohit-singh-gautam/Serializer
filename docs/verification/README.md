@@ -7,6 +7,13 @@ configurations, and toolchains named in each report. They retain historical
 release metadata and outstanding qualification limits; a result does not imply
 that later changes or untested backend combinations passed the same checks.
 
+## 21 October 2026
+
+| Record | Scope |
+| --- | --- |
+| [105-item package and qualification batch](verification-pending-105-2026-10-21.md) | Selected package implementations, fixed/default storage policies, generated scoped references, cumulative diagnostics and integrated regression evidence. |
+| [Provider and platform qualification](verification-q02-q08-2026-10-21.md) | Actual SDK provider, malformed/resource/cancellation and Windows/Linux reproducibility replay, with source provenance and cross-host exchanges. |
+
 ## 20 October 2026
 
 | Record | Scope |

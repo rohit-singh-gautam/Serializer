@@ -51,6 +51,9 @@ struct extension_limits {
 
 // Reject ambiguous slots, duplicate IDs/namespaces, core permissions and impossible counts.
 void validate_extension_contract(const extension_contract& contract, extension_limits bounds = {});
+// Keep explicit native-local metadata admission attached to the active package field.
+void validate_extension_contract_at(const extension_contract& contract, extension_limits bounds,
+    operation_context* context);
 
 // Resolve a required prefix list in its original scope; unknown capabilities always reject.
 // The core namespace is understood implicitly. No provider or remote lookup is performed.

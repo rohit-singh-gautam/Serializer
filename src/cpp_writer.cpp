@@ -3525,7 +3525,7 @@ public:
         if (!xml_digest_field(field)) {
           write_xml_active_field(output, contract, *field.source, [&] {
           if (field.list) { output.write("    ::rohit::serializer::xml::detail::check_token_list_storage(this->",
-              member_name(*field.source), ", srl_tokens.bounds());\n"); }
+              member_name(*field.source), ", srl_tokens.bounds(), srl_tokens.context());\n"); }
           write_xml_value_checks(output, field, "srl_token_scope", "srl_tokens.context()", false, !output_only);
           });
         }
@@ -5347,7 +5347,7 @@ public:
       out_stream.write("#include <rohit/xml.hpp>\n#include <rohit/xml_tokens.hpp>\n#include <rohit/xml_lexical_contract.hpp>\n#include <rohit/xml_pattern.hpp>\n#include <rohit/xml_choice_contract.hpp>\n");
     }
     if (package_codegen::contains(statements)) {
-      out_stream.write("#include <rohit/opc_generated.hpp>\n#include <rohit/document_profile.hpp>\n#include <limits>\n#include <span>\n");
+      out_stream.write("#include <rohit/opc_generated.hpp>\n#include <rohit/document_profile.hpp>\n#include <rohit/package_profile.hpp>\n#include <limits>\n#include <span>\n");
     }
     if (has_views) {
       out_stream.write("#include <rohit/binary_view.hpp>\n");

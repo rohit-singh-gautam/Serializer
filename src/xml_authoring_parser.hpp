@@ -211,11 +211,42 @@ package_part_declaration parse_package_part(const rohit::type_check::schema_inpu
   std::set<std::string> settings;
   while (!input.full() && *input != '}') {
     const auto key = parse_identifier_impl(input);
-    if (!settings.insert(key).second) { throw exception::bad_member_spec{input, "Duplicate package part setting: " + key}; }
+    if (key != "key" && key != "reference" && !settings.insert(key).second) {
+      throw exception::bad_member_spec{input, "Duplicate package part setting: " + key};
+    }
     skip_whitespace_and_comment(input);
     check_and_increase(input, '(');
     skip_whitespace_and_comment(input);
-    if (key == "name" || key == "content_type") {
+    if (key == "policy" || key == "key" || key == "reference") {
+      constexpr language_version introduced{1U, 21U, 0U};
+      if (active_language_version < introduced) {
+        throw exception::bad_member_spec{input, "Package policies and references require serializer version 1.21.0"};
+      }
+      if (key == "policy") {
+        result.profile_policy = parse_identifier_impl(input);
+        if (result.profile_policy != "fixed" && result.profile_policy != "defaults") {
+          throw exception::bad_member_spec{input, "Package policy must be fixed or defaults"};
+        }
+      } else {
+        constexpr std::size_t maximum_package_selectors = 1024U;
+        if (result.keys.size() + result.references.size() >= maximum_package_selectors) {
+          throw exception::bad_member_spec{input, "Package selector count exceeds its limit"};
+        }
+        auto scope = parse_xml_authoring_string(input);
+        if (scope.empty()) { throw exception::bad_member_spec{input, "Package key scope cannot be empty"}; }
+        check_and_increase(input, ',');
+        skip_whitespace_and_comment(input);
+        auto field = parse_identifier_impl(input);
+        if (key == "key") { result.keys.push_back({std::move(scope), std::move(field)}); }
+        else {
+          skip_whitespace_and_comment(input);
+          check_and_increase(input, ',');
+          skip_whitespace_and_comment(input);
+          auto target = parse_identifier_impl(input);
+          result.references.push_back({std::move(scope), std::move(field), std::move(target)});
+        }
+      }
+    } else if (key == "name" || key == "content_type") {
       auto& slot = key == "name" ? result.part_name : result.content_type;
       slot = parse_package_dynamic_string(input);
       if (slot && slot->empty()) { throw exception::bad_member_spec{input, "Fixed package names and content types cannot be empty"}; }

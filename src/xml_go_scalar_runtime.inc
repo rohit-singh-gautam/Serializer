@@ -77,8 +77,8 @@ func (r *srlXmlRule) compare(left,right string)(int,bool,error){
   return srlXmlCompare(left,right,r.kind,srlXmlKindBits(r.kind))
 }
 // Bind one operation-local native collection allowance and cumulative pattern work budget.
-func (r *srlXmlRule) check(text string,maximumItems int)(string,error){
-  work:=srlXmlPatternWork{remaining:srlXmlPatternMaxWorkUnits};return r.checkWith(text,maximumItems,&work)
+func (r *srlXmlRule) check(text string,maximumItems int,budgets ...*srlXmlBudget)(string,error){
+  work:=srlXmlPatternWork{remaining:srlXmlPatternMaxWorkUnits};if len(budgets)!=0{work.budget=budgets[0]};return r.checkWith(text,maximumItems,&work)
 }
 // Preserve branch independence while sharing resource admission through recursive unions.
 func (r *srlXmlRule) checkWith(text string,maximumItems int,work *srlXmlPatternWork)(string,error){
@@ -96,8 +96,8 @@ func (r *srlXmlRule) checkWith(text string,maximumItems int,work *srlXmlPatternW
   return text,nil
 }
 // Preserve a present normalized empty token without activating a nonempty element default.
-func (r *srlXmlRule) output(text,fallback string,hasDefault bool,maximumItems int)(string,error){
-  text,err:=r.check(text,maximumItems);if err!=nil{return "",err}
+func (r *srlXmlRule) output(text,fallback string,hasDefault bool,maximumItems int,budgets ...*srlXmlBudget)(string,error){
+  text,err:=r.check(text,maximumItems,budgets...);if err!=nil{return "",err}
   if hasDefault&&text==""&&srlXmlWhitespace(fallback,r.whitespace)!=""{if r.whitespace=="collapse"{return " ",nil};return "",fmt.Errorf("Empty XML value would activate a different XSD default")};return text,nil
 }
 // Bound native joined list text before retaining another token or separator in its builder.

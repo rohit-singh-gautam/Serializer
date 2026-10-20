@@ -33,8 +33,9 @@ function srlXmlScalarQName(text,scope,bindings=null) {
 }
 
 // Persist only used field declarations, avoiding provider scopes or retained known-element objects.
-function srlXmlRememberNamespaces(owner,field,index,bindings) {
+function srlXmlRememberNamespaces(owner,field,index,bindings,limits=null) {
   if(!bindings || !bindings.size)return;
+  if(limits&&limits.operation){let bytes=128;for(const[prefix,uri]of bindings)bytes+=128+2*(prefix.length+uri.length);limits.operation("allocation",bytes,field.native);}
   let state=srlXmlNamespaceState.get(owner);
   if(!state){state={authored:new Map(),fields:new Map()};srlXmlNamespaceState.set(owner,state);}
   let values=state.fields.get(field.native);
@@ -64,6 +65,7 @@ function srlXmlFieldScope(owner,field,index) {
 
 // Resolve schema-default QName spellings in schema scope rather than the input document's vocabulary.
 function srlXmlReadField(field,text,limits,scope,bindings,defaulted=false) {
+  limits.operationField=field.native;
   if(defaulted && field.defaultName!==null && field.defaultName!==undefined){
     const colon=text.indexOf(':'),prefix=colon<0 ? '' : text.slice(0,colon),separator=field.defaultName.indexOf('\0');
     scope={parent:scope,bindings:new Map([[prefix,field.defaultName.slice(0,separator)]])};
@@ -73,6 +75,7 @@ function srlXmlReadField(field,text,limits,scope,bindings,defaulted=false) {
 
 // Validate authored output in each field's own minimal namespace scope before opening its element head.
 function srlXmlPrepareField(owner,field,value,limits,index=0) {
+  limits.operationField=field.native;
   const bindings=new Map();bindings.srlXmlTrackSelection=srlXmlNeedsNamespace(field.rule);
   const text=field.write(value,limits,field,srlXmlFieldScope(owner,field,index),bindings);
   return {text,bindings,selection:bindings.srlXmlSelection};

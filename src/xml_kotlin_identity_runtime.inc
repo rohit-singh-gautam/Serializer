@@ -21,6 +21,8 @@ internal class SrlXmlIdentityScope(val constraints: Array<SrlXmlIdentityConstrai
 // Observe starts/text/ends directly, retaining only bounded tuples and active scalar captures, never sibling trees.
 internal class SrlXmlIdentity(private val scope: SrlXmlIdentityScope, private val limits: XmlIdentityLimits, private val operation: SrlXmlBudget.Operation? = null) {
     private val packageField = operation?.field ?: ""
+    // Deferred identity work retains the owner selected when its observer was created.
+    private fun quota(message: String): Nothing { operation?.at(packageField) { operation.limit(message) };throw IllegalArgumentException(message) }
     private class Capture(val depth: Int, val nil: Boolean) { val text = StringBuilder(); var bytes = 0 }
     private class Candidate(val constraint: Int, val depth: Int, count: Int) {
         val values = arrayOfNulls<String>(count); val seen = BooleanArray(count)
@@ -33,16 +35,16 @@ internal class SrlXmlIdentity(private val scope: SrlXmlIdentityScope, private va
     private var workUnits = 0L; private var complete = false; private var failed = false
     init {
         operation?.charge("allocation",scope.constraints.size*128L,packageField)
-        require(scope.constraints.size <= limits.maxConstraints) { "XML identity constraint limit" }
+        if (!(scope.constraints.size <= limits.maxConstraints)) quota("XML identity constraint limit")
         for (item in scope.constraints) {
-            require(item.fields.isNotEmpty() && item.fields.size <= limits.maxFields) { "XML identity field limit" }
+            require(item.fields.isNotEmpty()) { "XML identity field limit" };if(item.fields.size>limits.maxFields) quota("XML identity field limit")
             require(item.kind != "keyref" || item.refer in scope.constraints.indices && scope.constraints[item.refer].kind != "keyref") { "XML keyref target outside owner scope" }
         }
     }
     // A callback failure permanently invalidates this private index; the caller's exact exception is preserved.
     private inline fun checked(action: () -> Unit) { try { action() } catch (failure: Exception) { failed = true; operation?.failure(packageField); throw failure } }
     // Charge before scanning names or retaining values; subtraction keeps zero/maximum policies exact.
-    private fun work(count: Long) { operation?.charge("work",count,packageField); require(count >= 0 && count <= limits.maxWorkUnits - workUnits) { "XML identity work limit" }; workUnits += count }
+    private fun work(count: Long) { operation?.charge("work",count,packageField); if (!(count >= 0 && count <= limits.maxWorkUnits - workUnits)) quota("XML identity work limit"); workUnits += count }
     // Charge full expanded names, including large common URI prefixes, before exact comparisons.
     private fun nameBytes(name: SrlXmlName): Long = srlXmlUtf8Size(name.local) + srlXmlUtf8Size(name.namespace) + 2
     // Compare prepared relative paths without allocating suffix arrays or interpreting XPath.
@@ -58,7 +60,7 @@ internal class SrlXmlIdentity(private val scope: SrlXmlIdentityScope, private va
     }
     // Canonicalize exact builtin values independently of native numeric widths and QName prefixes.
     private fun key(raw: String, field: SrlXmlIdentityField, resolve: (String) -> String?): String {
-        val bytes=srlXmlUtf8Size(raw); require(bytes <= limits.maxTupleBytes) { "XML identity field-byte limit" }; work(bytes+1)
+        val bytes=srlXmlUtf8Size(raw); if (!(bytes <= limits.maxTupleBytes)) quota("XML identity field-byte limit"); work(bytes+1)
         if (field.kind == "QName") {
             val text=raw.trim(' ','\t','\r','\n'); val parts=text.split(':')
             require(parts.size in 1..2 && parts.all { it.isNotEmpty() }) { "Invalid XML identity QName" }
@@ -81,17 +83,17 @@ internal class SrlXmlIdentity(private val scope: SrlXmlIdentityScope, private va
     private fun store(candidate: Candidate, index: Int, value: String) {
         val bytes=srlXmlUtf8Size(value)-(if (value.startsWith("q")) 2 else 1)
         operation?.charge("allocation",bytes*2+32,packageField)
-        require(bytes <= limits.maxTupleBytes-candidate.bytes) { "XML identity candidate tuple-byte limit" }
+        if (!(bytes <= limits.maxTupleBytes-candidate.bytes)) quota("XML identity candidate tuple-byte limit")
         candidate.bytes += bytes.toInt(); candidate.values[index]=value
     }
     // Observe original full attributes before nil/type metadata is consumed by the generated owning frame.
     fun start(name: SrlXmlName, attributes: List<SrlXmlAttribute>, resolve: (String) -> String?) = checked {
         require(!failed && !complete) { "XML identity observer inactive" }; work(nameBytes(name)+1)
-        require(path.size < limits.maxDepth) { "XML identity depth limit" }
+        if (!(path.size < limits.maxDepth)) quota("XML identity depth limit")
         require(active.none { candidate -> candidate.captures.any { it != null } }) { "XML identity scalar has complex child content" }
         path.add(name)
         for ((index,item) in scope.constraints.withIndex()) if (matches(1,item.selector)) {
-            require(selected < limits.maxSelectedNodes) { "XML identity selected-node limit" }; ++selected
+            if (!(selected < limits.maxSelectedNodes)) quota("XML identity selected-node limit"); ++selected
             operation?.charge("allocation",128L+item.fields.size*32,packageField)
             active.add(Candidate(index,path.size,item.fields.size))
         }
@@ -119,7 +121,7 @@ internal class SrlXmlIdentity(private val scope: SrlXmlIdentityScope, private va
         for (candidate in active) for (capture in candidate.captures) if (capture != null) {
             work(bytes); require(!capture.nil || value.isEmpty()) { "Nil XML identity field has text" }
             operation?.charge("allocation",bytes*2,packageField)
-            require(bytes <= limits.maxTupleBytes-capture.bytes) { "XML identity field-byte limit" }
+            if (!(bytes <= limits.maxTupleBytes-capture.bytes)) quota("XML identity field-byte limit")
             capture.bytes += bytes.toInt(); capture.text.append(value)
         }
     }
@@ -141,8 +143,8 @@ internal class SrlXmlIdentity(private val scope: SrlXmlIdentityScope, private va
             val candidate=iterator.next(); if (candidate.depth != path.size) continue; iterator.remove()
             val constraint=scope.constraints[candidate.constraint]
             if (candidate.values.any { it == null }) { require(constraint.kind != "key") { "XSD key tuple incomplete or nil" }; continue }
-            require(tuples < limits.maxTuples) { "XML identity tuple-count limit" }
-            require(candidate.bytes <= limits.maxTupleBytes-tupleBytes) { "XML identity tuple-byte limit" }
+            if (!(tuples < limits.maxTuples)) quota("XML identity tuple-count limit")
+            if (!(candidate.bytes <= limits.maxTupleBytes-tupleBytes)) quota("XML identity tuple-byte limit")
             operation?.charge("reference",1,packageField)
             operation?.charge("allocation",candidate.bytes*2L+64,packageField)
             ++tuples; tupleBytes += candidate.bytes; work(candidate.bytes.toLong()+1)

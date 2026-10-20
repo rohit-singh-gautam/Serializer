@@ -56,6 +56,10 @@ R"xmlscalar(
   }
   // Split only XML whitespace; an empty lexical list contains zero items.
   internal static string[] Tokens(string text) { return Tokens(text, MAX_LIST_ITEMS); }
+  // Retain the ordinary default list policy while attaching package-only resource classification.
+  internal static string[] Tokens(string text,Limits.IOperation? operation) {
+    try{return Tokens(text);}catch(LimitFailure failure){operation?.ResourceLimit(failure.Message);throw;}
+  }
   // Admit the complete item count before Split allocates a token array and its item strings.
   internal static string[] Tokens(string text, int maximum) {
     int count = 0; bool item = false;
@@ -65,6 +69,10 @@ R"xmlscalar(
       item = !space;
     }
     return text.Split(new char[]{' ', '\t', '\r', '\n'}, System.StringSplitOptions.RemoveEmptyEntries);
+  }
+  // Locate bounded list failures only while a package operation is attached.
+  internal static string[] Tokens(string text,int maximum,Limits.IOperation? operation) {
+    try{return Tokens(text,maximum);}catch(LimitFailure failure){operation?.ResourceLimit(failure.Message);throw;}
   }
   // Materialize XSD defaults without treating an existing empty attribute as missing.
   internal static string DefaultText(string? text, string fallback, bool attribute) { return text == null || !attribute && text.Length == 0 ? fallback : text; }
@@ -131,6 +139,10 @@ R"xmlscalar(
     if (text is null) throw new System.FormatException("Null XML scalar value");
     return Check(text, new Work(MAX_WORK_UNITS, maximumItems));
   }
+  // Preserve ordinary scalar-limit exceptions while packages retain their selected native field.
+  internal string Check(string text,int maximumItems,Limits.IOperation? operation) {
+    try{return Check(text,maximumItems);}catch(LimitFailure failure){operation?.ResourceLimit(failure.Message);throw;}
+  }
   // Preserve present normalized empty tokens without activating an element's nonempty default.
   internal string Output(string text, string fallback, int maximumItems) {
     text = Check(text, maximumItems);
@@ -139,6 +151,10 @@ R"xmlscalar(
       throw new System.FormatException("Empty XML value would activate a different XSD default");
     }
     return text;
+  }
+  // Apply the same package-only classification when a default-preserving output rule exhausts work.
+  internal string Output(string text,string fallback,int maximumItems,Limits.IOperation? operation) {
+    try{return Output(text,fallback,maximumItems);}catch(LimitFailure failure){operation?.ResourceLimit(failure.Message);throw;}
   }
   // Share work across recursive union alternatives; never swallow a resource failure.
   private string Check(string text, Work work) {

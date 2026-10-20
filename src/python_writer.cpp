@@ -401,6 +401,9 @@ class python_emitter {
     line("context = _xml_namespace_context(limits, context)");
     line("node = _xml_parse(data, limits, context)");
     line("if node[0] != " + expanded(contract.root) + ": raise ValueError('Unexpected XML root or namespace')");
+    line("if getattr(context, '_xml_root_type', None) is not None and _XML_TOKEN_TYPE_NAME in node[1]:");
+    line("    if _xml_name(*_xml_resolve_qname(node[1][_XML_TOKEN_TYPE_NAME], node[4])) != context._xml_root_type: raise ValueError('Unexpected package XML root type')");
+    line("    node[1].pop(_XML_TOKEN_TYPE_NAME)");
     line("return cls._xml_from_node(node, context)"); --indent;
     line("@classmethod");
     open("def decode_xml_chunks(cls, chunks, limits=None, context=None)");
@@ -461,6 +464,7 @@ class python_emitter {
         return "_xml_checked(" + (child_scope ? "srl_namespace_text" : raw) + ", " + rule + ", " + scope + ", budget.context)";
       };
       if (item.text) {
+        line("if len(node) > 6: node[6][0] = budget.context");
         line("node[3] = budget.text(" + lexical() + ")");
       } else if (item.attribute) {
         line("_xml_attribute(node, " + expanded(item.qualified_name) + ", " + lexical() + ", budget)");
@@ -1736,7 +1740,7 @@ public:
       output += package_codegen::python(*package, model.names.at(package),
           [&](const auto& selected) { return type(selected); },
           [&](const auto selected) { return field(selected); },
-          [&](const auto selected) { return quote(selected); });
+          [&](const auto selected) { return quote(selected); }, model.xml);
     }
     return output;
   }

@@ -54,13 +54,13 @@ def _xml_portable_pattern(value, program, context=None):
     start, states = program
     # Avoid an allocation proportional to input bytes until the admission test succeeds.
     if len(value) > limits.max_input_bytes or len(states) > limits.max_states:
-        raise ValueError('Portable XML pattern input/state limit exceeded')
+        _xml_limit(context, 'Portable XML pattern input/state limit exceeded')
     work = 0
     def charge(count=1):
         """Charge every closure/state/range visit before performing the corresponding work."""
         nonlocal work
         if count > limits.max_work_units - work:
-            raise ValueError('Portable XML pattern work limit exceeded')
+            _xml_limit(context, 'Portable XML pattern work limit exceeded')
         work += count
         if context is not None:
             context.consume('work_units', count)
@@ -70,7 +70,7 @@ def _xml_portable_pattern(value, program, context=None):
         code = ord(character)
         size += 1 if code < 0x80 else 2 if code < 0x800 else 3 if code < 0x10000 else 4
         if size > limits.max_input_bytes:
-            raise ValueError('Portable XML pattern input/state limit exceeded')
+            _xml_limit(context, 'Portable XML pattern input/state limit exceeded')
     _xml_check_text(value)
     if context is not None:
         context.consume('decoder_allocation_bytes', len(states) * 40)

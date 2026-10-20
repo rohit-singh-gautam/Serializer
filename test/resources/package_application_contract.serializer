@@ -1,0 +1,47 @@
+serializer version 1.21.0;
+
+namespace contract {
+  xml(namespace("urn:serializer:application-contract"), scalars(attribute));
+
+  class target {
+    public uint32 id;
+    public string name;
+  }
+
+  class source {
+    public uint32 target_id;
+  }
+
+  class other_target {
+    public uint32 id;
+    public string name;
+  }
+
+  package archive {
+    part targets : target {
+      name(dynamic);
+      content_type("application/vnd.serializer.target+xml");
+      relationship("urn:serializer:targets");
+      occurs(0, unbounded);
+      compression(deflate);
+      policy(defaults);
+      key("identities", id);
+    }
+    part sources : source {
+      name(dynamic);
+      content_type("application/vnd.serializer.source+xml");
+      relationship("urn:serializer:sources");
+      occurs(0, unbounded);
+      reference("identities", target_id, targets);
+    }
+    part fixed : other_target {
+      name("/fixed.xml");
+      content_type("application/vnd.serializer.target+xml");
+      relationship("urn:serializer:fixed");
+      occurs(0, 1);
+      compression(stored);
+      policy(fixed);
+      key("identities", id);
+    }
+  }
+}

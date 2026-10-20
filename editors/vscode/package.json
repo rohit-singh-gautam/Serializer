@@ -3,7 +3,7 @@
   "displayName": "Rohit Serializer",
   "icon": "dist/serializer_logo.png",
   "description": "Editor support for Serializer — State Framework: schema highlighting, snippets, schema/generated-code navigation, and CMake assistance.",
-  "version": "2.0.9",
+  "version": "2.0.10",
   "publisher": "rohitjairajsingh",
   "author": {
     "name": "Rohit Jairaj Singh",
@@ -196,7 +196,7 @@
     "test:navigation": "npm run build && node test/run_navigation.cjs",
     "test:navigation:project": "npm run build && node test/run_navigation_project.cjs",
     "vscode:prepublish": "npm run build",
-    "package": "vsce package --no-dependencies --baseContentUrl https://github.com/rohit-singh-gautam/Serializer/blob/main/editors/vscode/ --baseImagesUrl https://raw.githubusercontent.com/rohit-singh-gautam/Serializer/main/editors/vscode/ --out ../../out/extensions/serializer-vscode-2.0.9.vsix",
+    "package": "vsce package --no-dependencies --baseContentUrl https://github.com/rohit-singh-gautam/Serializer/blob/main/editors/vscode/ --baseImagesUrl https://raw.githubusercontent.com/rohit-singh-gautam/Serializer/main/editors/vscode/ --out ../../out/extensions/serializer-vscode-2.0.10.vsix",
     "test:navigation:generated": "npm run compile && node test/generated_navigation.cjs"
   },
   "devDependencies": {

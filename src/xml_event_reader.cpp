@@ -24,9 +24,9 @@ namespace rohit::serializer::xml {
 namespace {
 
 // Reject overflow before adding an admission to its configured bound.
-void admit(std::size_t& used, std::size_t amount, std::size_t maximum) {
+void admit(std::size_t& used, std::size_t amount, std::size_t maximum, operation_context* context = nullptr) {
   if (used > maximum || amount > maximum - used) {
-    throw std::length_error{"XML event reader resource limit exceeded"};
+    reject_limit(context, "XML event reader resource limit exceeded", amount, maximum - std::min(used, maximum));
   }
   used += amount;
 }
@@ -81,9 +81,9 @@ struct event_reader::implementation {
       std::size_t escaped_bytes{};
       for (const unsigned char byte : value) {
         constexpr std::size_t escaped_byte_width = 3U;
-        admit(escaped_bytes, byte >= 0x80U ? escaped_byte_width : 1U, bounds.max_state_bytes);
+        admit(escaped_bytes, byte >= 0x80U ? escaped_byte_width : 1U, bounds.max_state_bytes, context);
       }
-      admit(state_bytes, escaped_bytes, bounds.max_state_bytes);
+      admit(state_bytes, escaped_bytes, bounds.max_state_bytes, context);
       if (context) {
         context->consume(operation_resource::allocation_bytes, escaped_bytes);
         context->consume(operation_resource::work_units, value.size());
@@ -167,24 +167,24 @@ struct event_reader::implementation {
           attributes_count > state.bounds.document.max_attributes ||
           declarations_count > state.bounds.max_state_bytes / sizeof(namespace_declaration) ||
           attributes_count > state.bounds.max_state_bytes / sizeof(event_attribute)) {
-        throw std::length_error{"XML event reader descriptor limit exceeded"};
+        reject_limit(state.context, "XML event reader descriptor limit exceeded");
       }
       admit(descriptor_bytes, declarations_count * sizeof(namespace_declaration),
-            state.bounds.max_state_bytes);
+            state.bounds.max_state_bytes, state.context);
       admit(descriptor_bytes, attributes_count * sizeof(event_attribute),
-            state.bounds.max_state_bytes);
+            state.bounds.max_state_bytes, state.context);
       // Descriptor scratch is live together with the validator's owned open-name stack.
-      admit(descriptor_bytes, state.validator.usage().state_bytes, state.bounds.max_state_bytes);
-      admit(descriptor_bytes, sizeof(name), state.bounds.max_state_bytes);
-      admit(descriptor_bytes, borrow(local).size(), state.bounds.max_state_bytes);
-      admit(descriptor_bytes, borrow(uri).size(), state.bounds.max_state_bytes);
+      admit(descriptor_bytes, state.validator.usage().state_bytes, state.bounds.max_state_bytes, state.context);
+      admit(descriptor_bytes, sizeof(name), state.bounds.max_state_bytes, state.context);
+      admit(descriptor_bytes, borrow(local).size(), state.bounds.max_state_bytes, state.context);
+      admit(descriptor_bytes, borrow(uri).size(), state.bounds.max_state_bytes, state.context);
       const auto duplicate_count = std::max(declarations_count, attributes_count);
       if (duplicate_count >= 2U) {
         if (duplicate_count > state.bounds.max_state_bytes / sizeof(std::size_t)) {
-          throw std::length_error{"XML event reader duplicate index limit exceeded"};
+          reject_limit(state.context, "XML event reader duplicate index limit exceeded");
         }
         admit(descriptor_bytes, duplicate_count * sizeof(std::size_t),
-              state.bounds.max_state_bytes);
+              state.bounds.max_state_bytes, state.context);
       }
       if (state.context) {
         state.context->consume(operation_resource::allocation_bytes,
@@ -418,7 +418,7 @@ void feed(std::string_view bytes) {
     if (context) {
       context->check();
     }
-    admit(admitted_bytes, bytes.size(), bounds.document.max_input_bytes);
+    admit(admitted_bytes, bytes.size(), bounds.document.max_input_bytes, context);
     constexpr std::size_t provider_chunk_bytes = 4096U;
     while (!bytes.empty()) {
       const auto chunk = bytes.substr(0U, std::min(bytes.size(), provider_chunk_bytes));

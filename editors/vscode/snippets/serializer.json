@@ -17,7 +17,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1.20.0;",
+      "serializer version 1.21.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",
@@ -425,5 +425,20 @@
       "}"
     ],
     "description": "Generate a typed OPC facade from declared parts; requires language 1.20.0 and enabled providers"
+  },
+  "OPC package envelope policy": {
+    "prefix": "opcpolicy",
+    "body": "policy(${1|defaults,fixed|});",
+    "description": "Select overridable compression defaults or a fixed per-role envelope; requires language 1.21.0"
+  },
+  "OPC package key": {
+    "prefix": "opckey",
+    "body": "key(\"${1:identities}\", ${2:id});",
+    "description": "Declare a package-wide scoped key on a direct public string or integer field; requires language 1.21.0"
+  },
+  "OPC package reference": {
+    "prefix": "opcreference",
+    "body": "reference(\"${1:identities}\", ${2:target_id}, ${3:targets});",
+    "description": "Require a scoped key with the target role model type; requires language 1.21.0"
   }
 }

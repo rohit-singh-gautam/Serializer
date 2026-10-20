@@ -38,10 +38,14 @@ struct name {
   bool operator==(const name&) const = default;
 };
 
+struct diagnostic_snapshot;
+
 // One attribute; unprefixed attributes belong to the empty namespace.
 struct attribute {
   name qualified_name{};
   std::string value{};
+  // Optional package-only provenance survives deferred escaping without borrowing a stack scope.
+  std::shared_ptr<const diagnostic_snapshot> diagnostic{};
 };
 
 struct lexical_contract;
@@ -61,6 +65,8 @@ struct element {
   std::vector<text_segment> text_segments{};
   // Generated transient output borrows static union metadata until final namespace emission completes.
   const lexical_contract* namespace_contract{};
+  // Generated native output retains provenance only when the caller requests structured locations.
+  std::shared_ptr<const diagnostic_snapshot> diagnostic{};
 };
 
 enum class operation_resource { allocation_bytes, work_units, preserved_bytes };
@@ -74,6 +80,11 @@ struct extension_limits;
 struct diagnostic_field {
   std::string_view member{};
   const diagnostic_field* parent{};
+};
+
+// Own only static generated member views and their links through delayed XML presentation.
+struct diagnostic_snapshot {
+  std::vector<diagnostic_field> fields{};
 };
 
 // An opt-in, caller-owned context follows one XML/package operation. It is not thread-safe.
@@ -108,6 +119,39 @@ struct operation_context {
   void consume(operation_resource selected, std::size_t amount) const;
   // Select a deadline relative to now; nonpositive durations expire immediately.
   void set_timeout(std::chrono::steady_clock::duration duration);
+  // A package decoder may admit this exact root xsi:type; nested/unrelated attributes remain strict.
+  const name* permitted_root_type{};
+  // Classify native/provider-local bounds before unwinding the currently selected field.
+  std::function<void(std::size_t, std::size_t, std::string_view, const diagnostic_field*)> limit_location{};
+  // Preserve ordinary length_error behavior unless a package bridge supplies a typed failure.
+  [[noreturn]] void reject_limit(std::size_t requested, std::size_t available, std::string_view message) const;
+};
+
+// Copy a linked field path only for location-aware operations, admitting metadata before retention.
+[[nodiscard]] std::shared_ptr<const diagnostic_snapshot> retain_diagnostic(operation_context* context);
+
+// Reject a provider/native bound with structured diagnostics when the caller opted in.
+[[noreturn]] inline void reject_limit(operation_context* context, std::string_view message,
+    std::size_t requested = 0U, std::size_t available = 0U) {
+  if (context) { context->reject_limit(requested, available, message); }
+  throw std::length_error{std::string{message}};
+}
+
+// Replay a retained field while synchronous presentation checks and charges run.
+class diagnostic_scope {
+  operation_context* context_{};
+  const diagnostic_field* previous_{};
+public:
+  // An absent snapshot leaves the caller's current location intact for extension/legacy nodes.
+  diagnostic_scope(operation_context* context, const std::shared_ptr<const diagnostic_snapshot>& snapshot) noexcept
+      : context_{context && snapshot && !snapshot->fields.empty() ? context : nullptr},
+        previous_{context_ ? context_->current_field : nullptr} {
+    if (context_) { context_->current_field = &snapshot->fields.front(); }
+  }
+  diagnostic_scope(const diagnostic_scope&) = delete;
+  diagnostic_scope& operator=(const diagnostic_scope&) = delete;
+  // Restore the live field even when a caller callback throws its own exception.
+  ~diagnostic_scope() { if (context_) { context_->current_field = previous_; } }
 };
 
 // Select sibling fields without building paths; nested generated codecs borrow the active node.
@@ -117,7 +161,7 @@ class field_scope {
 public:
   // Activate diagnostics only for a location-aware bridge; the context outlives this scope.
   explicit field_scope(operation_context* context) noexcept
-      : context_{context && (context->check_location || context->charge_location || context->admit_reference) ? context : nullptr},
+      : context_{context && (context->check_location || context->charge_location || context->admit_reference || context->limit_location) ? context : nullptr},
         field_{{}, context_ ? context_->current_field : nullptr} {}
   field_scope(const field_scope&) = delete;
   field_scope& operator=(const field_scope&) = delete;
@@ -541,8 +585,8 @@ class build_budget {
   std::size_t tree_bytes_{};
   std::size_t namespace_bindings_{};
   // Charge one bounded counter before allocation or arithmetic overflow.
-  static void charge(std::size_t& used, std::size_t amount, std::size_t maximum) {
-    if (used > maximum || amount > maximum - used) { throw std::length_error{"XML output tree limit exceeded"}; }
+  void charge(std::size_t& used, std::size_t amount, std::size_t maximum) {
+    if (used > maximum || amount > maximum - used) { reject_limit(context_, "XML output tree limit exceeded", amount, maximum - std::min(used, maximum)); }
     used += amount;
   }
 public:
@@ -569,7 +613,7 @@ public:
       context_->consume(operation_resource::allocation_bytes,
           sizeof(element) + field_name.local.size() + field_name.namespace_uri.size());
     }
-    if (depth_ >= bounds_.max_depth) { throw std::length_error{"XML output depth exceeded"}; }
+    if (depth_ >= bounds_.max_depth) { reject_limit(context_, "XML output depth exceeded", 1U, 0U); }
     charge(nodes_, 1U, bounds_.max_nodes);
     charge(tree_bytes_, sizeof(element), bounds_.max_tree_bytes);
     charge(name_bytes_, field_name.local.size(), bounds_.max_name_bytes);
@@ -581,7 +625,7 @@ public:
   }
   // Enter an already counted wrapper while charging newly restored descendant extensions.
   [[nodiscard]] depth_guard enter_existing() {
-    if (depth_ >= bounds_.max_depth) { throw std::length_error{"XML output depth exceeded"}; }
+    if (depth_ >= bounds_.max_depth) { reject_limit(context_, "XML output depth exceeded", 1U, 0U); }
     ++depth_; return depth_guard{*this};
   }
   // Charge one scalar string before it is copied from the logical model.
@@ -609,6 +653,8 @@ public:
   }
   // Borrow the context used by nested generated builders and lexical adapters.
   [[nodiscard]] operation_context* context() const noexcept { return context_; }
+  // Retain delayed presentation provenance without allocating on ordinary native XML calls.
+  template <typename Node> void retain_location(Node& node) const { node.diagnostic = retain_diagnostic(context_); }
   // Charge a retained lexical namespace declaration before copying its strings.
   void namespace_binding(std::string_view prefix, std::string_view uri) {
     charge(namespace_bindings_, 1U, bounds_.max_namespace_bindings);
@@ -637,6 +683,7 @@ void restore_extensions(element& node, const extension_store& extensions, build_
 
 // Populate one scalar or statically bound record, retaining the caller-selected element name.
 template <typename T> void set_value(element& node, const T& value, build_budget& budget) {
+  if (!node.diagnostic) { budget.retain_location(node); }
   if constexpr (requires { typename T::reference_value_type; }) {
     value.with_value([&](const auto& selected) { set_value(node, selected, budget); });
   } else if constexpr (requires { value.serialize_xml_out(node, budget); }) { value.serialize_xml_out(node, budget); }
@@ -679,6 +726,7 @@ template <typename T> void add_attribute(element& node, name field_name, const T
       auto text = detail::scalar_text(value);
       budget.text(text.size()); node.attributes.push_back({std::move(field_name), std::move(text)});
     }
+    budget.retain_location(node.attributes.back());
   }
 }
 // Append an element, absent optional, or contiguous repeated collection using static mapping.
@@ -702,6 +750,7 @@ template <typename T> void add_child(element& node, const name& field_name, cons
 
 // Encode a scalar as simple record content while retaining its separately mapped attributes.
 template <typename T> void set_text(element& node, const T& value, build_budget& budget) {
+  budget.retain_location(node);
   if constexpr (requires { typename T::reference_value_type; }) {
     value.with_value([&](const auto& selected) { set_text(node, selected, budget); });
   } else if constexpr (std::same_as<T, std::string>) {
@@ -733,6 +782,7 @@ template <typename T> void add_wrapped_children(element& node, const name& wrapp
   const auto depth = budget.enter(wrapper_name);
   element wrapper{};
   wrapper.qualified_name = wrapper_name;
+  budget.retain_location(wrapper);
   add_child(wrapper, item_name, value, budget);
   node.children.push_back(std::move(wrapper));
 }
@@ -996,9 +1046,18 @@ template <typename T> [[nodiscard]] T deserialize(
   if constexpr (detail::requires_complete_tokens<T>) {
     return deserialize_tokens<T>(bytes, bounds, context, default_token_chunk_bytes);
   } else {
-    const auto document = parse(bytes, bounds, context);
+    auto document = parse(bytes, bounds, context);
     if (document.qualified_name != T::xml_root_name()) {
       throw std::invalid_argument{"Unexpected XML root name or namespace"};
+    }
+    if (context && context->permitted_root_type) {
+      std::erase_if(document.attributes, [&](const auto& attribute) {
+        if (attribute.qualified_name != name{"type", "http://www.w3.org/2001/XMLSchema-instance"}) { return false; }
+        if (resolve_qname(attribute.value, document) != *context->permitted_root_type) {
+          throw std::invalid_argument{"Unexpected package XML root type"};
+        }
+        return true;
+      });
     }
     if (context) { context->consume(operation_resource::allocation_bytes, sizeof(T)); }
     T candidate{};

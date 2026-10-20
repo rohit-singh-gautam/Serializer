@@ -11,6 +11,6 @@ func srlXmlMapPolicy(limits XmlMapLimits)error { if limits.MaxEntries<0||limits.
 // Charge the larger lexical/native key representation before inserting the entry.
 func srlXmlMapKeyBytes(lexical,canonical string,used *int,limits XmlMapLimits)error {
   count:=len(lexical);if len(canonical)>count{count=len(canonical)}
-  if count>limits.MaxKeyBytes-*used{return fmt.Errorf("XML map key byte limit exceeded")};*used+=count;return nil
+  if count>limits.MaxKeyBytes-*used{return srlXmlLimitError("XML map key byte limit exceeded")};*used+=count;return nil
 }
 )serializer"

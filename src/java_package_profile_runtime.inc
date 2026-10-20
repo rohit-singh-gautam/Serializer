@@ -11,7 +11,7 @@ R"packagejava(
   private static java.util.List<Relationship> relationships(java.util.List<Relationship> links,java.util.Map<String,?> parts,State state) throws java.io.IOException {
     var seen=new java.util.HashSet<String>();var result=new java.util.ArrayList<Relationship>();
     for(Relationship link:links) {
-      state.consume(Resource.RELATIONSHIPS,1,link.source);state.consume(Resource.REFERENCES,1,link.source);
+      try{state.consume(Resource.RELATIONSHIPS,1,link.source);state.consume(Resource.REFERENCES,1,link.source);}catch(PackageError failure){if(state.first==failure||state.budget.policyFailure==failure)throw failure;throw new PackageError(failure.code,failure.getMessage(),link.source,0,"relationships",link.target,link.id);}
       if(!ncname(link.id))throw error(Code.INVALID_RELATIONSHIP,"Invalid relationship ID",link.source);
       String source="/".equals(link.source)?"/":partName(link.source,false);
       if(!source.equals("/")&&!parts.containsKey(fold(source)))throw error(Code.MISSING_PART,"Relationship source is missing",source);
@@ -121,9 +121,30 @@ R"packagejava(
   }
   /** Declarative schema roles keep generated typed access independent of reflection. */
   public static final class Role {
+    public final String policy,expectedRoot,expectedType,role;
     public final String field,name,contentType,source,relationship,id,compression;public final long minimum,maximum;
     /** Retain immutable schema constants; a negative maximum means unbounded. */
-    public Role(String field,String name,String contentType,String source,String relationship,String id,String compression,long minimum,long maximum){this.field=field;this.name=name;this.contentType=contentType;this.source=source;this.relationship=relationship;this.id=id;this.compression=compression;this.minimum=minimum;this.maximum=maximum;}
+    public Role(String field,String name,String contentType,String source,String relationship,String id,String compression,long minimum,long maximum){this(field,name,contentType,source,relationship,id,compression,minimum,maximum,"defaults",null,null,field);}
+    /** Bind fixed envelope and immutable expected XML identities. */
+    public Role(String field,String name,String contentType,String source,String relationship,String id,String compression,long minimum,long maximum,String policy,String root,String type,String role){this.field=field;this.name=name;this.contentType=contentType;this.source=source;this.relationship=relationship;this.id=id;this.compression=compression;this.minimum=minimum;this.maximum=maximum;this.role=role;this.policy=policy;this.expectedRoot=root;this.expectedType=type;}
+  }
+  /** Resolve one closed compression override without replacing the payload identity. */
+  public static Role selectProfile(Role role,java.util.Map<String,String> profiles) throws java.io.IOException {String selected=profiles.getOrDefault(role.role,role.compression);if(!(selected.equals("stored")||selected.equals("deflate"))||role.policy.equals("fixed")&&!selected.equals(role.compression))throw new PackageError(Code.INVALID_OPTIONS,"Conflicting package profile override","",0,role.field,"","");return new Role(role.field,role.name,role.contentType,role.source,role.relationship,role.id,selected,role.minimum,role.maximum,role.policy,role.expectedRoot,role.expectedType,role.role);}
+  /** Complete typed application inventory; no caller callback implements the declared checks. */
+  public static final class References {
+    private final Budget budget;private final java.util.Map<String,String> keys=new java.util.HashMap<>();private final java.util.List<String[]> pending=new java.util.ArrayList<>();private String part="",id="";
+    /** Borrow the operation ledger through complete candidate validation. */
+    public References(Budget budget){this.budget=budget;}
+    /** Select an immutable actual part/link before admitting this model's selectors. */
+    public void location(String part,String id){this.part=part;this.id=id;}
+    /** Charge only runtime-owned admission errors; arbitrary caller failures retain exact identity. */
+    private void consume(Resource resource,long amount,String field)throws java.io.IOException{try{budget.consume(resource,amount,part);}catch(PackageError failure){if(budget.policyFailure==failure)throw failure;throw new PackageError(failure.code,failure.getMessage(),part,0,field,"",id);}}
+    /** Reject duplicate scoped value identities before retaining an index entry. */
+    public void key(String scope,String value,String role,String field,String modelType)throws java.io.IOException{String path=role+'.'+field,slot=scope+'\0'+value;consume(Resource.REFERENCES,1,path);consume(Resource.WORK_UNITS,slot.length()+1,path);consume(Resource.DECODER_ALLOCATION_BYTES,128L+2L*slot.length(),path);if(keys.putIfAbsent(slot,modelType)!=null)throw new PackageError(Code.SEMANTIC,"Duplicate application key",part,0,path,scope,id);}
+    /** Retain every forward reference and its exact logical source context. */
+    public void reference(String scope,String value,String target,String role,String field)throws java.io.IOException{String path=role+'.'+field;consume(Resource.REFERENCES,1,path);consume(Resource.DECODER_ALLOCATION_BYTES,160L+2L*value.length(),path);pending.add(new String[]{scope+'\0'+value,target,path,part,id});}
+    /** Resolve complete forward requests before returning any owning aggregate. */
+    public void finish()throws java.io.IOException{for(String[] item:pending){location(item[3],item[4]);consume(Resource.WORK_UNITS,item[0].length()+1,item[2]);if(!item[1].equals(keys.get(item[0])))throw new PackageError(Code.SEMANTIC,"Missing or wrong-type application key",part,0,item[2],item[0].substring(0,item[0].indexOf('\0')),id);}}
   }
   /** A native XML encoder receives a narrowed policy; nested native allocations remain a documented scope limit. */
   @FunctionalInterface public interface Encoder<T>{byte[] encode(T value,@outer_name@.Limits limits) throws java.io.IOException;}
@@ -131,13 +152,20 @@ R"packagejava(
   @FunctionalInterface public interface Decoder<T>{T decode(byte[] bytes,@outer_name@.Limits limits) throws java.io.IOException;}
   /** Domain validation runs only after the complete declared aggregate exists. */
   @FunctionalInterface public interface Validator<T>{void validate(T value,Budget budget) throws java.io.IOException;}
-  /** Preserve explicitly bounded native XML options without claiming cumulative nested allocation parity. */
-  private static @outer_name@.Limits nativeLimits(State state) throws java.io.IOException {
+  /** Share logical scalar/token/identity admission while native heap peaks remain separately measured. */
+  private static @outer_name@.Limits nativeLimits(State state,Role role,String part,String id) throws java.io.IOException {
     int bytes=arraySize(state.budget.limits.maxPartBytes,Integer.MAX_VALUE-8,"");
-    int elements=(int)Math.min(1000000,state.budget.remaining(Resource.WORK_UNITS));return new @outer_name@.Limits(bytes,bytes,elements,64);
+    int elements=(int)Math.min(1000000,state.budget.remaining(Resource.WORK_UNITS));var limits=new @outer_name@.Limits(bytes,bytes,elements,64,@outer_name@.ReadPolicy.STRICT,(resource,amount,field)->{
+      try{Resource selected=switch(resource){case "allocation"->Resource.DECODER_ALLOCATION_BYTES;case "reference"->Resource.REFERENCES;default->Resource.WORK_UNITS;};state.consume(selected,amount,part);}
+      catch(java.io.IOException failure){if(state.first==null){PackageError located=failure instanceof PackageError value?new PackageError(value.code,value.getMessage(),part,0,role.field+(field.isEmpty()?"":"."+field),"",id):null;state.first=located==null?failure:located;}throw new IllegalArgumentException("Package native admission failed",failure);}
+    });limits.xmlExpectedRoot=role.expectedRoot;limits.xmlExpectedType=role.expectedType;return limits;
   }
   /** Attach only role context to model-codec failures without copying payload excerpts. */
-  private static PackageError codec(Role role,String name,String id,Exception cause) {var failure=new PackageError(Code.CODEC,"Package typed XML codec rejected part",name,0,role.field,"",id);failure.initCause(cause);return failure;}
+  private static PackageError codec(Role role,String name,String id,Exception cause) {var failure=new PackageError(cause instanceof SrlXmlRule.LimitFailure?Code.RESOURCE_LIMIT:Code.CODEC,"Package typed XML codec rejected part",name,0,role.field,"",id);failure.initCause(cause);return failure;}
+  /** Tag only runtime quotas raised during this synchronous package encoder invocation. */
+  private static <T> byte[] encodeNative(Encoder<T> encoder,T value,State state,Role role,String part,String id)throws java.io.IOException{boolean previous=SrlXmlRule.enterPackageQuota();try{return encoder.encode(value,nativeLimits(state,role,part,id));}finally{SrlXmlRule.leavePackageQuota(previous);}}
+  /** Restore the prior thread-local marker even when a decoder or caller callback fails. */
+  private static <T> T decodeNative(Decoder<T> decoder,byte[] bytes,State state,Role role,String part,String id)throws java.io.IOException{boolean previous=SrlXmlRule.enterPackageQuota();try{return decoder.decode(bytes,nativeLimits(state,role,part,id));}finally{SrlXmlRule.leavePackageQuota(previous);}}
   /** Check aggregate cardinality after all source-scoped role occurrences are counted. */
   private static void occurs(Role role,long count) throws java.io.IOException {if(count<role.minimum||role.maximum>=0&&count>role.maximum)throw new PackageError(Code.SEMANTIC,"Package role cardinality failed","",0,role.field,"","");}
   /** Statically generated facade calls compose one complete role at a time in source order. */
@@ -161,7 +189,7 @@ R"packagejava(
     public <T> void models(Role role,java.util.List<ModelPart<T>> values,Encoder<T> encoder) throws java.io.IOException {
       state.begin();try{java.util.Objects.requireNonNull(values);occurs(role,values.size());var discovered=new java.util.ArrayList<String>();int index=0;
         for(ModelPart<T> item:values){state.poll();if(item==null||item.value==null)throw error(Code.CODEC,"Missing typed role value",role.name==null?"":role.name);String name=role.name==null?item.name:role.name;parent(role,item.sourceIndex,name);partName(name,false);mime(role.contentType==null?item.contentType:role.contentType);byte[] data;
-          try{data=encoder.encode(item.value,nativeLimits(state));}catch(IllegalArgumentException failure){if(state.first!=null)throw state.fail(state.first);throw codec(role,name,"",failure);}state.poll();if(data==null)throw error(Code.CODEC,"Typed encoder returned no bytes",name);state.consume(Resource.DECODER_ALLOCATION_BYTES,data.length,name);add(role,data,item.name,item.contentType,item.sourceIndex,index++,discovered);}
+          try{data=encodeNative(encoder,item.value,state,role,name,role.id==null?"srl_"+role.field+"_"+index:role.id);}catch(IllegalArgumentException failure){if(state.first!=null)throw state.fail(state.first);throw codec(role,name,role.id==null?"srl_"+role.field+"_"+index:role.id,failure);}state.poll();if(data==null)throw error(Code.CODEC,"Typed encoder returned no bytes",name);state.consume(Resource.DECODER_ALLOCATION_BYTES,data.length,name);add(role,data,item.name,item.contentType,item.sourceIndex,index++,discovered);}
         sources.put(role.field,discovered);
       }catch(java.io.IOException|RuntimeException|Error failure){state.closed=true;throw state.fail(failure);}finally{state.busy=false;}
     }
@@ -193,6 +221,10 @@ R"packagejava(
     }
     /** Retain metadata/routing context for one selected declared role occurrence. */
     private record Occurrence(PartMetadata metadata,int parent,String id) {}
+    private final java.util.Map<String,java.util.List<Occurrence>> referenceLocations=new java.util.HashMap<>();
+    /** Reuse already retained discovery records so loaded selector diagnostics keep authored IDs. */
+    public void locateReferences(References references,String role,int occurrence){var selected=referenceLocations.get(role).get(occurrence);references.location(selected.metadata.name,selected.id);}
+
     /** Discover role occurrences by source/type/content type; fixed names remain writer defaults. */
     private java.util.List<Occurrence> discover(Role role) throws java.io.IOException {
       var parents=role.source.equals("/")?java.util.List.of("/"):sources.get(role.source);if(parents==null)throw error(Code.INVALID_RELATIONSHIP,"Role source is not available","");
@@ -200,12 +232,12 @@ R"packagejava(
       for(int parent=0;parent<parents.size();++parent)for(int index=0;index<opc.links.size();++index) {
         state.consume(Resource.WORK_UNITS,1,"");Relationship link=opc.links.get(index);if(!fold(link.source).equals(fold(parents.get(parent)))||!link.type.equals(role.relationship))continue;
         if(!link.mode.equals("internal"))throw new PackageError(Code.INVALID_RELATIONSHIP,"Declared role requires an internal target",link.source,0,role.field,"",link.id);
-        String key=fold(target(link.source,link.target));PartMetadata metadata=opc.parts.get(key);
+        String key=fold(target(link.source,link.target));PartMetadata metadata=opc.parts.get(key);if(role.policy.equals("fixed")&&metadata.entry.method!=(role.compression.equals("stored")?0:8))throw new PackageError(Code.INVALID_OPTIONS,"Fixed package compression mismatch",metadata.name,0,role.field,"",link.id);
         if(role.contentType!=null&&!mime(metadata.contentType).equals(mime(role.contentType)))throw new PackageError(Code.CODEC,"Role content type mismatch",metadata.name,0,role.field,"",link.id);
         if(!decoded.add(key))throw new PackageError(Code.INVALID_RELATIONSHIP,"Part is claimed by multiple role occurrences",metadata.name,0,role.field,"",link.id);
         selected.add(index);values.add(new Occurrence(metadata,parent,link.id));discovered.add(metadata.name);
       }
-      occurs(role,values.size());sources.put(role.field,discovered);return values;
+      occurs(role,values.size());state.consume(Resource.DECODER_ALLOCATION_BYTES,128,"");referenceLocations.put(role.field,values);sources.put(role.field,discovered);return values;
     }
     /** Decode one fixed typed role to a nullable owning native value. */
     public <T> T single(Role role,Decoder<T> decoder) throws java.io.IOException {var values=models(role,decoder);return values.isEmpty()?null:values.get(0).value;}
@@ -213,7 +245,7 @@ R"packagejava(
     public <T> java.util.List<ModelPart<T>> models(Role role,Decoder<T> decoder) throws java.io.IOException {
       state.begin();try{var result=new java.util.ArrayList<ModelPart<T>>();
         for(Occurrence item:discover(role)){state.poll();byte[] bytes=archive.read(item.metadata.entry.name);T value;
-          try{value=decoder.decode(bytes,nativeLimits(state));}catch(IllegalArgumentException failure){if(state.first!=null)throw state.fail(state.first);throw codec(role,item.metadata.name,item.id,failure);}state.poll();if(value==null)throw error(Code.CODEC,"Typed decoder returned no value",item.metadata.name);result.add(new ModelPart<>(value,item.metadata.name,item.metadata.contentType,item.parent));}
+          try{value=decodeNative(decoder,bytes,state,role,item.metadata.name,item.id);}catch(IllegalArgumentException failure){if(state.first!=null)throw state.fail(state.first);throw codec(role,item.metadata.name,item.id,failure);}state.poll();if(value==null)throw error(Code.CODEC,"Typed decoder returned no value",item.metadata.name);result.add(new ModelPart<>(value,item.metadata.name,item.metadata.contentType,item.parent));}
         state.poll();return java.util.List.copyOf(result);
       }catch(java.io.IOException|RuntimeException|Error failure){state.closed=true;throw state.fail(failure);}finally{leave();}
     }

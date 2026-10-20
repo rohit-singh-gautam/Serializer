@@ -13,9 +13,9 @@ namespace rohit::serializer::xml {
 namespace {
 
 // Admit before arithmetic so caller-selected maximum bounds cannot wrap counters.
-void add_bytes(std::size_t& used, std::size_t amount, std::size_t maximum) {
+void add_bytes(std::size_t& used, std::size_t amount, std::size_t maximum, operation_context* context = nullptr) {
   if (used > maximum || amount > maximum - used) {
-    throw std::length_error{"XML extension resource limit exceeded"};
+    reject_limit(context, "XML extension resource limit exceeded", amount, maximum - std::min(used, maximum));
   }
   used += amount;
 }
@@ -39,9 +39,9 @@ void measure_scope(const std::map<std::string, std::string>& bindings, build_bud
     std::size_t& bytes, std::size_t maximum) {
   for (const auto& [prefix, uri] : bindings) {
     budget.namespace_binding(prefix, uri);
-    add_bytes(bytes, sizeof(std::pair<const std::string, std::string>), maximum);
-    add_bytes(bytes, prefix.size(), maximum);
-    add_bytes(bytes, uri.size(), maximum);
+    add_bytes(bytes, sizeof(std::pair<const std::string, std::string>), maximum, budget.context());
+    add_bytes(bytes, prefix.size(), maximum, budget.context());
+    add_bytes(bytes, uri.size(), maximum, budget.context());
   }
 }
 
@@ -53,10 +53,10 @@ void measure_attribute(const attribute& value, build_budget& budget,
   }
   budget.attribute_name(value.qualified_name);
   budget.text(value.value.size());
-  add_bytes(bytes, sizeof(attribute), maximum);
-  add_bytes(bytes, value.qualified_name.local.size(), maximum);
-  add_bytes(bytes, value.qualified_name.namespace_uri.size(), maximum);
-  add_bytes(bytes, value.value.size(), maximum);
+  add_bytes(bytes, sizeof(attribute), maximum, budget.context());
+  add_bytes(bytes, value.qualified_name.local.size(), maximum, budget.context());
+  add_bytes(bytes, value.qualified_name.namespace_uri.size(), maximum, budget.context());
+  add_bytes(bytes, value.value.size(), maximum, budget.context());
 }
 
 // Recursion is depth-bounded before visiting children; retained text order is checked exactly.
@@ -68,10 +68,10 @@ void measure_child(const element& value, build_budget& budget,
   }
   const auto depth = budget.enter(value.qualified_name);
   budget.text(value.text.size());
-  add_bytes(bytes, sizeof(element), maximum);
-  add_bytes(bytes, value.qualified_name.local.size(), maximum);
-  add_bytes(bytes, value.qualified_name.namespace_uri.size(), maximum);
-  add_bytes(bytes, value.text.size(), maximum);
+  add_bytes(bytes, sizeof(element), maximum, budget.context());
+  add_bytes(bytes, value.qualified_name.local.size(), maximum, budget.context());
+  add_bytes(bytes, value.qualified_name.namespace_uri.size(), maximum, budget.context());
+  add_bytes(bytes, value.text.size(), maximum, budget.context());
   measure_scope(value.namespace_bindings, budget, bytes, maximum);
   for (const auto& item : value.attributes) { measure_attribute(item, budget, bytes, maximum); }
   std::size_t previous_child{}, text_offset{};
@@ -85,8 +85,8 @@ void measure_child(const element& value, build_budget& budget,
     text_offset += segment.value.size();
     budget.retained_storage(sizeof(element::text_segment));
     budget.retained_storage(segment.value.size());
-    add_bytes(bytes, sizeof(element::text_segment), maximum);
-    add_bytes(bytes, segment.value.size(), maximum);
+    add_bytes(bytes, sizeof(element::text_segment), maximum, budget.context());
+    add_bytes(bytes, segment.value.size(), maximum, budget.context());
   }
   if ((!value.text_segments.empty() && text_offset != value.text.size()) ||
       (!value.children.empty() && !value.text.empty() && value.text_segments.empty())) {
@@ -98,20 +98,20 @@ void measure_child(const element& value, build_budget& budget,
 } // namespace
 
 // Exact namespace lists make slot overlap statically decidable and keep core names closed.
-void validate_extension_contract(const extension_contract& contract, extension_limits bounds) {
+void validate_extension_contract_at(const extension_contract& contract, extension_limits bounds, operation_context* context) {
   if (contract.slots.size() > bounds.max_slots || contract.known_names.size() > bounds.max_items ||
       contract.required_namespaces.size() > bounds.max_items) {
-    throw std::length_error{"XML extension contract metadata limit exceeded"};
+    reject_limit(context, "XML extension contract metadata limit exceeded");
   }
   std::set<std::string> ids{};
   std::set<std::pair<bool, std::pair<std::size_t, std::string>>> destinations{};
   std::size_t metadata_bytes{};
   for (const auto& known : contract.known_names) {
-    add_bytes(metadata_bytes, known.local.size(), bounds.document.max_name_bytes);
-    add_bytes(metadata_bytes, known.namespace_uri.size(), bounds.document.max_name_bytes);
+    add_bytes(metadata_bytes, known.local.size(), bounds.document.max_name_bytes, context);
+    add_bytes(metadata_bytes, known.namespace_uri.size(), bounds.document.max_name_bytes, context);
   }
   for (const auto& slot : contract.slots) {
-    add_bytes(metadata_bytes, slot.id.size(), bounds.document.max_name_bytes);
+    add_bytes(metadata_bytes, slot.id.size(), bounds.document.max_name_bytes, context);
     if (slot.id.empty() || !ids.insert(slot.id).second || slot.namespaces.empty() ||
         slot.namespaces.size() > bounds.max_items ||
         (slot.maximum && slot.minimum > *slot.maximum) ||
@@ -123,7 +123,7 @@ void validate_extension_contract(const extension_contract& contract, extension_l
       throw std::invalid_argument{"Unknown XML extension policy"};
     }
     for (const auto& uri : slot.namespaces) {
-      add_bytes(metadata_bytes, uri.size(), bounds.document.max_name_bytes);
+      add_bytes(metadata_bytes, uri.size(), bounds.document.max_name_bytes, context);
       if (uri.empty() || uri == contract.core_namespace ||
           !destinations.emplace(slot.attribute,
               std::pair{slot.attribute ? 0U : slot.before_field, uri}).second) {
@@ -133,11 +133,16 @@ void validate_extension_contract(const extension_contract& contract, extension_l
   }
   std::set<std::string> required{};
   for (const auto& uri : contract.required_namespaces) {
-    add_bytes(metadata_bytes, uri.size(), bounds.document.max_name_bytes);
+    add_bytes(metadata_bytes, uri.size(), bounds.document.max_name_bytes, context);
     if (uri.empty() || !required.insert(uri).second) {
       throw std::invalid_argument{"Invalid required XML capability namespace"};
     }
   }
+}
+
+// Preserve the original context-free public contract-validation entry point.
+void validate_extension_contract(const extension_contract& contract, extension_limits bounds) {
+  validate_extension_contract_at(contract, bounds, nullptr);
 }
 
 // Preservation and skipping never imply semantic support for required vocabularies.
@@ -147,7 +152,7 @@ void validate_required_capabilities(const extension_contract& contract, const el
   if (prefixes.size() > bounds.document.max_text_bytes ||
       contract.required_namespaces.size() > bounds.max_items ||
       understood_namespaces.size() > bounds.max_items) {
-    throw std::length_error{"XML required capability metadata limit exceeded"};
+    reject_limit(context, "XML required capability metadata limit exceeded");
   }
   for (const auto& uri : contract.required_namespaces) {
     if (context) { context->consume(operation_resource::work_units, 1U); }
@@ -160,7 +165,7 @@ void validate_required_capabilities(const extension_contract& contract, const el
   while (!prefixes.empty()) {
     const auto end = prefixes.find_first_of(" \t\r\n");
     const auto prefix = prefixes.substr(0U, end);
-    add_bytes(prefix_count, 1U, bounds.max_items);
+    add_bytes(prefix_count, 1U, bounds.max_items, context);
     if (prefix.size() > bounds.document.max_name_bytes || prefix.find(':') != std::string_view::npos ||
         prefix == "xmlns") {
       throw std::invalid_argument{"Invalid required capability prefix"};
@@ -174,7 +179,7 @@ void validate_required_capabilities(const extension_contract& contract, const el
         "http://www.w3.org/XML/1998/namespace" : found == scope.namespace_bindings.end() ?
         std::string_view{} : found->second;
     if (uri.empty()) { throw std::invalid_argument{"Unbound required XML capability prefix"}; }
-    add_bytes(resolved_bytes, uri.size(), bounds.document.max_name_bytes);
+    add_bytes(resolved_bytes, uri.size(), bounds.document.max_name_bytes, context);
     if (!understands(contract, uri, understood_namespaces, context)) {
       throw std::invalid_argument{"Required XML capability is not understood"};
     }
@@ -188,12 +193,12 @@ static extension_store inspect_extension_slots(const extension_contract& contrac
     std::span<const std::string> understood_namespaces, std::string_view required_prefixes,
     extension_limits bounds, operation_context* context, bool retain) {
   if (context) { context->check(); }
-  validate_extension_contract(contract, bounds);
+  validate_extension_contract_at(contract, bounds, context);
   if (scope.qualified_name.namespace_uri != contract.core_namespace) {
     throw std::invalid_argument{"XML extension owner namespace differs from contract"};
   }
   if (items.size() > bounds.max_items) {
-    throw std::length_error{"XML extension item limit exceeded"};
+    reject_limit(context, "XML extension item limit exceeded");
   }
   validate_required_capabilities(contract, scope, required_prefixes, understood_namespaces, bounds, context);
   if (context) {
@@ -202,7 +207,12 @@ static extension_store inspect_extension_slots(const extension_contract& contrac
   }
   std::vector<std::size_t> counts(contract.slots.size());
   extension_store candidate{};
-  build_budget budget{bounds.document};
+  operation_context local_bounds{};
+  if (context && context->limit_location) {
+    local_bounds.limit_location = [context](std::size_t requested, std::size_t available,
+        std::string_view message, const diagnostic_field*) { context->reject_limit(requested, available, message); };
+  }
+  build_budget budget{bounds.document, local_bounds.limit_location ? &local_bounds : nullptr};
   std::size_t preserved_bytes{}, previous_child{}, previous_field{};
   bool has_child{}, scope_retained{};
   std::set<std::pair<std::string, std::string>> attribute_names{};
@@ -252,7 +262,7 @@ static extension_store inspect_extension_slots(const extension_contract& contrac
     }
     const auto& slot = contract.slots[selected];
     add_bytes(counts[selected], 1U,
-        slot.maximum.value_or(std::numeric_limits<std::size_t>::max()));
+        slot.maximum.value_or(std::numeric_limits<std::size_t>::max()), context);
     if (slot.policy == unknown_policy::skip) { continue; }
     const auto before = preserved_bytes;
     const bool copy_scope = item.attribute && !scope_retained;
@@ -265,7 +275,7 @@ static extension_store inspect_extension_slots(const extension_contract& contrac
       measure_child(*item.child, budget, preserved_bytes, bounds.max_preserved_bytes, context);
       constexpr auto slot_metadata_bytes = sizeof(extension_store::child_slot) - sizeof(element);
       budget.retained_storage(slot_metadata_bytes);
-      add_bytes(preserved_bytes, slot_metadata_bytes, bounds.max_preserved_bytes);
+      add_bytes(preserved_bytes, slot_metadata_bytes, bounds.max_preserved_bytes, context);
     }
     if (context) {
       context->consume(operation_resource::preserved_bytes, preserved_bytes - before);

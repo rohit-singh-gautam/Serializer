@@ -15,8 +15,10 @@ R"serializer(
       void SelectField(string member);
       IOperation Capture();
       void RethrowFailure();
+      void ResourceLimit(string message);
     }
     internal IOperation? Operation { get; init; }
+    internal string? XmlExpectedType { get; init; }
     public ReadPolicy ReadPolicy { get; }
     public int MaxBytes { get; }
     public int MaxStringBytes { get; }

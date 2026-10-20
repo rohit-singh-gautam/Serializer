@@ -853,6 +853,19 @@ struct class_node : public syntax_node {
   class_node& operator=(const class_node&) = delete;
 };
 
+// A package key selects one direct public scalar field in an explicit aggregate scope.
+struct package_key_declaration {
+  std::string scope{};
+  std::string field{};
+};
+
+// A package reference requires a key belonging to the selected target role's model type.
+struct package_reference_declaration {
+  std::string scope{};
+  std::string field{};
+  std::string target_role{};
+};
+
 // One declared OPC role has typed content or opaque caller-owned bytes.
 struct package_part_declaration {
   std::string name{};
@@ -866,6 +879,9 @@ struct package_part_declaration {
   std::optional<std::string> relationship_id{};
   std::size_t min_occurs{1U};
   std::optional<std::size_t> max_occurs{1U};
+  std::string profile_policy{"defaults"};
+  std::vector<package_key_declaration> keys{};
+  std::vector<package_reference_declaration> references{};
 };
 
 // Compiler-owned package metadata generates a facade; it adds no model-instance fields.

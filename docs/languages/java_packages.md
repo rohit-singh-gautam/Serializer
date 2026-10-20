@@ -140,12 +140,20 @@ name publication boundaries for deterministic fault testing.
 ## Current scope
 
 Selected typed package roles use XML. Other authored typed codecs reject before
-generated output publication. Java's existing nested XML APIs do not accept the
-package operation context, so complete cumulative nested-codec allocation,
-field-level context and in-callback cancellation parity remain open (P16).
-Declarative fixed/default/runtime envelope profile dispatch (P20) and automatic
-cross-part payload key/reference resolution (P21) also remain open. Application
-validators do not close those framework contracts.
+generated output publication. Nested XML token/scalar work, retained namespaces,
+identity tuples and declared application references share the package ledger.
+Native codec failures retain the role/field, actual part and relationship ID.
+Each complete repeated keyref request consumes admission before deduplication.
+
+Language 1.21 adds `policy(fixed)`/`policy(defaults)`, `key("scope", field)` and
+`reference("scope", field, target_role)`. Pass a schema-role-keyed map to
+`Archive.encode(input, budget, Map.of("resources", "stored"))` to select storage
+defaults; fixed roles reject changed methods. Root and explicit `xsi:type`
+identities remain immutable. Automatic scalar references validate the complete
+unpublished aggregate, including forward requests and wrong-model targets.
+See [application contracts](../serialization/package_application_contracts.md)
+for selector restrictions. Provider internals and JVM heap peaks remain outside
+the logical operation budget.
 
 The [20 October qualification](../verification/verification-java-packages-2026-10-20.md)
 records **224/224** actual JDK17 decisions, nine independent ZIP/XML output checks,

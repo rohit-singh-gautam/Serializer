@@ -225,6 +225,8 @@ fileprivate final class SrlXmlTokenParser: NSObject, XMLParserDelegate {
 }
 // Preserve the established UTF8/XML1.0/DTD policy before allowing provider callbacks.
 fileprivate func srlXmlTokenPreflight(_ bytes: [UInt8], _ limits: XmlLimits) throws {
+    try limits.srlPackageCheck?()
+    if limits.maxBytes >= 0 && bytes.count > limits.maxBytes { throw srlXmlLimitFailure(limits,"Invalid UTF8, XML size or DTD") }
     guard limits.maxBytes >= 0 && limits.maxNodes >= 0 && limits.maxDepth >= 0 && limits.maxTextBytes >= 0,
           bytes.count <= limits.maxBytes, let text = String(bytes: bytes, encoding: .utf8),
           !text.utf8.contains(0), !srlXmlHasDoctype(text) else { throw SerializerError.invalid("Invalid UTF8, XML size or DTD") }
@@ -243,6 +245,11 @@ fileprivate func srlXmlDecodeTokens<T>(_ bytes: [UInt8], _ limits: XmlLimits, _ 
     _ mapLimits: XmlMapLimits, _ mixedLimits: XmlMixedLimits, _ digestLimits: XmlDigestLimits, _ identityLimits: XmlIdentityLimits, _ extensionOptions: XmlExtensionOptions,
     _ factory: @escaping (SrlXmlName, [SrlXmlAttribute], XmlMapLimits, XmlMixedLimits, XmlDigestLimits, XmlIdentityLimits, XmlExtensionOptions, Int, @escaping (T) throws -> Void) throws -> SrlXmlTokenFrame) throws -> T {
     try srlXmlTokenPreflight(bytes, limits)
+    var mapLimits=mapLimits;mapLimits.srlPackageLimit=limits.srlPackageLimit
+    var mixedLimits=mixedLimits;mixedLimits.srlPackageLimit=limits.srlPackageLimit
+    var digestLimits=digestLimits;digestLimits.srlPackageLimit=limits.srlPackageLimit
+    var identityLimits=identityLimits;identityLimits.srlPackageLimit=limits.srlPackageLimit;identityLimits.srlPackageConsume=limits.srlPackageConsume
+    var extensionOptions=extensionOptions;extensionOptions.srlPackageLimit=limits.srlPackageLimit;extensionOptions.srlPackageConsume=limits.srlPackageConsume
     try mapLimits.validate()
     try mixedLimits.validate()
     try digestLimits.validate()
@@ -251,7 +258,13 @@ fileprivate func srlXmlDecodeTokens<T>(_ bytes: [UInt8], _ limits: XmlLimits, _ 
     let result = SrlXmlValueBox<T?>(nil)
     let handler = SrlXmlTokenParser(bytes, limits) { name, attributes in
         guard name == expected else { throw SerializerError.invalid("Unexpected XML root") }
-        return try factory(name, attributes, mapLimits, mixedLimits, digestLimits, identityLimits, extensionOptions, limits.maxNodes) { value in result.value = value }
+        var selected = attributes
+        if let expectedType = limits.srlPackageRootType {
+            let metadata = try srlXmlVariantType(attributes,false)
+            guard metadata.identity == nil || metadata.identity == expectedType else { throw SerializerError.invalid("Unexpected package XML type") }
+            selected = metadata.attributes
+        }
+        return try factory(name, selected, mapLimits, mixedLimits, digestLimits, identityLimits, extensionOptions, limits.maxNodes) { value in result.value = value }
     }
     let parser = XMLParser(data: Data(bytes))
     parser.delegate = handler

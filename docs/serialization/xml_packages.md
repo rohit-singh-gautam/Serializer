@@ -1,5 +1,15 @@
 # XML, compression streams and packages
 
+Compiler/runtime **2.17.0** adds language **1.21.0**
+[package policies and application references](package_application_contracts.md).
+Use automatic scoped keys/references and immutable expected XML/model identities
+with fixed/default/runtime ZIP storage selection. Generated profiles now cover all
+eleven output languages, including [C](../languages/c_packages.md),
+[Rust](../languages/rust_packages.md) and [Swift](../languages/swift_packages.md).
+The [current batch record](../verification/verification-pending-105-2026-10-21.md)
+separates tested owning profiles from broader graph/provider/corpus requirements.
+The 2.16 behavior below remains available to older declarations.
+
 Compiler/runtime **2.16.0**, schema language **1.20.0**. Baseline XML generation
 covers all output languages; the stream and package API examples below use C++20.
 Supported XML feature combinations are qualified per backend. Generated OPC
@@ -13,8 +23,8 @@ standard-provider ZIP32/ZIP64, descriptors, bounded sources/private spooling,
 typed XML aggregates, opaque policies and staged Save in 2.16. Existing schema
 package declarations select these facades. Their automatic XML operation contexts
 share the package budget; the [50-item record](../verification/verification-pending-50-2026-10-20.md)
-tracks actual acceptance evidence. Fixed/default/runtime profile dispatch and
-declarative application references remain separate backlog requirements.
+tracks the original acceptance evidence. Version 2.17 adds fixed/default/runtime
+storage dispatch and declarative application references as described above.
 
 Compiler/runtime **2.14.0** also supplies selected asynchronous
 [JavaScript/TypeScript ZIP/OPC APIs](../languages/javascript_packages.md):
@@ -22,8 +32,9 @@ bounded readers/writers, typed XML aggregates, extension policies, canonical
 metadata and explicit Node filesystem Save. Stored ZIP remains browser-import
 safe. The [actual qualification](../verification/verification-javascript-packages-2026-10-20.md)
 records independent inputs/outputs, C++ interchange and Windows publication
-faults. Automatic nested cumulative contexts, arbitrary runtime codec dispatch
-and generated application key/reference checks remain pending.
+faults. Version 2.17 adds automatic native XML budget propagation, supported
+storage overrides and generated application key/reference checks. Arbitrary
+replacement of a role's declared codec is unsupported.
 
 The selected [Java package API](../languages/java_packages.md) uses Java 17
 standard providers for the same typed XML/opaque package workflow, with bounded
@@ -31,7 +42,8 @@ random sources, explicit private spooling and staged filesystem Save.
 The [Java qualification](../verification/verification-java-packages-2026-10-20.md)
 records strict actual JDK 17 compilation/execution, separate Linux JRE execution,
 independent ZIP/XML decisions and C++ exchange. Java-array output limits and the
-remaining automatic nested budget/runtime profile/reference work stay explicit.
+remaining provider and graph boundaries stay explicit. Version 2.17 adds nested
+native XML budgets, storage profiles and generated application references.
 
 The selected [Go ZIP/OPC API](../languages/go_packages.md) uses Go 1.22 standard
 APIs for ZIP32/ZIP64, descriptors, bounded sources/spooling and staged Save.
@@ -40,8 +52,10 @@ transactional loading, preservation and canonical output. The
 [physical ZIP proof](../verification/verification-go-packages-2026-10-20.md) and
 [OPC proof](../verification/verification-go-opc-packages-2026-10-20.md) record actual
 Windows/Linux SDKs, independent archives, C++ exchanges and Save/quota faults.
-Automatic nested cumulative native-codec accounting, runtime profile dispatch
-and generated application key/reference checks remain pending.
+Version 2.17 adds automatic nested native-codec accounting, storage profile
+dispatch and generated application key/reference checks. Existing positional
+`XmlOptions` literals remain compatible; additive `XmlOperationOptions` APIs
+carry explicit operation policies outside package calls.
 
 The [token codec guide](xml_tokens.md) describes the new generated direct paths
 and backend-specific advanced mappings. The [typed OPC example](../../example/opc/README.md)

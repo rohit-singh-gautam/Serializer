@@ -22,7 +22,7 @@ internal class SrlXmlOutput(private val limits: XmlLimits, val mapLimits: XmlMap
     private val identities = mutableListOf<Identity>()
     init { require(limits.maxBytes >= 0 && limits.maxNodes >= 0 && limits.maxDepth >= 0 && limits.maxTextBytes >= 0) { "Negative XML limit" } }
     // Check UTF-8 output size before growing the owned document buffer.
-    private fun append(value: String) { val count = srlXmlUtf8Size(value); limits.srlPackageContext?.charge("work",count); limits.srlPackageContext?.charge("allocation",count*2); require(count <= limits.maxBytes - bytes.size()) { "XML output limit" }; bytes.write(value.toByteArray(Charsets.UTF_8)) }
+    private fun append(value: String) { val count = srlXmlUtf8Size(value); limits.srlPackageContext?.charge("work",count); limits.srlPackageContext?.charge("allocation",count*2); if (!(count <= limits.maxBytes - bytes.size())) SrlXmlBudget.limit("XML output limit",limits.srlPackageContext); bytes.write(value.toByteArray(Charsets.UTF_8)) }
     // Resolve QName vocabulary through active generated start tags without retaining completed elements.
     private fun identityNamespace(prefix: String): String? {
         if (prefix == "xml") return "http://www.w3.org/XML/1998/namespace"

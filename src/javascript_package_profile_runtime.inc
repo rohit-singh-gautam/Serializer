@@ -13,7 +13,7 @@ R"packagejs(
   function validateLinks(links, parts, budget) {
     const seen = new Map(), result = [];
     for (const supplied of links) {
-      budget.check(); budget.consume('relationships', 1); budget.consume('references', 1);
+      budget.check();try{budget.consume('relationships',1,supplied.source);budget.consume('references',1,supplied.source);}catch(error){if(error instanceof PackageError){error.fieldPath='relationships';error.relationshipId=supplied.id;error.reference=supplied.target;}throw error;}
       const link = new Relationship(supplied.source, supplied.id, supplied.type, supplied.target, supplied.mode);
       if (![link.source, link.id, link.type, link.target].every(value => typeof value === 'string')) throw new PackageError(Code.InvalidRelationship, 'Relationship fields must be strings');
       const textBytes = link.source.length + link.id.length + link.type.length + link.target.length;
@@ -126,15 +126,39 @@ R"packagejs(
   function occurs(count, role) { if (count < role.minimum || role.maximum !== null && count > role.maximum) { const error = new PackageError(Code.Occurrence, 'Package role occurrence constraint failed'); error.fieldPath = role.field; throw error; } }
   // Create a schema-bound facade after model constructors exist; ordinary model codec APIs stay unchanged.
   function profile(roles) {
+    // Bridge native scalar/events and identity tuples through the package ledger.
+    function nativeLimits(state,role,part,link='') {
+      return new XmlLimits({expectedType:role.expectedTypeUri+'\0'+role.expectedTypeLocal,maxBytes:Math.min(state.budget.limits.maxPartBytes,16777216),operation(resource,count,field){
+        try{state.poll();}catch(error){throw state.fail(error);}try{state.budget.consume(resource==='allocation'?'decoderAllocationBytes':resource==='reference'?'references':'workUnits',count,part);}
+        catch(error){if(error instanceof PackageError){error.fieldPath=role.field+(field?'.'+field:'');if(!error.relationshipId)error.relationshipId=link;}throw error;}
+        try{state.poll();}catch(error){throw state.fail(error);}
+      }});
+    }
+    // Translate only internal XML quotas; codec and arbitrary caller failures keep their identities.
+    function nativeFailure(cause,state,role,part,link){if(state.failed)return state.failure;if(!(cause instanceof SrlXmlLimitError))return cause;const failure=new PackageError(Code.ResourceLimit,'Native XML resource limit exceeded',part,link);failure.fieldPath=role.field;failure.cause=cause;return failure;}
     /** Borrow typed role values; async encoding snapshots binary spans and eagerly encodes native XML. */
     class Input { constructor(values = {}) { for (const role of roles) this[role.field] = values[role.field] === undefined ? role.singleton ? null : [] : values[role.field]; this.extensions = values.extensions || null; } }
     /** Own the fresh decoded role aggregate. */
     class Value extends Input {}
+    // Build a complete typed key/reference inventory before any aggregate can escape.
+    function references(value,budget,locations=null){
+      const keys=new Map(),pending=[];
+      function consume(resource,count,part,id,field){budget.check();try{budget.consume(resource,count,part);}catch(error){if(error instanceof PackageError){error.fieldPath=field;error.relationshipId=id;}throw error;}}
+      for(const role of roles){if(!(role.keys||[]).length&&!(role.references||[]).length)continue;const supplied=value[role.field];if(!role.singleton&&!Array.isArray(supplied))throw new PackageError(Code.InvalidOptions,'Repeated package role requires an array');const items=role.singleton?(supplied==null?[]:[supplied]):supplied;
+        for(let occurrence=0;occurrence<items.length;++occurrence){const item=items[occurrence],model=role.singleton?item:item?.value;if(!(model instanceof role.model))throw new PackageError(Code.InvalidOptions,'Invalid typed package model');const [part,id]=locations?locations.get(role.field)[occurrence]:[role.name===null?item.name:role.name,role.id===null?'srl_'+role.role+'_'+occurrence:role.id];
+          for(const key of role.keys||[]){const raw=key.get(model),identity=typeof raw+':'+String(raw),slot=key.scope+'\0'+identity,path=role.field+'.'+key.field;consume('references',1,part,id,path);consume('workUnits',identity.length+1,part,id,path);consume('decoderAllocationBytes',128+2*slot.length,part,id,path);if(keys.has(slot)){const error=new PackageError(Code.InvalidRelationship,'Duplicate application key',part,id);error.fieldPath=path;throw error;}keys.set(slot,role.model);}
+          for(const reference of role.references||[]){const raw=reference.get(model),identity=typeof raw+':'+String(raw),path=role.field+'.'+reference.field;consume('references',1,part,id,path);consume('decoderAllocationBytes',160+2*identity.length,part,id,path);pending.push([reference.scope+'\0'+identity,roles.find(item=>item.field===reference.target).model,path,part,id]);}
+        }
+      }
+      for(const [key,target,field,part,id]of pending){consume('workUnits',key.length+1,part,id,field);if(keys.get(key)!==target){const error=new PackageError(Code.InvalidRelationship,'Missing or wrong-type application key',part,id);error.fieldPath=field;throw error;}}
+    }
+    // Validate runtime overrides against the closed role inventory before provider work.
+    function profiles(options){const selected=new Map(),supplied=options.profiles||{};for(const key of Object.keys(supplied))if(!roles.some(role=>role.role===key))throw new PackageError(Code.InvalidOptions,'Unknown package profile role');for(const role of roles){const compression=!Object.hasOwn(supplied,role.role)||supplied[role.role]===undefined?role.compression:supplied[role.role];if(!['stored','deflate'].includes(compression)||role.policy==='fixed'&&compression!==role.compression)throw new PackageError(Code.InvalidOptions,'Conflicting package profile override');selected.set(role.field,compression);}return selected;}
     // Prepare all native payloads and metadata before the first asynchronous provider call.
     async function encode(value, options = {}) {
 )packagejs"
 R"packagejs(      const budget = getBudget(options), state = new State(budget), parts = [], links = [], sources = new Map(); state.provider = options.compressionProvider;
-      admitCompression(8, options.compressionProvider);
+      const selectedProfiles=profiles(options);references(value,budget);admitCompression(8, options.compressionProvider);
       try {
       for (const role of roles) {
         const supplied = value[role.field];
@@ -150,13 +174,13 @@ R"packagejs(      const budget = getBudget(options), state = new State(budget), 
           partName(name); mimeIdentity(contentType); let data;
           if (role.model !== null) {
             const model = role.singleton ? item : item.value; if (!(model instanceof role.model)) throw new PackageError(Code.InvalidOptions, 'Typed package resource has the wrong native type', name);
-            state.poll(); data = srlUtf8(model.encodeXml()); state.poll();
+            const id=role.id===null?'srl_'+role.role+'_'+index:role.id;state.poll();try{data=srlXmlWithPackageQuota(()=>srlUtf8(model.encodeXml(nativeLimits(state,role,name,id))));}catch(cause){throw nativeFailure(cause,state,role,name,id);}state.poll();
 )packagejs"
 R"packagejs(          } else data = item.data;
           if (!(data instanceof Uint8Array)) throw new PackageError(Code.InvalidOptions, 'Package resource requires bytes', name);
           if (data.length > budget.limits.maxPartBytes) throw new PackageError(Code.ResourceLimit, 'Package part extent exceeds limit', name);
           budget.consume('decoderAllocationBytes', data.length, name); state.hold(data.length, name);
-          const independent = copyBytes(data, state); parts.push(new BinaryPart(independent, name, contentType, parent, role.compression));
+          const independent = copyBytes(data, state); parts.push(new BinaryPart(independent, name, contentType, parent, selectedProfiles.get(role.field)));
           links.push(new Relationship(parents[parent], role.id === null ? 'srl_' + role.role + '_' + index : role.id, role.relationship, name)); discovered.push(name);
         }
         sources.set(role.field, discovered);
@@ -174,9 +198,9 @@ R"packagejs(          } else data = item.data;
       if (!(policy instanceof ExtensionPolicy) || options.validate !== undefined && typeof options.validate !== 'function') throw new PackageError(Code.InvalidOptions, 'Invalid package load policy');
       const archive = await ZipReader.open(source, {...options, limits: undefined, budget});
       try {
-        const metadata = await opcRead(archive, budget), candidate = new Value(), sources = new Map(), decoded = new Map(), selected = new Map();
+        const metadata = await opcRead(archive, budget), candidate = new Value(), sources = new Map(), locations=new Map(), decoded = new Map(), selected = new Map();
         for (const role of roles) {
-          const values = [], discovered = [], parents = role.source === '/' ? ['/'] : sources.get(role.source);
+          const values = [], discovered = [], roleLocations=[], parents = role.source === '/' ? ['/'] : sources.get(role.source);
           for (let parent = 0; parent < parents.length; ++parent) for (let index = 0; index < metadata.relationships.length; ++index) {
             state.poll(); budget.consume('workUnits', 1); const link = metadata.relationships[index];
             if (fold(link.source) !== fold(parents[parent]) || link.type !== role.relationship) continue;
@@ -184,13 +208,14 @@ R"packagejs(          } else data = item.data;
             const key = fold(targetName(link.source, link.target)), part = metadata.parts.get(key);
             if (role.mime !== null && !mimeEqual(part.contentType, role.mime)) throw new PackageError(Code.ContentType, 'Typed package MIME mismatch', part.name, link.id);
             if (decoded.has(key)) throw new PackageError(Code.InvalidRelationship, 'Package part is claimed by multiple role occurrences', part.name, link.id);
-            selected.set(index, true); decoded.set(key, true); const data = await archive.read(part.entry.name); state.poll();
+            if(role.policy==='fixed'&&part.entry.method!==role.compression)throw new PackageError(Code.InvalidOptions,'Fixed package compression mismatch',part.name,link.id);
+            budget.consume('decoderAllocationBytes',64,part.name);roleLocations.push([part.name,link.id]);selected.set(index, true); decoded.set(key, true); const data = await archive.read(part.entry.name); state.poll();
             if (role.model !== null) {
-              let model; try { model = role.model.decodeXml(srlDecoder.decode(data)); } catch (cause) { const error = new PackageError(Code.InvalidMetadata, 'Typed package XML decoding failed', part.name, link.id); error.cause = cause; throw error; }
+              let model; try { model = srlXmlWithPackageQuota(()=>role.model.decodeXml(srlDecoder.decode(data),nativeLimits(state,role,part.name,link.id))); } catch (cause) { const selected=nativeFailure(cause,state,role,part.name,link.id);if(state.failed||selected instanceof PackageError)throw selected;const error = new PackageError(Code.InvalidMetadata, 'Typed package XML decoding failed', part.name, link.id); error.cause = selected; throw error; }
               state.poll(); values.push(role.singleton ? model : new ModelPart(model, part.name, part.contentType, parent));
             } else values.push(new BinaryPart(data, part.name, part.contentType, parent, part.entry.method)); discovered.push(part.name);
           }
-          occurs(values.length, role); candidate[role.field] = role.singleton ? values.length ? values[0] : null : values; sources.set(role.field, discovered);
+          occurs(values.length, role); candidate[role.field] = role.singleton ? values.length ? values[0] : null : values; sources.set(role.field, discovered);locations.set(role.field,roleLocations);
         }
         const opaque = [], preservedLinks = [];
         for (const [key, part] of metadata.parts) {
@@ -207,7 +232,7 @@ R"packagejs(          } else data = item.data;
           if (required || policy.relationships === 'reject') throw new PackageError(Code.UnknownRelationship, 'Unknown required or rejected package relationship', link.source, link.id);
           if (policy.relationships === 'preserve') { budget.consume('preservedBytes', srlUtf8(link.source + link.id + link.type + link.target).length); preservedLinks.push(link); }
         }
-        candidate.extensions = new Extensions(opaque, preservedLinks);
+        references(candidate,budget,locations);candidate.extensions = new Extensions(opaque, preservedLinks);
         if (options.validate) { state.poll(); await options.validate(candidate, budget); state.poll(); }
         state.poll(); return new Result(candidate, candidate.extensions);
       } finally { await archive.close(); }

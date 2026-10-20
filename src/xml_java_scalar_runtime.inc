@@ -107,11 +107,19 @@ R"xmlscalar(
   /** Carry the operation's native collection admission limit through every union/list branch. */
   String check(String text, int maximumItems) {
     if (text == null) throw new IllegalArgumentException("Null XML scalar value");
-    return check(text, new Work(MAX_WORK_UNITS, maximumItems));
+    return check(text,maximumItems,null);
+  }
+  /** Share native scalar and Thompson execution with the enclosing package ledger. */
+  String check(String text,int maximumItems,SrlXmlBudget budget){
+    return check(text, new Work(MAX_WORK_UNITS, maximumItems,budget));
   }
   /** Preserve present normalized empty tokens without activating an element's nonempty default. */
   String output(String text, String fallback, int maximumItems) {
-    text = check(text, maximumItems);
+    return output(text,fallback,maximumItems,null);
+  }
+  /** Preserve default semantics while charging every scalar branch to the caller operation. */
+  String output(String text,String fallback,int maximumItems,SrlXmlBudget budget){
+    text = check(text, maximumItems,budget);
     if (text.isEmpty() && !normalize(fallback).isEmpty()) {
       if (whitespace.equals("collapse")) return " ";
       throw new IllegalArgumentException("Empty XML value would activate a different XSD default");
@@ -160,16 +168,27 @@ R"xmlscalar(
     /** Retain the precise resource diagnostic exposed by ordinary pattern checks. */
     LimitFailure(String message) { super(message); }
   }
+  private static volatile ThreadLocal<Boolean> packageQuota;
+  /** Allocate a thread-local marker only when a package invokes a synchronous native codec. */
+  private static synchronized ThreadLocal<Boolean> packageQuotaContext(){if(packageQuota==null)packageQuota=new ThreadLocal<>();return packageQuota;}
+  /** Nest package codecs without changing ordinary XML calls on this or other threads. */
+  static boolean enterPackageQuota(){var active=packageQuotaContext();boolean previous=Boolean.TRUE.equals(active.get());active.set(Boolean.TRUE);return previous;}
+  /** Restore a nested marker or remove this operation's private thread-local entry. */
+  static void leavePackageQuota(boolean previous){if(previous)packageQuota.set(Boolean.TRUE);else packageQuota.remove();}
+  /** Keep ordinary quota exception classes/messages while tagging package-owned admissions precisely. */
+  static IllegalArgumentException quota(String message){var active=packageQuota;return active!=null&&Boolean.TRUE.equals(active.get())?new LimitFailure(message):new IllegalArgumentException(message);}
 )xmlscalar"
 R"xmlscalar(
   /** Bound all alternatives and inherited restriction groups within one scalar match. */
   private static final class Work {
     private int remaining;
-    final int maximumItems;
+    final int maximumItems;final SrlXmlBudget budget;
     /** Retain one private finite allowance. */
-    Work(int remaining, int maximumItems) { this.remaining = remaining; this.maximumItems = maximumItems; }
+    Work(int remaining, int maximumItems) {this(remaining,maximumItems,null);}
+    /** Borrow only operation-local admission, never mutate static scalar metadata. */
+    Work(int remaining,int maximumItems,SrlXmlBudget budget){this.remaining=remaining;this.maximumItems=maximumItems;this.budget=budget;}
     /** Charge before clearing state storage, following edges or inspecting characters. */
-    void spend(int units) { if (units < 0 || units > remaining) throw new LimitFailure("Portable XML regex work limit exceeded"); remaining -= units; }
+    void spend(int units) { if(budget!=null)budget.charge("work",units);if (units < 0 || units > remaining) throw new LimitFailure("Portable XML regex work limit exceeded"); remaining -= units; }
   }
   /** Execute only compiler-lowered portable Thompson instructions, never host regex syntax. */
   static final class Pattern {
@@ -195,7 +214,7 @@ R"xmlscalar(
     static Pattern prepare(String[] fragments) {
       String[] records = String.join("", fragments).split(";", -1);
       int count = records.length - 1;
-      if (count <= 0 || count > MAX_STATES) throw new IllegalArgumentException("Portable XML regex state limit exceeded");
+      if (count <= 0 || count > MAX_STATES) throw SrlXmlRule.quota("Portable XML regex state limit exceeded");
       int start = Integer.parseInt(records[0]);
       if (start < 0 || start >= count) throw new IllegalArgumentException("Invalid portable XML regex start");
       State[] states = new State[count];

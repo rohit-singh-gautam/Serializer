@@ -19,7 +19,7 @@ inline std::string mobile_mixed_write(const xml_binding::mixed_contract& mixed,
   const auto line = [&](const std::string& value) { result += value + '\n'; };
   const std::string attempt = swift ? "try " : "";
   line(swift ? "do {" : "run {");
-  line(swift ? "let mixed = SrlXmlMixedBudget(output.mixedLimits)" : "val mixed = SrlXmlMixedBudget(output.mixedLimits)");
+  line(swift ? "let mixed = SrlXmlMixedBudget(output.mixedLimits)" : "val mixed = SrlXmlMixedBudget(output.mixedLimits,output.packageContext())");
   if (mixed.source->fixed_extent != 0U) {
     line(swift ? "guard " + access + ".count == " + std::to_string(mixed.source->fixed_extent) +
         " else { throw SerializerError.invalid(\"XML mixed fixed extent mismatch\") }" :
@@ -49,7 +49,7 @@ inline std::string kotlin_mixed_read(const xml_binding::mixed_contract& mixed,
   std::string result;
   // Keep only one active text run and the final native sequence in memory.
   const auto line = [&](const std::string& value) { result += value + '\n'; };
-  line("run {\nval mixed = SrlXmlMixedBudget(input.mixedLimits)\nval values = mutableListOf<" + fragment_type + ">()");
+  line("run {\nval mixed = SrlXmlMixedBudget(input.mixedLimits,input.packageContext())\nval values = mutableListOf<" + fragment_type + ">()");
   line("while (true) {\nif (input.kind == 't') {\nval text = input.mixedText(mixed)\nif (text.isNotEmpty()) {\nmixed.fragment()");
   line("val fragment = " + fragment_type + "()\nfragment." + variant + "Index = " + std::to_string(mixed.text_alternative));
   line("fragment." + variant + native::pascal(mixed.text_branch) + " = text\nvalues.add(fragment)\n}\ncontinue\n}\nif (input.kind != 's') { break }\nwhen (input.name()) {");

@@ -16,8 +16,9 @@ inline std::string javascript(const package_node& package, const std::string& na
     const std::string& helper, bool declarations,
     const std::function<std::string(const type_name&)>& render_type,
     const std::function<std::string(std::string_view)>& render_field,
-    const std::function<std::string(std::string_view)>& literal) {
+    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {}) {
   const auto parts = ordered(package);
+  const auto contract = compile_package_profile(package,xml);
   std::set<std::string> fields{"extensions"};
   std::set<std::pair<std::string, std::string>> dispatch;
   for (const auto* part : parts) {
@@ -38,6 +39,15 @@ inline std::string javascript(const package_node& package, const std::string& na
     line("/** Schema-bound complete OPC package facade; typed model codecs remain unchanged. */");
     line("export const " + name + " = " + helper + ".profile([");
     for (const auto* part : parts) {
+      const auto metadata = std::find_if(contract.parts.begin(),contract.parts.end(),[&](const auto& value){return value.role==part->name;});
+      std::string selectors;
+      const auto get = [&](std::string_view field){return "value=>value."+render_field(selector_member(*part,field).name);};
+      selectors += ",policy:"+literal(part->profile_policy)+",keys:[";
+      for(const auto& key:part->keys){selectors+="{scope:"+literal(key.scope)+",field:"+literal(key.field)+",get:"+get(key.field)+"},";}
+      selectors += "],references:[";
+      for(const auto& reference:part->references){selectors+="{scope:"+literal(reference.scope)+",field:"+literal(reference.field)+",target:"+literal(render_field(reference.target_role))+",get:"+get(reference.field)+"},";}
+      selectors += "]";
+      if(metadata->decoder){const auto& decoder=*metadata->decoder;selectors+=",expectedTypeUri:"+literal(decoder.type->namespace_uri)+",expectedTypeLocal:"+literal(decoder.type->local);}
       const auto optional = [&](const auto& value) { return value ? literal(*value) : "null"; };
       line("  {field:" + literal(render_field(part->name)) + ",role:" + literal(part->name) +
           ",model:" + (part->value_type ? render_type(*part->value_type) : "null") +
@@ -46,7 +56,7 @@ inline std::string javascript(const package_node& package, const std::string& na
           literal(part->source == "/" ? "/" : render_field(part->source)) +
           ",relationship:" + literal(part->relationship) + ",id:" + optional(part->relationship_id) +
           ",compression:" + literal(part->compression) + ",minimum:" + std::to_string(part->min_occurs) +
-          ",maximum:" + (part->max_occurs ? std::to_string(*part->max_occurs) : "null") + "},");
+          ",maximum:" + (part->max_occurs ? std::to_string(*part->max_occurs) : "null") + selectors + "},");
     }
     line("]);");
     return output;

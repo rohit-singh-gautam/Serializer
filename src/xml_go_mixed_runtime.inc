@@ -10,10 +10,10 @@ func DefaultXmlMixedLimits()XmlMixedLimits{return XmlMixedLimits{srlXmlMixedMaxF
 func srlXmlMixedPolicy(limits XmlMixedLimits)error{if limits.MaxFragments<0||limits.MaxTextBytes<0{return fmt.Errorf("Negative XML mixed limit")};return nil}
 type srlXmlMixedBudget struct{limits XmlMixedLimits;fragments,textBytes int}
 // Charge each child/logical text run before retaining its native fragment.
-func (b *srlXmlMixedBudget) fragment()error{if b.fragments>=b.limits.MaxFragments{return fmt.Errorf("XML mixed fragment limit exceeded")};b.fragments++;return nil}
+func (b *srlXmlMixedBudget) fragment()error{if b.fragments>=b.limits.MaxFragments{return srlXmlLimitError("XML mixed fragment limit exceeded")};b.fragments++;return nil}
 // Admit cumulative UTF8 text and XML Unicode before appending another source chunk.
 func (b *srlXmlMixedBudget) text(text string)error{
-  if len(text)>b.limits.MaxTextBytes-b.textBytes{return fmt.Errorf("XML mixed text limit exceeded")};if !utf8.ValidString(text){return fmt.Errorf("Invalid XML UTF-8")}
+  if len(text)>b.limits.MaxTextBytes-b.textBytes{return srlXmlLimitError("XML mixed text limit exceeded")};if !utf8.ValidString(text){return fmt.Errorf("Invalid XML UTF-8")}
   for _,value:=range text{if !(value==9||value==10||value==13||value>=32&&value<=0xd7ff||value>=0xe000&&value<=0xfffd||value>=0x10000&&value<=0x10ffff){return fmt.Errorf("Invalid XML character")}}
   b.textBytes+=len(text);return nil
 }

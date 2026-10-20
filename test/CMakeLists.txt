@@ -638,6 +638,78 @@ if(Python3_Interpreter_FOUND)
   endif()
   add_test(NAME xml_fixture_manifest_test
     COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_fixture_manifest_test.py")
+  add_test(NAME serializer_package_application_python
+    COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_owning_contract_test.py"
+      --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/package_application_python"
+      --language python)
+  if(serializer_compression_dotnet)
+    add_test(NAME serializer_package_application_csharp
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_owning_contract_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/package_application_csharp"
+        --language csharp --dotnet "${serializer_compression_dotnet}")
+  endif()
+  if(serializer_compression_kotlinc AND Java_FOUND)
+    add_test(NAME serializer_package_application_kotlin
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_owning_contract_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/package_application_kotlin"
+        --language kotlin --java "${Java_JAVA_EXECUTABLE}" --kotlinc "${serializer_compression_kotlinc}")
+  endif()
+  if(Java_FOUND)
+    foreach(package_suite IN ITEMS application_contract shared_codec_budget)
+      add_test(NAME serializer_package_${package_suite}_java
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_${package_suite}_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/package_${package_suite}_java"
+          --language java --java "${Java_JAVA_EXECUTABLE}" --javac "${Java_JAVAC_EXECUTABLE}")
+    endforeach()
+  endif()
+  if(serializer_compression_go)
+    foreach(package_suite IN ITEMS application_contract shared_codec_budget)
+      add_test(NAME serializer_package_${package_suite}_go
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_${package_suite}_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/package_${package_suite}_go"
+          --language go --go "${serializer_compression_go}")
+    endforeach()
+  endif()
+  if(serializer_compression_node AND serializer_compression_typescript_cli)
+    foreach(package_suite IN ITEMS application_contract shared_codec_budget)
+      add_test(NAME serializer_package_${package_suite}_javascript
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_${package_suite}_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/package_${package_suite}_javascript"
+          --language javascript --node "${serializer_compression_node}"
+          --node-dependencies "${CMAKE_SOURCE_DIR}/editors/vscode/node_modules")
+    endforeach()
+  endif()
+  if(serializer_compression_swiftc)
+    add_test(NAME serializer_package_swift
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/swift_package_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/swift_package"
+        --swiftc "${serializer_compression_swiftc}")
+  endif()
+  find_program(serializer_package_cargo NAMES cargo)
+  if(serializer_package_cargo)
+    add_test(NAME serializer_package_rust
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/rust_package_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/rust_package"
+        --cargo "${serializer_package_cargo}")
+  endif()
+  if(SERIALIZER_WITH_XML AND SERIALIZER_WITH_ZLIB)
+    if(MSVC)
+      set(serializer_package_cc "${CMAKE_CXX_COMPILER}")
+    else()
+      find_program(serializer_package_cc NAMES cc gcc clang)
+    endif()
+    if(serializer_package_cc)
+      set(serializer_package_c_provider_args)
+      if(VCPKG_INSTALLED_DIR AND VCPKG_TARGET_TRIPLET)
+        list(APPEND serializer_package_c_provider_args
+          --provider-prefix "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}")
+      endif()
+      add_test(NAME serializer_package_c
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/c_package_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/c_package"
+          --cc "${serializer_package_cc}" ${serializer_package_c_provider_args})
+    endif()
+  endif()
   add_executable(html_interop html_interop.cpp)
   target_link_libraries(html_interop PRIVATE Serializer::runtime)
   if(MSVC)
@@ -1368,6 +1440,18 @@ if(SERIALIZER_WITH_XML)
     target_compile_options(opc_profile_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME opc_profile_test COMMAND opc_profile_test)
+
+  add_executable(package_application_test package_application_test.cpp)
+  serializer_generate(TARGET package_application_test SCHEMAS resources/package_application_contract.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/opc_profile.ini"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/package_application")
+  target_link_libraries(package_application_test PRIVATE Serializer::runtime GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(package_application_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(package_application_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME package_application_test COMMAND package_application_test)
 
   add_executable(xml_schema_test xml_schema_test.cpp)
   target_link_libraries(xml_schema_test PRIVATE Serializer::serializer_lib GTest::gtest_main)

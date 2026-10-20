@@ -38,7 +38,7 @@ function srlXmlTokenWrite(owner,meta,output,local,uri,variantType=null) {
     const count=choice.fields.reduce((total,index)=>total+(selected[index].present ? 1 : 0),0);
     if (count<choice.minimum || count>choice.maximum) throw new Error('XML choice cardinality');
   }
-  const identity=meta.identity ? new SrlXmlIdentity(meta.identity,output.limits.identity) : null;
+  const identity=meta.identity ? new SrlXmlIdentity(meta.identity,output.limits.identity,output.limits.operation,output.field||"") : null;
   if(identity)output.identities.push(identity);
   const extension=srlXmlExtensionOutput(owner,meta.extensions,output);
   const prepared=new Map(),bindings=new Map(extension ? extension.bindings : []);
@@ -119,7 +119,7 @@ class SrlXmlTokenFrame {
     const model=meta ? srlXmlModelInput(meta,attrs) : null;
     if(model)attrs=model.attributes;
     this.active=model ? model.active : [];
-    this.identity=meta && meta.identity ? new SrlXmlIdentity(meta.identity,limits.identity) : null;
+    this.identity=meta && meta.identity ? new SrlXmlIdentity(meta.identity,limits.identity,limits.operation,limits.operationField||"") : null;
     this.extensions=meta && meta.extensions ? new SrlXmlExtensions(meta.extensions,scope,limits.extensions) : null;
     this.value=meta ? meta.create() : null; this.fields=meta ? meta.fields : [];
     if(meta && meta.model.revision)meta.model.revision.set(this.value,model.value);
@@ -205,8 +205,8 @@ class SrlXmlTokenFrame {
   // Attach a completed native value only to the private candidate's statically generated setter.
   store(index,value,wrapper=false,bindings=null) {
     const field=this.fields[index];
-    if(wrapper && Array.isArray(bindings))bindings.forEach((scope,item)=>srlXmlRememberNamespaces(this.value,field,item,scope));
-    else srlXmlRememberNamespaces(this.value,field,this.counts[index],bindings);
+    if(wrapper && Array.isArray(bindings))bindings.forEach((scope,item)=>srlXmlRememberNamespaces(this.value,field,item,scope,this.limits));
+    else srlXmlRememberNamespaces(this.value,field,this.counts[index],bindings,this.limits);
     ++this.counts[index];
     if (value===srlXmlTokenNil) field.set(this.value,field.presence==='absent_or_nil' ? [[]] : []);
     else if (field.repeated && !wrapper) field.get(this.value).push(value);
@@ -264,8 +264,9 @@ function srlXmlTokenDecode(meta,chunks,limits,strings=false) {
   const stack=[],identities=[]; let result=null,rootSeen=false,complete=false,bytes=0,nodes=0,attributes=0,textBytes=0;
   const parser=new SrlXmlSaxes({xmlns:true,fragment:false,defaultXMLVersion:'1.0',forceXMLVersion:true});
   const charge=value=>{
+    if(limits.operation){limits.operation("work",srlXmlUtf8Length(value),limits.operationField||"");limits.operation("allocation",2*value.length,limits.operationField||"");}
     textBytes+=srlXmlUtf8Length(value);
-    if (textBytes>limits.maxTextBytes) throw new Error('XML text limit');
+    if (textBytes>limits.maxTextBytes) throw srlXmlQuotaError('XML text limit');
     srlXmlCharacters(value);
   };
   parser.on('error',error=>{throw error;});
@@ -276,16 +277,18 @@ function srlXmlTokenDecode(meta,chunks,limits,strings=false) {
     }
   });
   parser.on('opentagstart',()=>{
-    if (++nodes>limits.maxNodes || stack.length+1>limits.maxDepth) throw new Error('XML node/depth limit');
+    if (++nodes>limits.maxNodes || stack.length+1>limits.maxDepth) throw srlXmlQuotaError('XML node/depth limit');
   });
   parser.on('attribute',attribute=>{
-    if (++attributes>limits.maxAttributes) throw new Error('XML attribute limit');
+    limits.operationField=attribute.local;if(limits.operation)limits.operation("allocation",96,attribute.local);
+    if (++attributes>limits.maxAttributes) throw srlXmlQuotaError('XML attribute limit');
     charge(attribute.value);
     if ((attribute.name==='xmlns' || attribute.prefix==='xmlns') && attribute.value!==attribute.value.trim()) {
       throw new Error('XML namespace URI whitespace is not permitted');
     }
   });
   parser.on('opentag',node=>{
+    limits.operationField=node.local;if(limits.operation)limits.operation("allocation",128,node.local);
     charge(node.local); charge(node.uri);
     const name=srlXmlTokenName(node.uri,node.local),attrs=new Map(),seen=new Set();
     const scope={parent:stack.length ? stack[stack.length-1][0].scope : null,bindings:new Map(Object.entries(node.ns))};
@@ -299,6 +302,7 @@ function srlXmlTokenDecode(meta,chunks,limits,strings=false) {
     let frame,index=null;
     if (!stack.length) {
       if (rootSeen || name!==meta.root) throw new Error('Unexpected XML root');
+      if(attrs.has(srlXmlTokenTypeName)&&limits.expectedType!==undefined){if(srlXmlVariantQName(attrs.get(srlXmlTokenTypeName),scope)!==limits.expectedType)throw new Error('Conflicting expected XML type');attrs.delete(srlXmlTokenTypeName);}
       rootSeen=true; frame=new SrlXmlTokenFrame(meta,name,attrs,null,false,limits,scope);
     } else {
       const parent=stack[stack.length-1][0],selected=parent.child(name,attrs,scope),field=selected[0];
@@ -335,13 +339,13 @@ function srlXmlTokenDecode(meta,chunks,limits,strings=false) {
   for (const chunk of chunks) {
     let source;
     if (strings) {
-      if (typeof chunk!=='string' || chunk.length>limits.maxBytes-bytes) throw new Error('XML input byte limit');
+      if (typeof chunk!=='string' || chunk.length>limits.maxBytes-bytes) throw srlXmlQuotaError('XML input byte limit');
       const count=srlXmlUtf8Length(chunk);
-      if (count>limits.maxBytes-bytes) throw new Error('XML input byte limit');
+      if (count>limits.maxBytes-bytes) throw srlXmlQuotaError('XML input byte limit');
       bytes+=count; srlXmlCharacters(chunk); source=chunk;
     } else {
       if (!(chunk instanceof Uint8Array)) throw new Error('XML chunks must be UTF-8 byte arrays');
-      if (chunk.byteLength>limits.maxBytes-bytes) throw new Error('XML input byte limit');
+      if (chunk.byteLength>limits.maxBytes-bytes) throw srlXmlQuotaError('XML input byte limit');
       bytes+=chunk.byteLength; source=decoder.decode(chunk,{stream:true});
     }
     parser.write(source);

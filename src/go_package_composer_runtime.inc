@@ -62,15 +62,16 @@ func (composer *srlPackageComposer) add(role srlPackageRole,data []byte,name,med
   composer.links=append(composer.links,SerializerPackageRelationship{Source:source,ID:id,Type:role.relationship,Target:name,Mode:"internal"});return nil
 }
 // models encodes one complete typed role while fencing swallowed callback closure/reentry and codec errors.
-func (composer *srlPackageComposer) models(role srlPackageRole,values []srlPackageModelInput,encode func(any,*SerializerPackageBudget)([]byte,error)) (err error) {
+func (composer *srlPackageComposer) models(role srlPackageRole,values []srlPackageModelInput,encode any) (err error) {
   if err=composer.begin();err!=nil { return err };complete:=false;defer func(){composer.leave(&err,complete)}()
   if err=srlPackageOccurs(role,len(values));err!=nil { return err };discovered:=[]string{}
   for index,item:=range values {
     if err=composer.state.poll();err!=nil { return err };if item.value==nil { return srlPackageCodec(role,role.name,"",nil) }
     name,media,source,failure:=composer.metadata(role,item.name,item.contentType,item.parent);if failure!=nil { return failure }
-    data,failure:=encode(item.value,composer.state.budget)
-    if failure!=nil { if composer.state.first!=nil { return composer.state.first };if composer.state.budget.first!=nil { return composer.state.fail(composer.state.budget.first) };return srlPackageCodec(role,name,"",failure) }
-    if err=composer.state.poll();err!=nil { return err };if data==nil { return srlPackageCodec(role,name,"",nil) }
+    id:=role.id;if id==""{id="srl_"+role.field+"_"+srlPackageStrconv.Itoa(index)}
+    data,failure:=srlPackageEncodeNative(encode,item.value,&composer.state,role,name,id)
+    if failure!=nil { if composer.state.first!=nil { return composer.state.first };if composer.state.budget.first!=nil { return composer.state.fail(composer.state.budget.first) };return srlPackageCodec(role,name,id,failure) }
+    if err=composer.state.poll();err!=nil { return err };if data==nil { return srlPackageCodec(role,name,id,nil) }
     if int64(len(data))>composer.state.budget.limits.MaxPartBytes { return srlPackageFailure(SerializerPackageResourceLimit,"Native XML output exceeds part limit",name) }
     if err=composer.reserve(int64(len(data)),name);err!=nil { return err }
     if err=composer.add(role,data,name,media,source,item.parent,index);err!=nil { return err };discovered=append(discovered,name)

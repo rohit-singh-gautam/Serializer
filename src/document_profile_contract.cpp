@@ -61,6 +61,8 @@ package_profile_contract compile_package_profile(const package_node& source,
         {"format", role.codec},
         {"compression", role.compression == "stored" ? "none" : role.compression}};
     part.envelope = document::parse_profile(configuration);
+    part.envelope.policy = role.profile_policy == "fixed"
+        ? document::profile_policy::fixed : document::profile_policy::defaults;
     if (role.value_type) {
       const auto& value = *role.value_type;
       if (!value.resolved_node || value.resolved_node->type != object_type::class_type) {
@@ -122,7 +124,8 @@ std::string cpp_profile_metadata(const package_node& source, const xml_options& 
               ", {::rohit::serializer::document::payload_format::" + format +
               ", ::rohit::serializer::compression::format::" + compression +
               ", ::rohit::serializer::document::container_format::none, "
-              "::rohit::serializer::document::profile_policy::defaults, " +
+              "::rohit::serializer::document::profile_policy::" +
+              std::string{part.envelope.policy == document::profile_policy::fixed ? "fixed" : "defaults"} + ", " +
               std::to_string(part.envelope.compression_level) + "}, ";
     if (!part.decoder) {
       result += "::std::nullopt";

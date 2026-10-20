@@ -38,11 +38,23 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.16.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.17.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
-compatibility across major releases. The schema language version is **1.20.0**;
+compatibility across major releases. The schema language version is **1.21.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.17.0** adds [generated package policies and application references](docs/serialization/package_application_contracts.md).
+Generated [C](docs/languages/c_packages.md), [Rust](docs/languages/rust_packages.md)
+and [Swift](docs/languages/swift_packages.md) outputs now provide bounded owning
+ZIP/OPC facades, typed loading, preservation and staged Save. Both editor packages
+are **2.0.10** and recognize language **1.21.0** package declarations.
+C/Rust package graphs requiring XML document companions or XSD identity operation
+hooks reject explicitly; their ordinary XML APIs retain those separate contracts.
+Language 1.21 declarations select fixed/default ZIP storage and scoped typed keys
+and references. Runtime storage overrides retain declared XML/model identities;
+automatic duplicate, missing and wrong-type checks run before aggregate/file
+publication. Existing schema contracts and native wire identities remain supported.
 
 Release **2.16.0** preserves C++/Python scalar-child QName scopes through local
 declarations, prefix shadowing and default namespace resets, including repeated
@@ -427,8 +439,8 @@ regenerate through their build rules. Supported 1.x schema headers, generated
 model names, runtime APIs and wire contracts retain their existing behavior;
 see [2.0 migration](migration.md#compilerruntime-200).
 
-Use `serializer version 1.20.0;` for new schemas. Older 1.x schemas through
-`1.19.0` remain supported. The original
+Use `serializer version 1.21.0;` for new schemas. Older 1.x schemas through
+`1.20.0` remain supported. The original
 `serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
 version 1. Future versions require all three components; see the
 [schema language policy](docs/guides/command_line.md#schema-language-version-policy).
@@ -476,7 +488,7 @@ arithmetic operator mappings with owning constructor calls in portable expressio
 Existing fields, wire formats and managed protocols retain their contracts.
 Run the [four focused examples](example/README.md#owning-record-apis) and consult
 [qualification](docs/verification/verification-owning-api-2026-10-12.md) for tested
-backends and limits. Both current editor packages are **2.0.9**, with separate
+backends and limits. Both current editor packages are **2.0.10**, with separate
 C++ generated-header navigation. See
 [editor verification](docs/editors/editor_extension.md#verification-performed)
 for package checks and navigation qualification.

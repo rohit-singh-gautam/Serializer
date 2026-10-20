@@ -46,6 +46,24 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
+Compiler/runtime **2.17.0** adds language **1.21.0** package `policy(fixed|defaults)`,
+`key("scope", field)` and `reference("scope", field, target_role)` declarations.
+Use generated checks for direct public persistent string/integer selectors before
+adding domain callbacks. Forward references are supported; duplicate, missing and
+wrong-model targets fail before aggregate/file publication. Selectors do not add
+native fields or change wire IDs. Runtime overrides select stored/deflate ZIP
+storage and cannot replace model/XML identities. Regenerate affected outputs and
+rebuild C++ consumers against matching headers/runtime. Follow the
+[package selector contract and boundaries](../../../docs/serialization/package_application_contracts.md)
+and each backend's package guide; preserve explicit unsupported-graph gates.
+Generated [C](../../../docs/languages/c_packages.md),
+[Rust](../../../docs/languages/rust_packages.md) and
+[Swift](../../../docs/languages/swift_packages.md) outputs also provide owning
+ZIP/OPC facades with bounded typed loading, preservation and staged Save. C/Rust
+typed package graphs requiring XML document companions or XSD identity operation
+hooks remain explicitly gated; their ordinary XML APIs retain separate support.
+Both editor packages are **2.0.10** and understand the new declarations.
+
 Compiler/runtime **2.16.0** retains each C++/Python namespace-dependent scalar
 child's XML scope through local declarations, shadowing and default namespace
 resets. Optional/repeated QName, QName-list and nested union values preserve their

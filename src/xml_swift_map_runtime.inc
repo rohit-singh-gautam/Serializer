@@ -4,6 +4,7 @@
 R"swmap(
 // Independent per-wrapper policy; public XmlLimits retains its existing storage and initializer.
 public struct XmlMapLimits {
+    fileprivate var srlPackageLimit: ((String) -> any Swift.Error)?
     public let maxEntries: Int
     public let maxKeyBytes: Int
     // Retain operation-local bounds; generated entry points reject negative policies before use.
@@ -17,7 +18,7 @@ public struct XmlMapLimits {
     // Charge the larger lexical/canonical UTF8 key length without overflowing native counters.
     fileprivate func keyBytes(_ lexical: String, _ canonical: String, _ used: Int) throws -> Int {
         let count = max(lexical.utf8.count, canonical.utf8.count)
-        guard used >= 0 && used <= maxKeyBytes && count <= maxKeyBytes - used else { throw SerializerError.invalid("XML map key byte limit exceeded") }
+        guard used >= 0 && used <= maxKeyBytes && count <= maxKeyBytes - used else { throw srlXmlLimitFailure(srlPackageLimit,"XML map key byte limit exceeded") }
         return used + count
     }
 }

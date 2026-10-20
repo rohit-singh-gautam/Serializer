@@ -13,17 +13,19 @@ R"xmlcs(
   }
   // Charge the complete generated/parsed document before retaining its logical tree storage.
   internal sealed class SrlXmlBudget {
+    // Keep ordinary XML failures exact while an attached package classifies local quota exhaustion.
+    internal static System.FormatException Limit(string message,Limits.IOperation? operation=null) { operation?.ResourceLimit(message);return new System.FormatException(message); }
     internal readonly Limits Limits;
     internal Limits.IOperation? Operation => Limits.Operation;
     internal int Nodes, Attributes, TextBytes;
     // Retain a validated per-operation policy without global mutable counters.
     internal SrlXmlBudget(Limits limits) { Limits = limits ?? throw new System.ArgumentNullException(nameof(limits)); }
     // Validate XML1.0 characters and bound cumulative UTF8 text and expanded names.
-    internal string Text(string value) { System.Xml.XmlConvert.VerifyXmlChars(value); int count = SrlUtf8.GetByteCount(value); Operation?.Consume(Limits.OperationResource.WorkUnits,count);Operation?.Consume(Limits.OperationResource.AllocationBytes,(long)count*2);if (count > Limits.MaxStringBytes - TextBytes) throw new System.FormatException("XML text limit exceeded"); TextBytes += count; return value; }
+    internal string Text(string value) { System.Xml.XmlConvert.VerifyXmlChars(value); int count = SrlUtf8.GetByteCount(value); Operation?.Consume(Limits.OperationResource.WorkUnits,count);Operation?.Consume(Limits.OperationResource.AllocationBytes,(long)count*2);if (count > Limits.MaxStringBytes - TextBytes) throw SrlXmlBudget.Limit("XML text limit exceeded",Operation); TextBytes += count; return value; }
     // Bound depth and nodes before creating a child record.
-    internal SrlXmlNode Node(string name, int depth) { if (depth > Limits.MaxDepth || Nodes >= Limits.MaxElements) throw new System.FormatException("XML node or depth limit exceeded");Operation?.Consume(Limits.OperationResource.WorkUnits,1);Operation?.Consume(Limits.OperationResource.AllocationBytes,64); ++Nodes; return new SrlXmlNode(Text(name)); }
+    internal SrlXmlNode Node(string name, int depth) { if (depth > Limits.MaxDepth || Nodes >= Limits.MaxElements) throw SrlXmlBudget.Limit("XML node or depth limit exceeded",Operation);Operation?.Consume(Limits.OperationResource.WorkUnits,1);Operation?.Consume(Limits.OperationResource.AllocationBytes,64); ++Nodes; return new SrlXmlNode(Text(name)); }
     // Bound attribute metadata before inserting it into the current element.
-    internal void Attribute(SrlXmlNode node, string name, string value) { if (Attributes >= Limits.MaxElements) throw new System.FormatException("XML attribute limit exceeded"); ++Attributes; if (!node.Attributes.TryAdd(Text(name), Text(value))) throw new System.FormatException("Duplicate XML attribute"); }
+    internal void Attribute(SrlXmlNode node, string name, string value) { if (Attributes >= Limits.MaxElements) throw SrlXmlBudget.Limit("XML attribute limit exceeded",Operation); ++Attributes; if (!node.Attributes.TryAdd(Text(name), Text(value))) throw new System.FormatException("Duplicate XML attribute"); }
   }
   // Build a namespace identity independently of a provider's prefix spelling.
   private static string SrlXmlName(string uri, string local) { return uri.Length == 0 ? local : "{" + uri + "}" + local; }
@@ -31,7 +33,7 @@ R"xmlcs(
   private static string SrlXmlTrim(string value) { return value.Trim(' ', '\t', '\r', '\n'); }
   // Read a complete bounded UTF8 XML1.0 document; DTDs, entities and network resolution are disabled.
   private static SrlXmlNode SrlXmlParse(byte[] bytes, Limits limits) {
-    if (bytes.Length > limits.MaxBytes) throw new System.FormatException("XML byte limit exceeded");
+    if (bytes.Length > limits.MaxBytes) throw SrlXmlBudget.Limit("XML byte limit exceeded",limits.Operation);
     SrlUtf8.GetString(bytes);
     var settings = new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = limits.MaxBytes, IgnoreComments = true, IgnoreProcessingInstructions = false };
     using var stream = new System.IO.MemoryStream(bytes, false);
@@ -44,7 +46,7 @@ R"xmlcs(
         var node = budget.Node(SrlXmlName(reader.NamespaceURI, reader.LocalName), stack.Count + 1);
         if (reader.MoveToFirstAttribute()) {
           do {
-            if (reader.NamespaceURI == "http://www.w3.org/2000/xmlns/") { if (budget.Attributes >= limits.MaxElements) throw new System.FormatException("XML namespace limit exceeded"); ++budget.Attributes; budget.Text(reader.LocalName); budget.Text(reader.Value); }
+            if (reader.NamespaceURI == "http://www.w3.org/2000/xmlns/") { if (budget.Attributes >= limits.MaxElements) throw SrlXmlBudget.Limit("XML namespace limit exceeded",budget.Operation); ++budget.Attributes; budget.Text(reader.LocalName); budget.Text(reader.Value); }
             else budget.Attribute(node, SrlXmlName(reader.NamespaceURI, reader.LocalName), reader.Value);
           } while (reader.MoveToNextAttribute()); reader.MoveToElement();
         }
@@ -100,6 +102,7 @@ R"xmlcs(
     internal int ListLimit => budget.Limits.MaxElements;
     // Borrow the current native owner only when a package supplies shared accounting.
     internal global::System.IDisposable? FieldOwner()=>budget.Operation?.EnterOwner();
+    internal Limits.IOperation? Operation=>budget.Operation;
     // Select a native sibling before its scalar or descendant work is admitted.
     internal void Field(string member)=>budget.Operation?.SelectField(member);
     internal int NamespaceBytes;
@@ -119,7 +122,7 @@ R"xmlcs(    internal SrlXmlInput(byte[] bytes, Limits limits, XmlMapLimits maps,
     // Share explicit opaque-vocabulary policies through every descendant.
     internal SrlXmlInput(byte[] bytes, Limits limits, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity, XmlDigestLimits digests, XmlExtensionOptions extensions) {
       ExtensionOptions=extensions??throw new System.ArgumentNullException(nameof(extensions));
-      if (bytes.Length > limits.MaxBytes) throw new System.FormatException("XML byte limit exceeded");
+      if (bytes.Length > limits.MaxBytes) throw SrlXmlBudget.Limit("XML byte limit exceeded",limits.Operation);
       limits.Operation?.Consume(Limits.OperationResource.WorkUnits,bytes.Length);
       limits.Operation?.Consume(Limits.OperationResource.AllocationBytes,(long)bytes.Length*2);
       SrlUtf8.GetString(bytes); budget = new SrlXmlBudget(limits); MapLimits = maps ?? throw new System.ArgumentNullException(nameof(maps)); MixedLimits = mixed ?? throw new System.ArgumentNullException(nameof(mixed)); IdentityLimits = identity ?? throw new System.ArgumentNullException(nameof(identity)); DigestLimits=digests ?? throw new System.ArgumentNullException(nameof(digests));
@@ -142,9 +145,9 @@ R"xmlcs(    internal SrlXmlInput(byte[] bytes, Limits limits, XmlMapLimits maps,
           if (reader.NodeType == System.Xml.XmlNodeType.XmlDeclaration) { if (reader.GetAttribute("version") != "1.0") throw new System.FormatException("XML1.0 required"); string? encoding = reader.GetAttribute("encoding"); if (encoding != null && !encoding.Replace("-", "").Equals("UTF8", System.StringComparison.OrdinalIgnoreCase)) throw new System.FormatException("XML UTF8 required"); }
 )xmlcs"
 R"xmlcs(          else if (reader.NodeType == System.Xml.XmlNodeType.Element) {
-            if (reader.Depth >= budget.Limits.MaxDepth || budget.Nodes >= budget.Limits.MaxElements) throw new System.FormatException("XML node or depth limit exceeded");
+            if (reader.Depth >= budget.Limits.MaxDepth || budget.Nodes >= budget.Limits.MaxElements) throw SrlXmlBudget.Limit("XML node or depth limit exceeded",budget.Operation);
             ++budget.Nodes; budget.Text(Name);
-            if (reader.MoveToFirstAttribute()) { do { if (budget.Attributes >= budget.Limits.MaxElements) throw new System.FormatException("XML attribute limit exceeded"); ++budget.Attributes; budget.Text(SrlXmlName(reader.NamespaceURI, reader.LocalName)); budget.Text(reader.Value); } while (reader.MoveToNextAttribute()); reader.MoveToElement(); }
+            if (reader.MoveToFirstAttribute()) { do { if (budget.Attributes >= budget.Limits.MaxElements) throw SrlXmlBudget.Limit("XML attribute limit exceeded",budget.Operation); ++budget.Attributes; budget.Text(SrlXmlName(reader.NamespaceURI, reader.LocalName)); budget.Text(reader.Value); } while (reader.MoveToNextAttribute()); reader.MoveToElement(); }
             Kind = 's'; emptyEnd = reader.IsEmptyElement; IdentityEvent(); return;
           } else if (reader.NodeType == System.Xml.XmlNodeType.EndElement) { Kind = 'e'; IdentityEvent(); return; }
           else if (reader.NodeType == System.Xml.XmlNodeType.Text || reader.NodeType == System.Xml.XmlNodeType.CDATA || reader.NodeType == System.Xml.XmlNodeType.Whitespace || reader.NodeType == System.Xml.XmlNodeType.SignificantWhitespace) { budget.Text(reader.Value); Kind = 't'; IdentityEvent(); return; }
@@ -250,9 +253,9 @@ R"xmlcs(
       catch (System.Xml.XmlException failure) { throw new System.FormatException("Invalid XML character", failure); }
       int remaining = budget.Limits.MaxStringBytes - budget.TextBytes;
       int separator = joined.Length == 0 ? 0 : 1;
-      if (separator > remaining - used) throw new System.FormatException("XML list text limit exceeded");
+      if (separator > remaining - used) throw SrlXmlBudget.Limit("XML list text limit exceeded",budget.Operation);
       int count = SrlUtf8.GetByteCount(text);
-      if (count > remaining - used - separator) throw new System.FormatException("XML list text limit exceeded");
+      if (count > remaining - used - separator) throw SrlXmlBudget.Limit("XML list text limit exceeded",budget.Operation);
       if (separator != 0) joined.Append(' '); joined.Append(text); return used + separator + count;
     }
     private readonly SrlXmlBudget budget;
@@ -277,6 +280,7 @@ R"xmlcs(
     internal SrlXmlOutput(Limits limits) : this(limits, new XmlMapLimits()) { }
     // Borrow the current native owner only when a package supplies shared accounting.
     internal global::System.IDisposable? FieldOwner()=>budget.Operation?.EnterOwner();
+    internal Limits.IOperation? Operation=>budget.Operation;
     // Select a native sibling before its scalar or descendant work is admitted.
     internal void Field(string member)=>budget.Operation?.SelectField(member);
     // Carry one immutable map policy through every nested typed encoder.
@@ -300,13 +304,13 @@ R"xmlcs(
     // Split compiler-owned expanded-name spelling.
     private static (string Uri, string Local) Parts(string value) { int close = value.StartsWith("{", System.StringComparison.Ordinal) ? value.IndexOf('}') : -1; return close < 0 ? ("", value) : (value[1..close], value[(close + 1)..]); }
     // Charge encoded bytes before growing owned output storage.
-    private void Append(string value) { int count = SrlUtf8.GetByteCount(value);budget.Operation?.Consume(Limits.OperationResource.WorkUnits,count);budget.Operation?.Consume(Limits.OperationResource.AllocationBytes,count); if (count > budget.Limits.MaxBytes - bytes.Length) throw new System.FormatException("XML output byte limit exceeded"); bytes.Write(SrlUtf8.GetBytes(value)); }
+    private void Append(string value) { int count = SrlUtf8.GetByteCount(value);budget.Operation?.Consume(Limits.OperationResource.WorkUnits,count);budget.Operation?.Consume(Limits.OperationResource.AllocationBytes,count); if (count > budget.Limits.MaxBytes - bytes.Length) throw SrlXmlBudget.Limit("XML output byte limit exceeded",budget.Operation); bytes.Write(SrlUtf8.GetBytes(value)); }
     // Escape only XML syntax and whitespace requiring lexical preservation.
     private void Escaped(string value, bool attribute) { int begin = 0; for (int index = 0; index < value.Length; ++index) { string? replacement = value[index] switch { '&' => "&amp;", '<' => "&lt;", '>' => "&gt;", '\r' => "&#13;", '"' => attribute ? "&quot;" : null, '\n' => attribute ? "&#10;" : null, '\t' => attribute ? "&#9;" : null, _ => null }; if (replacement != null) { Append(value[begin..index]); Append(replacement); begin = index + 1; } } Append(value[begin..]); }
     // Complete a pending start tag before writing content.
     private void Seal() { if (stack.Count != 0 && stack[^1].Pending) { IdentityStart(stack[^1]); Append(">"); stack[^1].Pending = false; } }
     // Admit and emit an element before visiting any model descendants.
-    internal void Open(string name) { if(stack.Count!=0&&stack[^1].Scoped){Open(name,null);return;} if (stack.Count >= budget.Limits.MaxDepth || budget.Nodes >= budget.Limits.MaxElements) throw new System.FormatException("XML node or depth limit exceeded"); budget.Text(name); ++budget.Nodes; Seal(); var (uri, local) = Parts(name); string prefix = uri == "http://www.w3.org/XML/1998/namespace" ? "xml" : "srl"; string qualified = uri.Length == 0 ? local : prefix + ":" + local; Append("<" + qualified); if (uri.Length != 0 && prefix != "xml" && (stack.Count == 0 || stack[^1].Namespace != uri)) { Append(" xmlns:srl=\""); Escaped(uri, true); Append("\""); } stack.Add(new Frame(qualified, uri, name)); }
+    internal void Open(string name) { if(stack.Count!=0&&stack[^1].Scoped){Open(name,null);return;} if (stack.Count >= budget.Limits.MaxDepth || budget.Nodes >= budget.Limits.MaxElements) throw SrlXmlBudget.Limit("XML node or depth limit exceeded",budget.Operation); budget.Text(name); ++budget.Nodes; Seal(); var (uri, local) = Parts(name); string prefix = uri == "http://www.w3.org/XML/1998/namespace" ? "xml" : "srl"; string qualified = uri.Length == 0 ? local : prefix + ":" + local; Append("<" + qualified); if (uri.Length != 0 && prefix != "xml" && (stack.Count == 0 || stack[^1].Namespace != uri)) { Append(" xmlns:srl=\""); Escaped(uri, true); Append("\""); } stack.Add(new Frame(qualified, uri, name)); }
     // Choose a deterministic prefix without shadowing an opaque lexical QName binding.
     internal string FreshPrefix(string basis,string uri){for(int index=0;;++index){string prefix=basis+(index==0?"":index.ToString(System.Globalization.CultureInfo.InvariantCulture));string? bound=IdentityNamespace(prefix);if(bound==null||bound==uri)return prefix;}}
     // Admit the private rewritten QName lexical builder before retaining its tokens.
@@ -314,20 +318,20 @@ R"xmlcs(
     // Reuse existing bindings so retained semantic scope charges stay stable across roundtrips.
     internal string? MatchingPrefix(string uri,bool attribute){if(!attribute&&IdentityNamespace("")==uri)return "";for(int index=stack.Count-1;index>=0;--index){var frame=stack[index];if(frame.IdentityNamespaces!=null)foreach(var entry in frame.IdentityNamespaces)if((!attribute||entry.Key.Length!=0)&&entry.Value==uri&&IdentityNamespace(entry.Key)==uri)return entry.Key;if(!frame.Scoped&&frame.Namespace==uri){int colon=frame.Name.IndexOf(':');if(colon>=0){string prefix=frame.Name[..colon];if(IdentityNamespace(prefix)==uri)return prefix;}}}return null;}
     // Charge and emit only declarations which differ from their inherited scope.
-    internal void Declare(string prefix,string uri){if(IdentityNamespace(prefix)==uri)return;if(budget.Attributes>=budget.Limits.MaxElements)throw new System.FormatException("XML namespace limit exceeded");++budget.Attributes;budget.Text(prefix);budget.Text(uri);var frame=stack[^1];frame.IdentityNamespaces??=new();frame.IdentityNamespaces[prefix]=uri;Append(prefix.Length==0?" xmlns=\"":" xmlns:"+prefix+"=\"");Escaped(uri,true);Append("\"");}
+    internal void Declare(string prefix,string uri){if(IdentityNamespace(prefix)==uri)return;if(budget.Attributes>=budget.Limits.MaxElements)throw SrlXmlBudget.Limit("XML namespace limit exceeded",budget.Operation);++budget.Attributes;budget.Text(prefix);budget.Text(uri);var frame=stack[^1];frame.IdentityNamespaces??=new();frame.IdentityNamespaces[prefix]=uri;Append(prefix.Length==0?" xmlns=\"":" xmlns:"+prefix+"=\"");Escaped(uri,true);Append("\"");}
     // Pin every preserved binding before selecting a known or opaque element prefix.
     internal void Open(string name,System.Collections.Generic.Dictionary<string,string>? scope){
-      if(stack.Count>=budget.Limits.MaxDepth||budget.Nodes>=budget.Limits.MaxElements)throw new System.FormatException("XML node or depth limit exceeded");budget.Text(name);++budget.Nodes;Seal();var (uri,local)=Parts(name);string prefix="";
+      if(stack.Count>=budget.Limits.MaxDepth||budget.Nodes>=budget.Limits.MaxElements)throw SrlXmlBudget.Limit("XML node or depth limit exceeded",budget.Operation);budget.Text(name);++budget.Nodes;Seal();var (uri,local)=Parts(name);string prefix="";
       var temporary=new Frame("",uri,name){Scoped=true,IdentityNamespaces=scope};stack.Add(temporary);if(uri.Length!=0)prefix=MatchingPrefix(uri,false)??(uri=="http://www.w3.org/XML/1998/namespace"?"xml":FreshPrefix("srl",uri));stack.RemoveAt(stack.Count-1);
       string qualified=prefix.Length==0?local:prefix+":"+local;Append("<"+qualified);var frame=new Frame(qualified,uri,name){Scoped=true};stack.Add(frame);if(scope!=null)foreach(var entry in scope)Declare(entry.Key,entry.Value);
       if(uri.Length==0){if(IdentityNamespace("")!.Length!=0)Declare("","");}else Declare(prefix,uri);
     }
     // Preserve expanded duplicate identity while avoiding all pinned namespace prefixes.
-    private void ScopedAttribute(string name,string text){var frame=stack[^1];if(!frame.Pending||!frame.Attributes.Add(name))throw new System.FormatException("Invalid XML attribute position or duplicate");if(budget.Attributes>=budget.Limits.MaxElements)throw new System.FormatException("XML attribute limit exceeded");++budget.Attributes;budget.Text(name);budget.Text(text);var (uri,local)=Parts(name);string prefix="";if(uri.Length!=0){prefix=MatchingPrefix(uri,true)??(uri=="http://www.w3.org/XML/1998/namespace"?"xml":FreshPrefix("a",uri));Declare(prefix,uri);}Append(" "+(prefix.Length==0?local:prefix+":"+local)+"=\"");Escaped(text,true);Append("\"");if(identities.Count!=0){frame.IdentityAttributes??=new();frame.IdentityAttributes.Add(name,text);}}
+    private void ScopedAttribute(string name,string text){var frame=stack[^1];if(!frame.Pending||!frame.Attributes.Add(name))throw new System.FormatException("Invalid XML attribute position or duplicate");if(budget.Attributes>=budget.Limits.MaxElements)throw SrlXmlBudget.Limit("XML attribute limit exceeded",budget.Operation);++budget.Attributes;budget.Text(name);budget.Text(text);var (uri,local)=Parts(name);string prefix="";if(uri.Length!=0){prefix=MatchingPrefix(uri,true)??(uri=="http://www.w3.org/XML/1998/namespace"?"xml":FreshPrefix("a",uri));Declare(prefix,uri);}Append(" "+(prefix.Length==0?local:prefix+":"+local)+"=\"");Escaped(text,true);Append("\"");if(identities.Count!=0){frame.IdentityAttributes??=new();frame.IdentityAttributes.Add(name,text);}}
 )xmlcs"
 R"xmlcs(
     // Add each attribute before the first content token.
-    internal void Attribute(string name, string text) { if(stack[^1].Scoped){ScopedAttribute(name,text);return;} var frame = stack[^1]; if (!frame.Pending || !frame.Attributes.Add(name)) throw new System.FormatException("Invalid XML attribute position or duplicate"); if (budget.Attributes >= budget.Limits.MaxElements) throw new System.FormatException("XML attribute limit exceeded"); ++budget.Attributes; budget.Text(name); budget.Text(text); var (uri, local) = Parts(name); string prefix = uri == "http://www.w3.org/XML/1998/namespace" ? "xml" : "a" + frame.Attributes.Count; if (uri.Length != 0 && prefix != "xml") { Append(" xmlns:" + prefix + "=\""); Escaped(uri, true); Append("\""); } Append(" " + (uri.Length == 0 ? local : prefix + ":" + local) + "=\""); Escaped(text, true); Append("\""); if(identities.Count!=0){frame.IdentityAttributes??=new();frame.IdentityAttributes.Add(name,text);if(uri.Length!=0&&prefix!="xml"){frame.IdentityNamespaces??=new();frame.IdentityNamespaces[prefix]=uri;}} }
+    internal void Attribute(string name, string text) { if(stack[^1].Scoped){ScopedAttribute(name,text);return;} var frame = stack[^1]; if (!frame.Pending || !frame.Attributes.Add(name)) throw new System.FormatException("Invalid XML attribute position or duplicate"); if (budget.Attributes >= budget.Limits.MaxElements) throw SrlXmlBudget.Limit("XML attribute limit exceeded",budget.Operation); ++budget.Attributes; budget.Text(name); budget.Text(text); var (uri, local) = Parts(name); string prefix = uri == "http://www.w3.org/XML/1998/namespace" ? "xml" : "a" + frame.Attributes.Count; if (uri.Length != 0 && prefix != "xml") { Append(" xmlns:" + prefix + "=\""); Escaped(uri, true); Append("\""); } Append(" " + (uri.Length == 0 ? local : prefix + ":" + local) + "=\""); Escaped(text, true); Append("\""); if(identities.Count!=0){frame.IdentityAttributes??=new();frame.IdentityAttributes.Add(name,text);if(uri.Length!=0&&prefix!="xml"){frame.IdentityNamespaces??=new();frame.IdentityNamespaces[prefix]=uri;}} }
     // Declare a QName prefix on this pending payload before emitting its xsi:type attribute.
     internal void TypeName(string identity) {
       var frame = stack[^1]; if (!frame.Pending) throw new System.FormatException("XML variant type follows content");
@@ -335,7 +339,7 @@ R"xmlcs(
       if(frame.Scoped){if(uri.Length!=0){string prefix=uri=="http://www.w3.org/XML/1998/namespace"?"xml":FreshPrefix("t",uri);Declare(prefix,uri);lexical=prefix+":"+local;}else if(IdentityNamespace("")!.Length!=0)throw new System.FormatException("Unqualified XML type conflicts with preserved default namespace");Attribute("{http://www.w3.org/2001/XMLSchema-instance}type",lexical);return;}
       if (uri == "http://www.w3.org/XML/1998/namespace") lexical = "xml:" + lexical;
       else if (uri.Length != 0) {
-        if (budget.Attributes >= budget.Limits.MaxElements) throw new System.FormatException("XML namespace limit exceeded");
+        if (budget.Attributes >= budget.Limits.MaxElements) throw SrlXmlBudget.Limit("XML namespace limit exceeded",budget.Operation);
         ++budget.Attributes; budget.Text("t" + uri); if(identities.Count!=0){frame.IdentityNamespaces??=new();frame.IdentityNamespaces["t"]=uri;} Append(" xmlns:t=\""); Escaped(uri, true); Append("\""); lexical = "t:" + lexical;
       }
       Attribute("{http://www.w3.org/2001/XMLSchema-instance}type", lexical);

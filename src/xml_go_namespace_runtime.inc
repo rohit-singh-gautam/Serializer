@@ -21,7 +21,7 @@ func (input *srlXmlInput) namespaceScope(text string,mode int,closed map[string]
   if _,err:=srlXmlNamespaceNames(text,mode,input.budget.limits.MaxNodes,lookup);err!=nil{return nil,err}
   tokens,err:=srlXmlTokens(text,input.budget.limits.MaxNodes);if err!=nil{return nil,err};scope:=map[string]string{}
   for _,token:=range tokens{prefix:="";if mode==2{prefix=token}else if before,_,found:=strings.Cut(token,":");found{prefix=before};if _,exists:=scope[prefix];exists{continue};uri,_:=lookup(prefix)
-    remaining:=input.budget.limits.MaxTextBytes-input.namespaceBytes;if len(prefix)>remaining||len(uri)>remaining-len(prefix){return nil,fmt.Errorf("XML QName scope byte limit exceeded")};input.namespaceBytes+=len(prefix)+len(uri);scope[prefix]=uri
+    remaining:=input.budget.limits.MaxTextBytes-input.namespaceBytes;if len(prefix)>remaining||len(uri)>remaining-len(prefix){return nil,srlXmlLimitError("XML QName scope byte limit exceeded")};if err:=input.budget.charge("allocation",int64(128+len(prefix)+len(uri)));err!=nil{return nil,err};input.namespaceBytes+=len(prefix)+len(uri);scope[prefix]=uri
   };return scope,nil
 }
 // Preserve child-local overrides through its end token without copying complete inherited scopes.

@@ -1,10 +1,12 @@
 # C# and Kotlin/JVM ZIP and OPC packages
 
-Compiler/runtime **2.16.0** emits synchronous owning package APIs for .NET 8 and
+Compiler/runtime **2.17.0** emits synchronous owning package APIs for .NET 8 and
 Kotlin/JVM 17. Existing language **1.20.0** package declarations select typed XML
-roles and opaque binary roles. No schema syntax or native wire format changes.
-The [batch record](../verification/verification-pending-50-2026-10-20.md) identifies
-executed acceptance gates and any remaining qualification.
+roles and opaque binary roles. Language **1.21.0** adds fixed/default storage
+policies and declarative application keys/references; native wire formats retain
+their contracts. The [original package batch](../verification/verification-pending-50-2026-10-20.md)
+and [current batch](../verification/verification-pending-105-2026-10-21.md) identify
+executed acceptance gates and remaining qualification.
 
 Physical ZIP support is emitted with ordinary models. OPC XML metadata/provider
 support is emitted only when the schema declares packages. C# uses
@@ -117,9 +119,14 @@ part URIs report an explicit unsupported-feature error; external relationship
 IRIs preserve Unicode. This boundary is separate from XML Unicode names and
 physical ZIP filename decoding.
 
-Current generated profiles use the declared XML codec for typed roles. Runtime
-profile dispatch (`P20`), declarative application references (`P21`) and wider
-vocabulary/platform qualification remain tracked in [pending requirements](../pending.md).
-Use complete-aggregate validation for application invariants. See the
+Generated profiles use the declared XML codec and validate expanded root/type
+identity before model decoding. Input `ProfileOverrides` / `profileOverrides`
+maps schema role names to `"stored"` or `"deflate"`; facade `SelectProfiles` /
+`selectProfiles` returns resolved metadata. A fixed policy rejects changed
+storage on input and output. Generated scoped keys/references validate the complete
+candidate before domain callbacks and publication; follow the
+[application contract](../serialization/package_application_contracts.md).
+Wider vocabulary/platform qualification remains in [pending requirements](../pending.md).
+Use complete-aggregate validation for additional application invariants. See the
 [shared XML/package contract](../serialization/xml_packages.md) for unsupported
 XML graph combinations and namespace/preservation limits.

@@ -26,6 +26,7 @@ export interface TypeSymbol extends Span {
   declaration: number;
   definition: boolean;
   schemaQualified?: string;
+  schemaCompanion?: boolean;
   genericSource?: Span & { name: string; scope: string[] };
   typeParameter?: boolean;
   bases?: Array<{ name: string; scope: string[] }>;
@@ -36,7 +37,7 @@ export interface SourceIndex {
   schemaBindings?: SchemaInclude[];
   references: Array<Span & { name: string; scope: string[]; kind?: TypeSymbol['kind'] }>;
   members?: Array<Span & { name: string; owner: string; type?: { name: string; scope: string[] }; wireOnly?: boolean; getter?: boolean }>;
-  memberReferences?: Array<Span & { name: string; owner: { name: string; scope: string[] }; path: string[] }>;
+  memberReferences?: Array<Span & { name: string; owner: { name: string; scope: string[] }; path: string[]; direct?: boolean }>;
   callables?: CallableSymbol[];
 }
 
@@ -72,6 +73,8 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 19));
   const xmlAuthoringContract = language !== null && (Number(language[1]) > 1 ||
     (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 20));
+  const packageReferenceContract = language !== null && (Number(language[1]) > 1 ||
+    (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 21));
   const tokens: Token[] = [...code.matchAll(/[A-Za-z_][A-Za-z_0-9]*|::|[^\s]/g)]
     .map(match => ({ text: match[0], start: match.index!, end: match.index! + match[0].length }));
   const result: SourceIndex = { symbols: [], includes: [], schemaBindings: [], references: [], members: [], memberReferences: [], callables: [] };
@@ -409,9 +412,27 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       }
       --i;
     } else if (schema && xmlAuthoringContract && token.text === 'part' && tokens[i + 2]?.text === ':') {
-      // Only a role's declared model type is a schema reference; opaque bytes are package metadata.
-      if (tokens[i + 3]?.text !== 'bytes') { i = typeReference(i + 3) - 1; }
-      else { i += 3; }
+      // Selectors refer to direct fields of the role's declared model, independently of its package scope.
+      const owner = qualified(i + 3);
+      const next = tokens[i + 3]?.text === 'bytes' ? i + 4 : typeReference(i + 3);
+      if (packageReferenceContract && owner && owner.name !== 'bytes' && tokens[next]?.text === '{') {
+        let depth = 1;
+        for (let item = next + 1; item < tokens.length && depth; ++item) {
+          if (tokens[item].text === '{') { ++depth; }
+          else if (tokens[item].text === '}') { --depth; }
+          else if (depth === 1 && ['key', 'reference'].includes(tokens[item].text) &&
+              tokens[item + 1]?.text === '(' && tokens[item + 2]?.text === ',') {
+            // String scopes are masked; their following comma retains the exact direct-field operand.
+            const field = qualified(item + 3);
+            if (field && !field.name.includes('::') && [',', ')'].includes(tokens[field.next]?.text)) {
+              result.memberReferences!.push({ start: field.start, end: field.end, name: field.name,
+                owner: { name: owner.name, scope: [...currentScope()] }, path: [], direct: true });
+            }
+          }
+        }
+      }
+      // Opaque bytes, envelope policies and target-role operands never claim unrelated type destinations.
+      i = next - 1;
     } else if (schema && ['cpp', 'csharp', 'java', 'javascript', 'typescript', 'go', 'rust',
       'python', 'swift', 'kotlin', 'c'].includes(token.text)
       && (tokens[i + 1]?.text === '{' || tokens[i + 1]?.text === 'preamble' ||

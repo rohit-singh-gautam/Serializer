@@ -113,5 +113,6 @@ std::string reference_methods(const class_node& object, const std::string& ident
 std::string methods(const class_node& object, const xml_binding::record& contract,
     const std::string& identifier, const field_name& field, const type_name_fn& type,
     const xml_options& options, std::string_view language, const alternative_name& alternative,
-    bool readonly = false, const field_name& projection = {});
+    bool readonly = false, const field_name& projection = {},
+    std::string_view operation_type = "XmlOperationOptions", std::string_view operation_decoder = {});
 } // namespace rohit::serializer::writer::xml_portable

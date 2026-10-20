@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.16.0 LANGUAGES CXX)
+project(serializer VERSION 2.17.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
-set(serializer_schema_language_version 1.20.0)
+set(serializer_schema_language_version 1.21.0)
 string(REPLACE "." ";" serializer_schema_language_version_components
   "${serializer_schema_language_version}")
 list(GET serializer_schema_language_version_components 0 serializer_schema_language_version_major)
@@ -149,6 +149,7 @@ add_library(serializer_lib
   src/xsd_bundle_output.hpp
   src/xml_authoring_parser.hpp
   src/package_writer.hpp
+  src/native_package_contract.hpp
   src/xml_schema.hpp
   src/xml_portable_writer.cpp
   src/xml_portable_writer.hpp
@@ -360,6 +361,12 @@ add_library(serializer_lib
   src/csharp_zstd_compression_runtime.inc
   src/csharp_lz4_compression_runtime.inc
   src/csharp_package_writer.hpp
+  src/c_package_writer.hpp
+  src/c_package_runtime.inc
+  src/c_package_file_runtime.inc
+  src/c_package_opc_runtime.inc
+  src/c_package_profile_runtime.inc
+  src/csharp_package_contract_runtime.inc
   src/csharp_package_runtime.inc
   src/csharp_package_writer_runtime.inc
   src/csharp_package_opc_runtime.inc
@@ -373,6 +380,13 @@ add_library(serializer_lib
   src/java_package_xml_runtime.inc
   src/java_package_profile_runtime.inc
   src/kotlin_package_writer.hpp
+  src/kotlin_package_contract_runtime.inc
+  src/rust_package_writer.hpp
+  src/rust_package_runtime.inc
+  src/swift_package_writer.hpp
+  src/swift_package_runtime.inc
+  src/swift_package_opc_runtime.inc
+  src/swift_package_profile_runtime.inc
   src/kotlin_package_runtime.inc
   src/kotlin_package_zip_runtime.inc
   src/kotlin_package_writer_runtime.inc

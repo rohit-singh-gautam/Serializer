@@ -314,6 +314,8 @@ public:
       std::string_view source, std::string_view type) const;
   // Find a part by OPC identity, using OPC's ASCII case-insensitive comparison.
   [[nodiscard]] const part* find(std::string_view name) const;
+  // Inspect a selected part's physical ZIP storage without decoding its payload.
+  [[nodiscard]] zip_method storage_method(std::string_view name) const;
   // Read one complete part; the returned bytes retain its selected codec representation.
   [[nodiscard]] std::vector<std::uint8_t> read(std::string_view name);
   // Check every entry's CRC and size; no typed object is published by this operation.
@@ -363,6 +365,7 @@ class profile_loader {
   std::set<const relationship*> selected_{};
   bool finished_{};
   bool failed_{};
+  std::string_view current_relationship_id_{};
 public:
   // Borrow an OPC reader and its cumulative budget for one aggregate load.
   explicit profile_loader(opc_reader& reader, extension_policy policy = {});
@@ -382,6 +385,8 @@ public:
   [[nodiscard]] preserved_extensions finish();
   // Share cumulative accounting with nested codecs, references and application validation.
   [[nodiscard]] budget& shared_budget() const noexcept;
+  // Borrow the active source-local link identity only while a read_related callback executes.
+  [[nodiscard]] std::string_view current_relationship_id() const noexcept;
 };
 
 template <typename Model>

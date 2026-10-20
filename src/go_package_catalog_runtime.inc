@@ -70,8 +70,7 @@ func srlPackageValidateLinks(links []SerializerPackageRelationship,parts map[str
   seen:=map[string]map[string]bool{};result:=make([]SerializerPackageRelationship,0,len(links))
   for _,link:=range links {
     for _,text:=range []string{link.Source,link.ID,link.Type,link.Target,link.Mode} { if err:=state.consume(SerializerPackageWorkUnits,int64(len(text))+1,link.Source);err!=nil { return nil,err } }
-    if err:=state.consume(SerializerPackageRelationships,1,link.Source);err!=nil { return nil,err }
-    if err:=state.consume(SerializerPackageReferences,1,link.Source);err!=nil { return nil,err }
+    for _,resource:=range []SerializerPackageResource{SerializerPackageRelationships,SerializerPackageReferences}{if err:=state.consume(resource,1,link.Source);err!=nil{if failure,ok:=err.(*SerializerPackageError);ok&&state.first!=err&&state.budget.first!=err{copy:=*failure;copy.Part=link.Source;copy.FieldPath="relationships";copy.Reference=link.Target;copy.RelationshipID=link.ID;return nil,&copy};return nil,err}}
     if !srlPackageNCName(link.ID) { return nil,srlPackageFailure(SerializerPackageInvalidRelationship,"Invalid relationship ID",link.Source) }
     source:=link.Source
     if source!="/" { if _,err:=srlPackagePartName(source,false);err!=nil { return nil,err };if _,exists:=parts[srlPackageFold(source)];!exists { return nil,srlPackageFailure(SerializerPackageMissingPart,"Relationship source is missing",source) } }

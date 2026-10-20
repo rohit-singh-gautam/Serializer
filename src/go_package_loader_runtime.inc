@@ -4,7 +4,7 @@
 R"packagego(
 // srlPackageRole retains checked immutable schema constants; maximum -1 denotes unbounded.
 type srlPackageRole struct {
-  field,name,contentType,source,relationship,id,compression string
+  field,role,name,contentType,source,relationship,id,compression,policy,expectedRoot,expectedType string
   minimum,maximum int64
 }
 type srlPackageOccurrence struct { metadata SerializerPackagePartMetadata; parent int; id string }
@@ -14,6 +14,7 @@ type srlPackageLoader struct {
   archive *SerializerPackageZipReader
   opc *srlPackageOPC
   sources map[string][]string
+  referenceLocations map[string][]srlPackageOccurrence
   decoded map[string]bool
   selected map[int]bool
   held int64
@@ -26,11 +27,11 @@ func srlPackageOccurs(role srlPackageRole,count int) error {
 }
 // srlPackageCodec attaches role context without retaining XML payload excerpts or masking prior callback failure.
 func srlPackageCodec(role srlPackageRole,name,id string,cause error) error {
-  return &SerializerPackageError{Code:SerializerPackageCodec,Message:"Package typed XML codec rejected part",Part:name,FieldPath:role.field,RelationshipID:id,Cause:cause}
+  code:=SerializerPackageCodec;if _,limited:=cause.(srlXmlLimitError);limited{code=SerializerPackageResourceLimit};return &SerializerPackageError{Code:code,Message:"Package typed XML codec rejected part",Part:name,FieldPath:role.field,RelationshipID:id,Cause:cause}
 }
 // srlPackageNewLoader owns an unpublished archive/catalog, sharing one parent-aware ledger with all nested reads.
 func srlPackageNewLoader(source any,budget *SerializerPackageBudget) (result *srlPackageLoader,err error) {
-  loader:=&srlPackageLoader{state:srlPackageState{budget:budget},sources:map[string][]string{},decoded:map[string]bool{},selected:map[int]bool{}}
+  loader:=&srlPackageLoader{state:srlPackageState{budget:budget},sources:map[string][]string{},referenceLocations:map[string][]srlPackageOccurrence{},decoded:map[string]bool{},selected:map[int]bool{}}
   if err=loader.state.begin();err!=nil { return nil,err };complete:=false
   defer func(){loader.state.end(&err,complete);if loader.state.closed { loader.cleanup() }}()
   loader.archive,err=srlPackageOpen(source,budget,&loader.state);if err!=nil { return nil,err }
@@ -65,6 +66,7 @@ func (loader *srlPackageLoader) discover(role srlPackageRole) ([]srlPackageOccur
       if err:=loader.state.consume(SerializerPackageWorkUnits,1,source);err!=nil { return nil,err }
       if srlPackageFold(link.Source)!=srlPackageFold(source)||link.Type!=role.relationship { continue }
       if link.Mode!="internal" { return nil,&SerializerPackageError{Code:SerializerPackageInvalidRelationship,Message:"Declared role requires an internal target",Part:source,FieldPath:role.field,RelationshipID:link.ID} }
+      if role.policy=="fixed"&&metadataMethodMismatch(loader.opc,source,link,role){return nil,srlPackageFailure(SerializerPackageInvalidOptions,"Fixed package compression mismatch",source)}
       target,err:=srlPackageTarget(source,link.Target);if err!=nil { return nil,err };key:=srlPackageFold(target);metadata:=loader.opc.parts[key]
       if role.contentType!="" {
         matched:=false
@@ -79,18 +81,18 @@ func (loader *srlPackageLoader) discover(role srlPackageRole) ([]srlPackageOccur
       loader.decoded[key]=true;loader.selected[index]=true;values=append(values,srlPackageOccurrence{metadata:metadata,parent:parent,id:link.ID});discovered=append(discovered,metadata.Name)
     }
   }
-  if err:=srlPackageOccurs(role,len(values));err!=nil { return nil,err };loader.sources[role.field]=discovered;return values,nil
+  if err:=srlPackageOccurs(role,len(values));err!=nil { return nil,err };if err:=loader.state.consume(SerializerPackageDecoderAllocationBytes,128,"");err!=nil{return nil,err};loader.referenceLocations[role.field]=values;loader.sources[role.field]=discovered;return values,nil
 }
 // models returns no partial role list if any middle native XML value fails or a callback abandons the wrapper.
-// Native decoder suballocations use their separate bounded XML policies; full shared accounting remains separate.
-func (loader *srlPackageLoader) models(role srlPackageRole,decode func([]byte,*SerializerPackageBudget)(any,error)) (result []srlPackageModelOccurrence,err error) {
+// Native token/scalar/identity admission is cumulative; logical counters do not promise a host heap cap.
+func (loader *srlPackageLoader) models(role srlPackageRole,decode any) (result []srlPackageModelOccurrence,err error) {
   if err=loader.begin();err!=nil { return nil,err };complete:=false;defer func(){loader.leave(&err,complete)}()
   occurrences,err:=loader.discover(role);if err!=nil { return nil,err };values:=[]srlPackageModelOccurrence{}
   for _,item:=range occurrences {
     data,failure:=loader.archive.Read(item.metadata.entry.Name);if failure!=nil { return nil,failure }
     if err=loader.state.consume(SerializerPackageWorkUnits,int64(len(data)),item.metadata.Name);err!=nil { return nil,err }
     if err=loader.state.budget.hold(int64(len(data)),item.metadata.Name);err!=nil { return nil,err }
-    value,failure:=func()(any,error){defer loader.state.budget.release(int64(len(data)));return decode(data,loader.state.budget)}()
+    value,failure:=func()(any,error){defer loader.state.budget.release(int64(len(data)));return srlPackageDecodeNative(decode,data,&loader.state,role,item.metadata.Name,item.id)}()
     if failure!=nil { if loader.state.first!=nil { return nil,loader.state.first };if loader.state.budget.first!=nil { return nil,loader.state.fail(loader.state.budget.first) };return nil,srlPackageCodec(role,item.metadata.Name,item.id,failure) }
     if err=loader.state.poll();err!=nil { return nil,err };if value==nil { return nil,srlPackageCodec(role,item.metadata.Name,item.id,nil) }
     values=append(values,srlPackageModelOccurrence{value:value,name:item.metadata.Name,contentType:item.metadata.ContentType,parent:item.parent})

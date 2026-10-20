@@ -25,8 +25,8 @@ inline std::string mobile_map_write(const xml_binding::map_contract& map, const 
     if (swift) { line("if let values = " + access + " {"); }
     else { line("val container = " + access + "\nif (container.isPresent) {\nval values = container.get()"); }
   } else { line((swift ? "let values = " : "val values = requireNotNull(") + access + (swift ? "" : ")")); }
-  line(swift ? "guard values.count <= output.mapLimits.maxEntries else { throw SerializerError.invalid(\"XML map entry limit exceeded\") }" :
-      "require(values.size <= output.mapLimits.maxEntries) { \"XML map entry limit exceeded\" }");
+  line(swift ? "guard values.count <= output.mapLimits.maxEntries else { throw srlXmlLimitFailure(output.mapLimits.srlPackageLimit,\"XML map entry limit exceeded\") }" :
+      "if(values.size > output.mapLimits.maxEntries) SrlXmlBudget.limit(\"XML map entry limit exceeded\",output.packageContext())");
   line(attempt + "output.open(" + name(map.wrapper) + ")");
   std::string comparator;
   if (swift) {
@@ -38,7 +38,7 @@ inline std::string mobile_map_write(const xml_binding::map_contract& map, const 
     line("val keys = values.keys.sortedWith(Comparator { a, b -> " + comparator + " })\nvar keyBytes = 0\nfor (key in keys) {\nval item = requireNotNull(values[key]) { \"Null XML map value\" }");
   }
   line((swift ? "let keyText = " : "val keyText = ") + scalar(map.key_type, "key", true, true));
-  line("keyBytes = " + attempt + "output.mapLimits.keyBytes(keyText, keyText, keyBytes)");
+  line("keyBytes = " + attempt + "output.mapLimits.keyBytes(keyText, keyText, keyBytes" + (swift ? ")" : ",output.packageContext())"));
   line(attempt + "output.open(" + name(map.entry) + ")");
   if (map.key_placement == xml_binding::map_key_placement::attribute) {
     line(attempt + "output.attribute(SrlXmlAttribute(" + std::string{swift ? "name: " : ""} + name(map.key) + ", " + (swift ? "value: " : "") + "keyText))");
@@ -67,7 +67,7 @@ inline std::string kotlin_map_read(const xml_binding::map_contract& map, const s
   }
   line("val wrapper = input.open(" + name(map.wrapper) + ")\nwrapper.requireNoAttributes()");
   line("val values = linkedMapOf<" + type(map.key_type, true) + ", " + type(map.value_type, false) + ">()\nvar keyBytes = 0");
-  line("while (input.has(" + name(map.entry) + ")) {\nrequire(values.size < input.mapLimits.maxEntries) { \"XML map entry limit exceeded\" }");
+  line("while (input.has(" + name(map.entry) + ")) {\nif(values.size >= input.mapLimits.maxEntries) SrlXmlBudget.limit(\"XML map entry limit exceeded\",input.packageContext())");
   line("val entry = input.open(" + name(map.entry) + ")\nvar key: " + type(map.key_type, true) + "? = null\nvar item: " + type(map.value_type, false) + "? = null\nvar keyLexical = \"\"\nvar hasKey = false\nvar hasValue = false");
   if (map.key_placement == xml_binding::map_key_placement::attribute) {
     line("keyLexical = entry.attribute(" + name(map.key) + ", false)!!\nkey = " + scalar(map.key_type, "keyLexical", false, true) + "\nhasKey = true");
@@ -81,7 +81,7 @@ inline std::string kotlin_map_read(const xml_binding::map_contract& map, const s
       scalar(map.value_type, "input.scalar(" + name(map.value) + ")", false, false)) + "\nhasValue = true\n}");
   line("else -> throw IllegalArgumentException(\"Unexpected XML map member\")\n}\n}\nentry.finish()");
   line("require(hasKey && hasValue) { \"Incomplete XML map entry\" }\nval selectedKey = requireNotNull(key)\nval selectedItem = requireNotNull(item)");
-  line("keyBytes = input.mapLimits.keyBytes(keyLexical, " + scalar(map.key_type, "selectedKey", true, true) + ", keyBytes)");
+  line("keyBytes = input.mapLimits.keyBytes(keyLexical, " + scalar(map.key_type, "selectedKey", true, true) + ", keyBytes,input.packageContext())");
   line("require(!values.containsKey(selectedKey)) { \"Duplicate canonical XML map key\" }\nvalues[selectedKey] = selectedItem\n}\nwrapper.finish()");
   line(access + " = " + (map.optional_container ? "java.util.Optional.of(values)" : "values"));
   if (map.optional_container) { line("}"); }
@@ -98,7 +98,7 @@ inline std::string swift_map_frame(const xml_binding::map_contract& map, const s
   line("guard childAttributes.isEmpty else { throw SerializerError.invalid(\"Unexpected XML map wrapper attribute\") }");
   line("let mapFrame = SrlXmlTokenFrame(childName)\nvar values: [" + type(map.key_type, true) + ": " + type(map.value_type, false) + "] = [:]\nvar keyBytes = 0");
   line("mapFrame.child = { entryName, entryAttributes in\nguard entryName == " + name(map.entry) +
-      " else { throw SerializerError.invalid(\"Unexpected XML map entry\") }\nguard values.count < mapLimits.maxEntries else { throw SerializerError.invalid(\"XML map entry limit exceeded\") }");
+      " else { throw SerializerError.invalid(\"Unexpected XML map entry\") }\nguard values.count < mapLimits.maxEntries else { throw srlXmlLimitFailure(mapLimits.srlPackageLimit,\"XML map entry limit exceeded\") }");
   line("let fields = SrlXmlInputAttributes(entryAttributes)\nvar key: " + type(map.key_type, true) + "? = nil\nvar item: " + type(map.value_type, false) + "? = nil\nvar keyLexical = \"\"\nvar hasKey = false\nvar hasValue = false");
   if (map.key_placement == xml_binding::map_key_placement::attribute) {
     line("keyLexical = try fields.take(" + name(map.key) + ")!\nkey = " + scalar(map.key_type, "keyLexical", false, true) + "\nhasKey = true");

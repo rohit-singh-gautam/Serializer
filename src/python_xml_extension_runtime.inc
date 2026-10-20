@@ -74,7 +74,7 @@ class _XmlExtensions:
             raise ValueError('Expected XmlExtensionOptions')
         self.bounds = self.options.limits
         if len(meta['slots']) > self.bounds.max_slots or len(meta['known']) > self.bounds.max_items or len(meta['required']) > self.bounds.max_items:
-            raise ValueError('XML extension slot limit exceeded')
+            _xml_limit(self.context, 'XML extension slot limit exceeded')
         self.counts, self.items, self.bytes, self.state = [0] * len(meta['slots']), 0, 0, None
         self._work(len(meta['slots']) + 1)
         if context is not None:
@@ -85,7 +85,7 @@ class _XmlExtensions:
         # Iterate bounded tokens without splitting an entire hostile prefix list into owning strings.
         for matched in _re.finditer(r'[^ \t\r\n]+', self.options.required_prefixes):
             if prefix_count >= self.bounds.max_items:
-                raise ValueError('XML required-vocabulary item limit exceeded')
+                _xml_limit(self.context, 'XML required-vocabulary item limit exceeded')
             prefix_count += 1
             prefix = matched.group()
             self._work(len(prefix) + 1)
@@ -108,7 +108,7 @@ class _XmlExtensions:
     def charge(self, size):
         """Admit retained logical bytes before allocating corresponding opaque storage."""
         if size > self.bounds.max_preserved_bytes - self.bytes:
-            raise ValueError('XML extension preserved-byte limit exceeded')
+            _xml_limit(self.context, 'XML extension preserved-byte limit exceeded')
         self.bytes += size
         if self.context is not None:
             self.context.consume('preserved_bytes', size)
@@ -131,7 +131,7 @@ class _XmlExtensions:
             raise ValueError('XML extension has no permitted slot')
         slot = self.meta['slots'][index]
         if self.items >= self.bounds.max_items or slot['maximum'] is not None and self.counts[index] >= slot['maximum']:
-            raise ValueError('XML extension item or occurrence limit exceeded')
+            _xml_limit(self.context, 'XML extension item or occurrence limit exceeded')
         self.items += 1
         self.counts[index] += 1
         return slot['policy'] == 'preserve'

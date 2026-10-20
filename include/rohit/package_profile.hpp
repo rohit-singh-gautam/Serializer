@@ -4,20 +4,73 @@
 #pragma once
 
 #include <rohit/package.hpp>
+#include <rohit/document_profile.hpp>
 
 #include <concepts>
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cstddef>
 #include <limits>
 #include <map>
+#include <span>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <typeindex>
 #include <utility>
 #include <vector>
 
 namespace rohit::serializer::package {
+
+using profile_overrides = std::map<std::string, document::profile_override>;
+
+// Resolve only declared ZIP storage overrides; XML codecs and static model identities stay bound.
+inline std::vector<document::part_profile> resolve_profiles(
+    std::vector<document::part_profile> profiles, const profile_overrides& overrides = {}) {
+  for (const auto& [role, override_value] : overrides) {
+    const auto found = std::find_if(profiles.begin(), profiles.end(),
+        [&](const auto& item) { return item.role == role; });
+    if (found == profiles.end()) { throw std::invalid_argument{"Unknown package profile role"}; }
+    auto resolved = document::resolve_profile(found->envelope, override_value);
+    if (resolved.format != found->envelope.format ||
+        resolved.container != found->envelope.container ||
+        (resolved.compression != compression::format::none &&
+         resolved.compression != compression::format::deflate)) {
+      throw std::invalid_argument{"Package runtime profiles support stored/deflate ZIP storage only"};
+    }
+    found->envelope = resolved;
+  }
+  return profiles;
+}
+
+// Retrieve validated per-role storage without changing payload encoding or OPC content types.
+inline entry_options profile_storage(std::span<const document::part_profile> profiles,
+                                     std::string_view role) {
+  const auto found = std::find_if(profiles.begin(), profiles.end(),
+      [&](const auto& item) { return item.role == role; });
+  if (found == profiles.end()) { throw std::invalid_argument{"Unknown package profile role"}; }
+  return {.method = found->envelope.compression == compression::format::none
+      ? zip_method::stored : zip_method::deflate, .compression_level = found->envelope.compression_level};
+}
+
+// Borrow the generated expected identity for one typed role before inspecting native model fields.
+inline const document::dispatch_metadata& profile_dispatch(
+    std::span<const document::part_profile> profiles, std::string_view role) {
+  const auto found = std::find_if(profiles.begin(), profiles.end(),
+      [&](const auto& item) { return item.role == role; });
+  if (found == profiles.end() || !found->decoder) {
+    throw std::invalid_argument{"Package role has no typed XML decoder"};
+  }
+  return *found->decoder;
+}
+
+// Canonicalize supported scalar selectors without changing the native stored value.
+template <typename Key> [[nodiscard]] decltype(auto) reference_key(const Key& key) {
+  if constexpr (std::same_as<Key, std::string>) { return (key); }
+  else { return std::to_string(key); }
+}
 
 struct payload_location {
   std::string part;

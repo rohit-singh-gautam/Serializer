@@ -66,6 +66,28 @@ test('language 1.20 XML defaults, fixed schemas and package roles retain metadat
   assert.ok(snippets['OPC package declaration'].body.some(line => line.includes('content_type(')));
 });
 
+test('language 1.21 package policies and scalar selectors retain metadata and string boundaries', async () => {
+  const grammar = await loadGrammar();
+  const lines = ['serializer version 1.21.0; package archive { part main : model {',
+    'policy(fixed); key("identities", id); reference("identities", target_id, targets);',
+    'policy(defaults); } } class later { public model value; }'];
+  let state = INITIAL;
+  const tokens = lines.map(line => { const result = grammar.tokenizeLine(line, state); state = result.ruleStack; return result.tokens; });
+  const scope = (line, word) => tokens[line].find(token => token.startIndex <= lines[line].indexOf(word) && token.endIndex > lines[line].indexOf(word)).scopes.at(-1);
+  for (const word of ['policy', 'key', 'reference']) { assert.equal(scope(1, word), 'storage.modifier.serializer'); }
+  assert.equal(scope(1, 'fixed'), 'constant.other.package.serializer');
+  assert.equal(scope(2, 'defaults'), 'constant.other.package.serializer');
+  for (const word of ['id)', 'target_id', 'targets']) { assert.equal(scope(1, word), 'variable.other.member.serializer'); }
+  assert.equal(scope(1, 'identities'), 'string.quoted.double.serializer');
+  assert.equal(scope(2, 'model'), 'entity.name.type.serializer');
+  assert.equal(state.depth, 1);
+  const snippets = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../snippets/serializer.json'), 'utf8'));
+  assert.match(snippets['OPC package envelope policy'].body, /policy\(/);
+  assert.match(snippets['OPC package key'].body, /key\(/);
+  assert.match(snippets['OPC package reference'].body, /reference\(/);
+  assert.ok(Object.values(snippets).some(snippet => Array.isArray(snippet.body) && snippet.body.includes('serializer version 1.21.0;')));
+});
+
 test('language 1.17 array and callable metadata retain type and body boundaries', async () => {
   const grammar = await loadGrammar();
   const lines = [
@@ -104,7 +126,7 @@ test('language 1.17 array and callable metadata retain type and body boundaries'
   assert.equal(scope(7, 'const_ref'), 'storage.modifier.serializer');
   assert.equal(scope(8, 'value'), 'entity.name.type.serializer');
   const snippets = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.20.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.21.0;');
   assert.match(snippets['Borrowed C++ function input'].body, /input\} const_ref/);
   assert.match(snippets['Matrix array facade'].body, /dimensions\(/);
 });
@@ -209,7 +231,7 @@ test('language 1.15 fresh record defaults preserve constructor and factory bound
   assert.ok(scopes(3, 'fresh record').some(scope => /^comment\./.test(scope)));
   assert.equal(state.depth, 1, 'empty and nested defaults close before the next class declaration');
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.20.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.21.0;');
 });
 
 test('language 1.14 exposure, operator mappings and callable additions preserve schema boundaries', async () => {
@@ -418,7 +440,7 @@ test('optional and nested container generics highlight types without consuming f
   }
   assert.equal(result.ruleStack.depth, 1);
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.20.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.21.0;');
   assert.equal(snippets['Optional field'].prefix, 'optional');
   assert.match(snippets['Optional field'].body, /optional</);
 });

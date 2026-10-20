@@ -60,10 +60,13 @@ function srlXmlModelOutput(owner,meta) {
 // Project exact owning bytes as hex without hashing, whitespace acceptance or lossy native conversion.
 function srlXmlDigest(value,extent,encoding=false) {
   if(encoding){
-    if(!Array.isArray(value) || value.length>srlXmlDigestMaxBytes || extent && value.length!==extent)throw new Error('XML digest extent or byte bound');
+    if(!Array.isArray(value) || extent && value.length!==extent)throw new Error('XML digest extent or byte bound');
+    if(value.length>srlXmlDigestMaxBytes)throw srlXmlQuotaError('XML digest extent or byte bound');
     let result='';for(const byte of value){if(!Number.isInteger(byte) || byte<0 || byte>255)throw new Error('XML digest requires exact byte values');result+=byte.toString(16).padStart(2,'0');}return result;
   }
-  if(typeof value!=='string' || value.length%2 || value.length/2>srlXmlDigestMaxBytes || extent && value.length/2!==extent || /[^0-9a-fA-F]/.test(value))throw new Error('XML digest requires bounded exact hexadecimal byte pairs');
+  if(typeof value!=='string' || value.length%2 || extent && value.length/2!==extent)throw new Error('XML digest requires bounded exact hexadecimal byte pairs');
+  if(value.length/2>srlXmlDigestMaxBytes)throw srlXmlQuotaError('XML digest requires bounded exact hexadecimal byte pairs');
+  if(/[^0-9a-fA-F]/.test(value))throw new Error('XML digest requires bounded exact hexadecimal byte pairs');
   const result=new Array(value.length/2);for(let index=0;index<result.length;++index)result[index]=Number.parseInt(value.slice(index*2,index*2+2),16);return result;
 }
 )jslifecycle"

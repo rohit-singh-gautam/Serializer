@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -256,8 +257,8 @@ TEST(opc_profile, generated_write_retains_field_part_and_link_budget_diagnostics
   EXPECT_LT(shared->remaining(package::resource::work_units), 128U);
 }
 
-// Retained-tree rendering remains a documented outer-location boundary after native traversal.
-TEST(opc_profile, deferred_tree_emission_reports_outer_location_without_inventing_a_field) {
+// Retained attribute provenance remains owned after every generated native field scope ends.
+TEST(opc_profile, deferred_tree_emission_retains_field_part_and_link) {
   namespace xml = rohit::serializer::xml;
   const auto model = fixture_model();
   package::budget shared;
@@ -267,7 +268,7 @@ TEST(opc_profile, deferred_tree_emission_reports_outer_location_without_inventin
   xml::build_budget builder{{}, &context};
   model.serialize_xml_out(tree, builder);
   EXPECT_EQ(context.current_field, nullptr);
-  shared.consume(package::resource::work_units, shared.remaining(package::resource::work_units));
+  shared.consume(package::resource::work_units, shared.remaining(package::resource::work_units) - 1U);
   try {
     static_cast<void>(xml::write(tree, {}, &context));
     FAIL() << "Expected deferred emission budget failure";
@@ -275,9 +276,55 @@ TEST(opc_profile, deferred_tree_emission_reports_outer_location_without_inventin
     EXPECT_EQ(failure.code, package::error_code::resource_limit);
     EXPECT_EQ(failure.part, "/model.xml");
     EXPECT_EQ(failure.relationship_id, "modelLink");
-    EXPECT_TRUE(failure.field_path.empty());
+    EXPECT_EQ(failure.field_path, "name");
   }
   EXPECT_EQ(model.name, "sample & geometry");
+}
+
+// Provider-local rejection is a resource failure before any semantic wrapper can erase its location.
+TEST(opc_profile, native_provider_and_pattern_limits_retain_typed_locations) {
+  namespace xml = rohit::serializer::xml;
+  package::budget shared;
+  auto context = shared.xml_context("/model.xml", "modelLink");
+  xml::field_scope field{&context};
+  field.select("name");
+  const auto expect_limit = [&](const auto& action) {
+    try { action(); FAIL() << "Expected explicit native XML bound rejection"; }
+    catch (const package::error& failure) {
+      EXPECT_EQ(failure.code, package::error_code::resource_limit);
+      EXPECT_EQ(failure.part, "/model.xml");
+      EXPECT_EQ(failure.relationship_id, "modelLink");
+      EXPECT_EQ(failure.field_path, "name");
+    }
+  };
+  expect_limit([&] { xml::token_writer writer{{.max_output_bytes = 1U}, &context}; writer.open({"root", {}}); });
+  expect_limit([&] { xml::token_reader reader{"<root value=\"large\"/>", {.max_attributes = 0U}, &context}; reader.finish(); });
+  expect_limit([&] { xml::prepared_pattern pattern{"a+", {.max_text_bytes = 1U}, &context}; });
+  xml::prepared_pattern pattern{"a+"};
+  expect_limit([&] { static_cast<void>(pattern.matches("aaaa", {.max_text_bytes = 1U}, &context)); });
+  expect_limit([&] { xml::detail::check_token_list("1 2", {.max_nodes = 1U}, &context); });
+  expect_limit([&] { xml::detail::check_token_list_storage(std::array{1, 2}, {.max_nodes = 1U}, &context); });
+  expect_limit([&] {
+    static_cast<void>(xml::detail::token_digest_text(std::array<std::uint8_t, 1>{}, {.max_digest_bytes = 0U}, &context));
+  });
+  expect_limit([&] {
+    xml::token_writer writer{{.max_map_entries = 0U}, &context};
+    xml::write_token_map(writer, {"map", {}}, {"entry", {}}, {"key", {}}, {"value", {}}, true,
+        std::map<int, int>{{1, 2}});
+  });
+  expect_limit([&] {
+    xml::identity_scope identity{};
+    identity.constraints.emplace_back();
+    xml::validate_identity_scope_contract(identity, {.max_constraints = 0U}, &context);
+  });
+  expect_limit([&] {
+    xml::extension_contract extension{};
+    extension.slots.emplace_back();
+    xml::validate_extension_contract_at(extension, {.max_slots = 0U}, &context);
+  });
+  struct caller_failure : std::runtime_error { using std::runtime_error::runtime_error; };
+  context.is_cancelled = []() -> bool { throw caller_failure{"original caller failure"}; };
+  EXPECT_THROW((xml::prepared_pattern{"a+", {.max_text_bytes = 1U}, &context}), caller_failure);
 }
 
 // Duplicate forward requests each consume admission even when their tuple values are equal.

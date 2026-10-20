@@ -1,3 +1,10 @@
+# 2.0.10
+
+- Support schema language 1.21.0 package `policy`, `key` and `reference` metadata, with focused authoring snippets.
+- Navigate declared key/reference fields through qualified model types, transitive includes and unsaved edits; target-role operands remain package metadata.
+- Recognize Rust, Swift and C package facades alongside the existing generated languages, preserving ordinary enum navigation.
+- Synchronize both local editor packages; local validation and packaging do not publish or install Marketplace releases.
+
 # 2.0.9
 
 - Navigate generated Kotlin package objects and C# package facades to their schema declarations and back.

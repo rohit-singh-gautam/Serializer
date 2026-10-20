@@ -2499,7 +2499,7 @@
           ]
         },
         {
-          "begin": "\\b(name|content_type|relationship|source|compression|codec|occurs|id)\\s*(\\()",
+          "begin": "\\b(name|content_type|relationship|source|compression|codec|occurs|id|policy|key|reference)\\s*(\\()",
           "beginCaptures": {
             "1": { "name": "storage.modifier.serializer" },
             "2": { "name": "punctuation.section.group.serializer" }
@@ -2509,7 +2509,7 @@
             { "include": "#comments" },
             { "include": "#strings" },
             { "name": "constant.numeric.serializer", "match": "\\b[0-9]+\\b" },
-            { "name": "constant.other.package.serializer", "match": "\\b(?:dynamic|unbounded|deflate|stored|xml|bytes|json|binary_none)\\b" },
+            { "name": "constant.other.package.serializer", "match": "\\b(?:dynamic|unbounded|deflate|stored|xml|bytes|json|binary_none|fixed|defaults)\\b" },
             { "name": "variable.other.member.serializer", "match": "\\b[A-Za-z_][A-Za-z_0-9]*\\b" }
           ]
         }

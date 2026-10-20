@@ -4,6 +4,8 @@
 
 #include <rohit/package.hpp>
 #include <rohit/xml.hpp>
+#include <rohit/xml_tokens.hpp>
+#include <rohit/document_profile.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -109,6 +111,33 @@ template <typename Model>
   auto context = shared.xml_context(part);
   xml::limits bounds{};
   bounds.max_input_bytes = bytes.size();
+  return xml::deserialize<Model>(
+      {reinterpret_cast<const char*>(bytes.data()), bytes.size()}, bounds, nullptr, &context);
+}
+
+// Preserve the original context-free spelling for existing callback implementations.
+// Inspect one bounded root event before allowing a generated typed codec to construct its model.
+template <typename Model>
+[[nodiscard]] Model read_xml_part(std::span<const std::uint8_t> bytes, budget& shared,
+    std::string_view part, const document::dispatch_metadata& expected) {
+  auto context = shared.xml_context(part);
+  xml::limits bounds{};
+  bounds.max_input_bytes = bytes.size();
+  {
+    xml::token_reader reader{{reinterpret_cast<const char*>(bytes.data()), bytes.size()}, bounds, &context};
+    while (reader.current().kind != xml::event_kind::start_element) {
+      if (reader.current().kind == xml::event_kind::end_document) {
+        throw error{error_code::codec, "Package XML root is missing", std::string{part}};
+      }
+      reader.advance();
+    }
+    const auto type = reader.take_type();
+    if (!document::select_decoder(std::span{&expected, 1U}, expected.model_identity,
+        reader.current().qualified_name, type, expected.vocabularies)) {
+      throw error{error_code::codec, "Package XML root or type does not match its declared role", std::string{part}};
+    }
+  }
+  context.permitted_root_type = expected.type ? &*expected.type : nullptr;
   return xml::deserialize<Model>(
       {reinterpret_cast<const char*>(bytes.data()), bytes.size()}, bounds, nullptr, &context);
 }

@@ -18,8 +18,9 @@ inline std::string go(const package_node& package, const std::string& name,
     const std::string& helper,
     const std::function<std::string(const type_name&)>& render_type,
     const std::function<std::string(std::string_view)>& render_field,
-    const std::function<std::string(std::string_view)>& literal) {
+    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {}) {
   const auto parts = ordered(package);
+  const auto contract = compile_package_profile(package,xml);
   std::set<std::string> fields{"Extensions"};
   std::set<std::pair<std::string, std::string>> dispatch;
   for (const auto* part : parts) {
@@ -66,21 +67,48 @@ inline std::string go(const package_node& package, const std::string& name,
   line("type " + name + "SaveOptions struct { Budget *" + api("Budget") + "; Validate func(*" + name + "Value,*" + api("Budget") + ")error; Fault " + api("SaveFault") + " }");
   std::size_t index{};
   for (const auto* part : parts) {
+    const auto metadata=std::find_if(contract.parts.begin(),contract.parts.end(),[&](const auto& item){return item.role==part->name;});
+    const auto expanded=[&](const auto& item){return item.namespace_uri.empty()?item.local:"{"+item.namespace_uri+"}"+item.local;};
+    const auto expected=metadata->decoder?",expectedRoot:"+literal(expanded(metadata->decoder->root))+",expectedType:"+literal(expanded(*metadata->decoder->type)):"";
     const auto text = [&](const auto& value) { return value ? literal(*value) : "\"\""; };
-    line("var " + role(index++) + " = srlPackageRole{field:" + literal(render_field(part->name)) +
+    line("var " + role(index++) + " = srlPackageRole{field:" + literal(render_field(part->name)) + ",role:"+literal(part->name)+
         ",name:" + text(part->part_name) + ",contentType:" + text(part->content_type) +
         ",source:" + literal(part->source == "/" ? "/" : render_field(part->source)) +
         ",relationship:" + literal(part->relationship) + ",id:" + text(part->relationship_id) +
         ",compression:" + literal(part->compression) + ",minimum:" + std::to_string(part->min_occurs) +
-        ",maximum:" + (part->max_occurs ? std::to_string(*part->max_occurs) : "-1") + "}");
+        ",maximum:" + (part->max_occurs ? std::to_string(*part->max_occurs) : "-1") + ",policy:"+literal(part->profile_policy)+expected+"}");
   }
+  line("// srlPackageReferences"+name+" validates all declared scalar keys and forward references.");
+  line("func srlPackageReferences"+name+"(value *"+name+",budget *"+api("Budget")+",loaders ...*srlPackageLoader)error{index:=srlPackageReferences{budget:budget}");
+  for(const auto* part:parts){
+    if(part->keys.empty()&&part->references.empty()){continue;}
+    const auto field=render_field(part->name);
+    line(singleton(*part)?"  if value."+field+"!=nil{occurrence:=0;model:=value."+field:"  for occurrence,item:=range value."+field+"{model:=item.Value");
+    const auto path=singleton(*part)?literal(*part->part_name):"item.Name";
+    const auto link=part->relationship_id?literal(*part->relationship_id):literal("srl_"+part->name+"_")+"+fmt.Sprint(occurrence)";
+    line("    index.part,index.id="+path+","+link+";if len(loaders)!=0{location:=loaders[0].referenceLocations["+literal(field)+"][occurrence];index.part,index.id=location.metadata.Name,location.id}");
+    const auto lexical=[&](std::string_view field){const auto& member=selector_member(*part,field);return literal(member.type_name_list.front().name=="string"?"s:":"i:")+"+fmt.Sprint(model."+render_field(member.name)+")";};
+    const auto model_identity=literal(part->value_type->resolved_node->get_full_name());
+    for(const auto& key:part->keys){line("    if err:=index.key("+literal(key.scope)+","+lexical(key.field)+","+literal(field)+","+literal(key.field)+","+model_identity+");err!=nil{return err}");}
+    for(const auto& reference:part->references){const auto target=std::find_if(parts.begin(),parts.end(),[&](const auto* item){return item->name==reference.target_role;});const auto expected=literal((*target)->value_type->resolved_node->get_full_name());line("    if err:=index.reference("+literal(reference.scope)+","+lexical(reference.field)+","+expected+","+literal(field)+","+literal(reference.field)+");err!=nil{return err}");}
+    line("  }");
+  }
+  line("  return index.finish()}");
   line("// " + name + "Encode returns owning canonical bytes only after complete schema-role/graph validation.");
   line("func " + name + "Encode(value *" + name + "Input,budgets ...*" + api("Budget") + ")([]byte,error){");
   line("  if value==nil{return nil,srlPackageFailure(" + api("InvalidOptions") + ",\"Missing package input\",\"\")}");
+  line("  budget,err:=srlPackageBudget(budgets);if err!=nil{return nil,err};return "+name+"EncodeWithProfiles(value,nil,budget)}");
+  line("// "+name+"EncodeWithProfiles resolves closed per-role compression defaults.");
+  line("func "+name+"EncodeWithProfiles(value *"+name+"Input,profiles map[string]string,budgets ...*"+api("Budget")+")([]byte,error){if value==nil{return nil,srlPackageFailure("+api("InvalidOptions")+",\"Missing package input\",\"\")}");
+  std::string known;
+  for(const auto* part:parts){if(!known.empty()){known+="&&";}known+="key!="+literal(part->name);}
+  line("  for key:=range profiles{if "+(known.empty()?"true":known)+"{return nil,srlPackageFailure("+api("InvalidOptions")+",\"Unknown package profile role\",key)}}");
   line("  budget,err:=srlPackageBudget(budgets);if err!=nil{return nil,err};composer:=srlPackageNewComposer(budget);defer composer.close()");
+  line("  if err=srlPackageReferences"+name+"(value,budget);err!=nil{return nil,err}");
   index = 0;
   for (const auto* part : parts) {
     const auto selected = index++;
+    line("  "+role(selected)+",err:=srlPackageSelectProfile("+role(selected)+",profiles);if err!=nil{return nil,err}");
     const auto field = "value." + render_field(part->name);
     if (!part->value_type) {
       line("  if err=composer.binaries(" + role(selected) + ',' + field + ");err!=nil{return nil,err}");
@@ -102,7 +130,7 @@ inline std::string go(const package_node& package, const std::string& name,
     } else {
       line("  for _,item:=range " + native + '{' + values + "=append(" + values + ",srlPackageModelInput{value:item.Value,name:item.Name,contentType:item.ContentType,parent:item.SourceIndex})}");
     }
-    line("  if err=composer.models(" + role(selected) + ',' + values + ",func(native any,budget *" + api("Budget") + ")([]byte,error){typed,ok:=native.(" + type + ");if !ok||typed==nil{return nil,srlPackageFailure(" + api("Codec") + ",\"Missing typed package value\",\"\")};return typed.EncodeXML(srlPackageNativeXML(budget))});err!=nil{return nil,err}");
+    line("  if err=composer.models(" + role(selected) + ',' + values + ",func(native any,xmlOptions XmlOptions)([]byte,error){typed,ok:=native.(" + type + ");if !ok||typed==nil{return nil,srlPackageFailure(" + api("Codec") + ",\"Missing typed package value\",\"\")};return typed.EncodeXML(xmlOptions)});err!=nil{return nil,err}");
   }
   line("  return composer.finish(value.Extensions)");
   line("}");
@@ -125,13 +153,14 @@ inline std::string go(const package_node& package, const std::string& name,
     }
     const auto type = render_type(*part->value_type);
     const auto values = "srlValues" + std::to_string(selected);
-    line("  " + values + ",err:=loader.models(" + role(selected) + ",func(data []byte,budget *" + api("Budget") + ")(any,error){native,err:=Decode" + type.substr(1) + "XML(data,srlPackageNativeXML(budget));if err!=nil{return nil,err};return native,nil});if err!=nil{return nil,err}");
+    line("  " + values + ",err:=loader.models(" + role(selected) + ",func(data []byte,xmlOptions XmlOptions)(any,error){native,err:=Decode" + type.substr(1) + "XML(data,xmlOptions);if err!=nil{return nil,err};return native,nil});if err!=nil{return nil,err}");
     if (singleton(*part)) {
       line("  if len(" + values + ")!=0{" + field + '=' + values + "[0].value.(" + type + ")}");
     } else {
       line("  for _,item:=range " + values + '{' + field + "=append(" + field + ',' + api("ModelPart") + '[' + type + "]{Value:item.value.(" + type + "),Name:item.name,ContentType:item.contentType,SourceIndex:item.parent})}");
     }
   }
+  line("  if err=srlPackageReferences"+name+"(value,budget,loader);err!=nil{return nil,err}");
   line("  var validate func(*" + api("Budget") + ")error;if options.Validate!=nil{validate=func(budget *" + api("Budget") + ")error{return options.Validate(value,budget)}}");
   line("  if err=loader.finish(options.ExtensionPolicy,func(extensions " + api("Extensions") + "){value.Extensions=extensions},validate);err!=nil{return nil,err};return value,nil");
   line("}");

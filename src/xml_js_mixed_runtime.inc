@@ -13,7 +13,7 @@ export class XmlMixedLimits {
 // Append one statically selected native fragment without exposing an incomplete owning value.
 function srlXmlMixedAppend(frame,index,value) {
   const fragments=frame.mixed.get(frame.value);
-  if(fragments.length>=frame.limits.mixed.maxFragments)throw new Error('XML mixed fragment limit');
+  if(fragments.length>=frame.limits.mixed.maxFragments)throw srlXmlQuotaError('XML mixed fragment limit');
   const factory=frame.mixed.fragment(),fragment=factory.create();factory.set(fragment,[index,value]);fragments.push(fragment);
 }
 
@@ -25,19 +25,20 @@ function srlXmlMixedFlush(frame) {
 // Charge UTF-8 text before retaining it; empty parser notifications never create authored fragments.
 function srlXmlMixedCharacters(frame,value) {
   const size=srlXmlUtf8Length(value);
-  if(size>frame.limits.mixed.maxTextBytes-frame.mixedTextBytes)throw new Error('XML mixed text limit');
+  if(size>frame.limits.mixed.maxTextBytes-frame.mixedTextBytes)throw srlXmlQuotaError('XML mixed text limit');
   frame.mixedTextBytes+=size;frame.mixedText+=value;
 }
 
 // Visit every authored fragment, including adjacent/empty text, in its original native array order.
 function srlXmlMixedWrite(owner,meta,output) {
   const fragments=meta.get(owner),bounds=output.limits.mixed,factory=meta.fragment();let textBytes=0;
-  if(!Array.isArray(fragments) || fragments.length>bounds.maxFragments)throw new Error('XML mixed fragment limit');
+  if(!Array.isArray(fragments))throw new Error('XML mixed fragment limit');
+  if(fragments.length>bounds.maxFragments)throw srlXmlQuotaError('XML mixed fragment limit');
   for(const fragment of fragments){
     const selected=factory.get(fragment),index=selected[0],value=selected[1];
     if(index===meta.textIndex){
       const text=srlXmlScalar(value,'string',true),size=srlXmlUtf8Length(text);
-      if(size>bounds.maxTextBytes-textBytes)throw new Error('XML mixed text limit');
+      if(size>bounds.maxTextBytes-textBytes)throw srlXmlQuotaError('XML mixed text limit');
       textBytes+=size;output.escaped(text,false);
     }else{
       const child=meta.children.find(child=>child.alternative===index);

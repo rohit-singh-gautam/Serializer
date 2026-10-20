@@ -354,6 +354,27 @@ function checkManagedTokens(grammar, label) {
   return 9;
 }
 
+/** Keep new package envelope/reference metadata distinct from ordinary schema type positions. */
+function checkPackageReferences(grammar, label) {
+  const lines = ['serializer version 1.21.0; package archive { part main : model {',
+    'policy(fixed); key("identities", id); reference("identities", target_id, targets);',
+    'policy(defaults); } } class later { public model value; }'];
+  const result = tokenize(grammar, lines);
+  for (const word of ['policy', 'key', 'reference']) {
+    assert.equal(scopesAt(lines, result, 1, word).at(-1), 'storage.modifier.serializer', label);
+  }
+  for (const [line, word] of [[1, 'fixed'], [2, 'defaults']]) {
+    assert.equal(scopesAt(lines, result, line, word).at(-1), 'constant.other.package.serializer', label);
+  }
+  for (const word of ['id)', 'target_id', 'targets']) {
+    assert.equal(scopesAt(lines, result, 1, word).at(-1), 'variable.other.member.serializer', label);
+  }
+  assert.equal(scopesAt(lines, result, 1, 'identities').at(-1), 'string.quoted.double.serializer', label);
+  assert.equal(scopesAt(lines, result, 2, 'model').at(-1), 'entity.name.type.serializer', label);
+  assert.equal(result.state.depth, 1, label);
+  return 11;
+}
+
 async function main() {
   const directory = process.argv[2];
   assert.ok(directory && fs.statSync(directory).isDirectory(), 'Pass the Visual Studio TextMate directory.');
@@ -383,7 +404,9 @@ async function main() {
     checkManagedTokens(host, 'installed host grammar') +
     checkManagedTokens(fallback, 'missing grammar fallback') +
     checkReferenceContracts(host, 'installed host grammar') +
-    checkReferenceContracts(fallback, 'missing grammar fallback');
+    checkReferenceContracts(fallback, 'missing grammar fallback') +
+    checkPackageReferences(host, 'installed host grammar') +
+    checkPackageReferences(fallback, 'missing grammar fallback');
   console.log(`Installed grammar assets passed ${checks} embedded syntax/boundary checks across all ${nativeLanguages.length} tags.`);
   console.log(`Loaded ${grammars.size} installed grammar scopes; this validates assets with the TextMate tokenizer, not an editor-host UI run.`);
 }

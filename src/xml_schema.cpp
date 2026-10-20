@@ -1007,7 +1007,7 @@ void validate_options(const std::vector<std::unique_ptr<syntax_node>>& statement
           }
         } else if (node->type == object_type::package_type && language != "cpp" && language != "python" &&
                    language != "js" && language != "typescript" && language != "java" && language != "go" &&
-                   language != "csharp" && language != "kotlin") {
+                     language != "csharp" && language != "kotlin" && language != "rust" && language != "swift" && language != "c") {
           throw std::invalid_argument{"Generated OPC package profiles are not implemented for " +
                                       std::string{language}};
         }

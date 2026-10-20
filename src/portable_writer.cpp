@@ -385,6 +385,7 @@ class emitter {
   std::map<const class_node*, const member*> xml_mixed_variants_{};
   std::set<const class_node*> xml_mixed_storage_only_{};
   std::string unit;
+  std::string go_xml_operation_name{"XmlOperationOptions"};
   behavior::checked_helpers arithmetic_helpers{};
   std::string source{};
   std::size_t level{};
@@ -2660,7 +2661,7 @@ class emitter {
       const auto alternatives = [&](std::string_view alias) { return name(std::string{alias}, true, true); };
       const auto getter = [&](const member& item) { return field("get_" + item.name, access_type::public_access) + "()"; };
       source += language == target::go ? xml_portable::methods(object, contract, std::string{view}, fields, types,
-          options.xml, "go", alternatives, true, getter) :
+          options.xml, "go", alternatives, true, getter, go_xml_operation_name) :
           xml_csharp::methods(object, contract, options.xml, view, fields, types, alternatives, false, true, getter);
     }
     auto result = std::move(source); source = std::move(saved_source); level = saved_level;
@@ -2980,7 +2981,8 @@ class emitter {
         const auto contract = xml_schema_.bind(value);
         if (language == target::go) {
           source += xml_portable::methods(value, contract, identifier, field_name, type_name,
-                                          options.xml, "go", alternative_name);
+                                          options.xml, "go", alternative_name, false, {}, go_xml_operation_name,
+                                          [&]{std::string candidate="Decode"+identifier+"XMLWithOperation";while(globals.contains(candidate)){candidate+="_2";}globals.insert(candidate);return candidate;}());
         } else if (language == target::csharp) {
           const bool needs_base_bridges = std::any_of(names.begin(), names.end(), [&](const auto& entry) {
             if (entry.first->type != object_type::class_type) { return false; }
@@ -3033,7 +3035,7 @@ public:
       }
       if (language == target::js || language == target::typescript) {
         for (const auto identifier : {"Set", "WeakMap", "Symbol", "Promise", "srlXmlProjectionContracts", "srlXmlProjectionReadonly", "srlXmlProjectionContract", "srlXmlProjectionInput",
-                 "SrlXmlParser", "SrlXmlWriter", "SrlXmlFields", "SrlXmlSaxes", "SrlXmlTokenFrame", "SrlXmlMapFrame", "SrlXmlVariantFrame", "SrlXmlNcName", "SrlXmlNameRule", "SrlXmlTokenRule", "SrlXmlLexicalError", "XmlMapLimits", "XmlPatternLimits", "XmlMixedLimits", "XmlIdentityLimits", "SrlXmlIdentity",
+                 "SrlXmlParser", "SrlXmlWriter", "SrlXmlFields", "SrlXmlSaxes", "SrlXmlTokenFrame", "SrlXmlMapFrame", "SrlXmlVariantFrame", "SrlXmlNcName", "SrlXmlNameRule", "SrlXmlTokenRule", "SrlXmlLexicalError", "SrlXmlLimitError", "srlXmlPackageQuotaDepth", "srlXmlWithPackageQuota", "srlXmlQuotaError", "XmlMapLimits", "XmlPatternLimits", "XmlMixedLimits", "XmlIdentityLimits", "SrlXmlIdentity",
                  "srlXmlMixedAppend", "srlXmlMixedFlush", "srlXmlMixedCharacters", "srlXmlMixedWrite",
                  "XmlExtensionLimits", "XmlExtensionOptions", "SrlXmlExtensions", "SrlXmlForeignFrame", "srlXmlExtensionState", "srlXmlExtensionMetadataBytes",
                  "srlXmlExtensionScope", "srlXmlExtensionName", "srlXmlExtensionBindings", "srlXmlExtensionOutput", "srlXmlExtensionEmit", "srlXmlExtensionAt", "srlXmlExtensionPositionEnd",
@@ -3129,6 +3131,10 @@ public:
         language == target::csharp ? std::function<std::string(const type_name&)>{[&](const auto& value) { return type(value); }} :
         std::function<std::string(const type_name&)>{});
     validate();
+    if(language==target::go&&options.xml.enabled){
+      while(globals.contains(go_xml_operation_name)){go_xml_operation_name+="_2";}
+      globals.insert(go_xml_operation_name);
+    }
     arithmetic_helpers = behavior::select_helpers(nodes,
         [&](const auto& node) { return names.at(&node); },
         [&](const auto name) { return field(name, language == target::go ?
@@ -3155,7 +3161,12 @@ public:
       source += go_compression_support(globals, options.protocols == output_protocols::binary_none,
                                        compression_prefix);
       source += go_package_support(globals, compression_prefix, !packages.empty(), go_package_prefix);
-      if (options.xml.enabled) { source += xml_portable::runtime("go"); }
+      if (options.xml.enabled) {
+        auto xml_runtime=xml_portable::runtime("go");
+        constexpr std::string_view marker{"@xml_operation_options@"};
+        for(std::size_t offset{};(offset=xml_runtime.find(marker,offset))!=std::string::npos;offset+=go_xml_operation_name.size()){xml_runtime.replace(offset,marker.size(),go_xml_operation_name);}
+        source += xml_runtime;
+      }
       source += behavior::helpers("go", arithmetic_helpers);
     } else if (language == target::csharp) {
       line("#nullable enable");
@@ -3226,18 +3237,18 @@ public:
       if (language == target::go) {
         source += package_codegen::go(*package, names.at(package), go_package_prefix,
             [&](const auto& value) { return type(value); },
-            [&](const auto value) { return field(value); }, [&](const auto value) { return quote(value); });
+            [&](const auto value) { return field(value); }, [&](const auto value) { return quote(value); },options.xml);
       } else if (language == target::csharp) {
         const auto qualified_name = (options.namespace_name.empty() ? "" : options.namespace_name + ".") +
             unit + "." + names.at(package);
         source += package_codegen::csharp(*package, names.at(package), qualified_name, csharp_package_prefix,
             [&](const auto& value) { return type(value); },
             [&](const auto value) { return field(value); },
-            [&](const auto value) { return quote(value); });
+            [&](const auto value) { return quote(value); }, options.xml);
       } else {
         source += package_codegen::javascript(*package, names.at(package), javascript_package_name(globals),
             language == target::typescript, [&](const auto& value) { return type(value); },
-            [&](const auto value) { return field(value); }, [&](const auto value) { return quote(value); });
+            [&](const auto value) { return field(value); }, [&](const auto value) { return quote(value); },options.xml);
       }
     }
     if (language == target::csharp) {

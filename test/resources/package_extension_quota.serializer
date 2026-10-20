@@ -1,0 +1,11 @@
+serializer version 1.21.0;
+
+include package_application_contract.serializer;
+
+namespace quota {
+  xml(namespace("urn:serializer:extension-quota"), scalars(attribute));
+
+  class probe {
+    public uint32 id;
+  }
+}

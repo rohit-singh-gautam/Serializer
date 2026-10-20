@@ -1,5 +1,13 @@
 # Rust, Python, Swift, Kotlin, and C
 
+Compiler/runtime **2.17.0** provides generated owning ZIP/OPC facades in
+[Rust](rust_packages.md), [Swift](swift_packages.md), [C](c_packages.md), Python
+and [Kotlin/JVM](csharp_kotlin_packages.md). Language **1.21.0** adds fixed/default
+storage policies and scoped scalar application keys/references. See the
+[shared application contract](../serialization/package_application_contracts.md)
+for supported selectors, immutable model/XML identities and publication rules.
+The C/Rust package guides retain explicit XML document-companion graph gates.
+
 Compiler/runtime **2.12.0** adds selected [generated XML token paths](../serialization/xml_tokens.md).
 Python exposes incremental byte-chunk decoding, explicit presence/nil, bounded
 mixed/map/variant/inherited and XSD identity/all traversal, plus a separate

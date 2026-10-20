@@ -16,13 +16,13 @@ public sealed class XmlMixedLimits {
 }
 // Keep all admission state local to one native ordered sequence.
 internal sealed class SrlXmlMixedBudget {
-  private readonly XmlMixedLimits limits;
+  private readonly XmlMixedLimits limits;private readonly Limits.IOperation? operation;
   private int fragments, bytes;
   // Borrow immutable policy while owning independent counters.
-  internal SrlXmlMixedBudget(XmlMixedLimits limits) { this.limits = limits; }
+  internal SrlXmlMixedBudget(XmlMixedLimits limits,Limits.IOperation? operation=null) { this.limits = limits;this.operation=operation; }
   // Admit every child/logical text run before its native fragment allocation.
   internal void Fragment() {
-    if (fragments >= limits.MaxFragments) throw new System.FormatException("XML mixed fragment limit exceeded");
+    if (fragments >= limits.MaxFragments) throw SrlXmlBudget.Limit("XML mixed fragment limit exceeded",operation);
     ++fragments;
   }
   // Admit XML Unicode and UTF8 bytes before retaining another provider text chunk.
@@ -31,7 +31,7 @@ internal sealed class SrlXmlMixedBudget {
     try { System.Xml.XmlConvert.VerifyXmlChars(text); }
     catch (System.Xml.XmlException failure) { throw new System.FormatException("Invalid XML character", failure); }
     int count = SrlUtf8.GetByteCount(text);
-    if (count > limits.MaxTextBytes - bytes) throw new System.FormatException("XML mixed text limit exceeded");
+    if (count > limits.MaxTextBytes - bytes) throw SrlXmlBudget.Limit("XML mixed text limit exceeded",operation);
     bytes += count;
   }
 }

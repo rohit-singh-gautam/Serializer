@@ -37,8 +37,8 @@ internal class SrlXmlNamespaceOutput(private val state: SrlXmlNamespaceState, pr
     }
 }
 // Validate plain QName/QName-list/prefix-list values in the exact active source or output scope.
-internal fun srlXmlNamespaceChecked(text: String, list: Boolean, prefixes: Boolean, namespace: (String) -> String?, maximum: Int): String {
-    val values=if (list || prefixes) SrlXmlRule.tokens(text,maximum) else listOf(text)
+internal fun srlXmlNamespaceChecked(text: String, list: Boolean, prefixes: Boolean, namespace: (String) -> String?, maximum: Int, operation: SrlXmlBudget.Operation? = null): String {
+    val values=if (list || prefixes) SrlXmlRule.tokens(text,maximum,operation) else listOf(text)
     for (value in values) {
         if (prefixes) {
             require(srlXmlNcName(value) && value != "xmlns" && (value == "xml" || !namespace(value).isNullOrEmpty())) { "Unbound XML prefix-list token" }
@@ -47,6 +47,6 @@ internal fun srlXmlNamespaceChecked(text: String, list: Boolean, prefixes: Boole
     return text
 }
 // Borrow an admitted input snapshot while checking its scalar without another namespace-map copy.
-internal fun srlXmlNamespaceChecked(text: String, list: Boolean, prefixes: Boolean, scope: Map<String,String>, maximum: Int): String =
-    srlXmlNamespaceChecked(text,list,prefixes,{ scope[it] },maximum)
+internal fun srlXmlNamespaceChecked(text: String, list: Boolean, prefixes: Boolean, scope: Map<String,String>, maximum: Int, operation: SrlXmlBudget.Operation? = null): String =
+    srlXmlNamespaceChecked(text,list,prefixes,{ scope[it] },maximum,operation)
 )xmlnamespace"

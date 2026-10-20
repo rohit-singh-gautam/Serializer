@@ -13,6 +13,7 @@
 #include "xml_schema.hpp"
 #include "xml_mobile_namespace.hpp"
 #include "kotlin_package_writer.hpp"
+#include "swift_package_writer.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -98,6 +99,7 @@ class mobile_emitter {
   std::set<const class_node*> xml_extension_owners_{};
   std::set<const class_node*> xml_namespace_owners_{};
   std::string kotlin_package_helper_{};
+  std::string swift_package_helper_{};
   std::string output{};
   std::size_t indent{};
   bool variable_first{};
@@ -1802,6 +1804,24 @@ public:
     if (!swift) { output += "// Serializer runtime support begins.\n"; }
     output += swift ? swift_runtime : kotlin_runtime;
     output += mobile_compression_support(model, swift);
+    if (swift) {
+      const auto runtime_name = [&](const std::string& base) {
+        auto name = base;
+        std::size_t suffix{1U};
+        while (std::any_of(model.names.begin(), model.names.end(), [&](const auto& item) {
+          return item.second == name;
+        })) {
+          if (suffix == std::numeric_limits<std::size_t>::max()) {
+            throw std::length_error{"Swift package helper names exhausted"};
+          }
+          name = base + '_' + std::to_string(++suffix);
+        }
+        return name;
+      };
+      swift_package_helper_ = runtime_name("SerializerPackage");
+      output += package_codegen::swift_runtime(swift_package_helper_,
+          runtime_name("SerializerCompression"), !model.packages.empty());
+    }
     if (!swift) {
       kotlin_package_helper_ = kotlin_package_name(model);
       output += "// Generated Kotlin package helper name: " + kotlin_package_helper_ + '\n';
@@ -1877,7 +1897,14 @@ public:
         output += package_codegen::kotlin(*package, model.names.at(package), kotlin_package_helper_,
             [&](const auto& value) { return type(value); },
             [&](const auto value) { return field(value); },
-            [&](const auto value) { return quote(value); });
+            [&](const auto value) { return quote(value); }, model.xml);
+      }
+    } else {
+      for (const auto* package : model.packages) {
+        output += package_codegen::swift(*package, model.names.at(package), swift_package_helper_,
+            [&](const auto& value) { return type(value); },
+            [&](const auto value) { return field(value); },
+            [&](const auto value) { return quote(value); }, model.xml);
       }
     }
     return output;

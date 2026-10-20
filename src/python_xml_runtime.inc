@@ -46,6 +46,21 @@ def _xml_field_context(context, member):
     context._xml_check_at(field)
     return _XmlFieldContext(context, field)
 
+
+def _xml_limit(context, message, requested=0, available=0):
+    """Classify explicit native/provider bounds before leaving their active field scope."""
+    callback = getattr(context, '_xml_limit_at', None)
+    if callback is not None:
+        callback(message, requested, available, getattr(context, '_xml_field', None))
+    raise ValueError(message)
+
+
+def _xml_node_context(node, context, attribute=None):
+    """Replay optional immutable field provenance without allocating on ordinary XML paths."""
+    if len(node) > 6:
+        return node[6][1].get(attribute, node[6][0]) if attribute is not None else node[6][0]
+    return context
+
 )xmlpython"
 R"xmlpython(def _xml_check_text(value):
     """Require valid XML 1.0 Unicode without normalizing application whitespace."""
@@ -68,11 +83,15 @@ class _XmlBudget:
     def node(self, name, depth):
         """Charge a node and its expanded name before adding descendants."""
         self.element(name, depth)
-        return [name, {}, [], '', {}, []]
+        node = [name, {}, [], '', {}, []]
+        if getattr(self.context, '_xml_consume_at', None) is not None:
+            self.context.consume('decoder_allocation_bytes', _XML_DIAGNOSTIC_CONTEXT_BYTES)
+            node.append([self.context, {}])
+        return node
     def element(self, name, depth):
         """Charge an element without allocating a retained XML node."""
         if depth > self.limits.max_depth or self.nodes >= self.limits.max_elements:
-            raise ValueError('XML node or depth limit exceeded')
+            _xml_limit(self.context, 'XML node or depth limit exceeded')
         self.nodes += 1
         if self.context is not None:
             self.context.consume('work_units', 1)
@@ -83,7 +102,7 @@ class _XmlBudget:
         _xml_check_text(value)
         size = len(value.encode('utf-8'))
         if size > self.limits.max_string_bytes - self.text_bytes:
-            raise ValueError('XML text limit exceeded')
+            _xml_limit(self.context, 'XML text limit exceeded')
         self.text_bytes += size
         if self.context is not None:
             self.context.consume('work_units', size)
@@ -97,8 +116,10 @@ def _xml_name(uri, local):
 def _xml_parse(data, limits=None, context=None, original_size=None):
     """Parse exactly one bounded UTF-8 XML1.0 document without DTD/entity resolution."""
     budget = _XmlBudget(limits, context)
-    if not isinstance(data, (bytes, bytearray)) or (len(data) if original_size is None else original_size) > budget.limits.max_bytes:
-        raise ValueError('XML byte limit exceeded')
+    if not isinstance(data, (bytes, bytearray)):
+        raise ValueError('XML requires UTF-8 bytes')
+    if (len(data) if original_size is None else original_size) > budget.limits.max_bytes:
+        _xml_limit(budget.context, 'XML byte limit exceeded')
     if data[:2] in (b'\xff\xfe', b'\xfe\xff') or b'\x00' in data[:4]:
         raise ValueError('XML1.0 UTF-8 required')
     parser = _xml_expat.ParserCreate(encoding='UTF-8', namespace_separator='\x1f')
@@ -120,14 +141,15 @@ def _xml_parse(data, limits=None, context=None, original_size=None):
         nonlocal attributes
         attributes += 1
         if attributes > budget.limits.max_elements:
-            raise ValueError('XML attribute limit exceeded')
+            _xml_limit(budget.context, 'XML attribute limit exceeded')
         budget.text(prefix or '')
         budget.text(uri or '')
         declarations[prefix or ''] = uri or ''
     def start(name, attrs):
         """Bound each element/attribute before linking it into the owning tree."""
         nonlocal attributes
-        node = budget.node(expanded(name), len(stack) + 1)
+        budget.element(expanded(name), len(stack) + 1)
+        node = [expanded(name), {}, [], '', {}, []]
         inherited = scopes[-1] if scopes else {'xml': 'http://www.w3.org/XML/1998/namespace'}
         for prefix, uri in inherited.items():
             budget.text(prefix)
@@ -141,7 +163,7 @@ def _xml_parse(data, limits=None, context=None, original_size=None):
         scopes.append(scope)
         attributes += len(attrs)
         if attributes > budget.limits.max_elements:
-            raise ValueError('XML attribute limit exceeded')
+            _xml_limit(budget.context, 'XML attribute limit exceeded')
         for key, value in attrs.items():
             node[1][budget.text(expanded(key))] = budget.text(value)
         if stack:
@@ -156,7 +178,7 @@ def _xml_parse(data, limits=None, context=None, original_size=None):
             if value:
                 budget.fragments += 1
                 if budget.fragments > budget.limits.max_elements:
-                    raise ValueError('XML text fragment limit exceeded')
+                    _xml_limit(budget.context, 'XML text fragment limit exceeded')
                 if context is not None: context.consume('decoder_allocation_bytes', 64)
                 stack[-1][5].append((len(stack[-1][2]), value))
         elif value.strip(' \t\r\n'):
@@ -234,11 +256,14 @@ def _xml_read_scalar(node):
 def _xml_attribute(node, name, value, budget):
     """Add one bounded fixed attribute without losing its namespace identity."""
     if budget.attributes >= budget.limits.max_elements:
-        raise ValueError('XML attribute limit exceeded')
+        _xml_limit(budget.context, 'XML attribute limit exceeded')
     if name in node[1]:
         raise ValueError('Duplicate XML attribute')
     budget.attributes += 1
     node[1][budget.text(name)] = budget.text(value)
+    if len(node) > 6:
+        budget.context.consume('decoder_allocation_bytes', _XML_DIAGNOSTIC_CONTEXT_BYTES)
+        node[6][1][name] = budget.context
 
 class _XmlFields:
     """Consume exact attributes and ordered children from one declared record."""
@@ -285,6 +310,7 @@ class _XmlFields:
 def _xml_write(root, limits, context=None):
     """Emit one deterministic escaped UTF-8 document within the complete byte bound."""
     prefixes, parts, size, reserved = {}, [], 0, set()
+    active_context = context
     def uri_name(name):
         """Split only compiler-generated expanded names."""
         if name.startswith('{'):
@@ -293,14 +319,18 @@ def _xml_write(root, limits, context=None):
         return '', name
     def inspect(node):
         """Collect only namespace URIs used by fixed element/attribute identities."""
+        nonlocal active_context
+        previous, active_context = active_context, _xml_node_context(node, context)
         reserved.update(node[4])
         # A new element prefix must not bind a previously unbound QName-looking
         # union string and silently select an earlier QName alternative on reload.
-        for value in (node[3], *node[1].values()):
-            if context is not None: context.consume('work_units', len(value))
+        for name, value in [(None, node[3]), *node[1].items()]:
+            selected = _xml_node_context(node, active_context, name)
+            if selected is not None: selected.consume('work_units', len(value))
             reserved.update(match.group(1) for match in _re.finditer(r'(n[0-9]+):', value))
         for child in node[2]:
             inspect(child)
+        active_context = previous
     def collect(node):
         """Avoid every retained lexical QName prefix when allocating element-name presentation prefixes."""
         for name in [node[0], *node[1]]:
@@ -316,10 +346,11 @@ def _xml_write(root, limits, context=None):
         nonlocal size
         size += len(text.encode('utf-8'))
         if size > limits.max_bytes:
-            raise ValueError('XML output byte limit exceeded')
-        if context is not None:
-            context.consume('work_units', len(text))
-            context.check_buffer(size * 2)
+            _xml_limit(active_context, 'XML output byte limit exceeded')
+        if active_context is not None:
+)xmlpython"
+R"xmlpython(            active_context.consume('work_units', len(text))
+            active_context.check_buffer(size * 2)
         parts.append(text)
     def escaped(text, attribute=False):
         """Preserve normalized XML whitespace through explicit character references."""
@@ -336,6 +367,8 @@ def _xml_write(root, limits, context=None):
         return prefixes[uri] + ':' + local if uri else local
     def emit(node, is_root=False):
         """Serialize one bounded data-XML node in declared field order."""
+        nonlocal active_context
+        previous, active_context = active_context, _xml_node_context(node, context)
         append('<' + qualified(node[0]))
         if is_root:
             for uri, prefix in prefixes.items():
@@ -345,9 +378,11 @@ def _xml_write(root, limits, context=None):
             if prefix != 'xml':
                 append(' xmlns' + (':' + prefix if prefix else '') + '="'); escaped(uri, True); append('"')
         for name, value in node[1].items():
+            active_context = _xml_node_context(node, context, name)
             append(' ' + qualified(name) + '="'); escaped(value, True); append('"')
+        active_context = _xml_node_context(node, context)
         if not node[2] and not node[3]:
-            append('/>'); return
+            append('/>'); active_context = previous; return
         append('>')
         if node[5]:
             text = {}
@@ -359,6 +394,7 @@ def _xml_write(root, limits, context=None):
             escaped(node[3])
             for child in node[2]: emit(child)
         append('</' + qualified(node[0]) + '>')
+        active_context = previous
     inspect(root)
     collect(root)
     emit(root, True)
@@ -429,7 +465,7 @@ class _XmlTokenOutput:
         """Bound each escaped UTF-8 fragment before adding it to the final message."""
         data = value.encode('utf-8')
         if len(data) > self.budget.limits.max_bytes - self.size:
-            raise ValueError('XML output byte limit exceeded')
+            _xml_limit(self.budget.context, 'XML output byte limit exceeded')
         self.size += len(data)
         if self.budget.context is not None:
             self.budget.context.consume('work_units', len(value))
@@ -472,8 +508,9 @@ class _XmlTokenOutput:
         if declarations.get(prefix, self.scopes[-1].get(prefix) if self.scopes else None) != uri:
             declarations[prefix] = uri
         return prefix + ':' + local if prefix else local
-    def start(self, name, attributes=(), bindings=()):
+    def start(self, name, attributes=(), bindings=(), attribute_contexts=None):
         """Emit one complete start token after checking its attributes and element bound."""
+        parent_context = self.budget.context
         self.budget.element(name, len(self.stack) + 1)
         declarations = dict(bindings)
         _xml_extension_bindings(declarations)
@@ -481,16 +518,20 @@ class _XmlTokenOutput:
             declarations[''] = ''
         qualified = self.qualified(name, declarations)
         selected, used = [], set()
+        selected_contexts = [] if attribute_contexts is not None else None
         for key, value in attributes:
+            self.budget.context = attribute_contexts.get(key, parent_context) if attribute_contexts else parent_context
             if key in used:
                 raise ValueError('Duplicate XML attribute')
             used.add(key)
             self.budget.attributes += 1
             if self.budget.attributes > self.budget.limits.max_elements:
-                raise ValueError('XML attribute limit exceeded')
+                _xml_limit(self.budget.context, 'XML attribute limit exceeded')
             self.budget.text(key)
             self.budget.text(value)
             selected.append((self.qualified(key, declarations, True), value))
+            if selected_contexts is not None: selected_contexts.append(self.budget.context)
+        self.budget.context = parent_context
         for identity in self.identities:
             scope = dict(self.scopes[-1]) if self.scopes else {}
             scope.update(declarations)
@@ -499,16 +540,18 @@ class _XmlTokenOutput:
         for prefix, uri in declarations.items():
             self.budget.attributes += 1
             if self.budget.attributes > self.budget.limits.max_elements:
-                raise ValueError('XML attribute limit exceeded')
+                _xml_limit(self.budget.context, 'XML attribute limit exceeded')
             self.budget.text(prefix)
             self.budget.text(uri)
             self.append(' xmlns' + (':' + prefix if prefix else '') + '="')
             self.escaped(uri, True)
             self.append('"')
-        for key, value in selected:
+        for index, (key, value) in enumerate(selected):
+            self.budget.context = selected_contexts[index] if selected_contexts is not None else parent_context
             self.append(' ' + key + '="')
             self.escaped(value, True)
             self.append('"')
+        self.budget.context = parent_context
         self.append('>')
         self.stack.append(qualified)
         scope = dict(self.scopes[-1]) if self.scopes else {}
@@ -599,7 +642,7 @@ R"xmlpython(def _xml_token_encode(model, name, limits=None, context=None):
         selected, meta = values[0], item['map']
         bounds = writer.budget.limits.xml_map or XmlMapLimits()
         if not isinstance(selected, dict) or len(selected) > bounds.max_entries:
-            raise ValueError('XML map entry limit exceeded')
+            _xml_limit(writer.budget.context, 'XML map entry limit exceeded')
         writer.start(item['wrapper'])
         key_bytes = 0
         projected_keys = set() if meta['key'].get('projection_payload') else None
@@ -614,7 +657,7 @@ R"xmlpython(def _xml_token_encode(model, name, limits=None, context=None):
                 projected_keys.add(canonical)
             size = len(lexical.encode('utf-8'))
             if size > bounds.max_key_bytes - key_bytes:
-                raise ValueError('XML map key-byte limit exceeded')
+                _xml_limit(writer.budget.context, 'XML map key-byte limit exceeded')
             key_bytes += size
             writer.start(meta['entry'], ((meta['key']['name'], lexical),) if meta['attribute'] else ())
             if not meta['attribute']:
@@ -652,7 +695,7 @@ R"xmlpython(def _xml_token_encode(model, name, limits=None, context=None):
         fragments = _xml_token_get(value, meta['member'])
         bounds = writer.budget.limits.xml_mixed or XmlMixedLimits()
         if len(fragments) > bounds.max_fragments:
-            raise ValueError('XML mixed fragment limit exceeded')
+            _xml_limit(writer.budget.context, 'XML mixed fragment limit exceeded')
         text_bytes = 0
         for fragment in fragments:
             index = _xml_token_get(fragment, meta['index'])
@@ -662,7 +705,7 @@ R"xmlpython(def _xml_token_encode(model, name, limits=None, context=None):
                 text = _xml_check_text(_xml_token_get(fragment, meta['text_member']))
                 size = len(text.encode('utf-8'))
                 if size > bounds.max_text_bytes - text_bytes:
-                    raise ValueError('XML mixed text limit exceeded')
+                    _xml_limit(writer.budget.context, 'XML mixed text limit exceeded')
                 text_bytes += size
                 writer.text(text)
             else:
@@ -673,6 +716,7 @@ R"xmlpython(def _xml_token_encode(model, name, limits=None, context=None):
     def record(value, qualified, extra_attributes=(), bindings=()):
         """Visit one owning record in its fixed schema sequence without constructing XML nodes."""
         parent_context = writer.budget.context
+        attribute_contexts = {} if getattr(parent_context, '_xml_consume_at', None) is not None else None
         attributes, active = _xml_model_output(value, parent_context)
         extensions, state, foreign_attributes, foreign_bindings = _xml_extension_output(value, writer)
         cursor = [0]
@@ -691,8 +735,11 @@ R"xmlpython(def _xml_token_encode(model, name, limits=None, context=None):
                 writer.budget.context = _xml_field_context(parent_context, item['member'])
                 for selected in _xml_token_values(value, item):
                     attributes.append((item['name'], item['write'](selected, {}, writer.budget.context)))
+                    if attribute_contexts is not None:
+                        writer.budget.context.consume('decoder_allocation_bytes', _XML_DIAGNOSTIC_CONTEXT_BYTES)
+                        attribute_contexts[item['name']] = writer.budget.context
         writer.budget.context = parent_context
-        writer.start(qualified, attributes, scope)
+        writer.start(qualified, attributes, scope, attribute_contexts)
         if value._xml_mixed is not None:
             mixed(value, value._xml_mixed)
         for position, item in enumerate(value._xml_token_fields):
@@ -845,7 +892,7 @@ R"xmlpython(class _XmlTokenFrame:
         """Admit one owning fragment before constructing its native variant storage."""
         values = _xml_token_get(self.model, self.mixed['member'])
         if len(values) >= self.mixed_bounds.max_fragments:
-            raise ValueError('XML mixed fragment limit exceeded')
+            _xml_limit(self.context, 'XML mixed fragment limit exceeded')
         if self.context is not None:
             self.context.consume('decoder_allocation_bytes', 72)
         fragment = self.mixed['fragment']()()
@@ -857,10 +904,10 @@ R"xmlpython(class _XmlTokenFrame:
         if not value:
             return
         if not self.mixed_pending and len(_xml_token_get(self.model, self.mixed['member'])) >= self.mixed_bounds.max_fragments:
-            raise ValueError('XML mixed fragment limit exceeded')
+            _xml_limit(self.context, 'XML mixed fragment limit exceeded')
         size = len(value.encode('utf-8'))
         if size > self.mixed_bounds.max_text_bytes - self.mixed_text_bytes:
-            raise ValueError('XML mixed text limit exceeded')
+            _xml_limit(self.context, 'XML mixed text limit exceeded')
         self.mixed_text_bytes += size
         if self.context is not None:
             self.context.consume('decoder_allocation_bytes', size)
@@ -883,7 +930,7 @@ R"xmlpython(class _XmlTokenFrame:
         if self.mixed is not None:
             self.mixed_flush()
             if len(_xml_token_get(self.model, self.mixed['member'])) >= self.mixed_bounds.max_fragments:
-                raise ValueError('XML mixed fragment limit exceeded')
+                _xml_limit(self.context, 'XML mixed fragment limit exceeded')
             for item in self.mixed['children']:
                 if self.context is not None:
                     self.context.consume('work_units', 1)
@@ -1002,7 +1049,7 @@ R"xmlpython(class _XmlTokenMapFrame:
         if name != self.item['map']['entry']:
             raise ValueError('Unexpected XML map entry')
         if len(self.values) >= self.bounds.max_entries:
-            raise ValueError('XML map entry limit exceeded')
+            _xml_limit(self.context, 'XML map entry limit exceeded')
         return {'map_entry': self.item['map'], 'key_remaining': self.bounds.max_key_bytes - self.key_bytes}, None
     def append(self, entry):
         """Reject duplicate native keys and cumulative lexical/canonical sizes before insertion."""
@@ -1010,7 +1057,7 @@ R"xmlpython(class _XmlTokenMapFrame:
         if key in self.values:
             raise ValueError('Duplicate XML map key')
         if size > self.bounds.max_key_bytes - self.key_bytes:
-            raise ValueError('XML map key-byte limit exceeded')
+            _xml_limit(self.context, 'XML map key-byte limit exceeded')
         self.key_bytes += size
         if self.context is not None:
             self.context.consume('decoder_allocation_bytes', 64)
@@ -1034,7 +1081,7 @@ class _XmlTokenMapEntry:
                 raise ValueError('XML map entry requires exactly one key attribute')
             raw = attributes[key]
             if len(raw.encode('utf-8')) > self.remaining:
-                raise ValueError('XML map key-byte limit exceeded')
+                _xml_limit(self.context, 'XML map key-byte limit exceeded')
             self.values[0] = self.meta['key']['read'](raw, scope, context)
             self.key_size = max(len(raw.encode('utf-8')), len(self.meta['key']['write'](self.values[0], scope, context).encode('utf-8')))
             self.position = 1
@@ -1133,7 +1180,7 @@ def _xml_token_decode(model, root, chunks, limits=None, context=None):
         """Bound namespace declarations before retaining the current open-element scope."""
         budget.attributes += 1
         if budget.attributes > budget.limits.max_elements:
-            raise ValueError('XML attribute limit exceeded')
+            _xml_limit(budget.context, 'XML attribute limit exceeded')
         declarations[budget.text(selected or '')] = budget.text(uri or '')
     def start(raw_name, attributes):
         """Construct only the destination model or current scalar lexical buffer."""
@@ -1148,13 +1195,18 @@ def _xml_token_decode(model, root, chunks, limits=None, context=None):
         declarations.clear()
         budget.attributes += len(attributes)
         if budget.attributes > budget.limits.max_elements:
-            raise ValueError('XML attribute limit exceeded')
+            _xml_limit(budget.context, 'XML attribute limit exceeded')
         attrs = {budget.text(expanded(key)): budget.text(value) for key, value in attributes.items()}
         if context is not None:
             context.consume('decoder_allocation_bytes', 64 * len(scope))
         if not stack:
             if name != root or result is not None:
                 raise ValueError('Unexpected XML root or namespace')
+            expected_type = getattr(context, '_xml_root_type', None)
+            if expected_type is not None and _XML_TOKEN_TYPE_NAME in attrs:
+                if _xml_name(*_xml_resolve_qname(attrs[_XML_TOKEN_TYPE_NAME], scope)) != expected_type:
+                    raise ValueError('Unexpected package XML root type')
+                attrs.pop(_XML_TOKEN_TYPE_NAME)
             frame, index = _XmlTokenFrame(model, name, attrs, scope, context, identity_limits=budget.limits.xml_identity, mixed_limits=budget.limits.xml_mixed, extension_options=budget.limits.xml_extensions), None
         else:
             parent = stack[-1][0]
@@ -1207,11 +1259,11 @@ def _xml_token_decode(model, root, chunks, limits=None, context=None):
             if frame.item is not None and frame.item.get('map_key_bytes') is not None:
                 size = len(value.encode('utf-8'))
                 if size > frame.item['map_key_bytes'] - frame.retained_bytes:
-                    raise ValueError('XML map key-byte limit exceeded')
+                    _xml_limit(budget.context, 'XML map key-byte limit exceeded')
                 frame.retained_bytes += size
             budget.fragments += 1
             if budget.fragments > budget.limits.max_elements:
-                raise ValueError('XML text fragment limit exceeded')
+                _xml_limit(budget.context, 'XML text fragment limit exceeded')
             if frame.context is not None:
                 frame.context.consume('decoder_allocation_bytes', 64)
             frame.fragments.append(value)
@@ -1227,7 +1279,8 @@ def _xml_token_decode(model, root, chunks, limits=None, context=None):
             frame_context.consume('decoder_allocation_bytes', sum(len(value.encode('utf-8')) for value in frame.fragments))
         value = frame.finish()
         if stack:
-            parent = stack[-1][0]
+)xmlpython"
+R"xmlpython(            parent = stack[-1][0]
             if isinstance(frame, _XmlForeignFrame):
                 if isinstance(parent, _XmlForeignFrame):
                     parent.append(value)
@@ -1269,7 +1322,7 @@ def _xml_token_decode(model, root, chunks, limits=None, context=None):
             # Buffer-provider item counts can differ from byte counts; normalize without copying.
             chunk = chunk.cast('B')
         if len(chunk) > budget.limits.max_bytes - size:
-            raise ValueError('XML byte limit exceeded')
+            _xml_limit(budget.context, 'XML byte limit exceeded')
         size += len(chunk)
         if len(prefix) < 4:
             prefix += bytes(chunk[:4 - len(prefix)])

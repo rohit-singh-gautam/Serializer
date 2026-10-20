@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <rohit/serializer_creator.hpp>
 #include <rohit/stream.hpp>
+#include "../src/package_writer.hpp"
 
 #include <gtest/gtest.h>
 
@@ -215,4 +216,62 @@ TEST(xml_authoring_parser, rejects_invalid_package_contracts) {
   EXPECT_THROW(parse_authoring(std::string{prefix} + "package archive { part main : model {} }"), std::exception);
   EXPECT_THROW(parse_authoring(std::string{prefix} + "package archive { part main : int32 { " +
       std::string{settings} + " } }"), std::exception);
+}
+
+// Language 1.21 preserves declarative policy and typed forward-reference metadata in the shared IR.
+TEST(xml_authoring_parser, package_application_contracts) {
+  const auto nodes = parse_authoring(R"(serializer version 1.21.0;
+    class item { public uint32 id; public string label; }
+    class request { public uint32 item_id; }
+    package archive {
+      part requests : request {
+        name(dynamic); content_type("application/xml"); relationship("urn:requests");
+        occurs(0,unbounded); reference("items",item_id,items);
+      }
+      part items : item {
+        name(dynamic); content_type("application/xml"); relationship("urn:items");
+        occurs(0,unbounded); policy(fixed); key("items",id); key("labels",label);
+      }
+    })");
+  const auto& package = static_cast<const serializer::package_node&>(*nodes.back());
+  const auto ordered = serializer::writer::package_codegen::ordered(package);
+  ASSERT_EQ(ordered.size(), 2U);
+  EXPECT_EQ(package.parts[1].profile_policy, "fixed");
+  ASSERT_EQ(package.parts[1].keys.size(), 2U);
+  ASSERT_EQ(package.parts[0].references.size(), 1U);
+  EXPECT_EQ(package.parts[0].references[0].scope, "items");
+  EXPECT_EQ(package.parts[0].references[0].target_role, "items");
+}
+
+// Invalid selector types and scope/role associations fail before any generated source is published.
+TEST(xml_authoring_parser, rejects_unsupported_package_selectors) {
+  const auto validate = [](std::string_view field, std::string_view selectors) {
+    const auto nodes = parse_authoring("serializer version 1.21.0; class item { " +
+        std::string{field} + " } package archive { part items : item { name(dynamic); "
+        "content_type(\"application/xml\"); relationship(\"urn:items\"); occurs(0,unbounded); " +
+        std::string{selectors} + " } }");
+    return serializer::writer::package_codegen::ordered(
+        static_cast<const serializer::package_node&>(*nodes.back())).size();
+  };
+  for (const auto field : {"private uint32 id;", "public optional<uint32> id;",
+      "public array uint32 id;", "public double id;", "public bool id;",
+      "public uint32 other;", "public transient uint32 id;"}) {
+    EXPECT_THROW(validate(field, "key(\"items\",id);"), std::exception) << field;
+  }
+  for (const auto selectors : {"key(\"items\",id);key(\"items\",id);",
+      "key(\"\",id);", "reference(\"items\",id,missing);", "policy(unknown);",
+      "key(\"items\",id);reference(\"absent\",id,items);"}) {
+    EXPECT_THROW(validate("public uint32 id;", selectors), std::exception) << selectors;
+  }
+}
+
+// Each declaring file independently gates new syntax; a newer including file cannot upgrade it.
+TEST(xml_authoring_parser, package_selector_language_gates_include_contract) {
+  const std::string body = "class item { public uint32 id; } package archive { part items : item { "
+      "name(\"/items.xml\");content_type(\"application/xml\");relationship(\"urn:items\");key(\"items\",id); } }";
+  EXPECT_THROW(parse_authoring("serializer version 1.20.0;" + body), std::exception);
+  authoring_directory directory;
+  directory.write("old.serializer", "serializer version 1.20.0;" + body);
+  const auto path = directory.write("new.serializer", "serializer version 1.21.0; include old;");
+  EXPECT_THROW(serializer::parser::parse_file(path), std::exception);
 }

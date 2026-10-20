@@ -61,16 +61,16 @@ R"xmlextension(
   internal sealed class SrlXmlExtensions {
     private const long OwnerBytes=64,NodeBytes=64,ScopeEntryBytes=64,AttributeBytes=48,ContentEntryBytes=24;
     private readonly SrlXmlExtensionContract meta;private readonly System.Collections.Generic.Dictionary<string,string> scope;private readonly XmlExtensionOptions options;private readonly int[] counts;
-    private int items,cursor;private long bytes;internal SrlXmlPreserved? State;
+    private readonly Limits.IOperation? operation;private int items,cursor;private long bytes;internal SrlXmlPreserved? State;
     // Require vocabulary understanding before constructing a candidate or opening an output head.
-    internal SrlXmlExtensions(SrlXmlExtensionContract meta,System.Collections.Generic.Dictionary<string,string> scope,XmlExtensionOptions options,SrlXmlPreserved? state){
-      this.meta=meta;this.scope=scope;this.options=options;State=state;var bounds=options.Limits;if(meta.Slots.Length>bounds.MaxSlots||meta.Known.Length>bounds.MaxItems||meta.Required.Length>bounds.MaxItems)throw new System.FormatException("XML extension slot limit");counts=new int[meta.Slots.Length];
+    internal SrlXmlExtensions(SrlXmlExtensionContract meta,System.Collections.Generic.Dictionary<string,string> scope,XmlExtensionOptions options,SrlXmlPreserved? state,Limits.IOperation? operation=null){this.operation=operation;
+      this.meta=meta;this.scope=scope;this.options=options;State=state;var bounds=options.Limits;if(meta.Slots.Length>bounds.MaxSlots||meta.Known.Length>bounds.MaxItems||meta.Required.Length>bounds.MaxItems)throw SrlXmlBudget.Limit("XML extension slot limit",operation);counts=new int[meta.Slots.Length];
       var understood=new System.Collections.Generic.HashSet<string>(options.UnderstoodNamespaces,System.StringComparer.Ordinal);foreach(string uri in meta.Required)if(uri!=meta.Core&&!understood.Contains(uri))throw new System.FormatException("Required XML capability is not understood");
-      foreach(string prefix in SrlXmlRule.Tokens(options.RequiredPrefixes,bounds.MaxItems)){if(!SrlXmlExtensionNcName(prefix)||prefix=="xmlns"||!scope.TryGetValue(prefix,out string? uri)||uri.Length==0)throw new System.FormatException("Unbound required XML capability prefix");if(uri!=meta.Core&&!understood.Contains(uri))throw new System.FormatException("Required XML capability is not understood");}
+      foreach(string prefix in SrlXmlRule.Tokens(options.RequiredPrefixes,bounds.MaxItems,operation)){if(!SrlXmlExtensionNcName(prefix)||prefix=="xmlns"||!scope.TryGetValue(prefix,out string? uri)||uri.Length==0)throw new System.FormatException("Unbound required XML capability prefix");if(uri!=meta.Core&&!understood.Contains(uri))throw new System.FormatException("Required XML capability is not understood");}
       if(state!=null)Charge(Add(OwnerBytes,ScopeBytes(scope)));
     }
     // Bound partial measurement before addition, independently from allocator capacity overhead.
-    private long Add(long first,long second){if(first<0||second<0||second>options.Limits.MaxPreservedBytes-first)throw new System.FormatException("XML extension preserved-byte limit");return first+second;}
+    private long Add(long first,long second){if(first<0||second<0||second>options.Limits.MaxPreservedBytes-first)throw SrlXmlBudget.Limit("XML extension preserved-byte limit",operation);return first+second;}
     // Admit logical bytes before retaining another owning map, node, string or content cell.
     internal void Charge(long count){bytes=Add(bytes,count);}
     // Validate full namespace context, including unused prefixes needed by opaque lexical QName values.
@@ -80,7 +80,7 @@ R"xmlextension(
     // Keep unqualified, core, known and reserved model metadata closed before consulting foreign slots.
     internal int Slot(string name,bool attribute,int position){string uri=SrlXmlExtensionName(name).Uri;if(uri.Length==0||uri==meta.Core||uri=="urn:serializer:xml:model"||meta.KnownNames.Contains(name))return -1;int index;return (attribute?meta.AttributeSlots.TryGetValue(uri,out index):meta.ChildSlots.TryGetValue((uri,position),out index))?index:-1;}
     // Enforce policy, total root items and per-slot occurrences before capturing or skipping a foreign root.
-    private bool Admit(string name,bool attribute,int position){int index=Slot(name,attribute,position);if(index<0)throw new System.FormatException("XML extension has no permitted slot");var selected=meta.Slots[index];if(selected.Policy==SrlXmlExtensionReject)throw new System.FormatException("XML extension slot rejects foreign vocabulary");if(items>=options.Limits.MaxItems||selected.Maximum>=0&&counts[index]>=selected.Maximum)throw new System.FormatException("XML extension item/occurrence limit");++items;++counts[index];return selected.Policy==SrlXmlExtensionPreserve;}
+    private bool Admit(string name,bool attribute,int position){int index=Slot(name,attribute,position);if(index<0)throw new System.FormatException("XML extension has no permitted slot");var selected=meta.Slots[index];if(selected.Policy==SrlXmlExtensionReject)throw new System.FormatException("XML extension slot rejects foreign vocabulary");if(items>=options.Limits.MaxItems)throw SrlXmlBudget.Limit("XML extension item/occurrence limit",operation);if(selected.Maximum>=0&&counts[index]>=selected.Maximum)throw new System.FormatException("XML extension item/occurrence limit");++items;++counts[index];return selected.Policy==SrlXmlExtensionPreserve;}
     // Skip-only traversal allocates no retained XML sidecar state.
     private SrlXmlPreserved Storage(){if(State==null){Charge(Add(OwnerBytes,ScopeBytes(scope)));State=new SrlXmlPreserved(new System.Collections.Generic.Dictionary<string,string>(scope));}return State;}
     // Preserve an expanded foreign attribute only after admitting its exact slot and logical bytes.

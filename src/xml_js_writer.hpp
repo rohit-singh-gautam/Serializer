@@ -123,11 +123,11 @@ function srlXmlCheck(document, limits) {
   const visit = (node, depth) => {
     if (node.nodeType === 10 || node.nodeType === 5) throw new Error('XML DTD/entities forbidden');
     if (node.nodeType === 1) {
-      if (++nodes > limits.maxNodes || ++depth > limits.maxDepth) throw new Error('XML node/depth limit');
+      if (++nodes > limits.maxNodes || ++depth > limits.maxDepth) throw srlXmlQuotaError('XML node/depth limit');
       text += srlXmlUtf8Length(node.localName) + srlXmlUtf8Length(node.namespaceURI || '');
       const expanded = new Set();
       for (const attr of Array.from(node.attributes)) {
-        if (++attributes > limits.maxAttributes) throw new Error('XML attribute limit');
+        if (++attributes > limits.maxAttributes) throw srlXmlQuotaError('XML attribute limit');
         const key = (attr.namespaceURI || '') + '\0' + attr.localName;
         if (expanded.has(key)) throw new Error('Duplicate XML expanded attribute');
         expanded.add(key); text += srlXmlUtf8Length(attr.value);
@@ -144,15 +144,16 @@ function srlXmlCheck(document, limits) {
     } else if (node.nodeType === 3 || node.nodeType === 4) {
       text += srlXmlUtf8Length(node.data); srlXmlCharacters(node.data);
     }
-    if (text > limits.maxTextBytes) throw new Error('XML text limit');
+    if (text > limits.maxTextBytes) throw srlXmlQuotaError('XML text limit');
     for (const child of Array.from(node.childNodes || [])) visit(child, depth);
   };
   visit(document, 0);
 }
 // Parse one bounded XML document using the pinned native parser; no resource retrieval hooks exist.
 function srlXmlParse(text, limits) {
-  if (typeof text !== 'string' || text.length > limits.maxBytes || srlXmlUtf8Length(text) > limits.maxBytes) {
-    throw new Error('XML input byte limit');
+  if (typeof text !== 'string') { throw new Error('XML input byte limit'); }
+  if (text.length > limits.maxBytes || srlXmlUtf8Length(text) > limits.maxBytes) {
+    throw srlXmlQuotaError('XML input byte limit');
   }
   srlXmlRejectDtd(text);
   const declaration=text.match(/^\uFEFF?<\?xml[ \t\r\n]+([^?]*)\?>/);
@@ -171,12 +172,13 @@ R"xml(
 class SrlXmlWriter {
   constructor(limits) { this.limits=limits; this.text=''; this.bytes=0; this.nodes=0; this.depth=0; this.attributes=0; this.textBytes=0; this.namespaces=[]; this.presentation=[]; this.prefixes=[]; this.identities=[]; this.identityScopes=[]; this.head=null; }
   put(text) {
-    const bytes=srlXmlUtf8Length(text); if (bytes > this.limits.maxBytes-this.bytes) throw new Error('XML output byte limit');
+    const bytes=srlXmlUtf8Length(text); if (bytes > this.limits.maxBytes-this.bytes) throw srlXmlQuotaError('XML output byte limit');
     if(text==='>' && this.head!==null){const head=this.head;this.head=null;for(const observer of this.identities)observer.start(head.name,head.attributes,head.scope);}
     this.bytes+=bytes; this.text+=text;
   }
   charge(text) {
-    this.textBytes+=srlXmlUtf8Length(text); if (this.textBytes > this.limits.maxTextBytes) throw new Error('XML text limit');
+    if(this.limits.operation){this.limits.operation("work",srlXmlUtf8Length(text),this.field||"");this.limits.operation("allocation",2*text.length,this.field||"");}
+    this.textBytes+=srlXmlUtf8Length(text); if (this.textBytes > this.limits.maxTextBytes) throw srlXmlQuotaError('XML text limit');
   }
   escaped(text,attribute) {
     this.charge(text);
@@ -191,7 +193,8 @@ class SrlXmlWriter {
     if (batch) this.put(batch);
   }
   open(local,uri,emptyDefault=false,defaultOverride=null,reserved=null) {
-    if (++this.nodes > this.limits.maxNodes || ++this.depth > this.limits.maxDepth) throw new Error('XML node/depth limit');
+    this.field=local;if(this.limits.operation)this.limits.operation("allocation",128,local);
+    if (++this.nodes > this.limits.maxNodes || ++this.depth > this.limits.maxDepth) throw srlXmlQuotaError('XML node/depth limit');
     this.charge(local); this.charge(uri);
     const defaultUri=defaultOverride===null ? emptyDefault ? '' : uri : defaultOverride;
     if(!uri && defaultUri)throw new Error('Default QName namespace conflicts with unnamespaced XML element');
@@ -209,7 +212,7 @@ class SrlXmlWriter {
     }
     this.identityScopes.push(scope);
     if ((this.namespaces[this.namespaces.length-1] || '') !== defaultUri) {
-      if (++this.attributes > this.limits.maxAttributes) throw new Error('XML attribute limit');
+      if (++this.attributes > this.limits.maxAttributes) throw srlXmlQuotaError('XML attribute limit');
       this.put(' xmlns="'); this.escaped(defaultUri,true); this.put('"');
     }
     if(defaultUri!==uri && uri) this.namespace(prefix,uri);
@@ -220,11 +223,12 @@ class SrlXmlWriter {
     const selected=this.prefixes[this.prefixes.length-1];
     if(selected.has(prefix)){if(selected.get(prefix)!==uri)throw new Error('Conflicting XML namespace declaration');return;}
     selected.set(prefix,uri);
-    if(++this.attributes>this.limits.maxAttributes) throw new Error('XML attribute limit');
+    if(++this.attributes>this.limits.maxAttributes) throw srlXmlQuotaError('XML attribute limit');
     this.charge(prefix);this.put(' xmlns:'+prefix+'="');this.escaped(uri,true);this.put('"');
   }
   attribute(local,uri,text,index) {
-    if (++this.attributes > this.limits.maxAttributes) throw new Error('XML attribute limit');
+    this.field=local;if(this.limits.operation)this.limits.operation("allocation",96,local);
+    if (++this.attributes > this.limits.maxAttributes) throw srlXmlQuotaError('XML attribute limit');
     this.charge(local); this.charge(uri);
     if(this.head)this.head.attributes.set(srlXmlTokenName(uri,local),text);
     if (uri === 'http://www.w3.org/XML/1998/namespace') this.put(' xml:'+local+'="');
@@ -323,7 +327,7 @@ function srlXmlText(node) {
 // Emit matching declarations for the optional JavaScript XML runtime.
 inline std::string js_declarations() {
   return "export declare class XmlLimits { maxBytes:number; maxTextBytes:number; maxNodes:number; "
-      "maxAttributes:number; maxDepth:number; map:XmlMapLimits; pattern:XmlPatternLimits; mixed:XmlMixedLimits; identity:XmlIdentityLimits; extensions:XmlExtensionOptions; constructor(values?:Partial<XmlLimits>); }\n"
+      "maxAttributes:number; maxDepth:number; operation?:((resource:string,count:number,field:string)=>void)|null; map:XmlMapLimits; pattern:XmlPatternLimits; mixed:XmlMixedLimits; identity:XmlIdentityLimits; extensions:XmlExtensionOptions; constructor(values?:Partial<XmlLimits>); }\n"
       "export declare class XmlMapLimits { maxEntries:number; maxKeyBytes:number; constructor(values?:Partial<XmlMapLimits>); }\n"
       "export declare class XmlPatternLimits { maxStates:number; maxInputBytes:number; maxWorkUnits:number; constructor(values?:Partial<XmlPatternLimits>); }\n"
       "export declare class XmlMixedLimits { maxFragments:number; maxTextBytes:number; constructor(values?:Partial<XmlMixedLimits>); }\n"

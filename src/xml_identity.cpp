@@ -42,9 +42,11 @@ public:
   // Borrow immutable limits and optional cumulative operation state during one validation.
   identity_budget(const identity_limits& limits, operation_context* context)
       : limits_{limits}, context_{context}, remaining_work_{limits.max_work_units} {}
+  // Classify an explicit identity bound while the original native field remains active.
+  [[noreturn]] void reject(std::string_view message) const { reject_limit(context_, message); }
   // Account selector/field comparisons and interruption without overflow.
   void work(std::size_t amount = 1U) {
-    if (amount > remaining_work_) { throw std::length_error{"XSD identity work limit exceeded"}; }
+    if (amount > remaining_work_) { reject("XSD identity work limit exceeded"); }
     remaining_work_ -= amount;
     if (context_) { context_->consume(operation_resource::work_units, amount); }
   }
@@ -54,12 +56,12 @@ public:
   }
   // Keep intermediate selections bounded even when no final tuple is produced.
   void select(std::size_t count) const {
-    if (count >= limits_.max_selected_nodes) { throw std::length_error{"XSD identity selected-node limit exceeded"}; }
+    if (count >= limits_.max_selected_nodes) { reject("XSD identity selected-node limit exceeded"); }
     allocate(sizeof(const element*));
   }
   // Count complete candidate tuples and aggregate retained canonical bytes once per table entry.
   void tuple(const std::vector<std::string>& value, std::string_view constraint) {
-    if (tuple_count_ >= limits_.max_tuples) { throw std::length_error{"XSD identity tuple-count limit exceeded"}; }
+    if (tuple_count_ >= limits_.max_tuples) { reject("XSD identity tuple-count limit exceeded"); }
     if (context_ && context_->admit_reference) {
       field_scope location{context_};
       location.select(constraint);
@@ -68,7 +70,7 @@ public:
     ++tuple_count_;
     for (const auto& item : value) {
       if (item.size() > limits_.max_tuple_bytes - tuple_bytes_) {
-        throw std::length_error{"XSD identity tuple-byte limit exceeded"};
+        reject("XSD identity tuple-byte limit exceeded");
       }
       tuple_bytes_ += item.size();
     }
@@ -104,7 +106,7 @@ std::vector<const element*> children_at(const element& root, const identity_path
     for (const auto* parent : current) {
       for (const auto& child : parent->children) {
         if (budget.equal(child.qualified_name, step)) {
-          if (depth >= limits.max_depth) { throw std::length_error{"XSD identity path depth exceeded"}; }
+          if (depth >= limits.max_depth) { budget.reject("XSD identity path depth exceeded"); }
           budget.select(next.size());
           next.push_back(&child);
         }
@@ -130,7 +132,7 @@ std::vector<const element*> select_elements(const element& root, const identity_
     const auto current = pending.back();
     pending.pop_back();
     if (current.depth > limits.max_depth) {
-      throw std::length_error{"XSD identity document depth exceeded"};
+      budget.reject("XSD identity document depth exceeded");
     }
     auto selected = children_at(*current.node, path, budget, limits, current.depth);
     for (const auto* item : selected) {
@@ -171,7 +173,7 @@ std::string decimal_key(std::string_view lexical) {
 std::string field_key(std::string_view lexical, const identity_field& field, const element& scope,
     identity_budget& budget, operation_context* context, const identity_limits& limits) {
   budget.work(lexical.size());
-  if (lexical.size() > limits.max_tuple_bytes) { throw std::length_error{"XSD identity field-byte limit exceeded"}; }
+  if (lexical.size() > limits.max_tuple_bytes) { reject_limit(context, "XSD identity field-byte limit exceeded"); }
   const auto policy = field.lexical_kind == "string" ? whitespace_policy::preserve :
       field.lexical_kind == "normalizedString" ? whitespace_policy::replace : whitespace_policy::collapse;
   budget.allocate(lexical.size());
@@ -196,13 +198,13 @@ std::string field_key(std::string_view lexical, const identity_field& field, con
         binding == scope.namespace_bindings.end() ? std::string_view{} : std::string_view{binding->second};
     const auto local_size = colon == std::string::npos ? normalized.size() : normalized.size() - colon - 1U;
     if (uri.size() > limits.max_tuple_bytes || local_size > limits.max_tuple_bytes - uri.size()) {
-      throw std::length_error{"XSD identity QName byte limit exceeded"};
+      reject_limit(context, "XSD identity QName byte limit exceeded");
     }
     budget.allocate(uri.size() + local_size);
     const auto expanded = resolve_qname(normalized, scope);
     if (expanded.namespace_uri.size() > limits.max_tuple_bytes ||
         expanded.local.size() > limits.max_tuple_bytes - expanded.namespace_uri.size()) {
-      throw std::length_error{"XSD identity QName byte limit exceeded"};
+      reject_limit(context, "XSD identity QName byte limit exceeded");
     }
     budget.work(expanded.namespace_uri.size() + expanded.local.size());
     const auto prefix_bytes = std::to_string(expanded.namespace_uri.size());
@@ -260,7 +262,7 @@ std::optional<std::string> read_field(const element& selected, const identity_fi
 void check_identity_name(const name& value, const identity_limits& limits, identity_budget* budget) {
   if (value.local.size() > limits.max_xpath_bytes ||
       value.namespace_uri.size() > limits.max_xpath_bytes - value.local.size()) {
-    throw std::length_error{"XSD identity expanded-name byte limit exceeded"};
+    if (budget) { budget->reject("XSD identity expanded-name byte limit exceeded"); } throw std::length_error{"XSD identity expanded-name byte limit exceeded"};
   }
   if (budget) {
     budget->work(1U + value.local.size() + value.namespace_uri.size());
@@ -275,7 +277,7 @@ void check_identity_name(const name& value, const identity_limits& limits, ident
 void check_path(const identity_path& path, bool selector, const identity_limits& limits,
     identity_budget* budget = nullptr) {
   if (path.steps.size() > limits.max_path_steps || path.steps.size() > limits.max_depth) {
-    throw std::length_error{"XSD identity path-step limit exceeded"};
+    if (budget) { budget->reject("XSD identity path-step limit exceeded"); } throw std::length_error{"XSD identity path-step limit exceeded"};
   }
   if ((selector && path.attribute) || (!selector && path.descendants) ||
       (path.descendants && path.steps.empty())) {
@@ -322,7 +324,7 @@ namespace {
 // Reuse one cumulative work ledger across static checking and document tuple validation.
 void check_scope_contract(const identity_scope& scope, const identity_limits& limits,
     identity_budget& budget) {
-  if (scope.constraints.size() > limits.max_constraints) { throw std::length_error{"XSD identity constraint limit exceeded"}; }
+  if (scope.constraints.size() > limits.max_constraints) { budget.reject("XSD identity constraint limit exceeded"); }
   check_identity_name(scope.owner, limits, &budget);
   std::map<std::pair<std::string, std::string>, const identity_constraint*> names{};
   for (const auto& constraint : scope.constraints) {
@@ -335,13 +337,13 @@ void check_scope_contract(const identity_scope& scope, const identity_limits& li
     }
     check_path(constraint.selector, true, limits, &budget);
     if (constraint.fields.empty()) { throw std::invalid_argument{"XSD identity requires at least one field"}; }
-    if (constraint.fields.size() > limits.max_fields) { throw std::length_error{"XSD identity field-count limit exceeded"}; }
+    if (constraint.fields.size() > limits.max_fields) { budget.reject("XSD identity field-count limit exceeded"); }
     for (const auto& field : constraint.fields) {
       check_path(field.path, false, limits, &budget);
       if (field.nillable && field.path.attribute) {
         throw std::invalid_argument{"XSD identity attributes cannot be declared nillable"};
       }
-      if (field.lexical_kind.size() > limits.max_xpath_bytes) { throw std::length_error{"XSD identity type-name byte limit exceeded"}; }
+      if (field.lexical_kind.size() > limits.max_xpath_bytes) { budget.reject("XSD identity type-name byte limit exceeded"); }
       budget.work(field.lexical_kind.size());
       (void)family(field.lexical_kind);
     }
@@ -411,7 +413,7 @@ void validate_identity_scope(const element& document, const identity_scope& scop
         auto value = read_field(*item, field, budget, context, limits, constraint.kind == identity_kind::key);
         if (value) {
           if (value->size() > limits.max_tuple_bytes - candidate_bytes) {
-            throw std::length_error{"XSD identity candidate tuple-byte limit exceeded"};
+            reject_limit(context, "XSD identity candidate tuple-byte limit exceeded");
           }
           candidate_bytes += value->size();
           budget.allocate(sizeof(std::string));
@@ -541,7 +543,7 @@ struct identity_validator::implementation {
   void admit_field(candidate& selected, std::size_t bytes, bool canonical) {
     auto& total = canonical ? selected.canonical_bytes : selected.lexical_bytes;
     if (bytes > bounds.max_tuple_bytes - total) {
-      throw std::length_error{"XSD identity candidate tuple-byte limit exceeded"};
+      reject_limit(context, "XSD identity candidate tuple-byte limit exceeded");
     }
     total += bytes;
     budget.allocate(bytes);
@@ -567,7 +569,7 @@ struct identity_validator::implementation {
   // Open one checked element, discover matching selections, and begin only matching scalar captures.
   void start_element(const event_view& value) {
     if (!started || (path.empty() && root_seen)) { throw std::invalid_argument{"Invalid XSD identity document state"}; }
-    if (path.size() >= bounds.max_depth) { throw std::length_error{"XSD identity document depth exceeded"}; }
+    if (path.size() >= bounds.max_depth) { reject_limit(context, "XSD identity document depth exceeded"); }
     for (const auto& selected : active) {
       for (const auto& field : selected.captures) {
         budget.work();

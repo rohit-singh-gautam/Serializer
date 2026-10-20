@@ -4,6 +4,7 @@
 R"xmlmodel(
 // Bound each owning digest independently of document and ordered-content policies.
 public struct XmlDigestLimits {
+    fileprivate var srlPackageLimit: ((String) -> any Swift.Error)?
     public let maxBytes: Int
     // Preserve exact zero admission; operation entry points reject negative bounds.
     public init(maxBytes: Int = 1048576) { self.maxBytes=maxBytes }
@@ -34,7 +35,7 @@ fileprivate func srlXmlHexDigit(_ value: UInt8) -> Int {
 fileprivate func srlXmlDigestRead(_ text: String, _ extent: Int, _ limits: XmlDigestLimits) throws -> [UInt8] {
     let size=text.utf8.count/2
     guard text.utf8.count%2 == 0 && (extent == 0 || size == extent) else { throw SerializerError.invalid("XML digest extent or hexadecimal pairs") }
-    guard size <= limits.maxBytes else { throw SerializerError.invalid("XML digest byte limit") }
+    guard size <= limits.maxBytes else { throw srlXmlLimitFailure(limits.srlPackageLimit,"XML digest byte limit") }
     guard text.utf8.allSatisfy({ srlXmlHexDigit($0) >= 0 }) else { throw SerializerError.invalid("Invalid XML digest hexadecimal") }
     var output: [UInt8]=[]; output.reserveCapacity(size); var high: Int? = nil
     for byte in text.utf8 { let value=srlXmlHexDigit(byte); if let previous=high { output.append(UInt8(previous*16+value)); high=nil } else { high=value } }
@@ -43,7 +44,7 @@ fileprivate func srlXmlDigestRead(_ text: String, _ extent: Int, _ limits: XmlDi
 // Emit exact lowercase hex from borrowed owning storage without hashing or payload copies.
 fileprivate func srlXmlDigestText(_ value: [UInt8], _ extent: Int, _ limits: XmlDigestLimits) throws -> String {
     guard extent == 0 || value.count == extent else { throw SerializerError.invalid("XML digest extent") }
-    guard value.count <= limits.maxBytes && value.count <= Int.max/2 else { throw SerializerError.invalid("XML digest byte limit") }
+    guard value.count <= limits.maxBytes && value.count <= Int.max/2 else { throw srlXmlLimitFailure(limits.srlPackageLimit,"XML digest byte limit") }
     let digits=Array("0123456789abcdef".utf8); var output: [UInt8]=[]; output.reserveCapacity(value.count*2)
     for byte in value { output.append(digits[Int(byte >> 4)]); output.append(digits[Int(byte & 15)]) }
     return String(decoding:output,as:UTF8.self)

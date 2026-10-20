@@ -71,15 +71,15 @@ internal class SrlXmlExtensions private constructor(val meta: SrlXmlExtensionCon
     var state: SrlXmlPreserved? = existing
         private set
     init {
-        require(meta.slots.size <= bounds.maxSlots && meta.known.size <= bounds.maxItems &&
-            meta.required.size <= bounds.maxItems) { "XML extension slot limit" }
+        if (!(meta.slots.size <= bounds.maxSlots && meta.known.size <= bounds.maxItems &&
+            meta.required.size <= bounds.maxItems)) SrlXmlBudget.limit("XML extension slot limit",operation)
         operation?.charge("allocation",64L+meta.slots.size*4L+options.understoodNamespaces.size*32L+options.requiredPrefixes.length*4L)
         operation?.charge("work",options.requiredPrefixes.length+1L)
         counts=IntArray(meta.slots.size)
         val understood=options.understoodNamespaces.toSet()
         for (uri in meta.required) { require(uri == meta.core || uri in understood) { "Required XML capability is not understood" } }
         var required=0
-        for (prefix in SrlXmlRule.tokens(options.requiredPrefixes,bounds.maxItems)) {
+        for (prefix in SrlXmlRule.tokens(options.requiredPrefixes,bounds.maxItems,operation)) {
             require(required < bounds.maxItems && srlXmlNcName(prefix) && prefix != "xmlns") { "Invalid required XML capability prefix" }; ++required
             val uri=scope[prefix]
             require(uri != null && uri.isNotEmpty()) { "Unbound required XML capability prefix" }
@@ -91,7 +91,7 @@ internal class SrlXmlExtensions private constructor(val meta: SrlXmlExtensionCon
     fun charge(amount: Long) { operation?.charge("work",amount); operation?.charge("allocation",amount); bytes=addSize(bytes,amount) }
     // Check the selected limit before arithmetic, including caller-selected maximum native bounds.
     private fun addSize(current: Long, amount: Long): Long {
-        require(current >= 0 && amount >= 0 && current <= bounds.maxPreservedBytes && amount <= bounds.maxPreservedBytes-current) { "XML extension preserved-byte limit" }
+        if (!(current >= 0 && amount >= 0 && current <= bounds.maxPreservedBytes && amount <= bounds.maxPreservedBytes-current)) SrlXmlBudget.limit("XML extension preserved-byte limit",operation)
         return current+amount
     }
     // Count complete retained prefix context, including bindings used only by unknown lexical values.
@@ -111,7 +111,8 @@ internal class SrlXmlExtensions private constructor(val meta: SrlXmlExtensionCon
         require(index >= 0) { "XML extension has no permitted slot" }
         val selected=meta.slots[index]
         require(selected.policy != 0) { "XML extension slot rejects foreign vocabulary" }
-        require(items < bounds.maxItems && (selected.maximum == null || counts[index] < selected.maximum)) { "XML extension item/occurrence limit" }
+        if (items >= bounds.maxItems) SrlXmlBudget.limit("XML extension item/occurrence limit",operation)
+        require(selected.maximum == null || counts[index] < selected.maximum) { "XML extension item/occurrence limit" }
         ++items; ++counts[index]; return selected.policy == 2
     }
     // Create a sidecar lazily; skip-only traversals allocate no retained foreign state.

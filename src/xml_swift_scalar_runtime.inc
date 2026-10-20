@@ -3,15 +3,18 @@
 // Serializer runtime template source; emitted support may also be used under 0BSD.
 R"xmlscalar(
 // Keep resource exhaustion distinct from an ordinary nonmatching union alternative.
-fileprivate struct SrlXmlScalarLimit: Error { let message: String }
+fileprivate struct SrlXmlScalarLimit: Error { let message: String; var original: (any Swift.Error)? = nil }
 // Share one deterministic allowance across all restrictions on an active scalar.
 fileprivate final class SrlXmlScalarWork {
     var remaining = srlXmlMaxPatternWork
     let maximumItems: Int
+    private let operation: ((String,Int) throws -> Void)?
     // Bind the operation's native list admission bound without changing document limits.
-    init(_ maximumItems: Int) { self.maximumItems = maximumItems }
+    init(_ maximumItems: Int, _ operation: ((String,Int) throws -> Void)? = nil) { self.maximumItems = maximumItems; self.operation=operation }
     // Charge before visiting instructions or retaining bounded scalar work.
     func spend(_ count: Int) throws {
+        // Union probes must preserve the original caller error rather than treat it as a nonmatching arm.
+        do { try operation?("work",count) } catch { throw SrlXmlScalarLimit(message:"",original:error) }
         guard count >= 0 && count <= remaining else { throw SrlXmlScalarLimit(message:"Portable XML regex work limit exceeded") }; remaining -= count
     }
 }
@@ -123,16 +126,17 @@ fileprivate final class SrlXmlRule {
     // Materialize defaults for missing attributes and empty elements before lexical conversion.
     static func defaultText(_ raw: String?, _ fallback: String, _ attribute: Bool) -> String { raw == nil || !attribute && raw!.isEmpty ? fallback : raw! }
     // Keep empty/whitespace-bearing native items from silently changing lexical list identities.
-    static func listText(_ items: [String], _ extent: Int, _ maximum: Int) throws -> String {
+    static func listText(_ items: [String], _ extent: Int, _ maximum: Int, _ quota: ((String) -> any Swift.Error)? = nil) throws -> String {
+        guard items.count <= maximum else { throw srlXmlLimitFailure(quota,"Unrepresentable XML list items or size") }
         guard items.count <= maximum && (extent == 0 || items.count == extent), items.allSatisfy({ !$0.isEmpty && !$0.unicodeScalars.contains(where: { $0.value == 32 || $0.value == 9 || $0.value == 10 || $0.value == 13 }) }) else { throw SerializerError.invalid("Unrepresentable XML list items or size") }
         return items.joined(separator:" ")
     }
     // Count before allocating item strings, splitting only the four XML whitespace characters.
-    static func tokens(_ raw: String, _ maximum: Int = srlXmlMaxListItems) throws -> [String] {
+    static func tokens(_ raw: String, _ maximum: Int = srlXmlMaxListItems, _ quota: ((String) -> any Swift.Error)? = nil) throws -> [String] {
         var count=0; var item=false
         for scalar in raw.unicodeScalars {
             let space=scalar.value == 32 || scalar.value == 9 || scalar.value == 10 || scalar.value == 13
-            if !space && !item { guard count < maximum else { throw SrlXmlScalarLimit(message:"XML list item limit exceeded") }; count += 1 }; item = !space
+            if !space && !item { guard count < maximum else { if let quota { throw quota("XML list item limit exceeded") }; throw SrlXmlScalarLimit(message:"XML list item limit exceeded") }; count += 1 }; item = !space
         }
         return raw.split(whereSeparator:{ character in character.unicodeScalars.allSatisfy { $0.value == 32 || $0.value == 9 || $0.value == 10 || $0.value == 13 } }).map(String.init)
     }
@@ -153,9 +157,9 @@ fileprivate final class SrlXmlRule {
         return left.utf8.elementsEqual(right.utf8) ? 0 : left.utf8.lexicographicallyPrecedes(right.utf8) ? -1 : 1
     }
     // Apply all restrictions using the operation's finite list policy and fresh work allowance.
-    func check(_ raw: String, _ maximumItems: Int = srlXmlMaxListItems) throws -> String {
-        do { return try check(raw,SrlXmlScalarWork(maximumItems)) }
-        catch let error as SrlXmlScalarLimit { throw SerializerError.invalid(error.message) }
+    func check(_ raw: String, _ maximumItems: Int = srlXmlMaxListItems, _ quota: ((String) -> any Swift.Error)? = nil, _ operation: ((String,Int) throws -> Void)? = nil) throws -> String {
+        do { return try check(raw,SrlXmlScalarWork(maximumItems,operation)) }
+        catch let error as SrlXmlScalarLimit { if let original=error.original { throw original }; throw srlXmlLimitFailure(quota,error.message) }
     }
     // Preserve work exhaustion across union probing and inherited restriction groups.
     private func check(_ raw: String, _ work: SrlXmlScalarWork) throws -> String {
@@ -178,8 +182,8 @@ fileprivate final class SrlXmlRule {
         return text
     }
     // Avoid activating a nonempty default while preserving normalized empty authored values.
-    func output(_ raw: String, _ fallback: String, _ maximumItems: Int = srlXmlMaxListItems) throws -> String {
-        let text=try check(raw,maximumItems)
+    func output(_ raw: String, _ fallback: String, _ maximumItems: Int = srlXmlMaxListItems, _ quota: ((String) -> any Swift.Error)? = nil, _ operation: ((String,Int) throws -> Void)? = nil) throws -> String {
+        let text=try check(raw,maximumItems,quota,operation)
         if text.isEmpty && !normalize(fallback).isEmpty { guard whitespace == "collapse" else { throw SerializerError.invalid("Empty XML value would activate a different XSD default") }; return " " }; return text
     }
 )xmlscalar"
@@ -236,9 +240,9 @@ R"xmlscalar(
     }
 }
 // Convert a complete lexical list into private native values before assigning the owner field.
-fileprivate func srlXmlReadList<T>(_ text: String, _ extent: Int, _ maximum: Int,
+fileprivate func srlXmlReadList<T>(_ text: String, _ extent: Int, _ maximum: Int, _ quota: ((String) -> any Swift.Error)? = nil,
     _ decode: (String) throws -> T) throws -> [T] {
-    let items=try SrlXmlRule.tokens(text,maximum)
+    let items=try SrlXmlRule.tokens(text,maximum,quota)
     guard extent == 0 || items.count == extent else { throw SerializerError.invalid("XML lexical list fixed extent") }
     return try items.map(decode)
 }

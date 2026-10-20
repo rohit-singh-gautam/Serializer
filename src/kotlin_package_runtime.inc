@@ -8,7 +8,7 @@ object @package_name@ {
     private const val U32 = 0xffffffffL
     enum class Code { INVALID_OPTIONS, INVALID_STATE, INVALID_ARCHIVE, UNSUPPORTED_FEATURE,
         INVALID_NAME, DUPLICATE_NAME, INTEGRITY, RESOURCE_LIMIT, INVALID_METADATA,
-        INVALID_RELATIONSHIP, MISSING_PART, SEMANTIC, CODEC, PUBLICATION_UNCERTAIN, DEADLINE_EXCEEDED }
+        INVALID_RELATIONSHIP, MISSING_PART, SEMANTIC, CODEC, PUBLICATION_UNCERTAIN, DEADLINE_EXCEEDED, INVALID_REFERENCE }
     /** Logical diagnostics deliberately exclude input and model excerpts. */
     class PackageError(val code: Code, message: String, val part: String = "", val offsetBytes: Long = 0,
         val fieldPath: String = "", val reference: String = "", val relationshipId: String = "") : java.io.IOException(message)

@@ -10,36 +10,49 @@ func DefaultXmlLimits() XmlLimits { return XmlLimits{16<<20, 8<<20, 100000, 1000
 type XmlValidator interface { ValidateXML([]byte) error }
 // XmlOptions selects limits and an optional runtime provider for this complete operation.
 type XmlOptions struct { Limits XmlLimits; Validator XmlValidator }
+// @xml_operation_options@ adds operation-owned admission without changing positional XmlOptions literals.
+type @xml_operation_options@ struct { Options XmlOptions; Operation func(string,int64,string)error; ExpectedRoot,ExpectedType string }
+type srlXmlOperationValidator struct { validator XmlValidator; operation func(string,int64,string)error; root,expectedType string }
+type srlXmlSelectedOptions struct { XmlOptions; Operation func(string,int64,string)error; ExpectedRoot,ExpectedType string }
+// ValidateXML preserves the caller provider when a policy is inspected outside generated entry points.
+func (v srlXmlOperationValidator) ValidateXML(data []byte)error{if v.validator!=nil{return v.validator.ValidateXML(data)};return nil}
+// Policy snapshots the additional context while preserving ordinary provider ownership and legacy options.
+func (v @xml_operation_options@) Policy()XmlOptions{return srlXmlWithOperation(v.Options,v.Operation,v.ExpectedRoot,v.ExpectedType)}
+// srlXmlWithOperation carries package-local context through the existing optional provider slot.
+func srlXmlWithOperation(options XmlOptions,operation func(string,int64,string)error,root,expectedType string)XmlOptions{validator:=options.Validator;if previous,ok:=validator.(srlXmlOperationValidator);ok{validator=previous.validator};options.Validator=srlXmlOperationValidator{validator:validator,operation:operation,root:root,expectedType:expectedType};return options}
+// charge admits native work before retaining any new scalar/event storage.
+func (b *srlXmlBudget) charge(resource string,count int64)error{if b.operation!=nil{return b.operation(resource,count,b.field)};return nil}
 // DefaultXmlOptions enables generated checks without a runtime validator.
 func DefaultXmlOptions() XmlOptions { return XmlOptions{Limits:DefaultXmlLimits()} }
 type srlXmlNode struct { name srlxml.Name; attrs []srlxml.Attr; children []*srlXmlNode; text string }
-type srlXmlBudget struct { limits XmlLimits; nodes, attrs, text, depth int }
+type srlXmlBudget struct { limits XmlLimits; nodes, attrs, text, depth int; operation func(string,int64,string)error;field string }
 type srlXmlBindingChange struct { prefix, previous string; existed bool }
 type srlXmlFrame struct { node *srlXmlNode; rawName srlxml.Name; changes []srlXmlBindingChange }
 var srlXmlDeclaration=regexp.MustCompile(`^[ \r\n\t]*version[ \r\n\t]*=[ \r\n\t]*(?:"1\.0"|'1\.0')(?:[ \r\n\t]+encoding[ \r\n\t]*=[ \r\n\t]*(?:"(?i:UTF-8)"|'(?i:UTF-8)'))?(?:[ \r\n\t]+standalone[ \r\n\t]*=[ \r\n\t]*(?:"(?:yes|no)"|'(?:yes|no)'))?[ \r\n\t]*$`)
 // Charge before retaining another node or scalar in the whole-document tree.
 func (b *srlXmlBudget) node(name srlxml.Name) (*srlXmlNode,error) {
-  if b.nodes >= b.limits.MaxNodes { return nil, fmt.Errorf("XML node limit exceeded") }
+  if b.nodes >= b.limits.MaxNodes { return nil, srlXmlLimitError("XML node limit exceeded") }
   if err:=b.textValue(name.Space+name.Local);err!=nil{return nil,err}
   b.nodes++; return &srlXmlNode{name:name},nil
 }
 // Charge cumulative text/name storage with overflow-safe subtraction.
 func (b *srlXmlBudget) textValue(text string) error {
-  if len(text)>b.limits.MaxTextBytes-b.text { return fmt.Errorf("XML text limit exceeded") }
+  if len(text)>b.limits.MaxTextBytes-b.text { return srlXmlLimitError("XML text limit exceeded") }
   if !utf8.ValidString(text) { return fmt.Errorf("Invalid XML UTF-8") }
   for _,c:=range text { if !(c==9||c==10||c==13||c>=32&&c<=0xd7ff||c>=0xe000&&c<=0xfffd||c>=0x10000&&c<=0x10ffff) { return fmt.Errorf("Invalid XML character") } }
-  b.text+=len(text); return nil
+  if err:=b.charge("work",int64(len(text)));err!=nil{return err};if err:=b.charge("allocation",int64(len(text)));err!=nil{return err};b.text+=len(text); return nil
 }
 // Bind one explicit policy and reject nonsensical resource bounds.
-func srlXmlOptions(values []XmlOptions) (XmlOptions,error) {
-  if len(values)>1 { return XmlOptions{},fmt.Errorf("Expected at most one XML policy") }
-  value:=DefaultXmlOptions(); if len(values)==1 { value=values[0] }
+func srlXmlOptions(values []XmlOptions) (srlXmlSelectedOptions,error) {
+  if len(values)>1 { return srlXmlSelectedOptions{},fmt.Errorf("Expected at most one XML policy") }
+  selected:=DefaultXmlOptions();if len(values)==1{selected=values[0]};value:=srlXmlSelectedOptions{XmlOptions:selected}
+  if context,ok:=selected.Validator.(srlXmlOperationValidator);ok{value.Validator=context.validator;value.Operation=context.operation;value.ExpectedRoot=context.root;value.ExpectedType=context.expectedType}
   l:=value.Limits; if l.MaxBytes<0||l.MaxTextBytes<0||l.MaxNodes<0||l.MaxAttributes<0||l.MaxDepth<0 { return value,fmt.Errorf("Negative XML limit") }
   return value,nil
 }
 // Parse a complete document using namespace-aware strict tokens and bounded retention.
 func srlXmlParse(data []byte, limits XmlLimits) (*srlXmlNode,error) {
-  if len(data)>limits.MaxBytes { return nil,fmt.Errorf("XML input limit exceeded") }
+  if len(data)>limits.MaxBytes { return nil,srlXmlLimitError("XML input limit exceeded") }
   if !utf8.Valid(data) { return nil,fmt.Errorf("Invalid XML UTF-8") }
   if len(data)>=3&&data[0]==0xef&&data[1]==0xbb&&data[2]==0xbf { data=data[3:] }
   input:=srlxml.NewDecoder(strings.NewReader(string(data))); input.Strict=true
@@ -54,10 +67,10 @@ func srlXmlParse(data []byte, limits XmlLimits) (*srlXmlNode,error) {
   for { token,err:=input.RawToken(); if err==srlio.EOF { break }; if err!=nil { return nil,fmt.Errorf("Malformed XML") }
     switch value:=token.(type) {
     case srlxml.StartElement:
-      if len(stack)>=limits.MaxDepth { return nil,fmt.Errorf("XML depth limit exceeded") }
+      if len(stack)>=limits.MaxDepth { return nil,srlXmlLimitError("XML depth limit exceeded") }
       changes:=[]srlXmlBindingChange{};seenRaw:=map[srlxml.Name]bool{}
       for _,a:=range value.Attr {
-        if budget.attrs>=limits.MaxAttributes { return nil,fmt.Errorf("XML attribute limit exceeded") }; budget.attrs++
+        if budget.attrs>=limits.MaxAttributes { return nil,srlXmlLimitError("XML attribute limit exceeded") }; budget.attrs++
         if err=budget.textValue(a.Name.Space+a.Name.Local+a.Value); err!=nil { return nil,err }
         if seenRaw[a.Name]{return nil,fmt.Errorf("Duplicate XML attribute")};seenRaw[a.Name]=true
         if a.Name.Space=="xmlns"||a.Name.Space==""&&a.Name.Local=="xmlns" {
@@ -98,7 +111,7 @@ type srlXmlInputFrame struct { raw srlxml.Name; changes []srlXmlBindingChange }
 type srlXmlInput struct { decoder *srlxml.Decoder; budget srlXmlBudget; mapLimits XmlMapLimits; mixedLimits XmlMixedLimits; identityLimits XmlIdentityLimits; digestLimits XmlDigestLimits; extensionOptions XmlExtensionOptions; identities []*srlXmlIdentity; stack []srlXmlInputFrame; namespaces map[string]string; look *srlXmlInputToken; seen, root, captureNamespaces bool; namespaceBytes int }
 // Bind the original byte slice after complete-message byte and UTF-8 admission checks.
 func srlXmlInputStart(data []byte,limits XmlLimits,maps ...XmlMapLimits)(*srlXmlInput,error) {
-  if len(data)>limits.MaxBytes{return nil,fmt.Errorf("XML input limit exceeded")};if !utf8.Valid(data){return nil,fmt.Errorf("Invalid XML UTF-8")}
+  if len(data)>limits.MaxBytes{return nil,srlXmlLimitError("XML input limit exceeded")};if !utf8.Valid(data){return nil,fmt.Errorf("Invalid XML UTF-8")}
   if len(data)>=3&&data[0]==0xef&&data[1]==0xbb&&data[2]==0xbf{data=data[3:]}
   decoder:=srlxml.NewDecoder(strings.NewReader(string(data)));decoder.Strict=true
   mapLimits:=DefaultXmlMapLimits();if len(maps)!=0{mapLimits=maps[0]}
@@ -116,11 +129,11 @@ func (r *srlXmlInput) read()(*srlXmlInputToken,error) {
     first:=!r.seen;r.seen=true
     switch value:=raw.(type){
     case srlxml.StartElement:
-      if len(r.stack)>=r.budget.limits.MaxDepth{return nil,fmt.Errorf("XML depth limit exceeded")}
+      if len(r.stack)>=r.budget.limits.MaxDepth{return nil,srlXmlLimitError("XML depth limit exceeded")}
       if len(r.stack)==0{if r.root{return nil,fmt.Errorf("Multiple XML roots")};r.root=true}
-      changes:=[]srlXmlBindingChange{};seenRaw:=map[srlxml.Name]bool{}
+      r.budget.field=value.Name.Local;changes:=[]srlXmlBindingChange{};seenRaw:=map[srlxml.Name]bool{}
       for _,a:=range value.Attr{
-        if r.budget.attrs>=r.budget.limits.MaxAttributes{return nil,fmt.Errorf("XML attribute limit exceeded")};r.budget.attrs++
+        r.budget.field=a.Name.Local;if r.budget.attrs>=r.budget.limits.MaxAttributes{return nil,srlXmlLimitError("XML attribute limit exceeded")};r.budget.attrs++
         if err:=r.budget.textValue(a.Name.Space+a.Name.Local+a.Value);err!=nil{return nil,err};if seenRaw[a.Name]{return nil,fmt.Errorf("Duplicate XML attribute")};seenRaw[a.Name]=true
         if a.Name.Space=="xmlns"||a.Name.Space==""&&a.Name.Local=="xmlns"{
           prefix:=a.Name.Local;if a.Name.Space==""{prefix=""}
@@ -128,8 +141,8 @@ func (r *srlXmlInput) read()(*srlXmlInputToken,error) {
           previous,exists:=r.namespaces[prefix];changes=append(changes,srlXmlBindingChange{prefix,previous,exists});r.namespaces[prefix]=a.Value
         }
       }
-      expanded,err:=r.resolve(value.Name,false);if err!=nil{return nil,err};if r.budget.nodes>=r.budget.limits.MaxNodes{return nil,fmt.Errorf("XML node limit exceeded")};if err=r.budget.textValue(expanded.Space+expanded.Local);err!=nil{return nil,err};r.budget.nodes++
-      event:=&srlXmlInputToken{kind:'s',name:expanded};seen:=map[srlxml.Name]bool{}
+      expanded,err:=r.resolve(value.Name,false);if err!=nil{return nil,err};if r.budget.nodes>=r.budget.limits.MaxNodes{return nil,srlXmlLimitError("XML node limit exceeded")};if err=r.budget.textValue(expanded.Space+expanded.Local);err!=nil{return nil,err};r.budget.nodes++
+      r.budget.field=expanded.Local;if err:=r.budget.charge("allocation",128);err!=nil{return nil,err};event:=&srlXmlInputToken{kind:'s',name:expanded};seen:=map[srlxml.Name]bool{}
       for _,a:=range value.Attr{if a.Name.Space=="xmlns"||a.Name.Space==""&&a.Name.Local=="xmlns"{continue};a.Name,err=r.resolve(a.Name,true);if err!=nil{return nil,err};if seen[a.Name]{return nil,fmt.Errorf("Duplicate XML attribute")};seen[a.Name]=true;event.attrs=append(event.attrs,a)}
       r.stack=append(r.stack,srlXmlInputFrame{value.Name,changes});if err:=r.identityEvent(event);err!=nil{return nil,err};return event,nil
     case srlxml.EndElement:
@@ -192,7 +205,7 @@ func (f *srlXmlInputFields) attribute(name srlxml.Name,required bool)(string,boo
 // Exhaust every attribute and close exactly one record or wrapper.
 func (f *srlXmlInputFields) finish()error{if f.used!=len(f.attrs){return fmt.Errorf("Unexpected XML attribute")};event,err:=f.input.peek();if err!=nil{return err};if event.kind!='e'{return fmt.Errorf("Unexpected XML field")};f.input.look=nil;return nil}
 // Reject oversized serialized output before growing its byte storage.
-func (w *srlXmlSink) Write(data []byte)(int,error) { if len(data)>w.maximum-w.text.Len() { return 0,fmt.Errorf("XML output limit exceeded") }; return w.text.Write(data) }
+func (w *srlXmlSink) Write(data []byte)(int,error) { if len(data)>w.maximum-w.text.Len() { return 0,srlXmlLimitError("XML output limit exceeded") }; return w.text.Write(data) }
 // Retain only the pending start tag and namespace of each active ancestor.
 type srlXmlOutputFrame struct { start srlxml.StartElement; expanded srlxml.Name; pending bool; inherited string; manual,scoped bool; attributes map[srlxml.Name]bool; identityAttributes map[string]string }
 type srlXmlOutput struct { budget srlXmlBudget; mapLimits XmlMapLimits; mixedLimits XmlMixedLimits; identityLimits XmlIdentityLimits; digestLimits XmlDigestLimits; extensionOptions XmlExtensionOptions; identities []*srlXmlIdentity; sink srlXmlSink; encoder *srlxml.Encoder; stack []srlXmlOutputFrame }
@@ -201,10 +214,11 @@ func srlXmlOutputStart(limits XmlLimits,maps ...XmlMapLimits)*srlXmlOutput { map
 // Flush attributes before the first child or scalar text token.
 func (w *srlXmlOutput) seal()error { if len(w.stack)==0{return nil};frame:=&w.stack[len(w.stack)-1];if !frame.pending{return nil};if frame.start.Name.Space==""&&frame.inherited!=""{frame.start.Attr=append(frame.start.Attr,srlxml.Attr{Name:srlxml.Name{Local:"xmlns"},Value:""})};if err:=w.identityStart(frame);err!=nil{return err};frame.pending=false;return w.encoder.EncodeToken(frame.start) }
 // Admit one start token before retaining its bounded pending tag.
-func (w *srlXmlOutput) open(name srlxml.Name)error { if len(w.stack)!=0&&w.stack[len(w.stack)-1].scoped{return w.openScoped(name,nil)}; if len(w.stack)>=w.budget.limits.MaxDepth{return fmt.Errorf("XML depth limit exceeded")};if w.budget.nodes>=w.budget.limits.MaxNodes{return fmt.Errorf("XML node limit exceeded")};if err:=w.budget.textValue(name.Space+name.Local);err!=nil{return err};if err:=w.seal();err!=nil{return err};inherited:="";manual:=false;if len(w.stack)!=0{parent:=&w.stack[len(w.stack)-1];inherited=parent.start.Name.Space;manual=parent.manual};w.budget.nodes++;w.stack=append(w.stack,srlXmlOutputFrame{start:srlxml.StartElement{Name:name},expanded:name,pending:true,inherited:inherited,manual:manual});return nil }
+func (w *srlXmlOutput) open(name srlxml.Name)error { w.budget.field=name.Local;if err:=w.budget.charge("allocation",128);err!=nil{return err}; if len(w.stack)!=0&&w.stack[len(w.stack)-1].scoped{return w.openScoped(name,nil)}; if len(w.stack)>=w.budget.limits.MaxDepth{return srlXmlLimitError("XML depth limit exceeded")};if w.budget.nodes>=w.budget.limits.MaxNodes{return srlXmlLimitError("XML node limit exceeded")};if err:=w.budget.textValue(name.Space+name.Local);err!=nil{return err};if err:=w.seal();err!=nil{return err};inherited:="";manual:=false;if len(w.stack)!=0{parent:=&w.stack[len(w.stack)-1];inherited=parent.start.Name.Space;manual=parent.manual};w.budget.nodes++;w.stack=append(w.stack,srlXmlOutputFrame{start:srlxml.StartElement{Name:name},expanded:name,pending:true,inherited:inherited,manual:manual});return nil }
 // Add a statically bound attribute while its start token remains pending.
 func (w *srlXmlOutput) attribute(name srlxml.Name,text string)error {
-  if len(w.stack)==0||!w.stack[len(w.stack)-1].pending{return fmt.Errorf("XML attribute follows content")};if w.budget.attrs>=w.budget.limits.MaxAttributes{return fmt.Errorf("XML attribute limit exceeded")};if err:=w.budget.textValue(name.Space+name.Local+text);err!=nil{return err};frame:=&w.stack[len(w.stack)-1]
+  w.budget.field=name.Local;if err:=w.budget.charge("allocation",96);err!=nil{return err}
+  if len(w.stack)==0||!w.stack[len(w.stack)-1].pending{return fmt.Errorf("XML attribute follows content")};if w.budget.attrs>=w.budget.limits.MaxAttributes{return srlXmlLimitError("XML attribute limit exceeded")};if err:=w.budget.textValue(name.Space+name.Local+text);err!=nil{return err};frame:=&w.stack[len(w.stack)-1]
   if len(w.identities)!=0&&name.Space!="xmlns"&&!strings.HasPrefix(name.Local,"xmlns:")&&name.Local!="xmlns"{if frame.identityAttributes==nil{frame.identityAttributes=make(map[string]string)};frame.identityAttributes[srlXmlIdentityName(name)]=text}
   if frame.manual{
     if frame.attributes==nil{frame.attributes=make(map[srlxml.Name]bool)};if frame.attributes[name]{return fmt.Errorf("Duplicate XML attribute")};frame.attributes[name]=true
@@ -212,7 +226,7 @@ func (w *srlXmlOutput) attribute(name srlxml.Name,text string)error {
       prefix:="xml"
       if name.Space!="http://www.w3.org/XML/1998/namespace"{
         if frame.scoped{var exists bool;prefix,exists=w.extensionMatchingPrefix(name.Space,nil,true);if !exists{prefix=w.extensionPrefix("a",name.Space,nil)};if err:=w.extensionDeclare(prefix,name.Space);err!=nil{return err}}else{
-        prefix="a"+strconv.Itoa(len(frame.start.Attr));if w.budget.attrs+1>=w.budget.limits.MaxAttributes{return fmt.Errorf("XML namespace limit exceeded")};if err:=w.budget.textValue(prefix+name.Space);err!=nil{return err};w.budget.attrs++
+        prefix="a"+strconv.Itoa(len(frame.start.Attr));if w.budget.attrs+1>=w.budget.limits.MaxAttributes{return srlXmlLimitError("XML namespace limit exceeded")};if err:=w.budget.textValue(prefix+name.Space);err!=nil{return err};w.budget.attrs++
         frame.start.Attr=append(frame.start.Attr,srlxml.Attr{Name:srlxml.Name{Local:"xmlns:"+prefix},Value:name.Space})
         }
       }
@@ -246,7 +260,7 @@ func srlXmlWrite(node *srlXmlNode, limits XmlLimits)([]byte,error) {
   sink:=srlXmlSink{maximum:limits.MaxBytes}; output:=srlxml.NewEncoder(&sink)
   var visit func(*srlXmlNode,int,string)error
   visit=func(n *srlXmlNode,depth int,inheritedNamespace string)error {
-    if depth>limits.MaxDepth { return fmt.Errorf("XML depth limit exceeded") }
+    if depth>limits.MaxDepth { return srlXmlLimitError("XML depth limit exceeded") }
     start:=srlxml.StartElement{Name:n.name,Attr:n.attrs}
     // encoding/xml does not reset an inherited default namespace for empty Name.Space.
     if n.name.Space==""&&inheritedNamespace!="" { start.Attr=append(start.Attr,srlxml.Attr{Name:srlxml.Name{Local:"xmlns"},Value:""}) }
@@ -294,9 +308,9 @@ func srlXmlFormatFloat(value float64,bits int)string { if math.IsNaN(value){retu
 type srlXmlPatternState struct { epsilon []int; ranges [][2]rune; next int; consumes,inverted,dot,accepting bool }
 )serializer"
 R"serializer(type srlXmlPattern struct { start int; states []srlXmlPatternState }
-type srlXmlPatternWork struct { remaining int }
+type srlXmlPatternWork struct { remaining int; budget *srlXmlBudget }
 // Charge deterministic matching work before clearing storage or following an edge.
-func (w *srlXmlPatternWork) spend(units int)error { if units<0||units>w.remaining{return srlXmlLimitError("Portable XML regex work limit exceeded")};w.remaining-=units;return nil }
+func (w *srlXmlPatternWork) spend(units int)error { if w.budget!=nil{if err:=w.budget.charge("work",int64(units));err!=nil{return err}};if units<0||units>w.remaining{return srlXmlLimitError("Portable XML regex work limit exceeded")};w.remaining-=units;return nil }
 // Execute a prepared Thompson automaton without backtracking or host-regex semantics.
 func (p *srlXmlPattern) matches(text string,work *srlXmlPatternWork)(bool,error){
   if len(text)>srlXmlPatternMaxInputBytes||len(p.states)>srlXmlPatternMaxStates{return false,srlXmlLimitError("Portable XML regex input/state limit exceeded")}
@@ -348,5 +362,5 @@ func srlXmlFacets(text,kind,whitespace string,bits int,bounds [4]string,length,m
   return text,nil
 }
 // Charge complete generated attributes before retaining their scalar contents.
-func srlXmlAttribute(node *srlXmlNode,name srlxml.Name,text string,b *srlXmlBudget)error { if b.attrs>=b.limits.MaxAttributes{return fmt.Errorf("XML attribute limit exceeded")};if err:=b.textValue(name.Space+name.Local+text);err!=nil{return err};b.attrs++;node.attrs=append(node.attrs,srlxml.Attr{Name:name,Value:text});return nil }
+func srlXmlAttribute(node *srlXmlNode,name srlxml.Name,text string,b *srlXmlBudget)error { if b.attrs>=b.limits.MaxAttributes{return srlXmlLimitError("XML attribute limit exceeded")};if err:=b.textValue(name.Space+name.Local+text);err!=nil{return err};b.attrs++;node.attrs=append(node.attrs,srlxml.Attr{Name:name,Value:text});return nil }
 )serializer"

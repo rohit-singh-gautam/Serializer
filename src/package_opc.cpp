@@ -1185,6 +1185,11 @@ xml::operation_context budget::xml_context(std::string_view part, std::string_vi
     try { consume_available(resource::references, 1, budget_location{source}); }
     catch (const error& failure) { throw detail::locate_error(failure, source, xml_field_path(field), {}, link); }
   };
+  result.limit_location = [source = std::string{part}, link = std::string{relationship_id}](
+      std::size_t requested, std::size_t available, std::string_view message, const xml::diagnostic_field* field) {
+    throw error{error_code::resource_limit, std::string{message}.c_str(), source, 0, requested, available,
+        xml_field_path(field), {}, link};
+  };
   return result;
 }
 
@@ -1487,6 +1492,14 @@ const part* opc_reader::find(std::string_view name) const {
   return find_part(parts_, name);
 }
 
+// Reuse the OPC identity index before accessing exact physical ZIP metadata.
+zip_method opc_reader::storage_method(std::string_view name) const {
+  const auto* selected = find(name);
+  const auto* entry = selected ? archive_.find(std::string_view{selected->name}.substr(1)) : nullptr;
+  if (!entry) { throw error{error_code::missing_part, "OPC part is absent", std::string{name}}; }
+  return entry->method;
+}
+
 // Decode no unrelated typed payload when the caller opens one selected part.
 std::vector<std::uint8_t> opc_reader::read(std::string_view name) {
   const auto* selected = find(name);
@@ -1560,6 +1573,13 @@ void profile_loader::read_related(std::string_view source, std::string_view rela
     decoded_.insert(selected->name);
     selected_.insert(link);
     const auto bytes = reader_.read(selected->name);
+    struct relationship_scope {
+      std::string_view& slot;
+      std::string_view previous;
+      // Restore the enclosing callback's link even if native decoding or policy code throws.
+      ~relationship_scope() { slot = previous; }
+    } selected_link{current_relationship_id_, current_relationship_id_};
+    current_relationship_id_ = link->id;
     try {
       decode(bytes, *selected, shared);
     } catch (const error& failure) {
@@ -1573,6 +1593,11 @@ void profile_loader::read_related(std::string_view source, std::string_view rela
     shared.check_cancelled();
   }
   guard.complete = true;
+}
+
+// Expose no identity outside the callback's synchronous discovery scope.
+std::string_view profile_loader::current_relationship_id() const noexcept {
+  return current_relationship_id_;
 }
 
 // Finish full aggregate validation without hiding corrupt or required unknown capabilities.

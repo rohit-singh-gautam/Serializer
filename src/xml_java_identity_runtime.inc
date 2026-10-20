@@ -36,7 +36,7 @@ private static final class SrlXmlIdentityScope {
 }
 /** Incremental bounded tuples and open scalar captures; no known-element tree is constructed. */
 private static final class SrlXmlIdentity {
-  final SrlXmlIdentityScope scope;final XmlIdentityLimits limits;
+  final SrlXmlIdentityScope scope;final XmlIdentityLimits limits;final Limits.XmlOperation operation;final String packageField;
   final java.util.ArrayList<String> path=new java.util.ArrayList<>();
   final java.util.ArrayList<Candidate> active=new java.util.ArrayList<>();
   final java.util.ArrayList<java.util.HashSet<String>> tables=new java.util.ArrayList<>();
@@ -52,15 +52,20 @@ private static final class SrlXmlIdentity {
     Candidate(int constraint,int depth,int fields){this.constraint=constraint;this.depth=depth;values=new String[fields];seen=new boolean[fields];captures=new Capture[fields];}
   }
   /** Allocate only checked static constraint tables for this independent owner scope. */
-  SrlXmlIdentity(SrlXmlIdentityScope scope,XmlIdentityLimits limits){
-    this.scope=scope;this.limits=limits;
-    if(scope.constraints.length>limits.maxConstraints)throw new IllegalArgumentException("XML identity constraint limit");
-    for(var item:scope.constraints){if(item.fields.length==0||item.fields.length>limits.maxFields)throw new IllegalArgumentException("XML identity field limit");tables.add(new java.util.HashSet<>());}
+  SrlXmlIdentity(SrlXmlIdentityScope scope,XmlIdentityLimits limits){this(scope,limits,null,"");}
+  /** Capture original owner context for deferred tuple and forward-reference work. */
+  SrlXmlIdentity(SrlXmlIdentityScope scope,XmlIdentityLimits limits,Limits.XmlOperation operation,String field){
+    this.scope=scope;this.limits=limits;this.operation=operation;this.packageField=field;
+    charge("allocation",128L*scope.constraints.length);
+    if(scope.constraints.length>limits.maxConstraints)throw SrlXmlRule.quota("XML identity constraint limit");
+    for(var item:scope.constraints){if(item.fields.length==0||item.fields.length>limits.maxFields)throw SrlXmlRule.quota("XML identity field limit");tables.add(new java.util.HashSet<>());}
   }
   /** Count logical UTF8 bytes without allocating a temporary encoded string. */
   static int bytes(String value){int count=0;for(int offset=0;offset<value.length();){int scalar=value.codePointAt(offset);offset+=Character.charCount(scalar);int width=scalar<128?1:scalar<2048?2:scalar<65536?3:4;if(width>Integer.MAX_VALUE-count)throw new IllegalArgumentException("XML identity byte overflow");count+=width;}return count;}
   /** Charge before selector comparison or tuple work; zero remains exact admission. */
-  void work(long count){if(count>limits.maxWorkUnits-workUnits)throw new IllegalArgumentException("XML identity work limit");workUnits+=count;}
+  void charge(String resource,long count){if(operation!=null)operation.consume(resource,count,packageField);}
+  /** Charge selector work to the enclosing operation before local admission. */
+  void work(long count){charge("work",count);if(count>limits.maxWorkUnits-workUnits)throw SrlXmlRule.quota("XML identity work limit");workUnits+=count;}
   /** Compare expanded paths without allocating suffix arrays or interpreting XPath. */
   boolean matches(int first,SrlXmlIdentityPath expected){
     int count=path.size()-first;work((long)count+expected.steps.length+1);
@@ -71,7 +76,7 @@ private static final class SrlXmlIdentity {
   /** Normalize one exact builtin scalar to a collision-free typed tuple value. */
   String key(String lexical,SrlXmlIdentityField field,java.util.function.Function<String,String> resolve){
     String kind=field.kind;
-    int size=bytes(lexical);if(size>limits.maxTupleBytes)throw new IllegalArgumentException("XML identity field-byte limit");work((long)size+1);
+    int size=bytes(lexical);if(size>limits.maxTupleBytes)throw SrlXmlRule.quota("XML identity field-byte limit");work((long)size+1);
     if(kind.equals("QName")){
       String value=srlXmlTrim(lexical);String[] parts=value.split(":",-1);String prefix="",local=value;
       if(parts.length==2&&!parts[0].isEmpty()&&!parts[1].isEmpty()){prefix=parts[0];local=parts[1];}else if(parts.length!=1||value.isEmpty())throw new IllegalArgumentException("Invalid XML identity QName");
@@ -86,14 +91,14 @@ private static final class SrlXmlIdentity {
     return (kind.equals("anyURI")?"u":"s")+value;
   }
   /** Bound every partial canonical tuple before retaining the next field. */
-  void store(Candidate candidate,int index,String value){int count=bytes(value)-(value.startsWith("q")?2:1);if(count>limits.maxTupleBytes-candidate.bytes)throw new IllegalArgumentException("XML identity candidate tuple-byte limit");candidate.bytes+=count;candidate.values[index]=value;}
+  void store(Candidate candidate,int index,String value){int count=bytes(value)-(value.startsWith("q")?2:1);if(count>limits.maxTupleBytes-candidate.bytes)throw SrlXmlRule.quota("XML identity candidate tuple-byte limit");candidate.bytes+=count;charge("allocation",2L*value.length());candidate.values[index]=value;}
   /** Observe a complete current start tag, including namespaces needed by QName attributes. */
   void start(String name,java.util.Map<String,String> attributes,java.util.function.Function<String,String> resolve){
     try{
-      if(complete||failed)throw new IllegalArgumentException("XML identity observer inactive");work((long)bytes(name)+1);if(path.size()>=limits.maxDepth)throw new IllegalArgumentException("XML identity depth limit");
+      if(complete||failed)throw new IllegalArgumentException("XML identity observer inactive");work((long)bytes(name)+1);if(path.size()>=limits.maxDepth)throw SrlXmlRule.quota("XML identity depth limit");
       for(var candidate:active)for(var capture:candidate.captures)if(capture!=null)throw new IllegalArgumentException("XML identity scalar has complex child content");
       path.add(name);
-      for(int index=0;index<scope.constraints.length;++index){var constraint=scope.constraints[index];if(matches(1,constraint.selector)){if(selected>=limits.maxSelectedNodes)throw new IllegalArgumentException("XML identity selected-node limit");++selected;active.add(new Candidate(index,path.size(),constraint.fields.length));}}
+      for(int index=0;index<scope.constraints.length;++index){var constraint=scope.constraints[index];if(matches(1,constraint.selector)){if(selected>=limits.maxSelectedNodes)throw SrlXmlRule.quota("XML identity selected-node limit");++selected;active.add(new Candidate(index,path.size(),constraint.fields.length));}}
       for(var candidate:active){var constraint=scope.constraints[candidate.constraint];for(int index=0;index<constraint.fields.length;++index){var field=constraint.fields[index];if(!matches(candidate.depth,field.path)||field.path.attribute!=null&&!attributes.containsKey(field.path.attribute))continue;
         if(constraint.kind.equals("key")&&field.nillable)throw new IllegalArgumentException("XSD key field selects an element declared nillable");
         if(candidate.seen[index])throw new IllegalArgumentException("XML identity field selects multiple values");candidate.seen[index]=true;
@@ -103,7 +108,7 @@ private static final class SrlXmlIdentity {
     }catch(RuntimeException failure){failed=true;throw failure;}
   }
   /** Charge logical UTF8 text independent of provider chunk/entity/CDATA boundaries. */
-  void text(String value){try{if(complete||failed||path.isEmpty())throw new IllegalArgumentException("XML identity observer inactive");int count=bytes(value);work(count);for(var candidate:active)for(var capture:candidate.captures)if(capture!=null){work(count);if(capture.nil&&!value.isEmpty())throw new IllegalArgumentException("Nil XML identity scalar has text");if(count>limits.maxTupleBytes-capture.bytes)throw new IllegalArgumentException("XML identity field-byte limit");capture.bytes+=count;capture.text.append(value);}}catch(RuntimeException failure){failed=true;throw failure;}}
+  void text(String value){try{if(complete||failed||path.isEmpty())throw new IllegalArgumentException("XML identity observer inactive");int count=bytes(value);work(count);for(var candidate:active)for(var capture:candidate.captures)if(capture!=null){work(count);if(capture.nil&&!value.isEmpty())throw new IllegalArgumentException("Nil XML identity scalar has text");if(count>limits.maxTupleBytes-capture.bytes)throw SrlXmlRule.quota("XML identity field-byte limit");capture.bytes+=count;capture.text.append(value);}}catch(RuntimeException failure){failed=true;throw failure;}}
   /** Close captures while their original namespace scope still resolves QName values. */
   void end(java.util.function.Function<String,String> resolve){
     try{
@@ -111,7 +116,7 @@ private static final class SrlXmlIdentity {
       for(var candidate:active){var constraint=scope.constraints[candidate.constraint];for(int index=0;index<candidate.captures.length;++index){work(1);var capture=candidate.captures[index];if(capture!=null&&capture.depth==path.size()){if(!capture.nil)store(candidate,index,key(capture.text.toString(),constraint.fields[index],resolve));candidate.captures[index]=null;}}}
       for(var iterator=active.iterator();iterator.hasNext();){var candidate=iterator.next();if(candidate.depth!=path.size())continue;iterator.remove();var constraint=scope.constraints[candidate.constraint];boolean missing=false;for(var value:candidate.values)if(value==null)missing=true;
         if(missing){if(constraint.kind.equals("key"))throw new IllegalArgumentException("XSD key tuple is incomplete or nil");continue;}
-        if(tuples>=limits.maxTuples)throw new IllegalArgumentException("XML identity tuple-count limit");if(candidate.bytes>limits.maxTupleBytes-tupleBytes)throw new IllegalArgumentException("XML identity tuple-byte limit");++tuples;tupleBytes+=candidate.bytes;work((long)candidate.bytes+1);
+        if(tuples>=limits.maxTuples)throw SrlXmlRule.quota("XML identity tuple-count limit");if(candidate.bytes>limits.maxTupleBytes-tupleBytes)throw SrlXmlRule.quota("XML identity tuple-byte limit");charge("reference",1);charge("allocation",128L+candidate.bytes);++tuples;tupleBytes+=candidate.bytes;work((long)candidate.bytes+1);
         var tuple=new StringBuilder();for(var value:candidate.values)tuple.append(value.length()).append(':').append(value);boolean added=tables.get(candidate.constraint).add(tuple.toString());if(!added&&!constraint.kind.equals("keyref"))throw new IllegalArgumentException("Duplicate XSD key/unique tuple");
       }
       path.remove(path.size()-1);if(path.isEmpty())complete=true;

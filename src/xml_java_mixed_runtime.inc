@@ -21,7 +21,7 @@ private static final class SrlXmlMixedBudget {
   SrlXmlMixedBudget(XmlMixedLimits limits) { this.limits = limits; }
   /** Charge every child or logical text run before allocating its native fragment. */
   void fragment() {
-    if (fragments >= limits.maxFragments) throw new IllegalArgumentException("XML mixed fragment limit exceeded");
+    if (fragments >= limits.maxFragments) throw SrlXmlRule.quota("XML mixed fragment limit exceeded");
     ++fragments;
   }
   /** Admit XML Unicode and cumulative UTF8 bytes before retaining another text chunk. */
@@ -31,7 +31,7 @@ private static final class SrlXmlMixedBudget {
       int value = text.codePointAt(offset); offset += Character.charCount(value);
       if (!(value == 9 || value == 10 || value == 13 || value >= 32 && value <= 0xd7ff || value >= 0xe000 && value <= 0xfffd || value >= 0x10000 && value <= 0x10ffff)) throw new IllegalArgumentException("Invalid XML character");
       int width = value < 0x80 ? 1 : value < 0x800 ? 2 : value < 0x10000 ? 3 : 4;
-      if (width > limits.maxTextBytes - bytes) throw new IllegalArgumentException("XML mixed text limit exceeded");
+      if (width > limits.maxTextBytes - bytes) throw SrlXmlRule.quota("XML mixed text limit exceeded");
       bytes += width;
     }
   }

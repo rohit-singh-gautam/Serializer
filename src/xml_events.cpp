@@ -12,9 +12,9 @@ namespace rohit::serializer::xml {
 namespace {
 
 // Check before addition so even caller-selected size_t maximum bounds cannot wrap.
-void charge(std::size_t& used, std::size_t amount, std::size_t maximum) {
+void charge(std::size_t& used, std::size_t amount, std::size_t maximum, operation_context* context = nullptr) {
   if (used > maximum || amount > maximum - used) {
-    throw std::length_error{"XML event resource limit exceeded"};
+    reject_limit(context, "XML event resource limit exceeded", amount, maximum - std::min(used, maximum));
   }
   used += amount;
 }
@@ -25,19 +25,19 @@ bool has_name(const event_name& value) noexcept {
 }
 
 // Bound all borrowed string bytes before allocating checker state or invoking consumers.
-std::size_t payload_bytes(const event_view& value, std::size_t maximum) {
+std::size_t payload_bytes(const event_view& value, std::size_t maximum, operation_context* context) {
   std::size_t bytes{};
-  charge(bytes, value.qualified_name.local.size(), maximum);
-  charge(bytes, value.qualified_name.namespace_uri.size(), maximum);
-  charge(bytes, value.text.size(), maximum);
+  charge(bytes, value.qualified_name.local.size(), maximum, context);
+  charge(bytes, value.qualified_name.namespace_uri.size(), maximum, context);
+  charge(bytes, value.text.size(), maximum, context);
   for (const auto& attribute : value.attributes) {
-    charge(bytes, attribute.qualified_name.local.size(), maximum);
-    charge(bytes, attribute.qualified_name.namespace_uri.size(), maximum);
-    charge(bytes, attribute.value.size(), maximum);
+    charge(bytes, attribute.qualified_name.local.size(), maximum, context);
+    charge(bytes, attribute.qualified_name.namespace_uri.size(), maximum, context);
+    charge(bytes, attribute.value.size(), maximum, context);
   }
   for (const auto& declaration : value.namespaces) {
-    charge(bytes, declaration.prefix.size(), maximum);
-    charge(bytes, declaration.namespace_uri.size(), maximum);
+    charge(bytes, declaration.prefix.size(), maximum, context);
+    charge(bytes, declaration.namespace_uri.size(), maximum, context);
   }
   return bytes;
 }
@@ -115,26 +115,26 @@ void event_validator::accept_event(const event_view& value) {
   if (phase_ == phase::before_document && value.kind != event_kind::start_document) {
     throw std::invalid_argument{"XML events require start_document first"};
   }
-  charge(usage_.events, 1U, bounds_.max_events);
+  charge(usage_.events, 1U, bounds_.max_events, context_);
   // Reject descriptor counts before scanning their strings or allocating duplicate indexes.
   if (starts_element) {
     if (open_elements_.empty() && root_seen_) {
       throw std::invalid_argument{"XML events require exactly one root"};
     }
     if (open_elements_.size() >= bounds_.document.max_depth) {
-      throw std::length_error{"XML event depth limit exceeded"};
+      reject_limit(context_, "XML event depth limit exceeded", 1U, 0U);
     }
-    charge(usage_.nodes, 1U, bounds_.document.max_nodes);
-    charge(usage_.attributes, value.attributes.size(), bounds_.document.max_attributes);
+    charge(usage_.nodes, 1U, bounds_.document.max_nodes, context_);
+    charge(usage_.attributes, value.attributes.size(), bounds_.document.max_attributes, context_);
     charge(usage_.namespace_bindings, value.namespaces.size(),
-        bounds_.document.max_namespace_bindings);
+        bounds_.document.max_namespace_bindings, context_);
   }
   if (context_) {
     context_->consume(operation_resource::work_units, 1U);
     context_->consume(operation_resource::work_units, value.attributes.size());
     context_->consume(operation_resource::work_units, value.namespaces.size());
   }
-  const auto bytes = payload_bytes(value, bounds_.max_event_bytes);
+  const auto bytes = payload_bytes(value, bounds_.max_event_bytes, context_);
   if (context_) {
     context_->consume(operation_resource::work_units, bytes);
   }
@@ -147,37 +147,37 @@ void event_validator::accept_event(const event_view& value) {
     break;
   case event_kind::start_element: {
     // Count identities once when introduced, rather than counting end-name repetitions.
-    charge(usage_.name_bytes, value.qualified_name.local.size(), bounds_.document.max_name_bytes);
+    charge(usage_.name_bytes, value.qualified_name.local.size(), bounds_.document.max_name_bytes, context_);
     charge(usage_.name_bytes, value.qualified_name.namespace_uri.size(),
-        bounds_.document.max_name_bytes);
+        bounds_.document.max_name_bytes, context_);
     for (const auto& attribute : value.attributes) {
       if (attribute.qualified_name.local.empty()) {
         throw std::invalid_argument{"XML event attribute requires a local name"};
       }
       charge(usage_.name_bytes, attribute.qualified_name.local.size(),
-          bounds_.document.max_name_bytes);
+          bounds_.document.max_name_bytes, context_);
       charge(usage_.name_bytes, attribute.qualified_name.namespace_uri.size(),
-          bounds_.document.max_name_bytes);
-      charge(usage_.text_bytes, attribute.value.size(), bounds_.document.max_text_bytes);
+          bounds_.document.max_name_bytes, context_);
+      charge(usage_.text_bytes, attribute.value.size(), bounds_.document.max_text_bytes, context_);
     }
     for (const auto& declaration : value.namespaces) {
-      charge(usage_.name_bytes, declaration.prefix.size(), bounds_.document.max_name_bytes);
-      charge(usage_.name_bytes, declaration.namespace_uri.size(), bounds_.document.max_name_bytes);
+      charge(usage_.name_bytes, declaration.prefix.size(), bounds_.document.max_name_bytes, context_);
+      charge(usage_.name_bytes, declaration.namespace_uri.size(), bounds_.document.max_name_bytes, context_);
     }
     std::size_t frame_bytes{sizeof(name)};
-    charge(frame_bytes, value.qualified_name.local.size(), bounds_.max_state_bytes);
-    charge(frame_bytes, value.qualified_name.namespace_uri.size(), bounds_.max_state_bytes);
+    charge(frame_bytes, value.qualified_name.local.size(), bounds_.max_state_bytes, context_);
+    charge(frame_bytes, value.qualified_name.namespace_uri.size(), bounds_.max_state_bytes, context_);
     const auto index_count = std::max(value.attributes.size(), value.namespaces.size());
     std::size_t scratch_bytes{};
     if (index_count >= 2U) {
       if (index_count > bounds_.max_state_bytes / sizeof(std::size_t)) {
-        throw std::length_error{"XML event duplicate index limit exceeded"};
+        reject_limit(context_, "XML event duplicate index limit exceeded");
       }
       scratch_bytes = index_count * sizeof(std::size_t);
     }
     auto state_bytes = usage_.state_bytes;
-    charge(state_bytes, frame_bytes, bounds_.max_state_bytes);
-    charge(state_bytes, scratch_bytes, bounds_.max_state_bytes);
+    charge(state_bytes, frame_bytes, bounds_.max_state_bytes, context_);
+    charge(state_bytes, scratch_bytes, bounds_.max_state_bytes, context_);
     if (context_) {
       context_->consume(operation_resource::allocation_bytes, frame_bytes);
       context_->consume(operation_resource::allocation_bytes, scratch_bytes);
@@ -194,7 +194,7 @@ void event_validator::accept_event(const event_view& value) {
     if (open_elements_.empty()) {
       throw std::invalid_argument{"XML text event outside the root"};
     }
-    charge(usage_.text_bytes, value.text.size(), bounds_.document.max_text_bytes);
+    charge(usage_.text_bytes, value.text.size(), bounds_.document.max_text_bytes, context_);
     break;
   case event_kind::end_element:
     if (open_elements_.empty() ||

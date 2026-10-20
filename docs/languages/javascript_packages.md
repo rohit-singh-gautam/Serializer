@@ -154,9 +154,14 @@ random input can address ZIP64 offsets above 4 GiB without materializing the gap
 
 Errors expose `code`, `part`, `relationshipId` and, where available, `fieldPath`.
 Application transport/cancellation failures retain their exact identity.
-**P16 remains open:** generated XML still has its own per-message limits and does
-not automatically charge every nested object/reference into the package ledger.
-Schema-authored fixed/default/runtime profile selection and automatic application
-key/reference validation (**P20/P21**) also remain open. The
+Native XML token/scalar work, retained namespaces and each complete identity
+request share the package ledger. Language 1.21 adds fixed/default storage policy
+and automatic direct scalar key/reference selectors. Supply
+`{profiles: {resources: 'stored'}}` in package options to override defaults by
+schema role name; fixed roles and expected XML root/type identities remain
+immutable. Duplicate, missing and wrong-model references fail before publication,
+with part/field/link diagnostics. TypeScript declarations expose the same options.
+See [application contracts](../serialization/package_application_contracts.md).
+Provider workspace and process heap peaks remain separately bounded. The
 [qualification record](../verification/verification-javascript-packages-2026-10-20.md)
 defines the executed scope separately from these limits.

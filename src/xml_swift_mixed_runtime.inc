@@ -4,6 +4,7 @@
 R"serializer(
 // Bound native fragment storage independently of ordinary XML and map policies.
 public struct XmlMixedLimits {
+    fileprivate var srlPackageLimit: ((String) -> any Swift.Error)?
     public let maxFragments: Int
     public let maxTextBytes: Int
     // Preserve exact zero bounds; operation entry points reject negative policies.
@@ -24,12 +25,12 @@ fileprivate final class SrlXmlMixedBudget {
     init(_ limits: XmlMixedLimits) { self.limits = limits }
     // Charge every authored fragment before retaining its text or child value.
     func fragment() throws {
-        guard fragments < limits.maxFragments else { throw SerializerError.invalid("XML mixed fragment limit exceeded") }; fragments += 1
+        guard fragments < limits.maxFragments else { throw srlXmlLimitFailure(limits.srlPackageLimit,"XML mixed fragment limit exceeded") }; fragments += 1
     }
     // Check exact Unicode scalar validity and cumulative UTF8 bytes before appending.
     func text(_ value: String) throws {
         let size = value.utf8.count
-        guard size <= limits.maxTextBytes - bytes else { throw SerializerError.invalid("XML mixed text limit exceeded") }
+        guard size <= limits.maxTextBytes - bytes else { throw srlXmlLimitFailure(limits.srlPackageLimit,"XML mixed text limit exceeded") }
         for scalar in value.unicodeScalars {
             let code = scalar.value
             guard code == 9 || code == 10 || code == 13 || (32...0xd7ff).contains(code) || (0xe000...0xfffd).contains(code) || (0x10000...0x10ffff).contains(code) else { throw SerializerError.invalid("Invalid XML character") }

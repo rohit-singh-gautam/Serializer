@@ -1276,8 +1276,8 @@ class python_package_test(unittest.TestCase):
         self.assertEqual(caught.exception.field_path, 'name')
         self.assertEqual(caught.exception.relationship_id, 'srl_main_0')
 
-    def test_deferred_tree_emission_preserves_outer_location_boundary(self):
-        """Report the part/link after native scopes end without claiming a persistent field mapping."""
+    def test_deferred_tree_emission_retains_field_part_and_link(self):
+        """Retain optional immutable field provenance through deferred native tree presentation."""
         module = self.module
         model = self.fixture().main
         shared = module.PackageBudget()
@@ -1290,8 +1290,56 @@ class python_package_test(unittest.TestCase):
         self.assertEqual(caught.exception.code, 'resource_limit')
         self.assertEqual(caught.exception.part, '/model.xml')
         self.assertEqual(caught.exception.relationship_id, 'modelLink')
-        self.assertEqual(caught.exception.field_path, '')
+        self.assertEqual(caught.exception.field_path, 'name')
         self.assertEqual(model.name, 'generated & checked')
+
+    def test_prepared_attribute_escaping_retains_field_location(self):
+        """Fail after attribute lexical preparation while escaping its unpublished start-tag bytes."""
+        module = self.module
+        shared = module.PackageBudget()
+        context = shared.xml_context('/model.xml', 'modelLink')
+        selected = module._xml_field_context(context, 'name')
+        writer = module._XmlTokenOutput(module.Limits(), context)
+        original = writer.escaped
+        def escape(value, attribute=False):
+            """Force exactly the deferred attribute emission boundary without changing its preparation."""
+            if value == 'a&b':
+                shared.consume('work_units', shared.remaining('work_units'))
+            return original(value, attribute)
+        writer.escaped = escape
+        with self.assertRaises(module.PackageError) as caught:
+            writer.start('model', [('name', 'a&b')], attribute_contexts={'name': selected})
+        self.assertEqual((caught.exception.code, caught.exception.part, caught.exception.relationship_id,
+                          caught.exception.field_path), ('resource_limit', '/model.xml', 'modelLink', 'name'))
+
+    def test_local_xml_provider_scalar_and_pattern_limits_are_typed(self):
+        """Classify explicit local admissions before semantic wrapping and preserve caller identity."""
+        module = self.module
+        shared = module.PackageBudget()
+        context = module._xml_field_context(shared.xml_context('/model.xml', 'modelLink'), 'name')
+        actions = [lambda: module._XmlTokenOutput(module.Limits(max_bytes=1), context).start('model'),
+                   lambda: module._XmlBudget(module.Limits(max_string_bytes=1), context).text('large'),
+                   lambda: module._xml_token_decode(module.ProfileModel, '{urn:serializer:package-test}model',
+                       (b'<model/>',), module.Limits(max_bytes=1), context),
+                   lambda: module._xml_portable_pattern('large', (0, ()),
+                       module._XmlPatternContext(context, module.XmlPatternLimits(max_input_bytes=1))),
+                   lambda: module._xml_portable_pattern('', (0, (((), (), (), False, False, False, True),)),
+                       module._XmlPatternContext(context, module.XmlPatternLimits(max_states=0))),
+                   lambda: module._xml_portable_pattern('', (0, (((), (), (), False, False, False, True),)),
+                       module._XmlPatternContext(context, module.XmlPatternLimits(max_work_units=0)))]
+        for action in actions:
+            with self.assertRaises(module.PackageError) as caught:
+                action()
+            self.assertEqual((caught.exception.code, caught.exception.part, caught.exception.relationship_id,
+                              caught.exception.field_path), ('resource_limit', '/model.xml', 'modelLink', 'name'))
+        original = ValueError('caller classification must remain exact')
+        def fail():
+            """Raise an unrelated caller exception at the provider-local admission boundary."""
+            raise original
+        shared.limits = dataclasses.replace(shared.limits, is_cancelled=fail)
+        with self.assertRaises(ValueError) as caught:
+            actions[1]()
+        self.assertIs(caught.exception, original)
 
     def test_namespace_snapshot_admission_retains_nested_field_diagnostics(self):
         """Use the original namespace ledger and exact charges through nested optional diagnostic proxies."""

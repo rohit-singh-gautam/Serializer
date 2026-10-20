@@ -20,16 +20,16 @@ R"xmlmodel(
   // Convert only ASCII hexadecimal digits; all other code units remain invalid.
   private static int SrlXmlHexDigit(char value) => value>='0'&&value<='9'?value-'0':value>='a'&&value<='f'?value-'a'+10:value>='A'&&value<='F'?value-'A'+10:-1;
   // Validate complete lexical input before retaining owning candidate bytes.
-  private static byte[] SrlXmlDigestRead(string text,int extent,XmlDigestLimits limits) {
+  private static byte[] SrlXmlDigestRead(string text,int extent,XmlDigestLimits limits,Limits.IOperation? operation=null) {
     int size=text.Length/2;if((text.Length&1)!=0||extent!=0&&size!=extent)throw new System.FormatException("XML digest extent or hexadecimal pairs");
-    if(size>limits.MaxBytes)throw new System.FormatException("XML digest byte limit");
+    if(size>limits.MaxBytes)throw SrlXmlBudget.Limit("XML digest byte limit",operation);
     foreach(char item in text)if(SrlXmlHexDigit(item)<0)throw new System.FormatException("Invalid XML digest hexadecimal");
     byte[] result=new byte[size];for(int index=0;index<size;++index)result[index]=(byte)((SrlXmlHexDigit(text[index*2])<<4)|SrlXmlHexDigit(text[index*2+1]));return result;
   }
   // Export exact existing bytes as lowercase hexadecimal without calculating a digest.
-  private static string SrlXmlDigestText(byte[] value,int extent,XmlDigestLimits limits) {
+  private static string SrlXmlDigestText(byte[] value,int extent,XmlDigestLimits limits,Limits.IOperation? operation=null) {
     if(value is null||extent!=0&&value.Length!=extent)throw new System.FormatException("XML digest extent");
-    if(value.Length>limits.MaxBytes||value.Length>int.MaxValue/2)throw new System.FormatException("XML digest byte limit");
+    if(value.Length>limits.MaxBytes||value.Length>int.MaxValue/2)throw SrlXmlBudget.Limit("XML digest byte limit",operation);
     char[] output=new char[value.Length*2];const string digits="0123456789abcdef";
     for(int index=0;index<value.Length;++index){byte item=value[index];output[index*2]=digits[item>>4];output[index*2+1]=digits[item&15];}return new string(output);
   }

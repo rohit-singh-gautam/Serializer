@@ -6,6 +6,8 @@ R"xmloutput(
 fileprivate final class SrlXmlOutput {
     private let limits: XmlLimits
     var listLimit: Int { limits.maxNodes }
+    var scalarQuota: ((String) -> any Swift.Error)? { limits.srlPackageLimit }
+    var scalarOperation: ((String,Int) throws -> Void)? { limits.srlPackageConsume }
     let mapLimits: XmlMapLimits
     let mixedLimits: XmlMixedLimits
     let digestLimits: XmlDigestLimits
@@ -21,6 +23,11 @@ fileprivate final class SrlXmlOutput {
     private var identities: [(value:SrlXmlIdentity,depth:Int)] = []
     // Keep all output and limits local to one complete encode operation.
     init(_ limits: XmlLimits, _ mapLimits: XmlMapLimits = XmlMapLimits(), _ mixedLimits: XmlMixedLimits = XmlMixedLimits(), _ digestLimits: XmlDigestLimits = XmlDigestLimits(), _ identityLimits: XmlIdentityLimits = XmlIdentityLimits(), _ extensionOptions: XmlExtensionOptions = XmlExtensionOptions()) throws {
+        var mapLimits=mapLimits;mapLimits.srlPackageLimit=limits.srlPackageLimit
+        var mixedLimits=mixedLimits;mixedLimits.srlPackageLimit=limits.srlPackageLimit
+        var digestLimits=digestLimits;digestLimits.srlPackageLimit=limits.srlPackageLimit
+        var identityLimits=identityLimits;identityLimits.srlPackageLimit=limits.srlPackageLimit;identityLimits.srlPackageConsume=limits.srlPackageConsume
+        var extensionOptions=extensionOptions;extensionOptions.srlPackageLimit=limits.srlPackageLimit;extensionOptions.srlPackageConsume=limits.srlPackageConsume
         try mapLimits.validate()
         try mixedLimits.validate()
         try digestLimits.validate()
@@ -29,7 +36,7 @@ fileprivate final class SrlXmlOutput {
         self.limits = limits; self.mapLimits = mapLimits; self.mixedLimits = mixedLimits; self.digestLimits = digestLimits; self.identityLimits = identityLimits; self.extensionOptions = extensionOptions; self.budget = SrlXmlBudget(limits)
     }
     // Check encoded length before growing the owned document buffer.
-    private func append(_ value: String) throws { guard bytes.count <= limits.maxBytes && value.utf8.count <= limits.maxBytes - bytes.count else { throw SerializerError.invalid("XML output limit") }; bytes.append(contentsOf: value.utf8) }
+    private func append(_ value: String) throws { guard bytes.count <= limits.maxBytes && value.utf8.count <= limits.maxBytes - bytes.count else { throw srlXmlLimitFailure(limits,"XML output limit") }; bytes.append(contentsOf: value.utf8) }
     // Resolve QName vocabulary through active generated start tags without retaining completed elements.
     private func identityNamespace(_ prefix: String) -> String? {
         if prefix == "xml" { return "http://www.w3.org/XML/1998/namespace" }

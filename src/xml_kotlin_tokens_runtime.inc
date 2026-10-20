@@ -63,7 +63,7 @@ internal class SrlXmlInput(bytes: ByteArray, limits: XmlLimits, val mapLimits: X
         private set
     init {
         require(limits.maxBytes >= 0 && limits.maxNodes >= 0 && limits.maxDepth >= 0 && limits.maxTextBytes >= 0) { "Negative XML limit" }
-        require(bytes.size <= limits.maxBytes) { "XML byte limit" }
+        if (!(bytes.size <= limits.maxBytes)) SrlXmlBudget.limit("XML byte limit",operation)
         operation?.charge("work",bytes.size.toLong()); operation?.charge("allocation",bytes.size.toLong())
         srlXmlCheckUtf8(bytes)
         val factory = javax.xml.stream.XMLInputFactory.newFactory()

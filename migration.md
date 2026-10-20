@@ -1,5 +1,18 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.17.0
+
+Regenerate affected package/XML output and rebuild C++ applications against matching
+headers/runtime. Schema language **1.21.0** adds package policies and direct scalar
+key/reference selectors. Older compatible headers retain their meaning and the
+integer `version 1;` alias remains exactly 1.0.0. Native IDs, scalar encodings and
+managed storage formats do not change.
+
+Follow the [generated package contract](docs/serialization/package_application_contracts.md).
+New syntax requires language 1.21.0 in its declaring file, including includes.
+Fixed profiles reject mismatched physical storage; older profiles retain overridable
+defaults. Domain callbacks remain available after generated reference validation.
+
 ## Compiler/runtime 2.16.0
 
 Regenerate XML output and rebuild C++ applications with matching headers/runtime.

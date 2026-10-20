@@ -1,5 +1,12 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.17.0** adds schema language **1.21.0** package policies and
+automatic scoped payload keys/references. Use
+[`policy`, `key` and `reference`](../serialization/package_application_contracts.md)
+to validate an aggregate before Save. Storage overrides retain immutable
+model/root identities. Native wire formats are unchanged; regenerate affected
+source and rebuild C++ consumers against matching runtime headers.
+
 Compiler/runtime **2.16.0** retains C++/Python per-occurrence XML namespace scopes
 for scalar children, including shadowed/local QName declarations, default resets
 and nested QName/list unions. Go/Java/C#/Kotlin/Swift add plain

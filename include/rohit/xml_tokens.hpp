@@ -180,6 +180,9 @@ template <typename T> inline constexpr bool digest_byte_storage = [] {
 template <typename T> void read_token_digest(std::string_view lexical, T& value,
     const limits& bounds, operation_context* context) {
   if (lexical.size() % 2U || lexical.size() / 2U > bounds.max_digest_bytes) {
+    if (!(lexical.size() % 2U) && context && context->limit_location) {
+      context->reject_limit(lexical.size() / 2U, bounds.max_digest_bytes, "XML digest byte limit exceeded");
+    }
     throw std::invalid_argument{"XML digest requires bounded hexadecimal byte pairs"};
   }
   const auto count = lexical.size() / 2U;
@@ -199,7 +202,7 @@ template <typename T> void read_token_digest(std::string_view lexical, T& value,
 template <typename T> std::string token_digest_text(const T& value, const limits& bounds,
     operation_context* context) {
   if (value.size() > bounds.max_digest_bytes || value.size() > std::numeric_limits<std::size_t>::max() / 2U) {
-    throw std::length_error{"XML digest byte limit exceeded"};
+    reject_limit(context, "XML digest byte limit exceeded", value.size(), bounds.max_digest_bytes);
   }
   if (context) {
     context->consume(operation_resource::allocation_bytes, value.size() * 2U);
@@ -262,11 +265,11 @@ inline std::string_view token_element_lexical(std::string_view value,
 }
 
 // Bound lexical items before any native list element allocation, independently of XML node count.
-inline void check_token_list(std::string_view lexical, const limits& bounds) {
+inline void check_token_list(std::string_view lexical, const limits& bounds, operation_context* context = nullptr) {
   std::size_t count{};
   auto remaining = trim(lexical);
   while (!remaining.empty()) {
-    if (count >= bounds.max_nodes) { throw std::length_error{"XML list item limit exceeded"}; }
+    if (count >= bounds.max_nodes) { reject_limit(context, "XML list item limit exceeded", 1U, 0U); }
     ++count;
     const auto separator = remaining.find_first_of(" \t\r\n");
     remaining = separator == std::string_view::npos ? std::string_view{} : trim(remaining.substr(separator));
@@ -274,10 +277,10 @@ inline void check_token_list(std::string_view lexical, const limits& bounds) {
 }
 
 // Admit a borrowed native list before lexical validation or joining allocates its output spelling.
-template <typename T> void check_token_list_storage(const T& value, const limits& bounds) {
+template <typename T> void check_token_list_storage(const T& value, const limits& bounds, operation_context* context = nullptr) {
   if constexpr (optional_traits<T>::value) {
-    if (value) { check_token_list_storage(*value, bounds); }
-  } else if (value.size() > bounds.max_nodes) { throw std::length_error{"XML list item limit exceeded"}; }
+    if (value) { check_token_list_storage(*value, bounds, context); }
+  } else if (value.size() > bounds.max_nodes) { reject_limit(context, "XML list item limit exceeded", value.size(), bounds.max_nodes); }
 }
 } // namespace detail
 
@@ -312,7 +315,7 @@ template <typename T> void write_token_list_attribute(token_writer& writer,
   if constexpr (detail::optional_traits<T>::value) {
     if (values) { write_token_list_attribute(writer, selected, *values); }
   } else {
-    if (values.size() > writer.bounds().max_nodes) { throw std::length_error{"XML list item limit exceeded"}; }
+    if (values.size() > writer.bounds().max_nodes) { reject_limit(writer.context(), "XML list item limit exceeded", values.size(), writer.bounds().max_nodes); }
     writer.attribute_value(selected, format_list(values, writer.context()));
   }
 }
@@ -320,7 +323,7 @@ template <typename T> void write_token_list_attribute(token_writer& writer,
 // Encode one lexical list without treating its native collection as repeated XML elements.
 template <typename T> void write_token_list_value(token_writer& writer, const T& values,
     std::optional<std::string_view> empty_default = {}, whitespace_policy whitespace = whitespace_policy::preserve) {
-  if (values.size() > writer.bounds().max_nodes) { throw std::length_error{"XML list item limit exceeded"}; }
+  if (values.size() > writer.bounds().max_nodes) { reject_limit(writer.context(), "XML list item limit exceeded", values.size(), writer.bounds().max_nodes); }
   write_token_value(writer, format_list(values, writer.context()), empty_default, whitespace);
 }
 
@@ -467,7 +470,7 @@ template <typename Map> void write_token_map(token_writer& writer, const name& w
     if (values) { write_token_map(writer, wrapper, entry, key_name, value_name, attribute_key, *values); }
   } else {
     if (values.size() > writer.bounds().max_map_entries) {
-      throw std::length_error{"XML map entry limit exceeded"};
+      reject_limit(writer.context(), "XML map entry limit exceeded", values.size(), writer.bounds().max_map_entries);
     }
     writer.open(wrapper);
     std::size_t key_bytes{};
@@ -477,7 +480,7 @@ template <typename Map> void write_token_map(token_writer& writer, const name& w
         else { return detail::scalar_text(key); }
       }();
       if (lexical.size() > writer.bounds().max_map_key_bytes - key_bytes) {
-        throw std::length_error{"XML map key byte limit exceeded"};
+        reject_limit(writer.context(), "XML map key byte limit exceeded", lexical.size(), writer.bounds().max_map_key_bytes - key_bytes);
       }
       key_bytes += lexical.size();
       writer.open(entry);
@@ -743,7 +746,7 @@ public:
       std::optional<std::string_view> empty_default = {}) {
     std::string lexical{};
     text_value(lexical, validator, empty_default);
-    detail::check_token_list(lexical, reader_.bounds());
+    detail::check_token_list(lexical, reader_.bounds(), reader_.context());
     value = parse_list<T>(lexical, reader_.context());
   }
   // Decode one present or defaulted scalar-list attribute without retaining any XML nodes.
@@ -752,12 +755,12 @@ public:
     if constexpr (detail::optional_traits<T>::value) {
       std::optional<std::string> lexical{};
       attribute_value(selected, lexical, absent_default, validator);
-      if (lexical) { detail::check_token_list(*lexical, reader_.bounds()); value = parse_list<T>(*lexical, reader_.context()); }
+      if (lexical) { detail::check_token_list(*lexical, reader_.bounds(), reader_.context()); value = parse_list<T>(*lexical, reader_.context()); }
       else { value.reset(); }
     } else {
       std::string lexical{};
       attribute_value(selected, lexical, absent_default, validator);
-      detail::check_token_list(lexical, reader_.bounds());
+      detail::check_token_list(lexical, reader_.bounds(), reader_.context());
       value = parse_list<T>(lexical, reader_.context());
     }
   }
@@ -768,12 +771,12 @@ public:
     if constexpr (detail::optional_traits<T>::value) {
       std::optional<std::string> lexical{};
       child_value(selected, lexical, empty_default, validator, projection);
-      if (lexical) { detail::check_token_list(*lexical, reader_.bounds()); value = parse_list<T>(*lexical, reader_.context()); }
+      if (lexical) { detail::check_token_list(*lexical, reader_.bounds(), reader_.context()); value = parse_list<T>(*lexical, reader_.context()); }
       else { value.reset(); }
     } else {
       std::string lexical{};
       child_value(selected, lexical, empty_default, validator, projection);
-      detail::check_token_list(lexical, reader_.bounds());
+      detail::check_token_list(lexical, reader_.bounds(), reader_.context());
       value = parse_list<T>(lexical, reader_.context());
     }
   }
@@ -884,7 +887,7 @@ public:
       reader_.skip_space();
       while (matches(entry)) {
         if (candidate.size() >= reader_.bounds().max_map_entries) {
-          throw std::length_error{"XML map entry limit exceeded"};
+          reject_limit(reader_.context(), "XML map entry limit exceeded", 1U, 0U);
         }
         if (reader_.context()) {
           reader_.context()->consume(operation_resource::allocation_bytes, sizeof(typename Map::value_type));
@@ -911,7 +914,7 @@ public:
         }();
         const auto admitted = std::max(lexical.size(), canonical.size());
         if (admitted > reader_.bounds().max_map_key_bytes - key_bytes) {
-          throw std::length_error{"XML map key byte limit exceeded"};
+          reject_limit(reader_.context(), "XML map key byte limit exceeded", admitted, reader_.bounds().max_map_key_bytes - key_bytes);
         }
         key_bytes += admitted;
         if (!value_read) { fields.child_value(value_name, item); }
@@ -965,6 +968,12 @@ template <typename T> [[nodiscard]] T deserialize_tokens(std::string_view bytes,
     token_reader reader{bytes, bounds, context, chunk_bytes};
     if (reader.current().kind != event_kind::start_element || reader.current().qualified_name != T::xml_root_name()) {
       throw std::invalid_argument{"Unexpected XML root name or namespace"};
+    }
+    if (context && context->permitted_root_type) {
+      const auto type = reader.take_type();
+      if (type && *type != *context->permitted_root_type) {
+        throw std::invalid_argument{"Unexpected package XML root type"};
+      }
     }
     if (context) { context->consume(operation_resource::allocation_bytes, sizeof(T)); }
     T candidate{};

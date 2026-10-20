@@ -15,11 +15,17 @@ namespace rohit::serializer::writer::package_codegen {
 inline std::string python(const package_node& package, const std::string& name,
     const std::function<std::string(const type_name&)>& render_type,
     const std::function<std::string(std::string_view)>& render_field,
-    const std::function<std::string(std::string_view)>& literal) {
+    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {}) {
   const auto parts = ordered(package);
+  const auto contract = compile_package_profile(package, xml);
   std::string output;
   const auto line = [&](const std::string& text = {}) { output += text + '\n'; };
   std::set<std::string> fields{"extensions"};
+  std::string profiles_field{"profiles"};
+  while (std::any_of(parts.begin(), parts.end(),
+      [&](const auto* part) { return render_field(part->name) == profiles_field; })) {
+    profiles_field += '_';
+  }
   std::set<std::pair<std::string, std::string>> dispatch;
   std::string parameters;
   for (const auto* part : parts) {
@@ -36,18 +42,36 @@ inline std::string python(const package_node& package, const std::string& name,
   line("    \"\"\"Generated complete OPC profile; callers supply typed values and binary resources.\"\"\"");
   line("    class Input:");
   line("        \"\"\"Borrow role values for synchronous encoding; extensions retain whole unknown parts.\"\"\"");
-  line("        def __init__(self" + parameters + ", extensions=None):");
+  line("        _pkg_profiles_field = " + literal(profiles_field));
+  line("        def __init__(self" + parameters + ", extensions=None, " + profiles_field + "=None):");
   line("            \"\"\"Bind resources without copying model or binary payloads.\"\"\"");
   for (const auto* part : parts) {
     const auto field = render_field(part->name);
     line("            self." + field + " = " + field);
   }
   line("            self.extensions = extensions");
+  line("            self." + profiles_field + " = " + profiles_field);
   line("    class Value(Input):");
   line("        \"\"\"Own the fresh decoded role aggregate.\"\"\"");
   line("        pass");
   line("    _roles = (");
   for (const auto* part : parts) {
+    const auto profile = std::find_if(contract.parts.begin(), contract.parts.end(),
+        [&](const auto& item) { return item.role == part->name; });
+    const auto expanded = [&](const auto& value) {
+      return literal(value.namespace_uri.empty() ? value.local : "{" + value.namespace_uri + "}" + value.local);
+    };
+    std::string keys{"("}, references{"("};
+    for (const auto& key : part->keys) {
+      keys += "(" + literal(key.scope) + "," + literal(render_field(key.field)) + "),";
+    }
+    for (const auto& reference : part->references) {
+      const auto target = std::find_if(parts.begin(), parts.end(),
+          [&](const auto* item) { return item->name == reference.target_role; });
+      references += "(" + literal(reference.scope) + "," + literal(render_field(reference.field)) + "," +
+          render_type(*(*target)->value_type) + "),";
+    }
+    keys += ')'; references += ')';
     const auto optional = [&](const auto& value) { return value ? literal(*value) : "None"; };
     line("        {'field': " + literal(render_field(part->name)) + ", 'role': " + literal(part->name) +
         ", 'model': " + (part->value_type ? render_type(*part->value_type) : "None") +
@@ -56,9 +80,16 @@ inline std::string python(const package_node& package, const std::string& name,
         ", 'source': " + literal(part->source == "/" ? "/" : render_field(part->source)) +
         ", 'relationship': " + literal(part->relationship) + ", 'id': " + optional(part->relationship_id) +
         ", 'compression': " + literal(part->compression) + ", 'minimum': " + std::to_string(part->min_occurs) +
-        ", 'maximum': " + (part->max_occurs ? std::to_string(*part->max_occurs) : "None") + "},");
+        ", 'maximum': " + (part->max_occurs ? std::to_string(*part->max_occurs) : "None") +
+        ", 'policy': " + literal(part->profile_policy) + ", 'keys': " + keys + ", 'references': " + references +
+        ", 'root': " + (profile->decoder ? expanded(profile->decoder->root) : "None") +
+        ", 'type': " + (profile->decoder && profile->decoder->type ? expanded(*profile->decoder->type) : "None") + "},");
   }
   line("    )");
+  line("    @classmethod");
+  line("    def select_profiles(cls, overrides=None):");
+  line("        \"\"\"Resolve stored/deflate overrides without replacing declared model identities.\"\"\"");
+  line("        return _pkg_select_profiles(cls._roles, overrides)");
   line("    @classmethod");
   line("    def encode(cls, value, limits=None, budget=None):");
   line("        \"\"\"Return a complete archive after role, URI and relationship validation.\"\"\"");

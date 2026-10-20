@@ -18,6 +18,71 @@
 
 namespace rohit::serializer::writer::package_codegen {
 
+// Resolve a direct public persistent string/integer selector without traversing user-owned graphs.
+inline const member& selector_member(const package_part_declaration& part, std::string_view name) {
+  if (!part.value_type || !part.value_type->resolved_node ||
+      part.value_type->resolved_node->type != object_type::class_type) {
+    throw std::invalid_argument{"Package selectors require a typed record role: " + part.name};
+  }
+  const auto& owner = static_cast<const class_node&>(*part.value_type->resolved_node);
+  const auto found = std::find_if(owner.member_list.begin(), owner.member_list.end(),
+      [&](const auto& field) { return field.name == name; });
+  if (found == owner.member_list.end() || found->access != access_type::public_access ||
+      found->modifier != member::modifier_type::none || found->type_name_list.size() != 1U ||
+      found->managed || found->transient || found->wire_only || found->magic || found->version || found->omits("xml")) {
+    throw std::invalid_argument{"Package selectors require a direct public persistent scalar: " +
+                                part.name + "." + std::string{name}};
+  }
+  const auto& type = found->type_name_list.front();
+  const std::set<std::string_view> supported{"string", "int8", "int16", "int32", "int64",
+      "uint8", "uint16", "uint32", "uint64"};
+  if (type.type != object_type::primitive || !type.arguments.empty() || !supported.contains(type.name)) {
+    throw std::invalid_argument{"Package selector type must be string or a fixed-width integer: " +
+                                part.name + "." + std::string{name}};
+  }
+  return *found;
+}
+
+// Validate declarative identities once before emitting any target language's package facade.
+inline void validate_contract(const package_node& package) {
+  std::map<std::string, const package_part_declaration*> roles;
+  std::map<std::pair<std::string, std::string>, const member*> keys;
+  std::map<std::string, std::string> scope_types;
+  for (const auto& part : package.parts) {
+    if (!roles.emplace(part.name, &part).second) {
+      throw std::invalid_argument{"Duplicate package role: " + part.name};
+    }
+    if (part.profile_policy != "fixed" && part.profile_policy != "defaults") {
+      throw std::invalid_argument{"Unknown package profile policy: " + part.name};
+    }
+    for (const auto& key : part.keys) {
+      const auto& field = selector_member(part, key.field);
+      const auto& key_type = field.type_name_list.front().name;
+      const auto [scope, inserted] = scope_types.emplace(key.scope, key_type);
+      if (!inserted && scope->second != key_type) {
+        throw std::invalid_argument{"Package key scopes require one exact scalar type: " + key.scope};
+      }
+      if (key.scope.empty() || !keys.emplace(std::make_pair(part.name, key.scope), &field).second) {
+        throw std::invalid_argument{"Duplicate or empty package key scope in role: " + part.name};
+      }
+    }
+  }
+  for (const auto& part : package.parts) {
+    std::set<std::pair<std::string, std::string>> references;
+    for (const auto& reference : part.references) {
+      const auto& field = selector_member(part, reference.field);
+      const auto target = roles.find(reference.target_role);
+      const auto key = keys.find({reference.target_role, reference.scope});
+      if (target == roles.end() || key == keys.end() ||
+          !references.emplace(reference.scope, reference.field).second ||
+          key->second->type_name_list.front().name != field.type_name_list.front().name) {
+        throw std::invalid_argument{"Package reference requires one matching target-role key: " +
+                                    part.name + "." + reference.field};
+      }
+    }
+  }
+}
+
 // Detect package use at generation time; ordinary models need no package include or support.
 inline bool contains(const std::vector<std::unique_ptr<syntax_node>>& statements) {
   return std::any_of(statements.begin(), statements.end(), [](const auto& node) {
@@ -49,6 +114,7 @@ inline std::string quote(std::string_view value) {
 
 // Order declarative roles by their source roles and reject an undiscoverable dependency cycle.
 inline std::vector<const package_part_declaration*> ordered(const package_node& package) {
+  validate_contract(package);
   std::vector<const package_part_declaration*> result;
   std::set<std::string> selected;
   while (result.size() != package.parts.size()) {
@@ -80,6 +146,12 @@ inline std::string cpp(const package_node& package,
     const xml_options& xml = {}) {
   const auto parts = ordered(package);
   const auto package_name = render_name(package.name);
+  const auto profiles_method = package_name == "select_profiles" ? "select_profiles_metadata" : "select_profiles";
+  std::string profiles_field{"profiles"};
+  while (std::any_of(parts.begin(), parts.end(),
+      [&](const auto* part) { return field_name(part->name) == profiles_field; })) {
+    profiles_field += '_';
+  }
   std::set<std::string> member_names{"extensions"};
   std::set<std::pair<std::string, std::string>> dispatch_roles;
   for (const auto* part : parts) {
@@ -98,12 +170,32 @@ inline std::string cpp(const package_node& package,
   };
   const auto member = [&](const package_part_declaration& part) { return field_name(part.name); };
   const auto local = [&](const package_part_declaration& part) { return "srl_" + member(part); };
-  const auto storage = [](const package_part_declaration& part) {
-    return "{.method = ::rohit::serializer::package::zip_method::" + part.compression + "}";
+  const auto storage = [&](const package_part_declaration& part) {
+    return "::rohit::serializer::package::profile_storage(srl_profiles, " + quote(part.name) + ")";
+  };
+  const auto references = [&](const package_part_declaration& part, const std::string& model,
+                              const std::string& location, const std::string& relationship_id) {
+    for (const auto& key : part.keys) {
+      line("          srl_references.add_target<" + render_type(*part.value_type) + ">(" + quote(key.scope) +
+          ", ::rohit::serializer::package::reference_key(" + model + "." + field_name(key.field) + "), {" +
+          location + ", " + quote(part.name + "." + key.field) + ", " + relationship_id + "});");
+    }
+    for (const auto& reference : part.references) {
+      const auto target = std::find_if(parts.begin(), parts.end(),
+          [&](const auto* item) { return item->name == reference.target_role; });
+      line("          srl_references.require_target<" + render_type(*(*target)->value_type) + ">(" + quote(reference.scope) +
+          ", ::rohit::serializer::package::reference_key(" + model + "." + field_name(reference.field) + "), {" +
+          location + ", " + quote(part.name + "." + reference.field) + ", " + relationship_id + "});");
+    }
   };
   line("// Generated OPC profile: declarations select structure; callers supply values and providers.");
   line("struct " + package_name + " {");
   output += cpp_profile_metadata(package, xml, package_name);
+  line("  // Resolve runtime storage choices while keeping generated model/root identities fixed.");
+  line("  static auto " + std::string{profiles_method} + "(const ::rohit::serializer::package::profile_overrides& srl_runtime = {}) {");
+  line("    return ::rohit::serializer::package::resolve_profiles(" +
+      std::string{package_name == "document_profiles" ? "document_profiles_metadata" : "document_profiles"} + "(), srl_runtime);");
+  line("  }");
   line("  // Borrow every resource for the synchronous Save; no model payload is copied here.");
   line("  struct input {");
   for (const auto* part : parts) {
@@ -125,6 +217,7 @@ inline std::string cpp(const package_node& package,
     }
   }
   line("    const ::rohit::serializer::package::preserved_extensions* extensions{};");
+  line("    const ::rohit::serializer::package::profile_overrides* " + profiles_field + "{};");
   line("  };");
   line("  // Own a decoded aggregate; dynamic parts retain the names discovered through relationships.");
   line("  struct value {");
@@ -173,6 +266,8 @@ inline std::string cpp(const package_node& package,
   line("      const ::std::function<void(const value&, ::rohit::serializer::package::budget&)>& srl_validate = {}) {");
   line("    auto srl_budget = ::std::make_shared<::rohit::serializer::package::budget>(::std::move(srl_limits));");
   line("    ::rohit::serializer::package::opc_reader srl_reader{srl_source, srl_budget};");
+  line("    ::rohit::serializer::package::reference_index<::std::string> srl_references{*srl_budget};");
+  line("    const auto srl_profiles = " + std::string{profiles_method} + "();");
   line("    ::std::vector<::rohit::serializer::package::part_relocation> srl_relocations;");
   line("    auto srl_result = ::rohit::serializer::package::load_opc<value>(srl_reader,");
   line("        [&](value& srl_value, auto& srl_loader) {");
@@ -187,6 +282,10 @@ inline std::string cpp(const package_node& package,
     line("        srl_loader.read_related(srl_source_name, " + quote(part->relationship) + ", " +
         quote(part->content_type.value_or("")) + ",");
     line("            [&](::std::span<const ::std::uint8_t> srl_bytes, const auto& srl_part, auto& srl_shared) {");
+    if (part->profile_policy == "fixed") {
+      line("          if (srl_reader.storage_method(srl_part.name) != ::rohit::serializer::package::zip_method::" +
+          part->compression + ") { throw ::rohit::serializer::package::error{::rohit::serializer::package::error_code::invalid_state, \"Fixed package storage mismatch\", srl_part.name}; }");
+    }
     line("          ::rohit::serializer::package::remember_source(" + local(*part) + "_sources, srl_part.name, srl_shared);");
     line("          ::rohit::serializer::package::require_occurrences(" + local(*part) + "_sources.size(), 0U, " +
         maximum(*part) + ", " + quote(part->name) + ");");
@@ -198,10 +297,13 @@ inline std::string cpp(const package_node& package,
         line("          srl_shared.consume(::rohit::serializer::package::resource::metadata_bytes, srl_part.name.size(), srl_part.name);");
         line("          srl_shared.consume(::rohit::serializer::package::resource::metadata_bytes, " + std::to_string(part->part_name->size()) + "U, srl_part.name);");
         line("          srl_relocations.push_back({srl_part.name, " + quote(*part->part_name) + "});");
-        line("          srl_value." + member(*part) + " = ::rohit::serializer::package::read_xml_part<" + type + ">(srl_bytes, srl_shared, srl_part.name);");
+        line("          srl_value." + member(*part) + " = ::rohit::serializer::package::read_xml_part<" + type + ">(srl_bytes, srl_shared, srl_part.name, ::rohit::serializer::package::profile_dispatch(srl_profiles, " + quote(part->name) + "));");
+        references(*part, part->min_occurs == 0U ? "(*srl_value." + member(*part) + ")" :
+            "srl_value." + member(*part), "srl_part.name", "::std::string{srl_loader.current_relationship_id()}");
       } else {
         line("          srl_value." + member(*part) + ".push_back({srl_part.name, srl_part.content_type,");
-        line("              ::rohit::serializer::package::read_xml_part<" + type + ">(srl_bytes, srl_shared, srl_part.name)});");
+        line("              ::rohit::serializer::package::read_xml_part<" + type + ">(srl_bytes, srl_shared, srl_part.name, ::rohit::serializer::package::profile_dispatch(srl_profiles, " + quote(part->name) + "))});");
+        references(*part, "srl_value." + member(*part) + ".back().value", "srl_part.name", "::std::string{srl_loader.current_relationship_id()}");
       }
     } else {
       line("          srl_shared.consume(::rohit::serializer::package::resource::decoder_allocation_bytes, srl_bytes.size(), srl_part.name);");
@@ -213,6 +315,7 @@ inline std::string cpp(const package_node& package,
     line("      ::rohit::serializer::package::require_occurrences(" + local(*part) + "_sources.size(), " +
         std::to_string(part->min_occurs) + "U, " + maximum(*part) + ", " + quote(part->name) + ");");
   }
+  line("      srl_references.validate();");
   line("      if (srl_validate) { srl_validate(srl_value, srl_loader.shared_budget()); }");
   line("    }, ::std::move(srl_policy));");
   line("    srl_result.extensions.relocations = ::std::move(srl_relocations);");
@@ -221,6 +324,8 @@ inline std::string cpp(const package_node& package,
   line("private:");
   line("  // Assemble declared roles; standard manifests and relationships remain runtime-owned.");
   line("  static void compose(::rohit::serializer::package::opc_writer& srl_writer, const input& srl_input) {");
+  line("    const auto srl_profiles = " + std::string{profiles_method} + "(srl_input." + profiles_field + " ? *srl_input." + profiles_field + " : ::rohit::serializer::package::profile_overrides{});");
+  line("    ::rohit::serializer::package::reference_index<::std::string> srl_references{*srl_writer.shared_budget()};");
   for (const auto* part : parts) {
     const auto field = "srl_input." + member(*part);
     const auto id = part->relationship_id ? quote(*part->relationship_id) :
@@ -231,6 +336,7 @@ inline std::string cpp(const package_node& package,
       line("    if (" + field + ") {");
       line("      const auto srl_name = " + quote(*part->part_name) + ";");
       line("      const auto srl_relationship_id = " + id + ";");
+      references(*part, "(*" + field + ")", "srl_name", "srl_relationship_id");
       line("      ::rohit::serializer::package::write_xml_part(srl_writer, srl_name, " + quote(*part->content_type) + ", *" + field + ", " + storage(*part) + ", srl_relationship_id);");
     } else {
       line("    for (::std::size_t srl_index{}; srl_index < " + field + ".size(); ++srl_index) {");
@@ -240,6 +346,7 @@ inline std::string cpp(const package_node& package,
       const auto media = part->content_type ? quote(*part->content_type) : "srl_item.content_type";
       if (part->value_type) {
         line("      if (!srl_item.value) { throw ::std::invalid_argument{\"Package typed resource is unbound\"}; }");
+        references(*part, "(*srl_item.value)", "::std::string{srl_name}", "srl_relationship_id");
         line("      ::rohit::serializer::package::write_xml_part(srl_writer, srl_name, " + media + ", *srl_item.value, " + storage(*part) + ", srl_relationship_id);");
       } else {
         line("      srl_writer.add_part(srl_name, " + media + ", srl_item.bytes, " + storage(*part) + ");");
@@ -255,6 +362,7 @@ inline std::string cpp(const package_node& package,
     line("      srl_writer.add_relationship({" + source + ", srl_relationship_id, " + quote(part->relationship) + ", ::std::string{srl_name}});");
     line("    }");
   }
+  line("    srl_references.validate();");
   line("    if (srl_input.extensions) { ::rohit::serializer::package::write_preserved(srl_writer, *srl_input.extensions); }");
   line("  }");
   line("};");

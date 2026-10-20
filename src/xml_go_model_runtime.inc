@@ -21,13 +21,13 @@ var srlXmlRevisionNumber=regexp.MustCompile(`\A(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:
 func srlXmlHexDigit(value byte)int{if value>='0'&&value<='9'{return int(value-'0')};if value>='a'&&value<='f'{return int(value-'a'+10)};if value>='A'&&value<='F'{return int(value-'A'+10)};return -1}
 // Admit exact extent and every lexical pair before allocating private owning digest bytes.
 func srlXmlDigestRead(text string,extent int,limits XmlDigestLimits)([]byte,error){
-  size:=len(text)/2;if len(text)%2!=0||extent!=0&&size!=extent{return nil,fmt.Errorf("XML digest extent or hexadecimal pairs")};if size>limits.MaxBytes{return nil,fmt.Errorf("XML digest byte limit")}
+  size:=len(text)/2;if len(text)%2!=0||extent!=0&&size!=extent{return nil,fmt.Errorf("XML digest extent or hexadecimal pairs")};if size>limits.MaxBytes{return nil,srlXmlLimitError("XML digest byte limit")}
   for index:=0;index<len(text);index++{if srlXmlHexDigit(text[index])<0{return nil,fmt.Errorf("Invalid XML digest hexadecimal")}}
   result:=make([]byte,size);for index:=range result{result[index]=byte(srlXmlHexDigit(text[index*2])<<4|srlXmlHexDigit(text[index*2+1]))};return result,nil
 }
 // Project exact native bytes as lowercase hexadecimal without hashing or changing their ownership.
 func srlXmlDigestText(value []byte,extent int,limits XmlDigestLimits)(string,error){
-  if extent!=0&&len(value)!=extent{return "",fmt.Errorf("XML digest extent")};if len(value)>limits.MaxBytes||len(value)>int(^uint(0)>>1)/2{return "",fmt.Errorf("XML digest byte limit")}
+  if extent!=0&&len(value)!=extent{return "",fmt.Errorf("XML digest extent")};if len(value)>limits.MaxBytes||len(value)>int(^uint(0)>>1)/2{return "",srlXmlLimitError("XML digest byte limit")}
   const digits="0123456789abcdef";output:=make([]byte,len(value)*2);for index,item:=range value{output[index*2]=digits[item>>4];output[index*2+1]=digits[item&15]};return string(output),nil
 }
 )xmlmodel"

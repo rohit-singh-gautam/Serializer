@@ -18,6 +18,8 @@ public struct XmlExtensionLimits {
 }
 // Permission to preserve opaque content never establishes semantic understanding of its vocabulary.
 public struct XmlExtensionOptions {
+    fileprivate var srlPackageLimit: ((String) -> any Swift.Error)?
+    fileprivate var srlPackageConsume: ((String,Int) throws -> Void)?
     public let understoodNamespaces: [String], requiredPrefixes: String
     public let limits: XmlExtensionLimits
     // Own immutable capability metadata while preserving ordinary Swift copy-on-write array semantics.
@@ -27,11 +29,11 @@ public struct XmlExtensionOptions {
     // Bound capability metadata before creating membership indexes or prefix-token storage.
     fileprivate func validate() throws {
         try limits.validate()
-        guard understoodNamespaces.count <= limits.maxItems else { throw SerializerError.invalid("XML capability item limit") }
+        guard understoodNamespaces.count <= limits.maxItems else { throw srlXmlLimitFailure(srlPackageLimit,"XML capability item limit") }
         var bytes=requiredPrefixes.utf8.count
-        guard bytes <= srlXmlExtensionMaxPreservedBytes else { throw SerializerError.invalid("XML capability metadata byte limit") }
+        guard bytes <= srlXmlExtensionMaxPreservedBytes else { throw srlXmlLimitFailure(srlPackageLimit,"XML capability metadata byte limit") }
         for uri in understoodNamespaces {
-            guard uri.utf8.count <= srlXmlExtensionMaxPreservedBytes-bytes else { throw SerializerError.invalid("XML capability metadata byte limit") }
+            guard uri.utf8.count <= srlXmlExtensionMaxPreservedBytes-bytes else { throw srlXmlLimitFailure(srlPackageLimit,"XML capability metadata byte limit") }
             bytes += uri.utf8.count; _=try srlXmlEscape(uri,true)
         }
         _=try srlXmlEscape(requiredPrefixes,true)
@@ -105,14 +107,14 @@ fileprivate final class SrlXmlExtensions {
         self.meta=meta; self.scope=scope; self.options=options; state=existing
         try options.validate()
         guard meta.slots.count <= options.limits.maxSlots, meta.known.count <= options.limits.maxItems,
-              meta.required.count <= options.limits.maxItems else { throw SerializerError.invalid("XML extension slot limit") }
+              meta.required.count <= options.limits.maxItems else { throw srlXmlLimitFailure(options.srlPackageLimit,"XML extension slot limit") }
         counts=[Int](repeating:0,count:meta.slots.count)
         let understood=Set(options.understoodNamespaces.map { WireString($0) })
         for uri in meta.required {
             guard WireString(uri) == WireString(meta.core) || understood.contains(WireString(uri)) else { throw SerializerError.invalid("Required XML capability is not understood") }
         }
         var required=0
-        for prefix in try SrlXmlRule.tokens(options.requiredPrefixes,options.limits.maxItems) {
+        for prefix in try SrlXmlRule.tokens(options.requiredPrefixes,options.limits.maxItems,options.srlPackageLimit) {
             guard required < options.limits.maxItems, srlXmlNcName(prefix), prefix != "xmlns" else { throw SerializerError.invalid("Invalid required XML capability prefix") }; required += 1
             guard let uri=scope[WireString(prefix)], !uri.isEmpty else { throw SerializerError.invalid("Unbound required XML capability prefix") }
             guard WireString(uri) == WireString(meta.core) || understood.contains(WireString(uri)) else { throw SerializerError.invalid("Required XML capability is not understood") }
@@ -122,11 +124,11 @@ fileprivate final class SrlXmlExtensions {
     // Check arithmetic and the selected bound before accumulating a logical storage size.
     private func addSize(_ current: Int, _ amount: Int) throws -> Int {
         guard current >= 0 && amount >= 0 && current <= options.limits.maxPreservedBytes,
-              amount <= options.limits.maxPreservedBytes-current else { throw SerializerError.invalid("XML extension preserved-byte limit") }
+              amount <= options.limits.maxPreservedBytes-current else { throw srlXmlLimitFailure(options.srlPackageLimit,"XML extension preserved-byte limit") }
         return current+amount
     }
     // Admit logical bytes before any corresponding owning payload allocation.
-    func charge(_ amount: Int) throws { bytes=try addSize(bytes,amount) }
+    func charge(_ amount: Int) throws { let next=try addSize(bytes,amount); try options.srlPackageConsume?("preserved",amount); bytes=next }
     // Measure all in-scope declarations, including prefixes used only by unknown QName lexical values.
     private func scopeBytes(_ bindings: [WireString:String]) throws -> Int {
         try srlXmlExtensionBindings(bindings); var size=0
@@ -146,7 +148,8 @@ fileprivate final class SrlXmlExtensions {
         guard let index=slot(name,attribute,position) else { throw SerializerError.invalid("XML extension has no permitted slot") }
         let selected=meta.slots[index]
         guard selected.policy != 0 else { throw SerializerError.invalid("XML extension slot rejects foreign vocabulary") }
-        guard items < options.limits.maxItems, selected.maximum == nil || counts[index] < selected.maximum! else { throw SerializerError.invalid("XML extension item/occurrence limit") }
+        guard items < options.limits.maxItems else { throw srlXmlLimitFailure(options.srlPackageLimit,"XML extension item/occurrence limit") }
+        guard selected.maximum == nil || counts[index] < selected.maximum! else { throw SerializerError.invalid("XML extension item/occurrence limit") }
         items += 1; counts[index] += 1; return selected.policy == 2
     }
     // Lazily construct a private sidecar; skip-only traversal retains no foreign candidate.

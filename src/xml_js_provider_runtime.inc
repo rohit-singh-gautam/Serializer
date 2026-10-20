@@ -8,22 +8,23 @@ const srlXmlSchemaSecret=Symbol('prepared XML schema');
 // Bound a complete provider input with public SAX events; collect only declared schema roots, never a tree.
 function srlXmlProviderScan(source,limits,schema=false,declared=null) {
   if(source instanceof Uint8Array){
-    if(source.byteLength>limits.maxBytes)throw new Error('XML provider input byte limit');
+    if(source.byteLength>limits.maxBytes)throw srlXmlQuotaError('XML provider input byte limit');
     source=new TextDecoder('utf-8',{fatal:true}).decode(source);
   }
-  if(typeof source!=='string' || source.length>limits.maxBytes || srlXmlUtf8Length(source)>limits.maxBytes)throw new Error('XML provider input byte limit');
+  if(typeof source!=='string')throw new Error('XML provider input byte limit');
+  if(source.length>limits.maxBytes || srlXmlUtf8Length(source)>limits.maxBytes)throw srlXmlQuotaError('XML provider input byte limit');
   srlXmlCharacters(source);
   const parser=new SrlXmlSaxes({xmlns:true,fragment:false,defaultXMLVersion:'1.0',forceXMLVersion:true});
   const roots=new Set();let depth=0,nodes=0,attributes=0,text=0,target='',rootSeen=false,complete=false;
-  const charge=value=>{const count=srlXmlUtf8Length(value);if(count>limits.maxTextBytes-text)throw new Error('XML provider text limit');text+=count;srlXmlCharacters(value);};
+  const charge=value=>{const count=srlXmlUtf8Length(value);if(count>limits.maxTextBytes-text)throw srlXmlQuotaError('XML provider text limit');text+=count;srlXmlCharacters(value);};
   parser.on('error',error=>{throw error;});
   parser.on('doctype',()=>{throw new Error('XML provider DTD/entities forbidden');});
   parser.on('xmldecl',value=>{
     if(value.version!=='1.0' || value.encoding && !/^utf-?8$/i.test(value.encoding))throw new Error('Only XML1.0 UTF-8 provider input is supported');
   });
-  parser.on('opentagstart',()=>{if(++nodes>limits.maxNodes || ++depth>limits.maxDepth)throw new Error('XML provider node/depth limit');});
+  parser.on('opentagstart',()=>{if(++nodes>limits.maxNodes || ++depth>limits.maxDepth)throw srlXmlQuotaError('XML provider node/depth limit');});
   parser.on('attribute',attribute=>{
-    if(++attributes>limits.maxAttributes)throw new Error('XML provider attribute limit');charge(attribute.value);
+    if(++attributes>limits.maxAttributes)throw srlXmlQuotaError('XML provider attribute limit');charge(attribute.value);
     if((attribute.name==='xmlns' || attribute.prefix==='xmlns') && attribute.value!==attribute.value.trim())throw new Error('XML namespace URI whitespace is not permitted');
   });
   parser.on('opentag',node=>{

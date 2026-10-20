@@ -23,7 +23,7 @@ export class XmlExtensionOptions {
     let bytes=0;
     for(const value of [...understood,required]){
       if(typeof value!=='string')throw new Error('XML capabilities require URI and prefix text');
-      bytes+=srlXmlUtf8Length(value);if(bytes>srlXmlExtensionMetadataBytes)throw new Error('XML capability metadata byte limit');srlXmlCharacters(value);
+      bytes+=srlXmlUtf8Length(value);if(bytes>srlXmlExtensionMetadataBytes)throw srlXmlQuotaError('XML capability metadata byte limit');srlXmlCharacters(value);
     }
     this.understoodNamespaces=Object.freeze([...understood]);this.requiredPrefixes=required;
   }
@@ -61,11 +61,11 @@ function srlXmlExtensionBindings(bindings) {
 class SrlXmlExtensions {
   constructor(meta,scope,options) {
     this.meta=meta;this.scope=scope;this.options=options;this.bounds=options.limits;
-    if(meta.slots.length>this.bounds.maxSlots || meta.known.length>this.bounds.maxItems || meta.required.length>this.bounds.maxItems)throw new Error('XML extension slot limit');
+    if(meta.slots.length>this.bounds.maxSlots || meta.known.length>this.bounds.maxItems || meta.required.length>this.bounds.maxItems)throw srlXmlQuotaError('XML extension slot limit');
     this.counts=meta.slots.map(()=>0);this.items=0;this.bytes=0;this.state=null;this.known=new Set(meta.known);
     const understood=new Set(options.understoodNamespaces),required=[...meta.required];let count=0;
     for(const matched of options.requiredPrefixes.matchAll(/[^ \t\r\n]+/g)){
-      if(count>=this.bounds.maxItems)throw new Error('XML required-vocabulary item limit');++count;
+      if(count>=this.bounds.maxItems)throw srlXmlQuotaError('XML required-vocabulary item limit');++count;
       const prefix=matched[0];if(prefix==='xmlns' || !srlXmlCompleteName(SrlXmlNcName,prefix))throw new Error('Invalid required XML capability prefix');
       const name=srlXmlScalarQName(prefix+':item',scope),uri=name.slice(0,name.indexOf('\0'));
       if(!uri)throw new Error('Unbound required XML capability prefix');required.push(uri);
@@ -74,7 +74,7 @@ class SrlXmlExtensions {
   }
   // Admit logical retained bytes before corresponding owning payload storage is created.
   charge(size) {
-    if(size>this.bounds.maxPreservedBytes-this.bytes)throw new Error('XML extension preserved-byte limit');this.bytes+=size;
+    if(size>this.bounds.maxPreservedBytes-this.bytes)throw srlXmlQuotaError('XML extension preserved-byte limit');this.bytes+=size;
   }
   // Locate an exact foreign URI/field boundary; core and statically known expanded names remain closed.
   slot(name,attribute,position=null) {
@@ -86,7 +86,8 @@ class SrlXmlExtensions {
   admit(name,attribute,position=null) {
     const index=this.slot(name,attribute,position),slot=this.meta.slots[index];
     if(index<0 || slot.policy==='reject')throw new Error('XML extension has no permitted slot');
-    if(this.items>=this.bounds.maxItems || slot.maximum!==null && this.counts[index]>=slot.maximum)throw new Error('XML extension item/occurrence limit');
+    if(this.items>=this.bounds.maxItems)throw srlXmlQuotaError('XML extension item/occurrence limit');
+    if(slot.maximum!==null && this.counts[index]>=slot.maximum)throw new Error('XML extension item/occurrence limit');
     ++this.items;++this.counts[index];return slot.policy==='preserve';
   }
   // Account one complete namespace context, including declarations needed only by opaque lexical values.

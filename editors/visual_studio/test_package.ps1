@@ -68,7 +68,14 @@ try {
       $sha.Dispose()
       $stream.Dispose()
     }
-    $expected = (Get-FileHash -LiteralPath (Join-Path $repository $sharedFiles[$name]) -Algorithm SHA256).Hash
+    $sourceStream = [IO.File]::OpenRead((Join-Path $repository $sharedFiles[$name]))
+    $sourceSha = [Security.Cryptography.SHA256]::Create()
+    try {
+      $expected = [BitConverter]::ToString($sourceSha.ComputeHash($sourceStream)).Replace('-', '')
+    } finally {
+      $sourceSha.Dispose()
+      $sourceStream.Dispose()
+    }
     if ($actual -cne $expected) { throw "Packaged asset differs from source: $name" }
   }
   foreach ($path in @($manifest.PackageManifest.Metadata.Icon, $manifest.PackageManifest.Metadata.License)) {

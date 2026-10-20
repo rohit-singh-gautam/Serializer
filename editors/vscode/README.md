@@ -1,11 +1,17 @@
 # Rohit Serializer for Visual Studio Code
 
-Version **2.0.9** recognizes generated Kotlin package objects and C# package
-facades. Compiler-marked runtime support is excluded without shifting source
-offsets; inherited-field lookup reuses each output's lexical mask. The Visual
-Studio interpreter retains its 256 MiB request limit and native selection bounds.
+Version **2.0.10** supports schema language **1.21.0** package envelope policies
+and scoped application keys/references. `key` and `reference` field operands
+navigate to direct public string/integer members through qualified model types,
+transitive includes and unsaved edits. Their target-role operands remain package
+metadata and do not claim unrelated type destinations. New snippets cover all
+three declarations. Generated Rust, Swift and C package facades join the existing
+language destinations; ordinary native enums retain their normal identity.
 
-Version **2.0.9** supports schema language **1.20.0** XML defaults, field overrides,
+Both local packages share version **2.0.10**. Building and validating these files
+does not install the extensions or update live Marketplace listings.
+
+The existing schema language **1.20.0** authoring support includes XML defaults, field overrides,
 namespace `using schema` declarations and declarative package roles. Qualified
 role model types navigate to their declarations; fixed XSD paths open the local
 file without treating it as a Serializer include or fetching remote resources.
@@ -15,7 +21,7 @@ remain prerequisites; editor support does not establish format conformance.
 Typed C++ `managed_ref<T>` tokens navigate to the managed target, including forward
 and included declarations. `class_id(decimal)` preserves explicit class identity;
 its numeric metadata does not become a type reference. VS Code supplies token and
-class-identity snippets. Both local packages share version 2.0.9; building them does
+class-identity snippets. Both local packages share version 2.0.10; building them does
 not install or publish them.
 
 

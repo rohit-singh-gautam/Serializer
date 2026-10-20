@@ -33,8 +33,8 @@
 namespace rohit::serializer::xml {
 namespace {
 // Fail bounded counters before overflow or allocation beyond the document budget.
-void consume(std::size_t& used, std::size_t amount, std::size_t bound) {
-  if (used > bound || amount > bound - used) { throw std::length_error{"XML resource limit exceeded"}; }
+void consume(std::size_t& used, std::size_t amount, std::size_t bound, operation_context* context = nullptr) {
+  if (used > bound || amount > bound - used) { reject_limit(context, "XML resource limit exceeded", amount, bound - std::min(used, bound)); }
   used += amount;
 }
 // Validate complete UTF-8 XML names independently of the optional parsing provider.
@@ -90,7 +90,7 @@ class document_writer {
   // Append within the complete output budget.
   void append(std::string_view value) {
     if (bytes_.size() > bounds_.max_output_bytes || value.size() > bounds_.max_output_bytes - bytes_.size()) {
-      throw std::length_error{"XML output limit exceeded"};
+      reject_limit(context_, "XML output limit exceeded", value.size(), bounds_.max_output_bytes - std::min(bytes_.size(), bounds_.max_output_bytes));
     }
     if (context_) {
       context_->consume(operation_resource::work_units, value.size());
@@ -126,8 +126,8 @@ class document_writer {
   }
   // Register stable namespace prefixes in first-use traversal order.
   void register_name(const name& value) {
-    consume(name_bytes_, value.local.size(), bounds_.max_name_bytes);
-    consume(name_bytes_, value.namespace_uri.size(), bounds_.max_name_bytes);
+    consume(name_bytes_, value.local.size(), bounds_.max_name_bytes, context_);
+    consume(name_bytes_, value.namespace_uri.size(), bounds_.max_name_bytes, context_);
     check_name(value.local);
     check_text(value.namespace_uri);
     if (value.namespace_uri == "http://www.w3.org/2000/xmlns/") {
@@ -139,12 +139,13 @@ class document_writer {
   }
   // Verify shape, budgets and duplicate expanded attributes before serializing.
   void inspect(const element& node, std::size_t depth) {
+    const diagnostic_scope location{context_, node.diagnostic};
     if (context_) { context_->consume(operation_resource::work_units, 1U); }
-    if (depth > bounds_.max_depth) { throw std::length_error{"XML depth limit exceeded"}; }
-    consume(nodes_, 1U, bounds_.max_nodes);
-    consume(text_bytes_, node.text.size(), bounds_.max_text_bytes);
+    if (depth > bounds_.max_depth) { reject_limit(context_, "XML depth limit exceeded", 1U, 0U); }
+    consume(nodes_, 1U, bounds_.max_nodes, context_);
+    consume(text_bytes_, node.text.size(), bounds_.max_text_bytes, context_);
     register_name(node.qualified_name);
-    consume(namespace_bindings_, node.namespace_bindings.size(), bounds_.max_namespace_bindings);
+    consume(namespace_bindings_, node.namespace_bindings.size(), bounds_.max_namespace_bindings, context_);
     for (const auto& [prefix, uri] : node.namespace_bindings) {
       if (!prefix.empty()) { check_name(prefix); }
       check_text(uri);
@@ -152,8 +153,8 @@ class document_writer {
           (prefix == "xml") != (uri == "http://www.w3.org/XML/1998/namespace")) {
         throw std::invalid_argument{"Invalid retained XML namespace binding"};
       }
-      consume(name_bytes_, prefix.size(), bounds_.max_name_bytes);
-      consume(name_bytes_, uri.size(), bounds_.max_name_bytes);
+      consume(name_bytes_, prefix.size(), bounds_.max_name_bytes, context_);
+      consume(name_bytes_, uri.size(), bounds_.max_name_bytes, context_);
       retained_prefixes_.insert(prefix);
     }
     if (!node.children.empty() && !detail::trim(node.text).empty() && node.text_segments.empty() &&
@@ -175,8 +176,10 @@ class document_writer {
     }
     std::set<std::pair<std::string, std::string>> names{};
     for (const auto& attribute : node.attributes) {
-      consume(attributes_, 1U, bounds_.max_attributes);
-      consume(text_bytes_, attribute.value.size(), bounds_.max_text_bytes);
+      const diagnostic_scope attribute_location{context_, attribute.diagnostic};
+      if (context_) { context_->consume(operation_resource::work_units, 1U); }
+      consume(attributes_, 1U, bounds_.max_attributes, context_);
+      consume(text_bytes_, attribute.value.size(), bounds_.max_text_bytes, context_);
       register_name(attribute.qualified_name);
       if (attribute.qualified_name.namespace_uri.empty() && attribute.qualified_name.local == "xmlns") {
         throw std::invalid_argument{"Namespace declarations are not ordinary attributes"};
@@ -200,6 +203,7 @@ class document_writer {
   // Verify transient union metadata against the final inherited and generated namespace declarations.
   void emit(const element& node, bool root, std::string_view inherited_default = {},
       const namespace_frame* parent_scope = nullptr) {
+    const diagnostic_scope location{context_, node.diagnostic};
     const auto default_binding = node.namespace_bindings.find("");
     auto effective_default = default_binding == node.namespace_bindings.end() ?
         inherited_default : std::string_view{default_binding->second};
@@ -242,6 +246,7 @@ class document_writer {
       effective_default = {};
     }
     for (const auto& attribute : node.attributes) {
+      const diagnostic_scope attribute_location{context_, attribute.diagnostic};
       append(" "); emit_name(attribute.qualified_name); append("=\"");
       escaped(attribute.value, true); append("\"");
     }
@@ -423,6 +428,34 @@ void operation_context::consume(operation_resource selected, std::size_t amount)
   check();
   if (charge) { charge(selected, amount); }
   if (charge_location) { charge_location(selected, amount, current_field); }
+}
+
+// Preserve caller exceptions and classify only explicit native/provider-local admission failures.
+void operation_context::reject_limit(std::size_t requested, std::size_t available, std::string_view message) const {
+  check();
+  if (limit_location) { limit_location(requested, available, message, current_field); }
+  throw std::length_error{std::string{message}};
+}
+
+// Snapshot static generated names after charging the optional provenance allocation.
+std::shared_ptr<const diagnostic_snapshot> retain_diagnostic(operation_context* context) {
+  if (!context || !context->current_field ||
+      !(context->check_location || context->charge_location || context->limit_location)) { return {}; }
+  std::size_t count{};
+  for (auto* field = context->current_field; field; field = field->parent) { ++count; }
+  if (count > (std::numeric_limits<std::size_t>::max() - sizeof(diagnostic_snapshot)) / sizeof(diagnostic_field)) {
+    context->reject_limit(count, 0U, "XML diagnostic metadata overflow");
+  }
+  context->consume(operation_resource::allocation_bytes, sizeof(diagnostic_snapshot) + count * sizeof(diagnostic_field));
+  auto snapshot = std::make_shared<diagnostic_snapshot>();
+  snapshot->fields.reserve(count);
+  for (auto* field = context->current_field; field; field = field->parent) {
+    snapshot->fields.push_back({field->member, nullptr});
+  }
+  for (std::size_t index{}; index + 1U < count; ++index) {
+    snapshot->fields[index].parent = &snapshot->fields[index + 1U];
+  }
+  return snapshot;
 }
 
 // Saturate durations rather than overflowing the steady-clock time-point representation.
@@ -1072,7 +1105,7 @@ element parse(std::string_view document, limits bounds) {
 // Keep ordinary callers on the memory reader; only selected operations install checked I/O.
 element parse(std::string_view document, limits bounds, operation_context* context) {
   if (document.size() > bounds.max_input_bytes || document.size() > static_cast<std::size_t>(INT_MAX)) {
-    throw std::length_error{"XML input limit exceeded"};
+    reject_limit(context, "XML input limit exceeded", document.size(), std::min(bounds.max_input_bytes, static_cast<std::size_t>(INT_MAX)));
   }
 #if SERIALIZER_HAS_XML
   if (context) { context->check(); }
@@ -1091,7 +1124,7 @@ element parse(std::string_view document, limits bounds, operation_context* conte
   std::vector<bool> opaque_stack{};
   std::size_t nodes{}, attributes{}, text_bytes{}, name_bytes{}, namespace_bindings{}, tree_bytes{};
   const auto retain = [&](std::size_t amount) {
-    consume(tree_bytes, amount, bounds.max_tree_bytes);
+    consume(tree_bytes, amount, bounds.max_tree_bytes, context);
     if (context) { context->consume(operation_resource::allocation_bytes, amount); }
   };
   bool root_seen{false};
@@ -1108,9 +1141,9 @@ element parse(std::string_view document, limits bounds, operation_context* conte
       throw std::invalid_argument{"XML DTDs and entities are prohibited"};
     }
     if (type == XML_READER_TYPE_ELEMENT) {
-      consume(nodes, 1U, bounds.max_nodes);
+      consume(nodes, 1U, bounds.max_nodes, context);
       retain(sizeof(element));
-      if (stack.size() >= bounds.max_depth) { throw std::length_error{"XML depth limit exceeded"}; }
+      if (stack.size() >= bounds.max_depth) { reject_limit(context, "XML depth limit exceeded", 1U, 0U); }
       element* node{};
       if (stack.empty()) {
         if (root_seen) { throw std::invalid_argument{"Multiple XML roots"}; }
@@ -1120,16 +1153,16 @@ element parse(std::string_view document, limits bounds, operation_context* conte
       }
       node->qualified_name = {copy(xmlTextReaderConstLocalName(reader.get())),
                               copy(xmlTextReaderConstNamespaceUri(reader.get()))};
-      consume(name_bytes, node->qualified_name.local.size(), bounds.max_name_bytes);
-      consume(name_bytes, node->qualified_name.namespace_uri.size(), bounds.max_name_bytes);
+      consume(name_bytes, node->qualified_name.local.size(), bounds.max_name_bytes, context);
+      consume(name_bytes, node->qualified_name.namespace_uri.size(), bounds.max_name_bytes, context);
       retain(node->qualified_name.local.size());
       retain(node->qualified_name.namespace_uri.size());
       if (!stack.empty()) {
         // Charge inherited maps before copying; compact nested documents cannot multiply metadata unboundedly.
-        consume(namespace_bindings, stack.back()->namespace_bindings.size(), bounds.max_namespace_bindings);
+        consume(namespace_bindings, stack.back()->namespace_bindings.size(), bounds.max_namespace_bindings, context);
         for (const auto& [prefix, uri] : stack.back()->namespace_bindings) {
-          consume(name_bytes, prefix.size(), bounds.max_name_bytes);
-          consume(name_bytes, uri.size(), bounds.max_name_bytes);
+          consume(name_bytes, prefix.size(), bounds.max_name_bytes, context);
+          consume(name_bytes, uri.size(), bounds.max_name_bytes, context);
           retain(sizeof(std::pair<const std::string, std::string>));
           retain(prefix.size());
           retain(uri.size());
@@ -1150,24 +1183,24 @@ element parse(std::string_view document, limits bounds, operation_context* conte
             const auto prefix = copy(xmlTextReaderConstPrefix(reader.get())) == "xmlns" ?
                 copy(xmlTextReaderConstLocalName(reader.get())) : std::string{};
             const auto uri = copy(xmlTextReaderConstValue(reader.get()));
-            consume(namespace_bindings, 1U, bounds.max_namespace_bindings);
-            consume(name_bytes, prefix.size(), bounds.max_name_bytes);
-            consume(name_bytes, uri.size(), bounds.max_name_bytes);
+            consume(namespace_bindings, 1U, bounds.max_namespace_bindings, context);
+            consume(name_bytes, prefix.size(), bounds.max_name_bytes, context);
+            consume(name_bytes, uri.size(), bounds.max_name_bytes, context);
             retain(sizeof(std::pair<const std::string, std::string>));
             retain(prefix.size());
             retain(uri.size());
             node->namespace_bindings[prefix] = uri;
             continue;
           }
-          consume(attributes, 1U, bounds.max_attributes);
+          consume(attributes, 1U, bounds.max_attributes, context);
           retain(sizeof(attribute));
           attribute item{{copy(xmlTextReaderConstLocalName(reader.get())),
                            copy(xmlTextReaderConstNamespaceUri(reader.get()))},
                           copy(xmlTextReaderConstValue(reader.get()))};
           check_name(item.qualified_name.local);
-          consume(text_bytes, item.value.size(), bounds.max_text_bytes);
-          consume(name_bytes, item.qualified_name.local.size(), bounds.max_name_bytes);
-          consume(name_bytes, item.qualified_name.namespace_uri.size(), bounds.max_name_bytes);
+          consume(text_bytes, item.value.size(), bounds.max_text_bytes, context);
+          consume(name_bytes, item.qualified_name.local.size(), bounds.max_name_bytes, context);
+          consume(name_bytes, item.qualified_name.namespace_uri.size(), bounds.max_name_bytes, context);
           retain(item.value.size());
           retain(item.qualified_name.local.size());
           retain(item.qualified_name.namespace_uri.size());
@@ -1189,7 +1222,7 @@ element parse(std::string_view document, limits bounds, operation_context* conte
     } else if (type == XML_READER_TYPE_TEXT || type == XML_READER_TYPE_CDATA ||
                type == XML_READER_TYPE_WHITESPACE || type == XML_READER_TYPE_SIGNIFICANT_WHITESPACE) {
       const auto text = copy(xmlTextReaderConstValue(reader.get()));
-      consume(text_bytes, text.size(), bounds.max_text_bytes);
+      consume(text_bytes, text.size(), bounds.max_text_bytes, context);
       retain(text.size());
       if (!stack.empty()) {
         if (opaque_stack.back()) {
@@ -1232,7 +1265,7 @@ prepared_pattern::prepared_pattern(std::string_view expression, limits bounds,
 #if SERIALIZER_HAS_XML
   if (expression.size() > bounds.max_input_bytes || expression.size() > bounds.max_text_bytes ||
       expression.size() >= static_cast<std::size_t>(INT_MAX)) {
-    throw std::length_error{"XML pattern input limit exceeded"};
+    reject_limit(context, "XML pattern input limit exceeded", expression.size(), std::min(bounds.max_input_bytes, bounds.max_text_bytes));
   }
   check_text(expression, context);
   if (context) {
@@ -1262,7 +1295,7 @@ bool prepared_pattern::matches(std::string_view value, limits bounds,
   if (!implementation_) { throw std::logic_error{"Moved-from prepared XML pattern"}; }
   if (value.size() > bounds.max_input_bytes || value.size() > bounds.max_text_bytes ||
       value.size() >= static_cast<std::size_t>(INT_MAX)) {
-    throw std::length_error{"XML pattern value limit exceeded"};
+    reject_limit(context, "XML pattern value limit exceeded", value.size(), std::min(bounds.max_input_bytes, bounds.max_text_bytes));
   }
   check_text(value, context);
   if (context) {
@@ -1415,7 +1448,7 @@ struct token_writer::implementation {
   // Admit escaped output before copying bytes into the publication candidate.
   void append(std::string_view value) {
     if (value.size() > bounds.max_output_bytes - std::min(bytes.size(), bounds.max_output_bytes)) {
-      throw std::length_error{"XML token output limit exceeded"};
+      reject_limit(operation, "XML token output limit exceeded", value.size(), bounds.max_output_bytes - std::min(bytes.size(), bounds.max_output_bytes));
     }
     if (operation) {
       operation->consume(operation_resource::allocation_bytes, value.size());
@@ -1454,8 +1487,8 @@ struct token_writer::implementation {
     if (selected.namespace_uri == "http://www.w3.org/2000/xmlns/") {
       throw std::invalid_argument{"XML namespace declaration is not an ordinary name"};
     }
-    consume(name_bytes, selected.local.size(), bounds.max_name_bytes);
-    consume(name_bytes, selected.namespace_uri.size(), bounds.max_name_bytes);
+    consume(name_bytes, selected.local.size(), bounds.max_name_bytes, operation);
+    consume(name_bytes, selected.namespace_uri.size(), bounds.max_name_bytes, operation);
   }
   // Close a pending start tag before writing its text or child content.
   void content() {
@@ -1508,9 +1541,9 @@ void token_writer::open(const name& selected, const std::map<std::string, std::s
   state_->apply([&] {
     auto& state = *state_;
     if (state.stack.empty() && state.root_seen) { throw std::invalid_argument{"Multiple XML roots"}; }
-    if (state.stack.size() >= state.bounds.max_depth) { throw std::length_error{"XML token depth exceeded"}; }
+    if (state.stack.size() >= state.bounds.max_depth) { reject_limit(state.operation, "XML token depth exceeded", 1U, 0U); }
     state.inspect_name(selected);
-    consume(state.nodes, 1U, state.bounds.max_nodes);
+    consume(state.nodes, 1U, state.bounds.max_nodes, state.operation);
     if (!state.stack.empty()) { state.content(); }
     implementation::frame frame{};
     if (state.operation) {
@@ -1544,9 +1577,9 @@ void token_writer::open(const name& selected, const std::map<std::string, std::s
       }
       if (!prefix.empty()) { check_name(prefix); }
       check_text(uri, state.operation);
-      consume(state.namespace_bindings, 1U, state.bounds.max_namespace_bindings);
-      consume(state.name_bytes, prefix.size(), state.bounds.max_name_bytes);
-      consume(state.name_bytes, uri.size(), state.bounds.max_name_bytes);
+      consume(state.namespace_bindings, 1U, state.bounds.max_namespace_bindings, state.operation);
+      consume(state.name_bytes, prefix.size(), state.bounds.max_name_bytes, state.operation);
+      consume(state.name_bytes, uri.size(), state.bounds.max_name_bytes, state.operation);
       if (state.operation) {
         state.operation->consume(operation_resource::allocation_bytes,
             sizeof(std::pair<const std::string, std::string>) + prefix.size() + uri.size());
@@ -1561,7 +1594,7 @@ void token_writer::open(const name& selected, const std::map<std::string, std::s
         const auto inherited = ancestor->start.namespaces.find("");
         if (inherited == ancestor->start.namespaces.end()) { continue; }
         if (!inherited->second.empty()) {
-          consume(state.namespace_bindings, 1U, state.bounds.max_namespace_bindings);
+          consume(state.namespace_bindings, 1U, state.bounds.max_namespace_bindings, state.operation);
           state.append(" xmlns=\"\"");
           frame.start.namespaces.emplace("", "");
         }
@@ -1569,9 +1602,9 @@ void token_writer::open(const name& selected, const std::map<std::string, std::s
       }
     }
     if (!selected.namespace_uri.empty() && !reserved && !existing_binding) {
-      consume(state.namespace_bindings, 1U, state.bounds.max_namespace_bindings);
-      consume(state.name_bytes, element_prefix.size(), state.bounds.max_name_bytes);
-      consume(state.name_bytes, selected.namespace_uri.size(), state.bounds.max_name_bytes);
+      consume(state.namespace_bindings, 1U, state.bounds.max_namespace_bindings, state.operation);
+      consume(state.name_bytes, element_prefix.size(), state.bounds.max_name_bytes, state.operation);
+      consume(state.name_bytes, selected.namespace_uri.size(), state.bounds.max_name_bytes, state.operation);
       state.append(" xmlns:"); state.append(element_prefix); state.append("=\""); state.escaped(selected.namespace_uri, true); state.append("\"");
       if (state.operation) { state.operation->consume(operation_resource::allocation_bytes, element_prefix.size() + selected.namespace_uri.size()); }
       frame.start.namespaces.emplace(element_prefix, selected.namespace_uri);
@@ -1591,8 +1624,8 @@ void token_writer::attribute_value(const name& selected, std::string_view value)
       throw std::invalid_argument{"XML namespace declarations are not ordinary attributes"};
     }
     state.inspect_name(selected);
-    consume(state.attributes, 1U, state.bounds.max_attributes);
-    consume(state.text_bytes, value.size(), state.bounds.max_text_bytes);
+    consume(state.attributes, 1U, state.bounds.max_attributes, state.operation);
+    consume(state.text_bytes, value.size(), state.bounds.max_text_bytes, state.operation);
     if (state.operation) {
       state.operation->consume(operation_resource::allocation_bytes,
           sizeof(std::pair<std::string, std::string>) + selected.local.size() + selected.namespace_uri.size());
@@ -1610,10 +1643,10 @@ void token_writer::attribute_value(const name& selected, std::string_view value)
         }
       }
       if (prefix.empty()) {
-        consume(state.namespace_bindings, 1U, state.bounds.max_namespace_bindings);
+        consume(state.namespace_bindings, 1U, state.bounds.max_namespace_bindings, state.operation);
         do { prefix = "srl" + std::to_string(frame.next_prefix++); } while (frame.start.namespaces.contains(prefix));
-        consume(state.name_bytes, prefix.size(), state.bounds.max_name_bytes);
-        consume(state.name_bytes, selected.namespace_uri.size(), state.bounds.max_name_bytes);
+        consume(state.name_bytes, prefix.size(), state.bounds.max_name_bytes, state.operation);
+        consume(state.name_bytes, selected.namespace_uri.size(), state.bounds.max_name_bytes, state.operation);
         state.append(" xmlns:"); state.append(prefix); state.append("=\"");
         state.escaped(selected.namespace_uri, true); state.append("\"");
         if (state.operation) { state.operation->consume(operation_resource::allocation_bytes, prefix.size() + selected.namespace_uri.size()); }
@@ -1659,9 +1692,9 @@ void token_writer::qname_attribute_value(const name& selected, const name& value
       const bool retained = !prefix.empty();
       if (!retained) {
         do { prefix = "srl" + std::to_string(frame.next_prefix++); } while (frame.start.namespaces.contains(prefix));
-        consume(state.namespace_bindings, 1U, state.bounds.max_namespace_bindings);
-        consume(state.name_bytes, prefix.size(), state.bounds.max_name_bytes);
-        consume(state.name_bytes, value.namespace_uri.size(), state.bounds.max_name_bytes);
+        consume(state.namespace_bindings, 1U, state.bounds.max_namespace_bindings, state.operation);
+        consume(state.name_bytes, prefix.size(), state.bounds.max_name_bytes, state.operation);
+        consume(state.name_bytes, value.namespace_uri.size(), state.bounds.max_name_bytes, state.operation);
         if (state.operation) {
           state.operation->consume(operation_resource::allocation_bytes, prefix.size() + value.namespace_uri.size());
         }
@@ -1708,7 +1741,7 @@ void token_writer::begin_identity(const identity_scope& scope, identity_limits b
 // Emit one checked decoded-text token.
 void token_writer::text(std::string_view value) {
   state_->apply([&] {
-    consume(state_->text_bytes, value.size(), state_->bounds.max_text_bytes);
+    consume(state_->text_bytes, value.size(), state_->bounds.max_text_bytes, state_->operation);
     state_->content(); state_->escaped(value, false);
     const event_view semantic{event_kind::text, {}, {}, {}, value};
     for (auto& pass : state_->identities) { pass.validator->accept(semantic); }
@@ -1786,7 +1819,7 @@ struct token_reader::implementation {
           queue.push_back(std::move(value));
         }, event_limits{selected_bounds}, context} {
     if (!chunk_bytes) { throw std::invalid_argument{"XML token input chunk must be positive"}; }
-    if (input.size() > selected_bounds.max_input_bytes) { throw std::length_error{"XML token input limit exceeded"}; }
+    if (input.size() > selected_bounds.max_input_bytes) { reject_limit(context, "XML token input limit exceeded", input.size(), selected_bounds.max_input_bytes); }
     fill();
     if (queue.empty() || queue.front().kind != event_kind::start_document) {
       throw std::invalid_argument{"Missing XML start document"};
@@ -1880,9 +1913,9 @@ std::map<std::string, std::string> token_reader::namespace_scope(build_budget* b
       for (const auto& [prefix, uri] : bindings) {
         if (retain_child_scope) {
           consume(state_->namespace_snapshot_bytes,
-              sizeof(std::pair<const std::string, std::string>), state_->bounds.max_name_bytes);
-          consume(state_->namespace_snapshot_bytes, prefix.size(), state_->bounds.max_name_bytes);
-          consume(state_->namespace_snapshot_bytes, uri.size(), state_->bounds.max_name_bytes);
+              sizeof(std::pair<const std::string, std::string>), state_->bounds.max_name_bytes, state_->operation);
+          consume(state_->namespace_snapshot_bytes, prefix.size(), state_->bounds.max_name_bytes, state_->operation);
+          consume(state_->namespace_snapshot_bytes, uri.size(), state_->bounds.max_name_bytes, state_->operation);
         }
         if (budget) { budget->namespace_binding(prefix, uri); }
         else if (state_->operation) {
@@ -1896,7 +1929,7 @@ std::map<std::string, std::string> token_reader::namespace_scope(build_budget* b
     if (current().kind == event_kind::start_element) { adopt(current().namespaces); }
     if (retain_child_scope && !result.contains("")) {
       consume(state_->namespace_snapshot_bytes,
-          sizeof(std::pair<const std::string, std::string>), state_->bounds.max_name_bytes);
+          sizeof(std::pair<const std::string, std::string>), state_->bounds.max_name_bytes, state_->operation);
       if (state_->operation) { state_->operation->consume(operation_resource::allocation_bytes,
           sizeof(std::pair<const std::string, std::string>)); }
       result.emplace("", "");
@@ -2071,7 +2104,7 @@ struct token_extension_input::implementation {
 
   // Admit opaque storage before copies; cumulative operation counters are never refunded.
   void preserved(std::size_t amount) {
-    consume(preserved_bytes, amount, bounds.max_preserved_bytes);
+    consume(preserved_bytes, amount, bounds.max_preserved_bytes, reader.context());
     if (reader.context()) { reader.context()->consume(operation_resource::preserved_bytes, amount); }
   }
   // Account retained complete namespace context after its map insertions were individually admitted.
@@ -2080,9 +2113,9 @@ struct token_extension_input::implementation {
   }
   // Charge one exact slot occurrence before either skip or retention consumes any tokens.
   unknown_policy admit(const name& selected, bool attribute, std::size_t field) {
-    consume(items, 1U, bounds.max_items);
+    consume(items, 1U, bounds.max_items, reader.context());
     const auto index = token_extension_slot(contract, selected, attribute, field, reader.context());
-    consume(counts[index], 1U, contract.slots[index].maximum.value_or(std::numeric_limits<std::size_t>::max()));
+    consume(counts[index], 1U, contract.slots[index].maximum.value_or(std::numeric_limits<std::size_t>::max()), reader.context());
     return contract.slots[index].policy;
   }
   // Capture only a selected foreign subtree; known fields never enter owning XML storage.
@@ -2131,7 +2164,7 @@ struct token_extension_input::implementation {
   implementation(token_reader& source, const extension_contract& selected, extension_slot& output)
       : reader{source}, contract{selected}, target{output}, bounds{token_extension_bounds(source.context())},
         budget{[&] { auto document = bounds.document; document.max_tree_bytes = std::min(document.max_tree_bytes, bounds.max_preserved_bytes); return document; }(), source.context()} {
-    validate_extension_contract(contract, bounds);
+    validate_extension_contract_at(contract, bounds, source.context());
     if (source.current().kind != event_kind::start_element || source.current().qualified_name.namespace_uri != contract.core_namespace) {
       throw std::invalid_argument{"XML extension owner differs from its contract"};
     }
@@ -2199,7 +2232,7 @@ token_extension_output::token_extension_output(token_writer& writer, const exten
     : writer_{writer}, retained_{retained} {
   const auto bounds = token_extension_bounds(writer.context());
   if (retained.attributes.size() > bounds.max_items || retained.children.size() > bounds.max_items - retained.attributes.size()) {
-    throw std::length_error{"XML extension item limit exceeded"};
+    reject_limit(writer.context(), "XML extension item limit exceeded");
   }
   if (!retained.wrappers.empty()) { throw std::invalid_argument{"Positioned XML extension storage has no nested wrapper slots"}; }
   if (writer.context()) { writer.context()->consume(operation_resource::allocation_bytes, (retained.attributes.size() + retained.children.size()) * sizeof(extension_item_view)); }
@@ -2216,11 +2249,11 @@ token_extension_output::token_extension_output(token_writer& writer, const exten
   }
   element scope{}; scope.qualified_name.namespace_uri = contract.core_namespace;
   std::size_t scope_bytes{};
-  if (retained.namespace_bindings.size() > bounds.document.max_namespace_bindings) { throw std::length_error{"XML retained namespace limit exceeded"}; }
+  if (retained.namespace_bindings.size() > bounds.document.max_namespace_bindings) { reject_limit(writer.context(), "XML retained namespace limit exceeded"); }
   for (const auto& [prefix, uri] : retained.namespace_bindings) {
-    consume(scope_bytes, sizeof(std::pair<const std::string, std::string>), bounds.max_preserved_bytes);
-    consume(scope_bytes, prefix.size(), bounds.max_preserved_bytes);
-    consume(scope_bytes, uri.size(), bounds.max_preserved_bytes);
+    consume(scope_bytes, sizeof(std::pair<const std::string, std::string>), bounds.max_preserved_bytes, writer.context());
+    consume(scope_bytes, prefix.size(), bounds.max_preserved_bytes, writer.context());
+    consume(scope_bytes, uri.size(), bounds.max_preserved_bytes, writer.context());
   }
   if (writer.context()) { writer.context()->consume(operation_resource::allocation_bytes, scope_bytes); }
   scope.namespace_bindings = retained.namespace_bindings;

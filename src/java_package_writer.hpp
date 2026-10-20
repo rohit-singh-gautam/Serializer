@@ -17,8 +17,9 @@ inline std::string java(const package_node& package, const std::string& name, st
     const std::function<std::string(std::string_view)>& helper_type,
     const std::function<std::string(const type_name&)>& render_type,
     const std::function<std::string(std::string_view)>& render_field,
-    const std::function<std::string(std::string_view)>& literal) {
+    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {}) {
   const auto parts = ordered(package);
+  const auto contract = compile_package_profile(package,xml);
   std::set<std::string> fields{"extensions"};
   std::set<std::pair<std::string, std::string>> dispatch;
   for (const auto* part : parts) {
@@ -75,23 +76,49 @@ inline std::string java(const package_node& package, const std::string& name, st
   line("  }");
   std::size_t index{};
   for (const auto* part : parts) {
+    const auto metadata=std::find_if(contract.parts.begin(),contract.parts.end(),[&](const auto& item){return item.role==part->name;});
+    const auto expanded=[&](const auto& item){return literal(item.namespace_uri.empty()?item.local:"{"+item.namespace_uri+"}"+item.local);};
+    const auto expected=metadata->decoder?","+expanded(metadata->decoder->root)+","+expanded(*metadata->decoder->type):",null,null";
     const auto optional = [&](const auto& item) { return item ? literal(*item) : "null"; };
     line("  private static final " + api("Role") + " role" + std::to_string(index++) + " = new " + api("Role") + "(" +
         literal(render_field(part->name)) + "," + optional(part->part_name) + "," + optional(part->content_type) + "," +
         literal(part->source == "/" ? "/" : render_field(part->source)) + "," + literal(part->relationship) + "," +
         optional(part->relationship_id) + "," + literal(part->compression) + "," + std::to_string(part->min_occurs) + "L," +
-        (part->max_occurs ? std::to_string(*part->max_occurs) : "-1") + "L);");
+        (part->max_occurs ? std::to_string(*part->max_occurs) : "-1") + "L,"+literal(part->profile_policy)+expected+","+literal(part->name)+");");
   }
+  line("  /** Validate compiler-declared scalar application references before publication. */");
+  line("  private static void references("+input+" value,"+api("Budget")+" budget)throws java.io.IOException{references(value,budget,null);}");
+  line("  private static void references("+input+" value,"+api("Budget")+" budget,"+api("Loader")+" loader)throws java.io.IOException{var index=new "+api("References")+"(budget);");
+  for(const auto* part:parts){
+    if(part->keys.empty()&&part->references.empty()){continue;}
+    const auto field=render_field(part->name);
+    line(singleton(*part)?"    {int occurrence=0;if(value."+field+"!=null){var model=value."+field+";":"    {int occurrence=0;for(var item:value."+field+"){var model=item.value;");
+    const auto path=singleton(*part)?literal(*part->part_name):"item.name";
+    const auto link=part->relationship_id?literal(*part->relationship_id):literal("srl_"+part->name+"_")+"+occurrence";
+    line("      if(loader!=null)loader.locateReferences(index,"+literal(field)+",occurrence);else index.location("+path+","+link+");");
+    const auto lexical=[&](std::string_view field){const auto& member=selector_member(*part,field);return literal(member.type_name_list.front().name=="string"?"s:":"i:")+"+String.valueOf(model."+render_field(member.name)+")";};
+    const auto model_identity=literal(part->value_type->resolved_node->get_full_name());
+    for(const auto& key:part->keys){line("      index.key("+literal(key.scope)+","+lexical(key.field)+","+literal(field)+","+literal(key.field)+","+model_identity+");");}
+    for(const auto& reference:part->references){const auto target=std::find_if(parts.begin(),parts.end(),[&](const auto* item){return item->name==reference.target_role;});const auto expected=literal((*target)->value_type->resolved_node->get_full_name());line("      index.reference("+literal(reference.scope)+","+lexical(reference.field)+","+expected+","+literal(field)+","+literal(reference.field)+");");}
+    line("      ++occurrence;}}");
+  }
+  line("    index.finish();}");
   line("  /** Return an owning archive after complete declared-role validation. */");
   line("  public static byte[] encode(" + input + " value) throws java.io.IOException { return encode(value,new " + api("Budget") + "()); }");
   line("  /** Share one cumulative package budget through all composition stages. */");
   line("  public static byte[] encode(" + input + " value," + api("Budget") + " budget) throws java.io.IOException {");
-  line("    java.util.Objects.requireNonNull(value);var composer=new " + api("Composer") + "(budget);");
+  line("    return encode(value,budget,java.util.Map.of());}");
+  line("  /** Apply per-role compression defaults while fixed policies retain their declared envelope. */");
+  line("  public static byte[] encode("+input+" value,"+api("Budget")+" budget,java.util.Map<String,String> profiles)throws java.io.IOException{");
+  line("    java.util.Objects.requireNonNull(value);profiles=java.util.Map.copyOf(profiles);references(value,budget);");
+  std::string known;
+  for(const auto* part:parts){if(!known.empty()){known+="&&";}known+="!key.equals("+literal(part->name)+")";}
+  line("    for(String key:profiles.keySet())if("+(known.empty()?"true":known)+")throw new "+api("PackageError")+"("+api("Code")+".INVALID_OPTIONS,\"Unknown package profile role\");var composer=new "+api("Composer")+"(budget);");
   index = 0;
   for (const auto* part : parts) {
     const auto field = render_field(part->name);
     line("    composer." + std::string{part->value_type ? (singleton(*part) ? "single" : "models") : "binaries"} +
-        "(role" + std::to_string(index++) + ",value." + field +
+        "("+helper+".selectProfile(role" + std::to_string(index++) + ",profiles),value." + field +
         (part->value_type ? ",(model,limits)->model.encodeXml(limits,null)" : "") + ");");
   }
   line("    return composer.finish(value.extensions);");
@@ -109,6 +136,7 @@ inline std::string java(const package_node& package, const std::string& name, st
         std::string{part->value_type ? (singleton(*part) ? "single" : "models") : "binaries"} + "(role" + std::to_string(index++) +
         (part->value_type ? ",(bytes,limits)->" + render_type(*part->value_type) + ".decodeXml(bytes,limits,null)" : "") + ");");
   }
+  line("      references(value,budget,loader);");
   line("      return loader.finish(value,policy,validate,(candidate,extensions)->candidate.extensions=extensions);");
   line("    }");
   line("  }");

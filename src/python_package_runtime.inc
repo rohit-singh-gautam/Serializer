@@ -197,6 +197,12 @@ R"packagepython(class _PackagePartContext:
     def _xml_reference_at(self, field):
         """Share tuple admission with archive relationships and caller reference validation."""
         self._xml_consume_at('references', 1, field)
+    def _xml_limit_at(self, message, requested, available, field):
+        """Translate only explicit native/provider limit admissions; caller exceptions propagate intact."""
+        self._xml_check_at(field)
+        error = self.shared._failure('resource_limit', message, self.part)
+        self._locate(error, field)
+        raise error
     def admit_reference(self):
         """Admit a root identity tuple when no generated field scope is active."""
         self._xml_reference_at(None)
@@ -767,7 +773,8 @@ def _pkg_zip_write(parts, budget):
 def _pkg_metadata_node(name, attrs, children, budget):
     """Build bounded standard infrastructure through the same secure XML writer as typed parts."""
     xml_budget = _XmlBudget(budget.xml_limits(), budget)
-    node = xml_budget.node(name, 1)
+)packagepython"
+R"packagepython(    node = xml_budget.node(name, 1)
     for key, value in attrs.items(): _xml_attribute(node, key, value, xml_budget)
     for child_name, attributes in children:
         child = xml_budget.node(child_name, 2)
@@ -984,8 +991,114 @@ def _pkg_relocated_links(extensions, budget):
                 target = destination + target[selector:]
         yield PackageRelationship(source, link.id, link.type, target, link.mode)
 
+def _pkg_select_profiles(roles, overrides=None):
+    """Resolve declared storage defaults transactionally; identities and codec choices are immutable."""
+    overrides = {} if overrides is None else overrides
+    if not isinstance(overrides, dict) or any(key not in {role['role'] for role in roles} for key in overrides):
+        raise PackageError('invalid_state', 'Unknown package profile override')
+    selected = []
+    for role in roles:
+        storage = overrides.get(role['role'], role['compression'])
+        if storage not in ('stored', 'deflate') or role.get('policy') == 'fixed' and storage != role['compression']:
+            raise PackageError('invalid_state', 'Package profile override conflicts with declared policy', field_path=role['field'])
+        selected.append(dict(role, compression=storage))
+    return tuple(selected)
+
+
+def _pkg_validate_references(value, roles, budget, locations=None, relationship_ids=None):
+    """Automatically validate generated scalar keys and forward references before aggregate publication."""
+    targets, requests = {}, []
+    for role in roles:
+        if not role.get('keys') and not role.get('references'):
+            continue
+        supplied = getattr(value, role['field'])
+        items = (() if supplied is None else (supplied,)) if role['singleton'] else supplied
+        for index, item in enumerate(items):
+            model = item if role['singleton'] else item.value
+            part = role['name'] if role['singleton'] else item.name
+            if locations is not None:
+                part = locations[role['field']][index]
+            relationship_id = role['id'] or 'srl_' + role['role'] + '_' + str(index)
+            if relationship_ids is not None:
+                relationship_id = relationship_ids[role['field']][index]
+)packagepython"
+R"packagepython(            if not isinstance(model, role['model']):
+                raise PackageError('codec', 'Package typed resource has the wrong model type', part, relationship_id)
+            for scope, field in role.get('keys', ()):
+                key = getattr(model, field)
+                if type(key) not in (int, str):
+                    raise PackageError('codec', 'Package selector requires an integer or string', part, relationship_id, field_path=role['field'] + '.' + field)
+                location = (part, relationship_id, str(key), role['field'] + '.' + field)
+                context = _PackagePartContext(budget, part, relationship_id)
+                context._xml_reference_at((field, (role['field'], None)))
+                context._xml_consume_at('metadata_bytes', len(scope.encode('utf-8')) + len(str(key).encode('utf-8')) + 64, (field, (role['field'], None)))
+                identity = (scope, type(key), key)
+                if identity in targets:
+                    raise PackageError('invalid_reference', 'Duplicate package payload key', *location)
+                targets[identity] = role['model']
+            for scope, field, expected in role.get('references', ()):
+                key = getattr(model, field)
+                if type(key) not in (int, str):
+                    raise PackageError('codec', 'Package selector requires an integer or string', part, relationship_id, field_path=role['field'] + '.' + field)
+                location = (part, relationship_id, str(key), role['field'] + '.' + field)
+                context = _PackagePartContext(budget, part, relationship_id)
+                context._xml_reference_at((field, (role['field'], None)))
+                context._xml_consume_at('metadata_bytes', len(scope.encode('utf-8')) + len(str(key).encode('utf-8')) + 64, (field, (role['field'], None)))
+                requests.append(((scope, type(key), key), expected, location))
+    for identity, expected, location in requests:
+        context = _PackagePartContext(budget, location[0], location[1])
+        context._xml_consume_at('work_units', 1, (location[3], None))
+        if targets.get(identity) is not expected:
+            raise PackageError('invalid_reference', 'Missing or wrong-type package payload target', *location)
+
+
+def _pkg_dispatch(data, role, budget, part, relationship_id):
+    """Check the expanded root and explicit xsi:type before invoking a native model decoder."""
+    parser = _xml_expat.ParserCreate(encoding='UTF-8', namespace_separator='\x1f')
+    context = _PackagePartContext(budget, part, relationship_id)
+    scope = {'xml': 'http://www.w3.org/XML/1998/namespace'}
+    class RootFound(Exception):
+        """Stop the provider after its bounded root event without decoding model fields."""
+    def namespace(prefix, uri):
+        """Retain only the root's bounded namespace declarations for xsi:type resolution."""
+        context._xml_consume_at('metadata_bytes', len(prefix or '') + len(uri or ''), (role['field'], None))
+        scope[prefix or ''] = uri or ''
+    def expanded(name):
+        """Convert Expat's exact expanded name into the generated metadata spelling."""
+        pieces = name.split('\x1f')
+        return _xml_name(*pieces) if len(pieces) == 2 else name
+    def start(name, attributes):
+        """Reject incorrect roots or type identities before selecting the generated native codec."""
+        if expanded(name) != role['root']:
+            raise PackageError('codec', 'Package expected XML root mismatch', part, relationship_id)
+        declared = attributes.get('http://www.w3.org/2001/XMLSchema-instance\x1ftype')
+        if declared is not None:
+            pieces = declared.strip(' \t\r\n').split(':')
+            if len(pieces) > 2 or not pieces[-1] or len(pieces) == 2 and pieces[0] not in scope:
+                raise PackageError('codec', 'Package expected XML type mismatch', part, relationship_id)
+            uri = scope.get(pieces[0] if len(pieces) == 2 else '', '')
+            if _xml_name(uri, pieces[-1]) != role['type']:
+                raise PackageError('codec', 'Package expected XML type mismatch', part, relationship_id)
+        raise RootFound()
+    def forbidden(*_args):
+        """Forbid declarations and external entities without performing resource resolution."""
+        raise PackageError('codec', 'Package XML declarations are forbidden', part, relationship_id)
+    parser.StartNamespaceDeclHandler, parser.StartElementHandler = namespace, start
+    parser.StartDoctypeDeclHandler, parser.ExternalEntityRefHandler = forbidden, forbidden
+    try:
+        for offset in range(0, len(data), _PKG_CHUNK):
+            context._xml_consume_at('work_units', min(_PKG_CHUNK, len(data) - offset), (role['field'], None))
+            parser.Parse(data[offset:offset + _PKG_CHUNK], False)
+        parser.Parse(b'', True)
+    except RootFound:
+        return
+    raise PackageError('codec', 'Package XML root is missing', part, relationship_id)
+
+
 def _pkg_profile_encode(value, roles, budget):
     """Compose declarative typed and binary roles; neither standard metadata nor runtime side channels are application-owned."""
+    roles = _pkg_select_profiles(roles, getattr(value, getattr(type(value), '_pkg_profiles_field', 'profiles'), None))
+    _pkg_validate_references(value, roles, budget)
     sources, parts, links = {}, [], []
     for role in roles:
         supplied = getattr(value, role['field'])
@@ -1038,9 +1151,10 @@ R"packagepython(def _pkg_profile_load(source, roles, value_type, budget, policy=
         archive = _PackageZip(owned, budget)
         parts, links = _pkg_opc_read(archive, budget)
         candidate, sources, decoded, selected = value_type(), {}, set(), set()
+        declared_links = {}
         relocations = []
         for role in roles:
-            values, discovered = [], []
+            values, discovered, role_links = [], [], []
             parents = ('/',) if role['source'] == '/' else sources[role['source']]
             for parent_index, parent in enumerate(parents):
                 for link_index, link in enumerate(links):
@@ -1057,9 +1171,14 @@ R"packagepython(def _pkg_profile_load(source, roles, value_type, budget, policy=
                     selected.add(link_index)
                     decoded.add(target)
                     data = archive.read(metadata.name)
+                    if role.get('policy') == 'fixed' and archive.entries[metadata.name.lower()][1] != (8 if role['compression'] == 'deflate' else 0):
+                        raise PackageError('invalid_state', 'Fixed package storage mismatch', metadata.name, link.id)
                     try:
                         if role['model'] is not None:
-                            model = role['model'].decode_xml(data, limits=budget.xml_limits(), context=_PackagePartContext(budget, metadata.name, link.id))
+                            _pkg_dispatch(data, role, budget, metadata.name, link.id)
+                            context = _PackagePartContext(budget, metadata.name, link.id)
+                            context._xml_root_type = role['type']
+                            model = role['model'].decode_xml(data, limits=budget.xml_limits(), context=context)
                             values.append(model if role['singleton'] else ModelPart(model, metadata.name, metadata.content_type, parent_index))
                         else:
                             values.append(BinaryPart(data, metadata.name, metadata.content_type, parent_index,
@@ -1069,12 +1188,15 @@ R"packagepython(def _pkg_profile_load(source, roles, value_type, budget, policy=
                     except (ValueError, OverflowError, _xml_expat.ExpatError) as error:
                         raise PackageError('codec', 'Package XML part failed generated validation', metadata.name, link.id) from error
                     discovered.append(metadata.name)
+                    role_links.append(link.id)
             _pkg_occurs(len(values), role)
             setattr(candidate, role['field'], (values[0] if values else None) if role['singleton'] else values)
             sources[role['field']] = discovered
+            declared_links[role['field']] = role_links
             if role['singleton'] and discovered:
                 budget.consume('metadata_bytes', len(discovered[0]) + len(role['name']))
                 relocations.append((discovered[0], role['name']))
+        _pkg_validate_references(candidate, roles, budget, sources, declared_links)
         if validate is not None:
             budget.check()
             validate(candidate, budget)

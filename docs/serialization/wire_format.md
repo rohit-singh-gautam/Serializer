@@ -1,5 +1,12 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.17.0** adds language **1.21.0** declarative package policies
+and typed application keys/references. These are validation metadata without extra
+native fields, wire IDs or private ZIP framing. Stored/DEFLATE choices use existing
+standard ZIP representations. Expanded XML root/type identity is checked before
+model decoding; equivalent prefixes retain identity. See the
+[package application contract](package_application_contracts.md).
+
 Compiler/runtime **2.16.0** adds XML-only scalar occurrence scopes, shared
 package reference admission and typed default diagnostics. Native protocol IDs,
 scalar encodings and managed storage formats remain unchanged. See the

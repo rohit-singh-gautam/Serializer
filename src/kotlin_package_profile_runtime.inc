@@ -3,8 +3,15 @@
 // Serializer runtime template source; emitted support may also be used under 0BSD.
 R"packagekotlin(
     /** Declarative role constants are compiler-owned; negative maximum means unbounded. */
-    data class Role(val field: String, val name: String?, val contentType: String?, val source: String,
-        val relationship: String, val id: String?, val compression: String, val minimum: Long, val maximum: Long)
+    data class Role @JvmOverloads constructor(val field: String, val name: String?, val contentType: String?, val source: String,
+        val relationship: String, val id: String?, val compression: String, val minimum: Long, val maximum: Long,
+        val policy: String = "defaults", val expectedRoot: String? = null, val expectedType: String? = null, val schemaRole: String = field) {
+        /** Preserve the original Java copy signature while retaining added profile metadata. */
+        fun copy(field: String = this.field, name: String? = this.name, contentType: String? = this.contentType,
+            source: String = this.source, relationship: String = this.relationship, id: String? = this.id,
+            compression: String = this.compression, minimum: Long = this.minimum, maximum: Long = this.maximum): Role =
+            Role(field,name,contentType,source,relationship,id,compression,minimum,maximum,policy,expectedRoot,expectedType,schemaRole)
+    }
     /** Every generated codec receives the same package ledger with original role/part/link context. */
     class CodecContext internal constructor(private val state: State, val role: Role, val part: String, val relationshipId: String) {
         val budget: Budget get() = state.budget
@@ -12,6 +19,11 @@ R"packagekotlin(
             private set
         /** Cooperative cancellation remains active inside nested provider and native loops. */
         fun check() { state.poll() }
+        /** Preserve the selected native field when its independent local quota is exhausted. */
+        internal fun resourceLimit(message: String, field: String): Nothing {
+            state.active();fieldPath=role.field+(if(field.isEmpty()) "" else "."+field)
+            state.fail(PackageError(Code.RESOURCE_LIMIT,message,part,0,fieldPath,"",relationshipId))
+        }
         /** Admit native allocations/work/references before publication, preserving selected member scope. */
         fun consume(kind: String, amount: Long, field: String = "") {
             fieldPath = role.field+(if (field.isEmpty()) "" else "."+field)
@@ -95,6 +107,10 @@ R"packagekotlin(
             finally { state.busy = false }
         }
         private data class Occurrence(val metadata: PartMetadata, val parent: Int, val id: String)
+        private val locations = mutableMapOf<Pair<String,Int>,PayloadLocation>()
+        /** Retrieve an already discovered occurrence for generated reference diagnostics. */
+        fun location(role: String, index: Int): PayloadLocation = locations[role to index]
+            ?: throw PackageError(Code.INVALID_STATE,"Package occurrence location unavailable","",0,role)
         /** Route by source/type/media identity; fixed output paths are not input dispatch keys. */
         private fun discover(role: Role): List<Occurrence> {
             val parents = if (role.source == "/") listOf("/") else sources[role.source] ?: throw PackageError(Code.INVALID_RELATIONSHIP,"Role source unavailable","",0,role.field)
@@ -105,7 +121,10 @@ R"packagekotlin(
                 if (link.mode != "internal") throw PackageError(Code.INVALID_RELATIONSHIP,"Declared role requires internal target",source,0,role.field,"",link.id)
                 val key = fold(target(source,link.target)); val metadata = opc.parts[key] ?: throw PackageError(Code.MISSING_PART,"Role target missing",source,0,role.field,"",link.id)
                 if (role.contentType != null && mime(metadata.contentType) != mime(role.contentType)) throw PackageError(Code.CODEC,"Role content type mismatch",metadata.name,0,role.field,"",link.id)
+                if (role.policy == "fixed" && metadata.entry.method != if (role.compression == "deflate") 8 else 0) throw PackageError(Code.INVALID_OPTIONS,"Fixed package storage mismatch",metadata.name,0,role.field,"",link.id)
                 if (!decoded.add(key)) throw PackageError(Code.INVALID_RELATIONSHIP,"Part claimed by multiple role occurrences",metadata.name,0,role.field,"",link.id)
+                state.consume(Resource.DECODER_ALLOCATION_BYTES,referenceMetadataAdmissionBytes,metadata.name,role.field,link.id)
+                locations[role.schemaRole to result.size] = PayloadLocation(metadata.name,link.id)
                 selected.add(index); result.add(Occurrence(metadata,parent,link.id)); discovered.add(metadata.name)
             }
             occurs(role,result.size); sources[role.field] = discovered; return result
@@ -119,7 +138,7 @@ R"packagekotlin(
                 val result = mutableListOf<ModelPart<T>>()
                 for (item in discover(role)) {
                     state.poll(); val bytes = archive.readContext(item.metadata.entry.name,item.metadata.name,role.field,item.id); val context = CodecContext(state,role,item.metadata.name,item.id)
-                    val value = try { decoder(bytes,context) } catch (error: IllegalArgumentException) { context.codec(error) }
+                    val value = try { dispatch(bytes,role,state,item.metadata.name,item.id); decoder(bytes,context) } catch (error: IllegalArgumentException) { context.codec(error) } catch (error: javax.xml.stream.XMLStreamException) { context.codec(error) }
                     state.poll(); result.add(ModelPart(value,item.metadata.name,item.metadata.contentType,item.parent))
                 }
                 state.poll(); return result.toList()

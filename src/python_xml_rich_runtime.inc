@@ -44,7 +44,7 @@ class _XmlNamespaceContext:
         for prefix, uri in bindings.items():
             size += len(prefix.encode('utf-8')) + len(uri.encode('utf-8'))
         if count > self.limits.max_elements - self.namespace_entries or size > self.limits.max_string_bytes - self.namespace_bytes:
-            raise ValueError('XML scalar namespace retention limit exceeded')
+            _xml_limit(context, 'XML scalar namespace retention limit exceeded')
         context.consume('work_units', count)
         context.consume('decoder_allocation_bytes', size)
         self.namespace_entries += count

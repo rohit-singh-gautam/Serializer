@@ -11,6 +11,7 @@
 #include "reference_portable_writer.hpp"
 #include "value_reference_native_writer.hpp"
 #include "comparison_writer.hpp"
+#include "c_package_writer.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -2150,6 +2151,21 @@ public:
       }
     }
     auto symbols = validate_symbols();
+    for (const auto* package : model.packages) {
+      for (const auto suffix : {"", "_input", "_value", "_free", "_as_input", "_profiles",
+              "_check_references", "_encode", "_load", "_read", "_write", "_save"}) {
+        const auto symbol = name(package) + suffix;
+        if (!symbols.insert(symbol).second) {
+          throw std::invalid_argument{"C package companion name collision: " + symbol};
+        }
+      }
+      for (const auto& part : package->parts) {
+        if (part.value_type && !package_codegen::singleton(part) &&
+            !symbols.insert(name(package) + "_" + field(part.name) + "_part").second) {
+          throw std::invalid_argument{"C package occurrence type collision: " + part.name};
+        }
+      }
+    }
     for (const auto* node : model.nodes) {
       if (node->type == object_type::class_type) {
         for (const auto& method : static_cast<const class_node&>(*node).functions) {
@@ -2271,6 +2287,53 @@ public:
     for (const auto* node : model.nodes) {
       if (node->type == object_type::class_type) {
         compression_helpers(static_cast<const class_node&>(*node));
+      }
+    }
+    if (!model.packages.empty()) {
+      auto helper = std::string{"serializer_package"};
+      std::size_t suffix{1};
+      while (std::any_of(symbols.begin(), symbols.end(), [&](const auto& symbol) {
+        return symbol.starts_with(helper);
+      })) {
+        helper = "serializer_package_" + std::to_string(++suffix);
+      }
+      if (model.xml.runtime_xsd) { line("typedef struct srl_xml_validation srl_xml_validation;"); }
+      std::set<const syntax_node*> declarations;
+      for (const auto* package : model.packages) {
+        for (const auto& part : package->parts) {
+          if (!part.value_type || !declarations.insert(part.value_type->resolved_node).second) { continue; }
+          const auto native = type(*part.value_type);
+          const auto validator = model.xml.runtime_xsd ? ",const srl_xml_validation*" : "";
+          line("/* XML definitions follow the native declarations in this generated header. */");
+          line("static inline srl_status " + native + "_encode_xml(const " + native +
+              "*,srl_buffer*,const srl_limits*" + validator + ");");
+          line("static inline srl_status " + native + "_decode_xml(" + native +
+              "*,const uint8_t*,size_t,const srl_limits*" + validator + ");");
+          line("static inline srl_status " + native + "_srl_xml_decode_package(" + native +
+              "*,const uint8_t*,size_t,const srl_limits*);");
+        }
+      }
+      std::string support{
+#include "c_package_runtime.inc"
+#include "c_package_opc_runtime.inc"
+#include "c_package_profile_runtime.inc"
+#include "c_package_file_runtime.inc"
+      };
+      for (const auto& [token, replacement] : {
+              std::pair{std::string{"@p@"}, helper},
+              std::pair{std::string{"@c@"}, compression_prefix_}}) {
+        for (std::size_t position{}; (position = support.find(token, position)) != std::string::npos;) {
+          support.replace(position, token.size(), replacement);
+          position += replacement.size();
+        }
+      }
+      output += "\n/* Generated C package prefix: " + helper + " */\n#ifndef " + helper +
+          "_support_included\n#define " + helper + "_support_included\n" + support + "\n#endif\n";
+      for (const auto* package : model.packages) {
+        output += package_codegen::c(*package, name(package), helper, model.xml,
+            [&](const auto& value) { return type(value); },
+            [&](const auto value) { return field(value); },
+            [&](const auto value) { return quote(value); });
       }
     }
     return output;

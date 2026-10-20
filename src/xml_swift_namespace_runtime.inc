@@ -33,8 +33,9 @@ fileprivate final class SrlXmlNamespaceOutput {
     }
 }
 // Resolve QName and prefix-list values using Unicode scalar names and byte-exact namespace identities.
-fileprivate func srlXmlNamespaceChecked(_ text: String, _ list: Bool, _ prefixes: Bool, _ namespace: (String) -> String?, _ maximum: Int) throws -> String {
-    let values=(list || prefixes) ? try SrlXmlRule.tokens(text,maximum) : [text]
+fileprivate func srlXmlNamespaceChecked(_ text: String, _ list: Bool, _ prefixes: Bool, _ namespace: (String) -> String?, _ maximum: Int, _ quota: ((String) -> any Swift.Error)? = nil, _ operation: ((String,Int) throws -> Void)? = nil) throws -> String {
+    try operation?("work",text.utf8.count)
+    let values=(list || prefixes) ? try SrlXmlRule.tokens(text,maximum,quota) : [text]
     for value in values {
         if prefixes {
             guard srlXmlNcName(value), value != "xmlns", value == "xml" || !(namespace(value) ?? "").isEmpty else { throw SerializerError.invalid("Unbound XML prefix-list token") }
@@ -45,8 +46,8 @@ fileprivate func srlXmlNamespaceChecked(_ text: String, _ list: Bool, _ prefixes
     return text
 }
 // Borrow the original input snapshot without allocating another dictionary for each validation.
-fileprivate func srlXmlNamespaceChecked(_ text: String, _ list: Bool, _ prefixes: Bool, _ scope: [WireString:String], _ maximum: Int) throws -> String {
-    try srlXmlNamespaceChecked(text,list,prefixes,{ scope[WireString($0)] },maximum)
+fileprivate func srlXmlNamespaceChecked(_ text: String, _ list: Bool, _ prefixes: Bool, _ scope: [WireString:String], _ maximum: Int, _ quota: ((String) -> any Swift.Error)? = nil, _ operation: ((String,Int) throws -> Void)? = nil) throws -> String {
+    try srlXmlNamespaceChecked(text,list,prefixes,{ scope[WireString($0)] },maximum,quota,operation)
 }
 // Capture a scalar's namespace vocabulary before its provider declarations leave scope.
 fileprivate func srlXmlNamespaceScalarFrame(_ name: SrlXmlName, _ attributes: [SrlXmlAttribute],

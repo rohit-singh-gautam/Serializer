@@ -14,6 +14,7 @@
 #include "comparison_writer.hpp"
 #include "xml_rust_writer.hpp"
 #include "xml_rust_projection_writer.hpp"
+#include "rust_package_writer.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -52,7 +53,7 @@ std::string compression_name_key(std::string_view name) {
 }
 
 // Append a collision-selected standalone module after the unchanged native runtime and models.
-std::string compression_support(const schema& model) {
+std::string compression_support(const schema& model, std::string* selected_name = nullptr) {
   const std::string base{"serializer_compression"};
   std::set<std::string> occupied;
   for (const auto& item : model.names) { occupied.insert(compression_name_key(item.second)); }
@@ -64,6 +65,7 @@ std::string compression_support(const schema& model) {
     }
     name = base + '_' + std::to_string(++suffix);
   }
+  if (selected_name) { *selected_name = name; }
   std::string result{compression_runtime};
   const auto core_end = result.rfind("\n}");
   if (core_end == std::string::npos) {
@@ -1495,7 +1497,48 @@ public:
       close();
       close();
     }
-    output += compression_support(model);
+    std::string compression_name;
+    output += compression_support(model, &compression_name);
+    if (!model.packages.empty()) {
+      auto helper = std::string{"serializer_package"};
+      std::set<std::string> occupied;
+      for (const auto& [node, name] : model.names) {
+        occupied.insert(compression_name_key(name));
+        if (node->type == object_type::package_type) {
+          for (const auto suffix : {"Input", "Value"}) {
+            const auto companion = name + suffix;
+            if (std::any_of(model.names.begin(), model.names.end(), [&](const auto& item) {
+                  return item.second == companion;
+                })) {
+              throw std::invalid_argument{"Rust package companion name collision: " + companion};
+            }
+          }
+        }
+      }
+      std::size_t suffix{1};
+      while (occupied.contains(compression_name_key(helper))) {
+        helper = "serializer_package_" + std::to_string(++suffix);
+      }
+      std::string support{
+#include "rust_package_runtime.inc"
+      };
+      // Select complete helper families without renaming existing native models or wire names.
+      for (const auto& [token, replacement] : {
+              std::pair{std::string{"@package_name@"}, helper},
+              std::pair{std::string{"@compression_name@"}, compression_name}}) {
+        for (std::size_t position{}; (position = support.find(token, position)) != std::string::npos;) {
+          support.replace(position, token.size(), replacement);
+          position += replacement.size();
+        }
+      }
+      output += "// Generated Rust package helper module: " + helper + '\n' + support;
+      for (const auto* package : model.packages) {
+        output += package_codegen::rust(*package, model.names.at(package), helper, model.xml,
+            [&](const auto& value) { return type(value); },
+            [&](const auto value) { return field(value); },
+            [&](const auto value) { return quote(value); });
+      }
+    }
     return output;
   }
 };

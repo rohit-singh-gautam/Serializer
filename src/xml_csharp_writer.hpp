@@ -63,7 +63,7 @@ inline std::string scalar_value(const type_name& type, const std::string& expres
   }
   if (type.is_digest()) {
     return std::string{encoding ? "SrlXmlDigestText(" : "SrlXmlDigestRead("} + expression + ',' +
-        std::to_string(type.digest_extent) + (encoding ? ",output.DigestLimits)" : ",input.DigestLimits)");
+        std::to_string(type.digest_extent) + (encoding ? ",output.DigestLimits,output.Operation)" : ",input.DigestLimits,input.Operation)");
   }
   if (type.type == object_type::enum_type) {
     std::string result = "(" + (encoding ? "((int)" + expression + ")" : expression) + " switch { ";
@@ -334,6 +334,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
   if (!options.runtime_xsd) { line("if (schema != null) throw new System.InvalidOperationException(\"Runtime XSD was not enabled during generation\");"); }
   else if (options.validation_scope != "output") { line("if (schema != null) schema.Validate(bytes, limits);"); }
   line("using var input = new SrlXmlInput(bytes, limits, maps, mixed, identity, digests, extensions);");
+  line("if (limits.XmlExpectedType != null) { input.ExpectType(limits.XmlExpectedType, false); }");
   line("var value = XmlRead(input, " + expanded(contract.root) + ");");
   line("input.Finish();"); line("return value;");
   }
@@ -347,7 +348,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
   line("using var srlOperationOwner=output.FieldOwner();");
   if(contract.extensions){
     line(readonly?"var srlScope=new System.Collections.Generic.Dictionary<string,string>();":"var srlScope=SrlXmlPreservedState?.Scope??new System.Collections.Generic.Dictionary<string,string>();");
-    line("var srlExtensions=new SrlXmlExtensions(SrlXmlExtensionMetadata,srlScope,output.ExtensionOptions,"+std::string{readonly?"null":"SrlXmlPreservedState"}+");");
+    line("var srlExtensions=new SrlXmlExtensions(SrlXmlExtensionMetadata,srlScope,output.ExtensionOptions,"+std::string{readonly?"null":"SrlXmlPreservedState"}+",output.Operation);");
     line("output.Open(name,srlScope);");
   } else if (namespace_values) {
     line("output.Open(name,new System.Collections.Generic.Dictionary<string,string>{{\"\",\"\"}});");
@@ -454,7 +455,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
   }
   line("using var srlOperationOwner=input.FieldOwner();");
   if (contract.identity) { line("var srlIdentity=input.IdentityScope(SrlXmlIdentityMetadata);"); }
-  if(contract.extensions)line("var srlExtensions=new SrlXmlExtensions(SrlXmlExtensionMetadata,input.NamespaceScope(),input.ExtensionOptions,null);");
+  if(contract.extensions)line("var srlExtensions=new SrlXmlExtensions(SrlXmlExtensionMetadata,input.NamespaceScope(),input.ExtensionOptions,null,input.Operation);");
   if (std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& item) {
         return (item.attribute || item.text) && xml_portable::namespace_dependent(item);
       })) { line("var srlNamespaceScope=input.NamespaceScope();"); }

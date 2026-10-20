@@ -85,12 +85,20 @@ prefixes and unsupported encoding declarations reject. External targets are
 never opened. `SerializerPackageEncodeOPC(parts, links[, budget])` writes standard
 canonical infrastructure from checked whole parts and links.
 
-Typed payloads currently require ordinary owning XML records under their existing
-generated mappings. Native XML codecs use independently narrowed per-document
-limits with package polling before and after each call. Automatic cumulative
-accounting of every nested native allocation/reference, complete runtime profile
-selection and cross-part application key/reference validation remain separate
-work. Supply explicit complete-aggregate validation for application invariants.
+Typed payloads require ordinary owning XML records under their existing mappings.
+Native token/scalar work, retained namespaces, identity tuples and generated
+application references share the package ledger and retain part/field/link
+diagnostics. Existing positional `XmlOptions{limits, validator}` literals remain
+valid. `XmlOperationOptions` and additive `EncodeXMLWithOperation`/
+`DecodeModelXMLWithOperation` entry points carry optional operation context;
+helper names acquire a suffix when a schema already declares that name.
+
+Language 1.21 adds fixed/default storage policy and direct scalar key/reference
+selectors. `ProfileArchiveEncodeWithProfiles(input, map[string]string{"resources":
+"stored"}, budget)` selects defaults by schema role name. Fixed methods and XML
+root/type identities cannot be changed. Automatic forward and typed target checks
+run before aggregate publication; domain validators handle additional invariants.
+See [application contracts](../serialization/package_application_contracts.md).
 These limits do not imply complete Office/OpenXML or 3MF conformance.
 
 ## Owned entries and borrowed transports
@@ -238,5 +246,6 @@ records actual compiler/SDK evidence for metadata, typed aggregate loading,
 preserved context and canonical output on Windows Go 1.26.4 and native Linux
 Go 1.26.0. The final native compiler is built with strict GCC checks; both
 platforms pass the MIME/MCE scratch regressions, native C++ interchange and Save
-fault boundaries. Broader nested-codec accounting, runtime
-profile and application-reference tasks remain outside that selected profile.
+fault boundaries. The additional application-contract and shared-codec-budget
+runners qualify language 1.21 selectors and native cumulative accounting separately
+from that historical platform record.

@@ -467,6 +467,7 @@ class emitter {
     if (!options.xml.runtime_xsd) { line("if (schema != null) throw new IllegalArgumentException(\"Runtime XSD was not enabled during generation\");"); }
     else if (options.xml.validation_scope != "output") { line("if (schema != null) schema.validate(bytes, limits);"); }
     line("try (var input = new SrlXmlInput(bytes, limits, maps, mixed, identity, digests, extensions)) {"); ++level;
+    line("if(limits.xmlExpectedRoot!=null&&!limits.xmlExpectedRoot.equals(input.name()))throw new IllegalArgumentException(\"Unexpected package XML root\");if(limits.xmlExpectedType!=null)input.expectType(limits.xmlExpectedType,false);");
     line("var value = xmlRead(input, " + expanded(contract.root) + ");");
     line("input.finish();"); line("return value;"); --level; line("}");
     }
@@ -506,6 +507,7 @@ class emitter {
     if(contract.extensions&&!attributes)line("srlExtensions.emitAttributes(output);");
     for (const auto& item : contract.fields) {
       if (item.attribute != attributes) { continue; }
+      line("output.budget.select("+quote(item.source->name)+");");
       const auto extensions=extension_scope(item,"this.",true);
       const auto active = active_scope(*item.source, "this.");
       if (xml_portable::typed_list(item)) {
@@ -605,6 +607,7 @@ class emitter {
       if(contract.extensions&&!attributes)line("for(var entry:fields.attributes.entrySet())srlExtensions.attribute(entry.getKey(),entry.getValue());fields.attributes.clear();");
       for (const auto& item : contract.fields) {
         if (item.attribute != attributes) { continue; }
+        line("input.budget.select("+quote(item.source->name)+");");
         const auto extensions=extension_scope(item,"result.",false);
         const auto active = active_scope(*item.source, "result.");
         if (xml_portable::typed_list(item)) {
@@ -2338,7 +2341,7 @@ class emitter {
             [&](std::string_view name) { return name == outer ? std::string{name} + "_2" : std::string{name}; },
             [&](const auto& item) { return type(item); },
             [&](std::string_view name) { return field(name); },
-            [&](std::string_view text) { return quote(text); });
+            [&](std::string_view text) { return quote(text); },options.xml);
       }
     }
   }
@@ -2483,7 +2486,7 @@ public:
     if (package_codegen::contains(values)) {
       std::string package_runtime{package_runtime_source};
       // Java forbids a nested helper repeating any enclosing output-class name.
-      for (const auto* helper : {"Code", "PackageError", "Limits", "Resource", "Budget", "State", "RandomSource", "Entry", "ZipReader", "FileSource", "Bytes", "ZipWriter", "Part", "BinaryPart", "ModelPart", "Relationship", "Extensions", "Unknown", "ExtensionPolicy", "Result", "PartMetadata", "Mime", "Uri", "QName", "Node", "Handler", "Scope", "Compatibility", "Opc", "Role", "Encoder", "Decoder", "Validator", "Composer", "Loader", "Occurrence", "SaveFault", "Format", "Failure", "EncodeOptions", "DecodeOptions"}) {
+      for (const auto* helper : {"Code", "PackageError", "Limits", "Resource", "Budget", "State", "RandomSource", "Entry", "ZipReader", "FileSource", "Bytes", "ZipWriter", "Part", "BinaryPart", "ModelPart", "Relationship", "Extensions", "Unknown", "ExtensionPolicy", "Result", "PartMetadata", "Mime", "Uri", "QName", "Node", "Handler", "Scope", "Compatibility", "Opc", "Role", "References", "Encoder", "Decoder", "Validator", "Composer", "Loader", "Occurrence", "SaveFault", "Format", "Failure", "EncodeOptions", "DecodeOptions"}) {
         if (outer == helper) { package_runtime = std::regex_replace(package_runtime, std::regex{"\\b" + std::string{helper} + "\\b"}, std::string{helper} + "_2"); }
       }
       for (const auto& [placeholder, replacement] : std::array<std::pair<std::string_view, std::string>, 3>{
@@ -2504,6 +2507,11 @@ public:
     }
     nodes(roots);
     source += "}\n";
+    if(outer=="XmlOperation"){
+      for(const auto& [before,after]:std::vector<std::pair<std::string,std::string>>{{"Limits.XmlOperation","Limits.XmlOperation_2"},{"interface XmlOperation ","interface XmlOperation_2 "},{"final XmlOperation xmlOperation","final XmlOperation_2 xmlOperation"},{"ReadPolicy readPolicy,XmlOperation operation","ReadPolicy readPolicy,XmlOperation_2 operation"}}){
+        for(std::size_t offset{};(offset=source.find(before,offset))!=std::string::npos;offset+=after.size()){source.replace(offset,before.size(),after);}
+      }
+    }
     return source;
   }
 };

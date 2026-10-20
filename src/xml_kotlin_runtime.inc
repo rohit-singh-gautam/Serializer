@@ -6,6 +6,7 @@ R"serializer(
 data class XmlLimits(val maxBytes: Int = 16777216, val maxNodes: Int = 100000,
                      val maxDepth: Int = 64, val maxTextBytes: Int = 8388608) {
     internal var srlPackageContext: SrlXmlBudget.Operation? = null
+    internal var srlPackageRootType: SrlXmlName? = null
 }
 internal data class SrlXmlName(val local: String, val namespace: String = "")
 internal data class SrlXmlAttribute(val name: SrlXmlName, val value: String)
@@ -20,8 +21,18 @@ internal fun srlXmlUtf8Size(value: String): Long {
     return bytes
 }
 internal class SrlXmlBudget(val limits: XmlLimits) {
+    companion object {
+        // Preserve exact ordinary failures while a package operation classifies local exhaustion.
+        fun limit(message: String, operation: Operation? = null): Nothing {
+            operation?.limit(message)
+            throw IllegalArgumentException(message)
+        }
+    }
     // An optional operation belongs to one package codec; ordinary XML/native calls allocate none.
-    class Operation(private val checkPolicy: () -> Unit, private val admission: (String,Long,String) -> Unit) {
+    class Operation(private val checkPolicy: () -> Unit, private val admission: (String,Long,String) -> Unit,
+        private val limitFailure: ((String,String) -> Nothing)?) {
+        // Keep the original two-argument and trailing-lambda admission constructor unchanged.
+        constructor(checkPolicy: () -> Unit, admission: (String,Long,String) -> Unit) : this(checkPolicy,admission,null)
         var field = ""
         private var failureField: String? = null
         private val owners = mutableListOf<String>()
@@ -34,6 +45,8 @@ internal class SrlXmlBudget(val limits: XmlLimits) {
         fun member(name: String) { field = listOf(owners.lastOrNull() ?: "",name).filter { it.isNotEmpty() }.joinToString("."); charge("work",0) }
         // Poll around every provider/admission callback without wrapping its original exception.
         fun charge(kind: String, count: Long, selected: String = field) { checkPolicy(); admission(kind,count,selected); checkPolicy() }
+        // Report local quota exhaustion while its exact native member is still selected.
+        fun limit(message: String): Nothing { checkPolicy();limitFailure?.invoke(message,field);throw SrlXmlScalarLimit(message) }
         // Pin the first failing observer/member scope before nested traversal unwinds into another owner.
         fun failure(selected: String = field) { if (failureField == null) failureField = selected; charge("work",0,failureField!!) }
         // Retain a caller-selected member while running deferred observer/provider work.
@@ -42,9 +55,9 @@ internal class SrlXmlBudget(val limits: XmlLimits) {
     private var nodes = 0
     private var textBytes = 0L
     // Admit each logical node against both operation-wide and per-document bounds.
-    fun node(depth: Int) { limits.srlPackageContext?.charge("work",1); limits.srlPackageContext?.charge("allocation",64); require(depth <= limits.maxDepth && ++nodes <= limits.maxNodes) { "XML output tree limit" } }
+    fun node(depth: Int) { limits.srlPackageContext?.charge("work",1); limits.srlPackageContext?.charge("allocation",64); if (!(depth <= limits.maxDepth && ++nodes <= limits.maxNodes)) SrlXmlBudget.limit("XML output tree limit",limits.srlPackageContext) }
     // Account for retained/provider text before copying its UTF-16 representation.
-    fun text(value: String) { val size = srlXmlUtf8Size(value); limits.srlPackageContext?.charge("work",size); limits.srlPackageContext?.charge("allocation",size*2); textBytes += size; require(textBytes <= limits.maxTextBytes && textBytes <= limits.maxBytes) { "XML output text limit" } }
+    fun text(value: String) { val size = srlXmlUtf8Size(value); limits.srlPackageContext?.charge("work",size); limits.srlPackageContext?.charge("allocation",size*2); textBytes += size; if (!(textBytes <= limits.maxTextBytes && textBytes <= limits.maxBytes)) SrlXmlBudget.limit("XML output text limit",limits.srlPackageContext) }
 }
 internal class SrlXmlNode(val name: SrlXmlName, private val budget: SrlXmlBudget? = null, private val depth: Int = 1) {
     var text: String = ""
@@ -106,7 +119,7 @@ internal fun srlXmlHasDoctype(text: String): Boolean {
 }
 // Parse exact namespace-aware XML with all external resource features disabled.
 internal fun srlXmlParse(bytes: ByteArray, limits: XmlLimits): SrlXmlNode {
-    require(bytes.size <= limits.maxBytes) { "XML input limit" }
+    if (!(bytes.size <= limits.maxBytes)) SrlXmlBudget.limit("XML input limit",limits.srlPackageContext)
     val decoder = Charsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
     val text = decoder.decode(java.nio.ByteBuffer.wrap(bytes)).toString()
     require(!text.contains('\u0000') && !srlXmlHasDoctype(text)) { "Invalid UTF-8 XML or prohibited DTD" }
@@ -134,14 +147,14 @@ internal fun srlXmlParse(bytes: ByteArray, limits: XmlLimits): SrlXmlNode {
     var nodes = 0
     var textBytes = 0L
     fun convert(element: org.w3c.dom.Element, depth: Int): SrlXmlNode {
-        require(depth <= limits.maxDepth && ++nodes <= limits.maxNodes) { "XML resource limit" }
+        if (!(depth <= limits.maxDepth && ++nodes <= limits.maxNodes)) SrlXmlBudget.limit("XML resource limit",limits.srlPackageContext)
         val result = SrlXmlNode(SrlXmlName(element.localName, element.namespaceURI ?: ""))
         val attributes = element.attributes
         for (index in 0 until attributes.length) {
             val item = attributes.item(index)
-            require(++nodes <= limits.maxNodes) { "XML attribute/namespace limit" }
+            if (!(++nodes <= limits.maxNodes)) SrlXmlBudget.limit("XML attribute/namespace limit",limits.srlPackageContext)
             textBytes += srlXmlUtf8Size(item.nodeValue)
-            require(textBytes <= limits.maxTextBytes) { "XML text limit" }
+            if (!(textBytes <= limits.maxTextBytes)) SrlXmlBudget.limit("XML text limit",limits.srlPackageContext)
             if (item.namespaceURI == "http://www.w3.org/2000/xmlns/") continue
             result.attributes.add(SrlXmlAttribute(SrlXmlName(item.localName, item.namespaceURI ?: ""), item.nodeValue))
         }
@@ -155,7 +168,7 @@ internal fun srlXmlParse(bytes: ByteArray, limits: XmlLimits): SrlXmlNode {
                 }
                 org.w3c.dom.Node.ENTITY_REFERENCE_NODE -> throw IllegalArgumentException("XML entity prohibited")
             }
-            require(textBytes <= limits.maxTextBytes) { "XML text limit" }
+            if (!(textBytes <= limits.maxTextBytes)) SrlXmlBudget.limit("XML text limit",limits.srlPackageContext)
             child = child.nextSibling
         }
         require(result.children.isEmpty() || result.text.all { it == ' ' || it == '\t' || it == '\r' || it == '\n' }) { "Mixed XML content unsupported" }

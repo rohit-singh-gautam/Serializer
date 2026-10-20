@@ -66,12 +66,12 @@ class _XmlTokenIdentity:
         self.started, self.complete, self.failed = False, False, False
         constraints = contract['constraints']
         if len(constraints) > self.limits.max_constraints:
-            raise ValueError('XML identity constraint limit exceeded')
+            _xml_limit(self.context, 'XML identity constraint limit exceeded')
         self.tables = [set() for unused in constraints]
         self.targets = {value['id']: index for index, value in enumerate(constraints)}
         for value in constraints:
             if not value['fields'] or len(value['fields']) > self.limits.max_fields:
-                raise ValueError('XML identity field limit exceeded')
+                _xml_limit(self.context, 'XML identity field limit exceeded')
             if value['kind'] == 'keyref' and value['refer'] not in self.targets:
                 raise ValueError('XML keyref target is outside the owner scope')
         self._allocate(64 * (len(self.tables) + len(self.targets)))
@@ -79,7 +79,7 @@ class _XmlTokenIdentity:
     def _work(self, count=1):
         """Check interruption and bounded matching work before inspecting the next input portion."""
         if count > self.limits.max_work_units - self.work:
-            raise ValueError('XML identity work limit exceeded')
+            _xml_limit(self.context, 'XML identity work limit exceeded')
         self.work += count
         if self.context is not None:
             self.context.consume('work_units', count)
@@ -105,7 +105,7 @@ class _XmlTokenIdentity:
         """Preserve exact XSD value-space equality, including URI families and expanded QNames."""
         size = len(lexical.encode('utf-8'))
         if size > self.limits.max_tuple_bytes:
-            raise ValueError('XML identity field-byte limit exceeded')
+            _xml_limit(self.context, 'XML identity field-byte limit exceeded')
         self._work(size + 1)
         self._allocate(size)
         kind = field['kind']
@@ -140,7 +140,7 @@ class _XmlTokenIdentity:
         selected = _xml_identity_name(name)
         self._work(sum(len(part) for part in selected) + 1)
         if len(self.path) >= self.limits.max_depth:
-            raise ValueError('XML identity depth limit exceeded')
+            _xml_limit(self.context, 'XML identity depth limit exceeded')
         if not self.started:
             if selected != self.contract['owner']:
                 raise ValueError('XML identity owner scope mismatch')
@@ -161,7 +161,7 @@ class _XmlTokenIdentity:
             matches = (not steps or self._matches(relative[-len(steps):], steps)) if selector['descendants'] else self._matches(relative, steps)
             if matches:
                 if self.selected >= self.limits.max_selected_nodes:
-                    raise ValueError('XML identity selected-node limit exceeded')
+                    _xml_limit(self.context, 'XML identity selected-node limit exceeded')
                 self.selected += 1
                 count = len(constraint['fields'])
                 self._allocate(64 + count * 32 + len(self.path) * 8)
@@ -196,7 +196,7 @@ class _XmlTokenIdentity:
         """Admit the complete candidate tuple including fields of a later incomplete tuple."""
         size = sum(len(part.encode('utf-8')) for part in value[1:])
         if size > self.limits.max_tuple_bytes - candidate['bytes']:
-            raise ValueError('XML identity candidate tuple-byte limit exceeded')
+            _xml_limit(self.context, 'XML identity candidate tuple-byte limit exceeded')
         candidate['bytes'] += size
         candidate['values'][index] = value
 
@@ -215,7 +215,7 @@ class _XmlTokenIdentity:
                     if capture['nil'] and value:
                         raise ValueError('Nil XML identity field contains text')
                     if size > self.limits.max_tuple_bytes - capture['bytes']:
-                        raise ValueError('XML identity field-byte limit exceeded')
+                        _xml_limit(self.context, 'XML identity field-byte limit exceeded')
                     self._allocate(size + 16)
                     capture['bytes'] += size
                     capture['parts'].append(value)
@@ -257,9 +257,9 @@ class _XmlTokenIdentity:
                     raise ValueError('XSD key tuple is incomplete or nil')
                 continue
             if self.tuples >= self.limits.max_tuples:
-                raise ValueError('XML identity tuple-count limit exceeded')
+                _xml_limit(self.context, 'XML identity tuple-count limit exceeded')
             if candidate['bytes'] > self.limits.max_tuple_bytes - self.tuple_bytes:
-                raise ValueError('XML identity tuple-byte limit exceeded')
+                _xml_limit(self.context, 'XML identity tuple-byte limit exceeded')
             if getattr(self.context, 'admit_reference', None) is not None:
                 _xml_field_context(self.context, constraint['id'][1]).admit_reference()
             self.tuples += 1

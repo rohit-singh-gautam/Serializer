@@ -17,20 +17,22 @@ export class XmlIdentityLimits {
 // Retain only bounded tuples/open scalar captures; no known-element objects or sibling trees are constructed.
 class SrlXmlIdentity {
   // Borrow immutable metadata through one complete traversal; all retained indexes are owner-local.
-  constructor(contract,limits) {
+  constructor(contract,limits,operation=null,field="") {
+    this.operation=operation;this.packageField=field;if(operation)operation("allocation",128*contract.constraints.length,field);
     this.contract=contract;this.limits=limits;this.path=[];this.active=[];this.selected=0;this.tuples=0;
     this.tupleBytes=0;this.workUnits=0;this.started=false;this.complete=false;this.failed=false;
     const constraints=contract.constraints;
-    if(constraints.length>limits.maxConstraints)throw new Error('XML identity constraint limit');
+    if(constraints.length>limits.maxConstraints)throw srlXmlQuotaError('XML identity constraint limit');
     this.tables=constraints.map(()=>new Set());this.targets=new Map(constraints.map((item,index)=>[item.id,index]));
     for(const item of constraints){
-      if(!item.fields.length || item.fields.length>limits.maxFields)throw new Error('XML identity field limit');
+      if(!item.fields.length || item.fields.length>limits.maxFields)throw srlXmlQuotaError('XML identity field limit');
       if(item.kind==='keyref' && !this.targets.has(item.refer))throw new Error('XML keyref target is outside owner scope');
     }
   }
   // Admit matching work before processing another input portion; zero is a real bound.
   work(count=1) {
-    if(count>this.limits.maxWorkUnits-this.workUnits)throw new Error('XML identity work limit');
+    if(this.operation)this.operation("work",count,this.packageField);
+    if(count>this.limits.maxWorkUnits-this.workUnits)throw srlXmlQuotaError('XML identity work limit');
     this.workUnits+=count;
   }
   // Charge complete expanded-name comparisons, including large common namespace URI prefixes.
@@ -44,7 +46,7 @@ class SrlXmlIdentity {
   }
   // Canonicalize scalar value spaces without unsafe integer conversion or presentation-prefix equality.
   key(lexical,field,scope) {
-    const size=srlXmlUtf8Length(lexical);if(size>this.limits.maxTupleBytes)throw new Error('XML identity field-byte limit');
+    const size=srlXmlUtf8Length(lexical);if(size>this.limits.maxTupleBytes)throw srlXmlQuotaError('XML identity field-byte limit');
     this.work(size+1);
     const kind=field.kind,rule={kind,whitespace:kind==='string' ? 'preserve' : kind==='normalizedString' ? 'replace' : 'collapse'};
     const normalized=srlXmlScalarWhitespace(lexical,rule),value=srlXmlScalarValue(normalized,rule,scope);
@@ -57,15 +59,15 @@ class SrlXmlIdentity {
   // Bound an incomplete candidate tuple as each selected scalar arrives.
   store(candidate,index,value) {
     const bytes=value.slice(1).reduce((total,item)=>total+srlXmlUtf8Length(item),0);
-    if(bytes>this.limits.maxTupleBytes-candidate.bytes)throw new Error('XML identity candidate tuple-byte limit');
-    candidate.bytes+=bytes;candidate.values[index]=value;
+    if(bytes>this.limits.maxTupleBytes-candidate.bytes)throw srlXmlQuotaError('XML identity candidate tuple-byte limit');
+    if(this.operation)this.operation("allocation",128+bytes,this.packageField);candidate.bytes+=bytes;candidate.values[index]=value;
   }
   // Select current nodes/attributes through compiled expanded paths and retain only open scalar captures.
   start(name,attributes,scope) {
     try {
       if(this.failed || this.complete)throw new Error('XML identity observer is not active');
       this.work(srlXmlUtf8Length(name)+1);
-      if(this.path.length>=this.limits.maxDepth)throw new Error('XML identity depth limit');
+      if(this.path.length>=this.limits.maxDepth)throw srlXmlQuotaError('XML identity depth limit');
       if(!this.started){if(name!==this.contract.owner)throw new Error('XML identity owner mismatch');this.started=true;}
       this.path.push(name);const relative=this.path.slice(1);
       for(const candidate of this.active)if(candidate.captures.some(item=>item!==null))throw new Error('XML identity field has complex child content');
@@ -74,7 +76,7 @@ class SrlXmlIdentity {
         this.work(relative.length+steps.length+1);
         const matches=selector.descendants ? !steps.length || this.matches(relative.slice(-steps.length),steps) : this.matches(relative,steps);
         if(matches){
-          if(this.selected>=this.limits.maxSelectedNodes)throw new Error('XML identity selected-node limit');
+          if(this.selected>=this.limits.maxSelectedNodes)throw srlXmlQuotaError('XML identity selected-node limit');
           ++this.selected;const count=constraint.fields.length;
           this.active.push({index,depth:this.path.length,values:new Array(count).fill(null),seen:new Array(count).fill(false),captures:new Array(count).fill(null),bytes:0});
         }
@@ -104,7 +106,7 @@ class SrlXmlIdentity {
       for(const candidate of this.active)for(const capture of candidate.captures){
         if(capture===null)continue;this.work(bytes);
         if(capture.nil && value.length)throw new Error('Nil XML identity field contains text');
-        if(bytes>this.limits.maxTupleBytes-capture.bytes)throw new Error('XML identity field-byte limit');
+        if(bytes>this.limits.maxTupleBytes-capture.bytes)throw srlXmlQuotaError('XML identity field-byte limit');
         capture.bytes+=bytes;capture.text+=value;
       }
     } catch(error){this.failed=true;throw error;}
@@ -128,8 +130,9 @@ class SrlXmlIdentity {
         if(candidate.depth!==this.path.length){retained.push(candidate);continue;}
         const constraint=this.contract.constraints[candidate.index];
         if(candidate.values.some(value=>value===null)){if(constraint.kind==='key')throw new Error('XSD key tuple is incomplete or nil');continue;}
-        if(this.tuples>=this.limits.maxTuples)throw new Error('XML identity tuple-count limit');
-        if(candidate.bytes>this.limits.maxTupleBytes-this.tupleBytes)throw new Error('XML identity tuple-byte limit');
+        if(this.tuples>=this.limits.maxTuples)throw srlXmlQuotaError('XML identity tuple-count limit');
+        if(candidate.bytes>this.limits.maxTupleBytes-this.tupleBytes)throw srlXmlQuotaError('XML identity tuple-byte limit');
+        if(this.operation){this.operation("reference",1,this.packageField);this.operation("allocation",128+candidate.bytes,this.packageField);}
         ++this.tuples;this.tupleBytes+=candidate.bytes;this.work(candidate.bytes+1);
         const table=this.tables[candidate.index],key=JSON.stringify(candidate.values);
         if(table.has(key) && constraint.kind!=='keyref')throw new Error('Duplicate XSD key/unique tuple');table.add(key);

@@ -4,6 +4,8 @@
 R"identityswift(
 // Bound one operation-local identity index independently of the ordinary document/parser limits.
 public struct XmlIdentityLimits {
+    fileprivate var srlPackageLimit: ((String) -> any Swift.Error)?
+    fileprivate var srlPackageConsume: ((String,Int) throws -> Void)?
     public let maxConstraints: Int, maxFields: Int, maxDepth: Int, maxSelectedNodes: Int
     public let maxTuples: Int, maxTupleBytes: Int, maxWorkUnits: Int
     // Nil arguments select compiler-emitted shared defaults; explicit zero prohibits the resource.
@@ -69,16 +71,18 @@ fileprivate final class SrlXmlIdentity {
     // Allocate only admitted prepared tables for this independent owner scope.
     init(_ scope: SrlXmlIdentityScope, _ limits: XmlIdentityLimits) throws {
         try limits.validate(); self.scope=scope; self.limits=limits
-        guard scope.constraints.count <= limits.maxConstraints else { throw SerializerError.invalid("XML identity constraint limit") }
+        guard scope.constraints.count <= limits.maxConstraints else { throw srlXmlLimitFailure(limits.srlPackageLimit,"XML identity constraint limit") }
         for item in scope.constraints {
-            guard !item.fields.isEmpty && item.fields.count <= limits.maxFields else { throw SerializerError.invalid("XML identity field limit") }
+            guard !item.fields.isEmpty else { throw SerializerError.invalid("XML identity field limit") }
+            guard item.fields.count <= limits.maxFields else { throw srlXmlLimitFailure(limits.srlPackageLimit,"XML identity field limit") }
             guard item.kind != "keyref" || scope.constraints.indices.contains(item.refer) && scope.constraints[item.refer].kind != "keyref" else { throw SerializerError.invalid("XML keyref target outside owner scope") }
         }
         tables=Array(repeating:Set<WireString>(),count:scope.constraints.count)
     }
     // Charge before scanning names or retaining values; subtraction keeps exact zero/maximum policies safe.
     private func work(_ count: Int) throws {
-        guard count >= 0 && count <= limits.maxWorkUnits-workUnits else { throw SerializerError.invalid("XML identity work limit") }; workUnits += count
+        try limits.srlPackageConsume?("work",count)
+        guard count >= 0 && count <= limits.maxWorkUnits-workUnits else { throw srlXmlLimitFailure(limits.srlPackageLimit,"XML identity work limit") }; workUnits += count
     }
     // Account for complete expanded identities, including long common namespace URI prefixes.
     private func nameBytes(_ name: SrlXmlName) -> Int { name.local.utf8.count+name.namespace.utf8.count+2 }
@@ -108,38 +112,39 @@ fileprivate final class SrlXmlIdentity {
     }
     // Canonicalize exact builtin values independently of native widths, locale and QName presentation prefixes.
     private func key(_ raw: String, _ field: SrlXmlIdentityField, _ resolve: (String) -> String?) throws -> String {
-        let bytes=raw.utf8.count; guard bytes <= limits.maxTupleBytes else { throw SerializerError.invalid("XML identity field-byte limit") }; try work(bytes+1)
+        let bytes=raw.utf8.count; guard bytes <= limits.maxTupleBytes else { throw srlXmlLimitFailure(limits.srlPackageLimit,"XML identity field-byte limit") }; try limits.srlPackageConsume?("allocation",bytes); try work(bytes+1)
         if field.kind == "QName" {
             let text=raw.trimmingCharacters(in:CharacterSet(charactersIn:" \t\r\n"))
             let parts=text.split(separator:":",omittingEmptySubsequences:false).map(String.init)
             guard (1...2).contains(parts.count) && parts.allSatisfy({ !$0.isEmpty }) else { throw SerializerError.invalid("Invalid XML identity QName") }
             let rule=SrlXmlRule("NCName","collapse",["","","",""],-1,-1,-1,[],false,[],"",[],nil)
-            for part in parts { _=try rule.check(part) }
+            for part in parts { _=try rule.check(part,srlXmlMaxListItems,limits.srlPackageLimit,limits.srlPackageConsume) }
             let prefix=parts.count == 2 ? parts[0] : "", uri=resolve(prefix)
             guard prefix.isEmpty || uri != nil else { throw SerializerError.invalid("Undeclared XML identity QName prefix") }
             return "q"+(uri ?? "")+"\0"+parts.last!
         }
-        let value=try field.rule.check(raw), kind=field.kind
+        let value=try field.rule.check(raw,srlXmlMaxListItems,limits.srlPackageLimit,limits.srlPackageConsume), kind=field.kind
         if kind == "boolean" { return try srlXmlBoolean(value) ? "btrue" : "bfalse" }
         if kind == "decimal" || Self.integerKinds.contains(kind) { return decimal(value) }
         guard kind != "float" && kind != "double" else { throw SerializerError.invalid("Floating XML identity fields are unsupported") }
         return (kind == "anyURI" ? "u" : "s")+value
     }
-    // Admit canonical bytes before retaining one partial field; private type tags do not consume tuple bytes.
+)identityswift"
+R"identityswift(    // Admit canonical bytes before retaining one partial field; private type tags do not consume tuple bytes.
     private func store(_ candidate: Candidate, _ index: Int, _ value: String) throws {
         let bytes=value.utf8.count-(value.hasPrefix("q") ? 2 : 1)
-        guard bytes <= limits.maxTupleBytes-candidate.bytes else { throw SerializerError.invalid("XML identity candidate tuple-byte limit") }
+        guard bytes <= limits.maxTupleBytes-candidate.bytes else { throw srlXmlLimitFailure(limits.srlPackageLimit,"XML identity candidate tuple-byte limit") }
         candidate.bytes += bytes; candidate.values[index]=value
     }
     // Observe original full attributes before generated nil/type consumption or namespace scope removal.
     func start(_ name: SrlXmlName, _ attributes: [SrlXmlAttribute], _ resolve: (String) -> String?) throws {
         do {
             guard !failed && !complete else { throw SerializerError.invalid("XML identity observer inactive") }; try work(nameBytes(name)+1)
-            guard path.count < limits.maxDepth else { throw SerializerError.invalid("XML identity depth limit") }
+            guard path.count < limits.maxDepth else { throw srlXmlLimitFailure(limits.srlPackageLimit,"XML identity depth limit") }
             guard active.allSatisfy({ $0.captures.allSatisfy({ $0 == nil }) }) else { throw SerializerError.invalid("XML identity scalar has complex child content") }
             path.append(name)
             for (index,item) in scope.constraints.enumerated() where try matches(1,item.selector) {
-                guard selected < limits.maxSelectedNodes else { throw SerializerError.invalid("XML identity selected-node limit") }; selected += 1
+                guard selected < limits.maxSelectedNodes else { throw srlXmlLimitFailure(limits.srlPackageLimit,"XML identity selected-node limit") }; selected += 1
                 active.append(Candidate(index,path.count,item.fields.count))
             }
             for candidate in active {
@@ -167,7 +172,7 @@ fileprivate final class SrlXmlIdentity {
             let bytes=value.utf8.count; try work(bytes)
             for candidate in active { for capture in candidate.captures.compactMap({ $0 }) {
                 try work(bytes); guard !capture.isNil || value.isEmpty else { throw SerializerError.invalid("Nil XML identity field has text") }
-                guard bytes <= limits.maxTupleBytes-capture.bytes else { throw SerializerError.invalid("XML identity field-byte limit") }
+                guard bytes <= limits.maxTupleBytes-capture.bytes else { throw srlXmlLimitFailure(limits.srlPackageLimit,"XML identity field-byte limit") }
                 capture.bytes += bytes; capture.text.append(contentsOf:value)
             } }
         } catch { failed=true; throw error }
@@ -193,9 +198,12 @@ fileprivate final class SrlXmlIdentity {
                 if candidate.values.contains(where:{ $0 == nil }) {
                     guard constraint.kind != "key" else { throw SerializerError.invalid("XSD key tuple incomplete or nil") }; continue
                 }
-                guard tuples < limits.maxTuples else { throw SerializerError.invalid("XML identity tuple-count limit") }
-                guard candidate.bytes <= limits.maxTupleBytes-tupleBytes else { throw SerializerError.invalid("XML identity tuple-byte limit") }
+                // Every authored complete tuple consumes admission before equal keyrefs are deduplicated.
+                try limits.srlPackageConsume?("reference",1)
+                guard tuples < limits.maxTuples else { throw srlXmlLimitFailure(limits.srlPackageLimit,"XML identity tuple-count limit") }
+                guard candidate.bytes <= limits.maxTupleBytes-tupleBytes else { throw srlXmlLimitFailure(limits.srlPackageLimit,"XML identity tuple-byte limit") }
                 tuples += 1; tupleBytes += candidate.bytes; try work(candidate.bytes+1)
+                try limits.srlPackageConsume?("allocation",candidate.bytes)
                 let tuple=candidate.values.map { value -> String in let text=value!; return String(text.utf8.count)+":"+text }.joined()
                 guard tables[candidate.constraint].insert(WireString(tuple)).inserted || constraint.kind == "keyref" else { throw SerializerError.invalid("Duplicate XSD key/unique tuple") }
             }

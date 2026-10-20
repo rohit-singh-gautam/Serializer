@@ -114,13 +114,13 @@ std::string scalar_facets(const xml_binding::field& field,
                           const std::string& prepared_rule, bool output = false) {
   if (prepared_rule.empty()) { return {}; }
   const auto& fallback = field.fixed_value ? field.fixed_value : field.default_value;
-  std::string result{};
+  std::string result{std::string{output?"output":"input"}+".budget.field="+quote(field.source->name)+"\n"};
   if (!output && fallback && !field.attribute) { result += "if srlText==\"\"{srlText=" + quote(*fallback) + "}\n"; }
   result += "srlChecked,srlFacetErr:=" + prepared_rule;
   if (output) {
     result += ".output(srlText," + quote(fallback.value_or("")) + ',' +
-        (fallback && !field.attribute ? "true" : "false") + ",output.budget.limits.MaxNodes)\n";
-  } else { result += ".check(srlText,input.budget.limits.MaxNodes)\n"; }
+        (fallback && !field.attribute ? "true" : "false") + ",output.budget.limits.MaxNodes,&output.budget)\n";
+  } else { result += ".check(srlText,input.budget.limits.MaxNodes,&input.budget)\n"; }
   return result + "if srlFacetErr!=nil{return nil,srlFacetErr}\nsrlText=srlChecked\n";
 }
 // Lower the shared Thompson program without introducing a host-regex dialect.
@@ -207,7 +207,7 @@ std::string encode_map(const xml_binding::map_contract& map, const std::string& 
       "!srlKeys[i]&&srlKeys[j]" : "srlKeys[i]<srlKeys[j]";
   std::string out{"{\n"};
   if (map.optional_container) { out += "if " + access + "!=nil{\n"; }
-  out += "if len(" + selected + ")>output.mapLimits.MaxEntries{return fmt.Errorf(\"XML map entry limit exceeded\")}\n";
+  out += "if len(" + selected + ")>output.mapLimits.MaxEntries{return srlXmlLimitError(\"XML map entry limit exceeded\")}\n";
   out += "if err:=output.open(" + qualified(map.wrapper) + ");err!=nil{return err}\n";
   out += "srlKeys:=make([]" + type(map.key_type) + ",0,len(" + selected + "))\nfor srlKey:=range " +
       selected + "{srlKeys=append(srlKeys,srlKey)}\nsort.Slice(srlKeys,func(i,j int)bool{return " + less + "})\nsrlKeyBytes:=0\n";
@@ -241,7 +241,7 @@ std::string decode_map(const xml_binding::map_contract& map, const std::string& 
   out += "if len(srlWrapper.attrs)!=0{return nil,fmt.Errorf(\"Unexpected XML map wrapper attribute\")}\n";
   out += "srlMap:=make(map[" + type(map.key_type) + "]" + type(map.value_type) + ")\nsrlKeyBytes,srlEntries:=0,0\n";
   out += "for{\nsrlPresent,srlErr:=input.has(" + qualified(map.entry) + ");if srlErr!=nil{return nil,srlErr};if !srlPresent{break}\n";
-  out += "if srlEntries>=input.mapLimits.MaxEntries{return nil,fmt.Errorf(\"XML map entry limit exceeded\")}\n";
+  out += "if srlEntries>=input.mapLimits.MaxEntries{return nil,srlXmlLimitError(\"XML map entry limit exceeded\")}\n";
   out += "srlEntry,srlErr:=input.open(" + qualified(map.entry) + ");if srlErr!=nil{return nil,srlErr}\n";
   out += "var srlKey " + type(map.key_type) + "\nvar srlItem " + type(map.value_type) + "\nvar srlKeyLexical string\nsrlHasKey,srlHasValue:=false,false\n";
   // A local scope lets key and value adapters reuse their normal lexical temporary names.
@@ -347,7 +347,7 @@ std::string encode_list(const xml_binding::field& field, const std::string& acce
   const auto selected = optional ? "(*" + access + ')' : access;
   std::string out{"{\n"};
   if (optional) { out += "if " + access + "!=nil{\n"; }
-  out += "if len(" + selected + ")>output.budget.limits.MaxNodes{return fmt.Errorf(\"XML list item limit exceeded\")}\n";
+  out += "if len(" + selected + ")>output.budget.limits.MaxNodes{return srlXmlLimitError(\"XML list item limit exceeded\")}\n";
   if (field.source->fixed_extent != 0U) {
     out += "if len(" + selected + ")!=" + std::to_string(field.source->fixed_extent) + "{return fmt.Errorf(\"XML fixed list extent mismatch\")}\n";
   }
@@ -679,7 +679,7 @@ std::string scalar_input(const xml_binding::field& field, std::size_t index,
       quote(*fallback) + ',' + (field.attribute ? "true" : "false") + ')' : namespaced;
   return needs_scalar_rule(field) ? scalar_rule_name(index, language) +
       (language == "java" ? ".check(" : ".Check(") + text + ',' +
-      (language == "java" ? "input.listLimit()" : "input.ListLimit") + ')' : text;
+      (language == "java" ? "input.listLimit(),input.budget" : "input.ListLimit,input.Operation") + ')' : text;
 }
 
 std::string scalar_output(const xml_binding::field& field, std::size_t index,
@@ -690,7 +690,7 @@ std::string scalar_output(const xml_binding::field& field, std::size_t index,
       (java ? "output(output," : "Output(output,") + std::to_string(index) + ',' +
       (typed_list(field) ? "0" : "srlNamespaceIndex++") + ',' + expression + ',' + namespace_mode(field) + ')' : expression;
   if (!needs_scalar_rule(field)) { return text; }
-  const auto limit = java ? "output.listLimit()" : "output.ListLimit";
+  const auto limit = java ? "output.listLimit(),output.budget" : "output.ListLimit,output.Operation";
   return scalar_rule_name(index, language) + (fallback && !field.attribute ?
       (java ? ".output(" : ".Output(") + text + ',' + quote(*fallback) + ',' + limit + ')' :
       (java ? ".check(" : ".Check(") + text + ',' + limit + ')');
@@ -714,12 +714,12 @@ std::string list_write(const xml_binding::field& field, std::size_t index,
     result += java ? "if(" + access + ".isPresent()){\n" : "var srlOptional=" + access + ";if(srlOptional.HasValue){\n";
     selected = java ? access + ".get()" : "srlOptional.Value.Item1";
   }
-  result += java ? "if(" + selected + "==null)throw new IllegalArgumentException(\"Null XML list\");\nvar srlList=new StringBuilder();int srlCount=0,srlListBytes=0;\nfor(var srlItem:" + selected + "){\nif(srlCount++>=output.listLimit())throw new IllegalArgumentException(\"XML list item limit exceeded\");\n" :
-      "if(" + selected + " is null)throw new System.FormatException(\"Null XML list\");\nvar srlList=new System.Text.StringBuilder();int srlCount=0,srlListBytes=0;\nforeach(var srlItem in " + selected + "){\nif(srlCount++>=output.ListLimit)throw new System.FormatException(\"XML list item limit exceeded\");\n";
+  result += java ? "if(" + selected + "==null)throw new IllegalArgumentException(\"Null XML list\");\nvar srlList=new StringBuilder();int srlCount=0,srlListBytes=0;\nfor(var srlItem:" + selected + "){\nif(srlCount++>=output.listLimit())throw SrlXmlRule.quota(\"XML list item limit exceeded\");\n" :
+      "if(" + selected + " is null)throw new System.FormatException(\"Null XML list\");\nvar srlList=new System.Text.StringBuilder();int srlCount=0,srlListBytes=0;\nforeach(var srlItem in " + selected + "){\nif(srlCount++>=output.ListLimit)throw SrlXmlBudget.Limit(\"XML list item limit exceeded\",output.Operation);\n";
   result += "var srlToken=" + scalar(selected_type, "srlItem", true) + ";\n";
   // Empty/whitespace-containing native strings cannot represent exactly one lexical list item.
   result += java ? "if(SrlXmlRule.tokens(srlToken).length!=1||!SrlXmlRule.tokens(srlToken)[0].equals(srlToken))throw new IllegalArgumentException(\"Invalid native XML list item\");\nsrlListBytes=output.listItem(srlToken,srlList,srlListBytes);\n}\n" :
-      "if(SrlXmlRule.Tokens(srlToken).Length!=1||SrlXmlRule.Tokens(srlToken)[0]!=srlToken)throw new System.FormatException(\"Invalid native XML list item\");\nsrlListBytes=output.ListItem(srlToken,srlList,srlListBytes);\n}\n";
+      "if(SrlXmlRule.Tokens(srlToken,output.Operation).Length!=1||SrlXmlRule.Tokens(srlToken,output.Operation)[0]!=srlToken)throw new System.FormatException(\"Invalid native XML list item\");\nsrlListBytes=output.ListItem(srlToken,srlList,srlListBytes);\n}\n";
   if (field.source->fixed_extent != 0U) {
     result += "if(srlCount!=" + std::to_string(field.source->fixed_extent) + ")throw new " +
         (java ? "IllegalArgumentException" : "System.FormatException") + "(\"XML fixed list extent mismatch\");\n";
@@ -753,7 +753,7 @@ std::string list_read(const xml_binding::field& field, std::size_t index,
   std::string result{"{\nvar srlLexical=" + lexical + ";\n"};
   if (optional && !defaulted) { result += "if(srlLexical==null){" + access + (java ? "=java.util.Optional.empty();" : "=null;") + "}else{\n"; }
   result += "var srlListText=" + scalar_input(field, index, java || defaulted ? "srlLexical" : "srlLexical!", language) + ";\n";
-  result += java ? "var srlTokens=SrlXmlRule.tokens(srlListText,input.listLimit());\n" : "var srlTokens=SrlXmlRule.Tokens(srlListText,input.ListLimit);\n";
+  result += java ? "var srlTokens=SrlXmlRule.tokens(srlListText,input.listLimit());\n" : "var srlTokens=SrlXmlRule.Tokens(srlListText,input.ListLimit,input.Operation);\n";
   if (field.source->fixed_extent != 0U) {
     result += "if(srlTokens." + std::string{java ? "length" : "Length"} + "!=" +
         std::to_string(field.source->fixed_extent) + ")throw new " +
@@ -807,7 +807,7 @@ std::string map_runtime(std::string_view language) {
         "/** Zero is a real bound; negative admissions reject before an operation starts. */\n"
         "public XmlMapLimits(int entries,int keyBytes){if(entries<0||keyBytes<0)throw new IllegalArgumentException(\"Negative XML map limit\");maxEntries=entries;maxKeyBytes=keyBytes;}\n"
         "/** Charge lexical aliases before typed insertion discards their original spelling. */\n"
-        "int keyBytes(String lexical,String canonical,int used){int count=java.lang.Math.max(utf8(lexical).length,utf8(canonical).length);if(count>maxKeyBytes-used)throw new IllegalArgumentException(\"XML map key byte limit exceeded\");return used+count;}\n}\n";
+        "int keyBytes(String lexical,String canonical,int used){int count=java.lang.Math.max(utf8(lexical).length,utf8(canonical).length);if(count>maxKeyBytes-used)throw SrlXmlRule.quota(\"XML map key byte limit exceeded\");return used+count;}\n}\n";
   }
   if (language == "csharp") {
     return "// Immutable per-wrapper map admissions, independent of ordinary native limits.\n"
@@ -816,7 +816,7 @@ std::string map_runtime(std::string_view language) {
         "public XmlMapLimits(int maxEntries=" + std::to_string(limits.max_map_entries) +
         ",int maxKeyBytes=" + std::to_string(limits.max_map_key_bytes) + "){if(maxEntries<0||maxKeyBytes<0)throw new System.ArgumentOutOfRangeException(nameof(maxEntries),\"Negative XML map limit\");MaxEntries=maxEntries;MaxKeyBytes=maxKeyBytes;}\n"
         "// Charge lexical aliases before typed insertion discards their original spelling.\n"
-        "internal int KeyBytes(string lexical,string canonical,int used){int count=System.Math.Max(SrlUtf8.GetByteCount(lexical),SrlUtf8.GetByteCount(canonical));if(count>MaxKeyBytes-used)throw new System.FormatException(\"XML map key byte limit exceeded\");return used+count;}\n}\n";
+        "internal int KeyBytes(string lexical,string canonical,int used,Limits.IOperation? operation=null){int count=System.Math.Max(SrlUtf8.GetByteCount(lexical),SrlUtf8.GetByteCount(canonical));if(count>MaxKeyBytes-used)throw SrlXmlBudget.Limit(\"XML map key byte limit exceeded\",operation);return used+count;}\n}\n";
   }
   throw std::invalid_argument{"Unsupported portable XML map runtime"};
 }
@@ -971,7 +971,7 @@ std::string mixed_write(const xml_binding::mixed_contract& mixed, const std::str
     out += "if(" + count + "!=" + std::to_string(mixed.source->fixed_extent) + ")throw new " + error + "(\"XML mixed fixed extent mismatch\");\n";
   }
   out += java ? "var srlMixed=new SrlXmlMixedBudget(output.mixedLimits);\nfor(var srlFragment:" + access + "){\n" :
-      "var srlMixed=new SrlXmlMixedBudget(output.MixedLimits);\nforeach(var srlFragment in " + access + "){\n";
+      "var srlMixed=new SrlXmlMixedBudget(output.MixedLimits,output.Operation);\nforeach(var srlFragment in " + access + "){\n";
   out += "if(srlFragment" + std::string{java ? "==null" : " is null"} + ")throw new " + error + "(\"Null XML mixed fragment\");\nsrlMixed." +
       (java ? "fragment();\n" : "Fragment();\n") + "switch(srlFragment." + storage + "Index){\n";
   const auto text = "srlFragment." + storage + alternative(mixed.text_branch);
@@ -996,7 +996,7 @@ std::string mixed_read(const xml_binding::mixed_contract& mixed, const std::stri
   const auto expanded = [](const xml::name& name) { return quote(name.namespace_uri.empty() ? name.local : "{" + name.namespace_uri + "}" + name.local); };
   std::string out{"{\n"};
   out += java ? "if(!fields.attributes.isEmpty())throw new IllegalArgumentException(\"Unexpected XML mixed attribute\");\nvar srlMixed=new SrlXmlMixedBudget(input.mixedLimits);\nvar srlMixedValues=new java.util.ArrayList<" + fragment + ">();\n" :
-      "if(fields.Attributes.Count!=0)throw new System.FormatException(\"Unexpected XML mixed attribute\");\nvar srlMixed=new SrlXmlMixedBudget(input.MixedLimits);\nvar srlMixedValues=new System.Collections.Generic.List<" + fragment + ">();\n";
+      "if(fields.Attributes.Count!=0)throw new System.FormatException(\"Unexpected XML mixed attribute\");\nvar srlMixed=new SrlXmlMixedBudget(input.MixedLimits,input.Operation);\nvar srlMixedValues=new System.Collections.Generic.List<" + fragment + ">();\n";
   const auto kind = java ? "input.kind" : "input.Kind";
   out += "while(true){\nif(" + std::string{kind} + "=='t'){\nvar srlText=input." + (java ? "mixedText(srlMixed)" : "MixedText(srlMixed)") + ";\n";
   out += java ? "if(srlText.isEmpty())continue;\n" : "if(srlText.Length==0)continue;\n";
@@ -1036,7 +1036,7 @@ std::string map_write(const xml_binding::map_contract& map, const std::string& a
   std::string out{"{\n"};
   if (map.optional_container) { out += "if(" + access + (java ? ".isPresent()" : ".HasValue") + "){\n"; }
   out += "if(" + selected + (java ? "==null)" : " is null)") + failure + "\"Null XML map storage\");\n";
-  out += "if(" + size + '>' + limits + (java ? ".maxEntries)" : ".MaxEntries)") + failure + "\"XML map entry limit exceeded\");\n";
+  out += "if(" + size + '>' + limits + (java ? ".maxEntries)throw SrlXmlRule.quota(" : ".MaxEntries)throw SrlXmlBudget.Limit(") + "\"XML map entry limit exceeded\"" + (java ? ");\n" : ",output.Operation);\n");
   out += output_open + expanded(map.wrapper) + ");\n";
   out += "var srlKeys=new " + std::string{java ? "java.util.ArrayList<" : "System.Collections.Generic.List<"} +
       type(map.key_type) + ">(" + selected + (java ? ".keySet()" : ".Keys") + ");\n";
@@ -1050,7 +1050,7 @@ std::string map_write(const xml_binding::map_contract& map, const std::string& a
     out += std::string{"if(srlItem"} + (java ? "==null)" : " is null)") + failure + "\"Null XML map value\");\n";
   }
   out += std::string{java ? "String srlKeyText=" : "string srlKeyText="} + scalar(map.key_type, "srlKey", true) + ";\n";
-  out += "srlKeyBytes=" + limits + (java ? ".keyBytes(" : ".KeyBytes(") + "srlKeyText,srlKeyText,srlKeyBytes);\n";
+  out += "srlKeyBytes=" + limits + (java ? ".keyBytes(" : ".KeyBytes(") + "srlKeyText,srlKeyText,srlKeyBytes" + (java ? ");\n" : ",output.Operation);\n");
   out += output_open + expanded(map.entry) + ");\n";
   if (map.key_placement == xml_binding::map_key_placement::attribute) {
     out += std::string{java ? "output.attribute(" : "output.Attribute("} + expanded(map.key) + ",srlKeyText);\n";
@@ -1084,7 +1084,7 @@ std::string map_read(const xml_binding::map_contract& map, const std::string& ac
   out += "if(srlPresent){\nvar srlWrapper=" + open + expanded(map.wrapper) + ");\n";
   out += "if(" + std::string{java ? "!srlWrapper.attributes.isEmpty()" : "srlWrapper.Attributes.Count!=0"} + ')' + failure + "\"Unexpected XML map wrapper attribute\");\n";
   out += std::string{java ? "java.util.NavigableMap<" : "System.Collections.Generic.Dictionary<"} + type(map.key_type) + ',' + type(map.value_type) + "> srlMap=" + initializer + ";\nint srlKeyBytes=0,srlEntries=0;\n";
-  out += "while(" + has + expanded(map.entry) + ")){\nif(srlEntries>=" + limits + (java ? ".maxEntries)" : ".MaxEntries)") + failure + "\"XML map entry limit exceeded\");\n";
+  out += "while(" + has + expanded(map.entry) + ")){\nif(srlEntries>=" + limits + (java ? ".maxEntries)throw SrlXmlRule.quota(" : ".MaxEntries)throw SrlXmlBudget.Limit(") + "\"XML map entry limit exceeded\"" + (java ? ");\n" : ",input.Operation);\n");
   out += "var srlEntry=" + open + expanded(map.entry) + ");\n" + type(map.key_type) + " srlKey=" + (java ? "null" : "default!") + ";\n" + type(map.value_type) + " srlItem=" + (java ? "null" : "default!") + ";\n";
   out += std::string{java ? "String srlKeyLexical=\"\";\nboolean " : "string srlKeyLexical=\"\";\nbool "} + "srlHasKey=false,srlHasValue=false;\n";
   if (map.key_placement == xml_binding::map_key_placement::attribute) {
@@ -1099,7 +1099,7 @@ std::string map_read(const xml_binding::map_contract& map, const std::string& ac
       (java ? ".xmlRead(input," : ".XmlRead(input,") + expanded(map.value) + ')' :
       scalar(map.value_type, scalar_input + expanded(map.value) + ')', false)) + ";srlHasValue=true;break;\n";
   out += "default:" + failure + "\"Unexpected XML map member\");\n}\n}\nif(!srlHasKey||!srlHasValue)" + failure + "\"Incomplete XML map entry\");\nsrlEntry" + finish;
-  out += "srlKeyBytes=" + limits + (java ? ".keyBytes(" : ".KeyBytes(") + "srlKeyLexical," + scalar(map.key_type, "srlKey" + std::string{java ? "" : "!"}, true) + ",srlKeyBytes);\n";
+  out += "srlKeyBytes=" + limits + (java ? ".keyBytes(" : ".KeyBytes(") + "srlKeyLexical," + scalar(map.key_type, "srlKey" + std::string{java ? "" : "!"}, true) + ",srlKeyBytes" + (java ? ");\n" : ",input.Operation);\n");
   out += "if(srlMap." + std::string{java ? "containsKey(srlKey)" : "ContainsKey(srlKey)"} + ')' + failure + "\"Duplicate canonical XML map key\");\n";
   out += java ? "srlMap.put(srlKey,srlItem);\n" : "srlMap.Add(srlKey,srlItem);\n";
   out += "++srlEntries;\n}\nsrlWrapper" + finish;
@@ -1300,7 +1300,8 @@ std::string reference_methods(const class_node& object, const std::string& ident
 std::string methods(const class_node& object, const xml_binding::record& contract,
     const std::string& identifier, const field_name& field, const type_name_fn& type,
     const xml_options& options, std::string_view language, const alternative_name& alternative,
-    bool readonly, const field_name& projection) {
+    bool readonly, const field_name& projection, std::string_view operation_type,
+    std::string_view operation_decoder) {
   if (language != "go") { throw std::invalid_argument{"Unsupported XML portable methods"}; }
   const bool export_graph = readonly || xml_codegen::native_xml_export_graph(object);
   const bool namespace_values = std::any_of(contract.fields.begin(), contract.fields.end(), namespace_scalar);
@@ -1406,11 +1407,19 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
     return xml_codegen::model_emission_scope{[&,position,count,operation,failure,encoding]{out+="if err:=srlExtensions."+operation+position+','+count+");err!=nil{"+failure+"}\n";if(encoding)out+="if err:=srlExtensions.endPosition("+position+");err!=nil{return err}\n";out+="}\n";}};
   };
 
+  std::string operation_method{"EncodeXMLWithOperation"};
+  const auto method_exists=[&](std::string_view candidate){
+    if(std::any_of(object.member_list.begin(),object.member_list.end(),[&](const auto& member){return field(member)==candidate;})){return true;}
+    return std::any_of(object.functions.begin(),object.functions.end(),[&](const auto& function){member member{};member.name=function.name;member.access=access_type::public_access;return field(member)==candidate;});
+  };
+  while(method_exists(operation_method)){operation_method+="_2";}
+  const auto operation_encode="// "+operation_method+" applies additional admission without changing XmlOptions layout.\nfunc(value *"+identifier+") "+operation_method+"(operation "+std::string{operation_type}+")([]byte,error){return value.EncodeXML(operation.Policy())}\n";
   out += "policy,err:=srlXmlOptions(policies);if err!=nil{return nil,err}\n";
   if (!options.runtime_xsd) { out += "if policy.Validator!=nil{return nil,fmt.Errorf(\"Runtime XSD was not enabled during generation\")}\n"; }
-  out += "output:=srlXmlOutputStart(policy.Limits,maps)\noutput.mixedLimits=mixed\noutput.identityLimits=identity\noutput.digestLimits=digests\noutput.extensionOptions=extensions\nif err=value.srlXmlEncode(output," + qualified(contract.root) + ");err!=nil{return nil,err}\ndata,err:=output.finish();if err!=nil{return nil,err}\n";
+  out += "output:=srlXmlOutputStart(policy.Limits,maps)\noutput.budget.operation=policy.Operation\noutput.mixedLimits=mixed\noutput.identityLimits=identity\noutput.digestLimits=digests\noutput.extensionOptions=extensions\nif err=value.srlXmlEncode(output," + qualified(contract.root) + ");err!=nil{return nil,err}\ndata,err:=output.finish();if err!=nil{return nil,err}\n";
   if (options.runtime_xsd && options.validation_scope != "input") { out += "if policy.Validator!=nil{if err=policy.Validator.ValidateXML(data);err!=nil{return nil,err}}\n"; }
   out += "return data,nil\n}\n";
+  out += operation_encode;
   if (!readonly) {
   out += "// Decode" + identifier + "XML returns a fresh value only after complete XML validation.\nfunc Decode" + identifier + "XML(data []byte,policies ...XmlOptions)(*" + identifier + ",error){return Decode" + identifier + "XMLWithMapLimits(data,DefaultXmlMapLimits(),policies...)}\n"
       "// Decode" + identifier + "XMLWithMapLimits applies explicit map bounds before publication.\nfunc Decode" + identifier + "XMLWithMapLimits(data []byte,maps XmlMapLimits,policies ...XmlOptions)(*" + identifier + ",error){return Decode" + identifier + "XMLWithContentLimits(data,maps,DefaultXmlMixedLimits(),policies...)}\n"
@@ -1425,9 +1434,12 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
   } else {
   out += "var extensionErr error;extensions,extensionErr=srlXmlExtensionOptions(extensions);if extensionErr!=nil{return nil,extensionErr}\nif err:=srlXmlMapPolicy(maps);err!=nil{return nil,err}\nif err:=srlXmlMixedPolicy(mixed);err!=nil{return nil,err}\nif err:=srlXmlIdentityPolicy(identity);err!=nil{return nil,err}\nif err:=srlXmlDigestPolicy(digests);err!=nil{return nil,err}\npolicy,err:=srlXmlOptions(policies);if err!=nil{return nil,err}\n";
   if (!options.runtime_xsd) { out += "if policy.Validator!=nil{return nil,fmt.Errorf(\"Runtime XSD was not enabled during generation\")}\n"; }
-  out += "input,err:=srlXmlInputStart(data,policy.Limits,maps);if err!=nil{return nil,err}\ninput.mixedLimits=mixed\ninput.identityLimits=identity\ninput.digestLimits=digests\ninput.extensionOptions=extensions\nvalue,err:=srlXmlDecode" + identifier + "(input," + qualified(contract.root) + ");if err!=nil{return nil,err}\nif err=input.finish();err!=nil{return nil,err}\n";
+  out += "input,err:=srlXmlInputStart(data,policy.Limits,maps);if err!=nil{return nil,err}\ninput.budget.operation=policy.Operation\ninput.mixedLimits=mixed\ninput.identityLimits=identity\ninput.digestLimits=digests\ninput.extensionOptions=extensions\nif policy.ExpectedRoot!=\"\"{event,failure:=input.peek();if failure!=nil{return nil,failure};if srlXmlIdentityName(event.name)!=policy.ExpectedRoot{return nil,fmt.Errorf(\"Unexpected package XML root\")}}\nif policy.ExpectedType!=\"\"{expected:=srlxml.Name{Local:policy.ExpectedType};if strings.HasPrefix(policy.ExpectedType,\"{\"){end:=strings.Index(policy.ExpectedType,\"}\");if end<0{return nil,fmt.Errorf(\"Invalid expected XML type\")};expected.Space=policy.ExpectedType[1:end];expected.Local=policy.ExpectedType[end+1:]};if err:=input.expectType(expected,false);err!=nil{return nil,err}}\nvalue,err:=srlXmlDecode" + identifier + "(input," + qualified(contract.root) + ");if err!=nil{return nil,err}\nif err=input.finish();err!=nil{return nil,err}\n";
   if (options.runtime_xsd && options.validation_scope != "output") { out += "if policy.Validator!=nil{if err=policy.Validator.ValidateXML(data);err!=nil{return nil,err}}\n"; }
   out += "return value,nil\n}\n";
+  if(!operation_decoder.empty()){
+    out += "// "+std::string{operation_decoder}+" applies additional admission to a fresh candidate.\nfunc "+std::string{operation_decoder}+"(data []byte,operation "+std::string{operation_type}+")(*"+identifier+",error){return Decode"+identifier+"XML(data,operation.Policy())}\n";
+  }
   }
   }
   out += "// Emit statically bound tokens while retaining only active ancestors.\nfunc (value *" + identifier + ") srlXmlEncode(output *srlXmlOutput,name srlxml.Name,types ...srlxml.Name)error{\nif value==nil{return fmt.Errorf(\"Nil XML record\")}\nif len(types)>1{return fmt.Errorf(\"Ambiguous XML variant type\")}\n";

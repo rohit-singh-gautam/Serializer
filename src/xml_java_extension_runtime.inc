@@ -20,9 +20,9 @@ public static final class XmlExtensionOptions {
   public XmlExtensionOptions(){this(java.util.List.of(),"",new XmlExtensionLimits());}
   /** Own a validated bounded vocabulary list without retaining the caller's mutable collection. */
   public XmlExtensionOptions(java.util.List<String> understood,String prefixes,XmlExtensionLimits limits){
-    this.limits=java.util.Objects.requireNonNull(limits);if(understood.size()>limits.maxItems)throw new IllegalArgumentException("XML capability item limit");
-    long bytes=srlXmlExtensionSize(prefixes);if(bytes>srlXmlExtensionMaxPreservedBytes)throw new IllegalArgumentException("XML capability metadata byte limit");
-    for(String uri:understood){long size=srlXmlExtensionSize(uri);if(size>srlXmlExtensionMaxPreservedBytes-bytes)throw new IllegalArgumentException("XML capability metadata byte limit");bytes+=size;}
+    this.limits=java.util.Objects.requireNonNull(limits);if(understood.size()>limits.maxItems)throw SrlXmlRule.quota("XML capability item limit");
+    long bytes=srlXmlExtensionSize(prefixes);if(bytes>srlXmlExtensionMaxPreservedBytes)throw SrlXmlRule.quota("XML capability metadata byte limit");
+    for(String uri:understood){long size=srlXmlExtensionSize(uri);if(size>srlXmlExtensionMaxPreservedBytes-bytes)throw SrlXmlRule.quota("XML capability metadata byte limit");bytes+=size;}
     understoodNamespaces=java.util.List.copyOf(understood);requiredPrefixes=prefixes;
   }
 }
@@ -73,13 +73,13 @@ private static final class SrlXmlExtensions {
   /** Validate capabilities before constructing a known candidate or beginning output traversal. */
   SrlXmlExtensions(SrlXmlExtensionContract meta,java.util.Map<String,String> scope,XmlExtensionOptions options,SrlXmlPreserved state){
     this.meta=meta;this.scope=scope;this.options=java.util.Objects.requireNonNull(options);this.state=state;
-    var limits=options.limits;if(meta.slots.length>limits.maxSlots||meta.known.length>limits.maxItems||meta.required.length>limits.maxItems)throw new IllegalArgumentException("XML extension slot limit");counts=new int[meta.slots.length];
+    var limits=options.limits;if(meta.slots.length>limits.maxSlots||meta.known.length>limits.maxItems||meta.required.length>limits.maxItems)throw SrlXmlRule.quota("XML extension slot limit");counts=new int[meta.slots.length];
     var understood=new java.util.HashSet<>(options.understoodNamespaces);for(String uri:meta.required)if(!uri.equals(meta.core)&&!understood.contains(uri))throw new IllegalArgumentException("Required XML capability is not understood");
     for(String prefix:SrlXmlRule.tokens(options.requiredPrefixes,limits.maxItems)){String uri=scope.get(prefix);if(!srlXmlExtensionNcName(prefix)||prefix.equals("xmlns")||uri==null||uri.isEmpty())throw new IllegalArgumentException("Unbound required XML capability prefix");if(!uri.equals(meta.core)&&!understood.contains(uri))throw new IllegalArgumentException("Required XML capability is not understood");}
     if(state!=null)charge(add(OWNER_BYTES,scopeBytes(scope)));
   }
   /** Bound partial measurement without integer overflow or allocation of corresponding retained storage. */
-  long add(long first,long second){if(first<0||second<0||second>options.limits.maxPreservedBytes-first)throw new IllegalArgumentException("XML extension preserved-byte limit");return first+second;}
+  long add(long first,long second){if(first<0||second<0||second>options.limits.maxPreservedBytes-first)throw SrlXmlRule.quota("XML extension preserved-byte limit");return first+second;}
   /** Charge logical bytes before retaining another owning map, node, string or content cell. */
   void charge(long count){bytes=add(bytes,count);}
   /** Validate complete in-scope bindings, including prefixes used only by unknown lexical QName values. */
@@ -89,7 +89,7 @@ private static final class SrlXmlExtensions {
   /** Keep all unqualified, core, known and reserved model names closed before consulting foreign slots. */
   int slot(String name,boolean attribute,int position){String uri=srlXmlExtensionName(name)[0];if(uri.isEmpty()||uri.equals(meta.core)||uri.equals("urn:serializer:xml:model")||meta.knownNames.contains(name))return -1;Integer index=attribute?meta.attributeSlots.get(uri):meta.childSlots.getOrDefault(uri,java.util.Map.of()).get(position);return index==null?-1:index;}
   /** Enforce item, per-slot occurrence and policy bounds before capturing or skipping one root. */
-  boolean admit(String name,boolean attribute,int position){int index=slot(name,attribute,position);if(index<0)throw new IllegalArgumentException("XML extension has no permitted slot");var selected=meta.slots[index];if(selected.policy==srlXmlExtensionReject)throw new IllegalArgumentException("XML extension slot rejects foreign vocabulary");if(items>=options.limits.maxItems||selected.maximum>=0&&counts[index]>=selected.maximum)throw new IllegalArgumentException("XML extension item/occurrence limit");++items;++counts[index];return selected.policy==srlXmlExtensionPreserve;}
+  boolean admit(String name,boolean attribute,int position){int index=slot(name,attribute,position);if(index<0)throw new IllegalArgumentException("XML extension has no permitted slot");var selected=meta.slots[index];if(selected.policy==srlXmlExtensionReject)throw new IllegalArgumentException("XML extension slot rejects foreign vocabulary");if(items>=options.limits.maxItems)throw SrlXmlRule.quota("XML extension item/occurrence limit");if(selected.maximum>=0&&counts[index]>=selected.maximum)throw new IllegalArgumentException("XML extension item/occurrence limit");++items;++counts[index];return selected.policy==srlXmlExtensionPreserve;}
   /** Allocate no preserved sidecar for skip-only traversals. */
   SrlXmlPreserved storage(){if(state==null){charge(add(OWNER_BYTES,scopeBytes(scope)));state=new SrlXmlPreserved(new java.util.LinkedHashMap<>(scope));}return state;}
   /** Retain an expanded foreign attribute only after its preserve slot and bytes are admitted. */

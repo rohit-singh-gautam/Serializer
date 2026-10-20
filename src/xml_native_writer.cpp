@@ -209,7 +209,7 @@ class generator {
   // Format scalar lexical text without escaping until the XML writer owns it.
   std::string scalar_text(const type_name& value, const std::string& expression) const {
     if (value.is_digest()) {
-      return select("try ", "") + "srlXmlDigestText(" + expression + ", " + std::to_string(value.digest_extent) + ", output.digestLimits)";
+      return select("try ", "") + "srlXmlDigestText(" + expression + ", " + std::to_string(value.digest_extent) + ", output.digestLimits" + (swift_ ? ")" : ",output.packageContext())");
     }
     if (value.name.starts_with("version")) {
       return select("try ", "") + "srlXmlRevisionLexical(" + expression + ", " + quote(value.name) + ")";
@@ -230,7 +230,7 @@ class generator {
     const auto text = attribute ? raw : select("try ", "") + "srlXmlText(" + raw + ")";
     if (value.is_digest()) {
       return select("try ", "") + "srlXmlDigestRead(" + text + ", " + std::to_string(value.digest_extent) +
-          ", " + (swift_ ? "digestLimits" : "input.digestLimits") + ")";
+          ", " + (swift_ ? "digestLimits" : "input.digestLimits,input.packageContext()") + ")";
     }
     if (value.name.starts_with("version")) {
       return select("try ", "") + "srlXmlRevisionLexical(" + text + ", " + quote(value.name) + ")";
@@ -253,9 +253,11 @@ class generator {
       expression = "SrlXmlRule.defaultText(" + expression + ',' + quote(*fallback) + ',' + (field.attribute ? "true" : "false") + ')';
     }
     const auto limit = encoding ? "output.listLimit" : swift_ ? "listLimit" : "input.listLimit";
+    const auto quota = swift_ ? std::string{encoding ? ",output.scalarQuota,output.scalarOperation" : ",extensionOptions.srlPackageLimit,extensionOptions.srlPackageConsume"} :
+        std::string{encoding ? ",output.packageContext()" : ",input.packageContext()"};
     if (found != scalar_rules_.end()) {
       expression = select("try ", "") + found->second + (encoding && fallback && !field.attribute ?
-          ".output(" + expression + ',' + quote(*fallback) + ',' + limit + ')' : ".check(" + expression + ',' + limit + ')');
+          ".output(" + expression + ',' + quote(*fallback) + ',' + limit + quota + ')' : ".check(" + expression + ',' + limit + quota + ')');
     }
     if (mobile_namespace_value(field)) {
       if (namespace_scope.empty()) {
@@ -264,7 +266,7 @@ class generator {
       }
       expression = select("try ", "") + "srlXmlNamespaceChecked(" + expression + ',' +
           (field.facets.list_item_kind == "QName" || field.list ? "true" : "false") + ',' +
-          (field.prefix_list ? "true" : "false") + ',' + namespace_scope + ',' + limit + ')';
+          (field.prefix_list ? "true" : "false") + ',' + namespace_scope + ',' + limit + quota + ')';
     }
     return expression;
   }
@@ -275,9 +277,9 @@ class generator {
     if (!field.list || !field.presence.collection) { return read_value(leaf(*field.source), checked, true); }
     const auto item = read_value(leaf(*field.source), "item", true);
     if (swift_) {
-      return "try srlXmlReadList(" + checked + ", " + std::to_string(field.source->fixed_extent) + ", listLimit) { item in " + item + " }";
+      return "try srlXmlReadList(" + checked + ", " + std::to_string(field.source->fixed_extent) + ", listLimit,extensionOptions.srlPackageLimit) { item in " + item + " }";
     }
-    auto result = "srlXmlReadList(" + checked + ", " + std::to_string(field.source->fixed_extent) + ", input.listLimit) { item -> " + item + " }";
+    auto result = "srlXmlReadList(" + checked + ", " + std::to_string(field.source->fixed_extent) + ", input.listLimit,input.packageContext()) { item -> " + item + " }";
     const auto& value = leaf(*field.source);
     if (field.source->modifier == member::modifier_type::array && value.type == object_type::primitive && value.name != "string") {
       result += ".to" + type(value) + "Array()";
@@ -384,7 +386,7 @@ class generator {
         ? (swift_ ? "(try " + expression + ".readValue())" : expression + ".readValue()") : expression;
     const auto lexical = field.list && field.presence.collection ? select("try ", "") +
         "SrlXmlRule.listText(" + expression + select(".map { item in ", ".map { item -> ") +
-        scalar_text(value_type, "item") + " }, " + std::to_string(field.source->fixed_extent) + ", output.listLimit)" : scalar_text(value_type, selected);
+        scalar_text(value_type, "item") + " }, " + std::to_string(field.source->fixed_extent) + ", output.listLimit" + (swift_ ? ",output.scalarQuota)" : ",output.packageContext())") : scalar_text(value_type, selected);
     const auto text = field_scalar(field, lexical, true);
     if (field.text) {
       line(select("try ", "") + "output.text(" + text + ")");
@@ -1124,7 +1126,7 @@ class generator {
       line(swift_ ? "throw SerializerError.invalid(\"Export-only XML reference graph: decode into the owning target\")" :
           "throw IllegalArgumentException(\"Export-only XML reference graph: decode into the owning target\")");
     } else {
-    if (swift_) { line("try mapLimits.validate(); try mixedLimits.validate(); try digestLimits.validate(); try identityLimits.validate(); try extensionOptions.validate()"); }
+    if (swift_) { line("var extensionOptions=extensionOptions;extensionOptions.srlPackageLimit=limits.srlPackageLimit\ntry mapLimits.validate(); try mixedLimits.validate(); try digestLimits.validate(); try identityLimits.validate(); try extensionOptions.validate()"); }
     if (options_.runtime_xsd && options_.validation_scope != "output") {
       line(select("try validator?.validate(bytes, limits)", "validator?.validate(bytes, limits)"));
     }
@@ -1134,6 +1136,7 @@ class generator {
       line("SrlXmlInput(bytes, limits, mapLimits, mixedLimits, digestLimits, identityLimits, extensionOptions, " +
           std::string{mobile_extension_graph(source) ? "true" : "false"} + ").use { input ->");
       ++indent_;
+      line("limits.srlPackageRootType?.let { input.expectType(it,false) }");
       line("val result = " + model_name + ".srlXmlRead(input, " + name(contract.root) + ")");
       line("input.finish()");
       line("return result");
@@ -1154,7 +1157,7 @@ class generator {
     } else {
     const auto has_text = std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.text; });
     line(select("let reader = try SrlXmlReader(node, ", "val reader = SrlXmlReader(node, ") + (has_text ? "true)" : "false)"));
-    line(select("var ", "val ") + "result = " + model_name + "()");
+    line(select(contract.fields.empty() ? "let " : "var ", "val ") + "result = " + model_name + "()");
     std::size_t index{};
     for (const auto& field : contract.fields) {
       const auto target = "result." + member_name(*field.source);
@@ -2077,6 +2080,16 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
   line("if (!good) { " + n + "_free(&candidate); return initialized != srl_ok ? initialized : parsed == srl_ok ? srl_invalid : parsed; } " + n + "_free(result); *result = candidate; return srl_ok;");
   }
   close();
+  if (!model_.packages.empty() && !extension_graph && !export_graph) {
+    const auto type_uri = "urn:serializer:native:" +
+        (source.parent_namespace ? get_full_name_for_namespace(source.parent_namespace) : std::string{});
+    line("/* Decode a package-authorized root type without changing ordinary XML attribute membership. */");
+    open("static inline srl_status " + n + "_srl_xml_decode_package(" + n + "* result,const uint8_t* bytes,size_t size,const srl_limits* limits)");
+    line("if(!result||(size&&!bytes)){return srl_invalid;}const srl_limits bounds=limits?*limits:srl_default_limits();srl_xml_input input;const srl_status checked=srl_xml_input_init(&input,bytes,size,&bounds);if(checked!=srl_ok){srl_xml_input_free(&input);return checked;}");
+    line("srl_xml_type_identity selected;const bool typed=srl_xml_input_type(&input,&selected);const bool authorized=typed&&(!selected.present||(xmlStrEqual(selected.uri,BAD_CAST " + quote(type_uri) + ")&&xmlStrEqual(selected.local,BAD_CAST " + quote(source.name) + ")));srl_xml_type_free(&selected);if(!authorized){const srl_status status=input.status;srl_xml_input_free(&input);return status==srl_ok?srl_invalid:status;}");
+    line(n + " candidate={0};const srl_status initialized=" + n + "_init(&candidate);const bool good=initialized==srl_ok&&" + n + "_srl_xml_read_tokens(&input,&candidate,&bounds," + quote(contract.root.local) + "," + quote(contract.root.namespace_uri) + ")&&srl_xml_input_finish(&input);const srl_status status=input.status;srl_xml_input_free(&input);if(!good){" + n + "_free(&candidate);return initialized!=srl_ok?initialized:status==srl_ok?srl_invalid:status;}" + n + "_free(result);*result=candidate;return srl_ok;");
+    close();
+  }
   line("/* Preserve existing native policy signatures while checking complete keyref scopes before publication. */");
   open("static inline srl_status " + n + "_decode_xml_with_all_policies(" + n + "* result,const uint8_t* bytes,size_t size,const srl_limits* limits" + validator_parameter + ",const srl_xml_map_limits* map_limits,const srl_xml_mixed_limits* mixed_limits,const srl_xml_digest_limits* digest_limits)");
   if (extension_graph) {
@@ -2176,6 +2189,7 @@ std::string generator::generate() {
           n + "_encode_xml_with_identity_limits", n + "_decode_xml_with_identity_limits", n + "_srl_xml_identity_check", n + "_srl_xml_encode_known", n + "_srl_xml_decode_known",
           n + "_encode_xml_with_mixed_limits", n + "_decode_xml_with_mixed_limits", n + "_encode_xml_with_policies", n + "_decode_xml_with_policies",
           n + "_srl_xml_write", n + "_srl_xml_read", n + "_srl_xml_read_tokens"});
+      if (!model_.packages.empty()) { generated_c_functions.insert(n + "_srl_xml_decode_package"); }
       if (native_extension_graph(static_cast<const class_node&>(*node), bindings_)) {
         generated_c_functions.insert({n + "_xml_document", n + "_xml_document_init", n + "_xml_document_free",
             n + "_decode_xml_document", n + "_encode_xml_document", n + "_srl_xml_extension_model"});

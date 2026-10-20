@@ -30,7 +30,7 @@ internal static class NavigationTest {
         var start = packageText.IndexOf("package " + packageName, StringComparison.Ordinal) + "package ".Length;
         foreach (var cursor in new[] { start, start + packageName.Length }) {
           var definitions = NavigationRunner.Resolve(packageSchema, cursor, true, packageOutput, live, CancellationToken.None);
-          Require(definitions.Length == 5, "package definitions across Java, JavaScript, TypeScript, C# and Kotlin");
+          Require(definitions.Length == 11, "package definitions across every generated language");
           foreach (var definition in definitions) {
             foreach (var endpoint in new[] { definition.start, definition.end }) {
               var source = NavigationRunner.Resolve(definition.file, endpoint, false, packageOutput, live, CancellationToken.None);
@@ -43,6 +43,39 @@ internal static class NavigationTest {
         }
       }
       Console.WriteLine("Visual Studio package facade adapter passed: " + checks + " declaration/source boundary checks.");
+      var selectorSchema = Path.Combine(Path.GetDirectoryName(model), "application_selectors.serializer");
+      var selectorMiddle = Path.Combine(Path.GetDirectoryName(model), "application_middle.serializer");
+      var selectorCommon = Path.Combine(Path.GetDirectoryName(model), "application_common.serializer");
+      var selectorText = "serializer version 1.21.0; include application_middle; namespace app { " +
+        "package archive { part targets:app::target { policy(defaults); key(\"ids\", id); } " +
+        "part sources:app::source { policy(fixed); reference(\"ids\", target_id, targets); } } }";
+      var selectorDeclarations = "serializer version 1.21.0; namespace app { class target { public uint32 id; } " +
+        "class source { public uint32 target_id; } class targets {} }";
+      live[selectorSchema] = selectorText;
+      live[selectorMiddle] = "serializer version 1.21.0; include application_common;";
+      live[selectorCommon] = selectorDeclarations;
+      foreach (var name in new[] { "id", "target_id" }) {
+        var start = selectorText.IndexOf(", " + name + (name == "id" ? ")" : ","), StringComparison.Ordinal) + 2;
+        var expected = selectorDeclarations.IndexOf("uint32 " + name, StringComparison.Ordinal) + "uint32 ".Length;
+        for (var cursor = start; cursor <= start + name.Length; ++cursor) {
+          var declaration = NavigationRunner.Resolve(selectorSchema, cursor, false, packageOutput, live, CancellationToken.None);
+          Require(declaration.Length == 1 && declaration[0].file == selectorCommon && declaration[0].start == expected,
+            "package selector resolves a direct field through unsaved transitive includes");
+          ++checks;
+        }
+      }
+      var rolePosition = selectorText.LastIndexOf("targets)", StringComparison.Ordinal);
+      Require(NavigationRunner.Resolve(selectorSchema, rolePosition, false, packageOutput, live, CancellationToken.None).Length == 0,
+        "target-role metadata must not claim an unrelated class");
+      ++checks;
+      live[selectorSchema] = selectorText.Replace("key(\"ids\", id)", "key(\"ids\", changed_id)");
+      live[selectorCommon] = selectorDeclarations.Replace("uint32 id;", "uint32 changed_id;");
+      var liveSelector = live[selectorSchema].IndexOf("changed_id", StringComparison.Ordinal);
+      var changed = NavigationRunner.Resolve(selectorSchema, liveSelector, false, packageOutput, live, CancellationToken.None);
+      Require(changed.Length == 1 && changed[0].start == live[selectorCommon].IndexOf("changed_id", StringComparison.Ordinal),
+        "selector navigation observes unsaved field edits");
+      ++checks;
+      Console.WriteLine("Visual Studio package selector adapter passed through " + checks + " total boundary checks.");
       if (args.Skip(2).Contains("--packages-only")) { return 0; }
       var xmlCommon = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(model), "xml_authoring_common.serializer"));
       var xmlDependency = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(model), "schemas/core.xsd"));

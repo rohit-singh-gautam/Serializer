@@ -34,17 +34,17 @@ internal fun srlXmlHexDigit(value: Char): Int = when(value) {
     else -> -1
 }
 // Validate all hex pairs and extent before allocating the private owning byte candidate.
-internal fun srlXmlDigestRead(text: String, extent: Int, limits: XmlDigestLimits): UByteArray {
+internal fun srlXmlDigestRead(text: String, extent: Int, limits: XmlDigestLimits, operation: SrlXmlBudget.Operation? = null): UByteArray {
     val size=text.length/2
     require(text.length%2 == 0 && (extent == 0 || size == extent)) { "XML digest extent or hexadecimal pairs" }
-    require(size <= limits.maxBytes) { "XML digest byte limit" }
+    if (!(size <= limits.maxBytes)) SrlXmlBudget.limit("XML digest byte limit",operation)
     require(text.all { srlXmlHexDigit(it) >= 0 }) { "Invalid XML digest hexadecimal" }
     return UByteArray(size) { index -> (srlXmlHexDigit(text[index*2])*16+srlXmlHexDigit(text[index*2+1])).toUByte() }
 }
 // Export exact borrowed native bytes as lowercase hex without computing or changing any digest.
-internal fun srlXmlDigestText(value: UByteArray, extent: Int, limits: XmlDigestLimits): String {
+internal fun srlXmlDigestText(value: UByteArray, extent: Int, limits: XmlDigestLimits, operation: SrlXmlBudget.Operation? = null): String {
     require(extent == 0 || value.size == extent) { "XML digest extent" }
-    require(value.size <= limits.maxBytes && value.size <= Int.MAX_VALUE/2) { "XML digest byte limit" }
+    if (!(value.size <= limits.maxBytes && value.size <= Int.MAX_VALUE/2)) SrlXmlBudget.limit("XML digest byte limit",operation)
     val digits="0123456789abcdef"; val output=StringBuilder(value.size*2)
     for (item in value) { val byte=item.toInt(); output.append(digits[byte ushr 4]); output.append(digits[byte and 15]) }
     return output.toString()

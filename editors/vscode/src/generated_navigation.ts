@@ -122,6 +122,25 @@ export function indexGeneratedSource(text: string, file: string): SourceIndex {
             end: start + alias[1].length, declaration: start, definition: false });
         }
       }
+      // Package wrappers share one schema identity; input is the authoring destination.
+      if (generatedBanner(text)) {
+        for (const match of text.matchAll(/\/\* Serializer package facade: ([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*) ([A-Za-z_]\w*) \*\//g)) {
+          for (const symbol of result.symbols.filter(item => item.definition &&
+              (item.name === match[2] + '_input' || item.name === match[2] + '_value' ||
+                item.name.startsWith(match[2] + '_') && item.name.endsWith('_part')))) {
+            symbol.schemaQualified = match[1];
+            symbol.schemaCompanion = symbol.name !== match[2] + '_input';
+          }
+        }
+        for (const match of text.matchAll(/\/\* Serializer schema package: ([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*) \*\/\s*typedef\s+struct\s+([A-Za-z_]\w*)\s*\{/g)) {
+          const start = match.index! + match[0].lastIndexOf(match[2]);
+          const symbol = result.symbols.find(item => item.definition && item.start === start);
+          if (symbol) {
+            symbol.schemaQualified = match[1];
+            symbol.schemaCompanion = match[2].endsWith('_value');
+          }
+        }
+      }
     }
     return bindGenericSources(result);
   }
@@ -141,8 +160,10 @@ export function indexGeneratedSource(text: string, file: string): SourceIndex {
     // A generated package factory is a schema class-like declaration; frozen enum constants stay enums.
     const packageFacade = language === 'javascript' && match[1] === 'const' &&
       /^\s*=\s*[A-Za-z_]\w*\.profile\s*\(/.test(code.slice(match.index! + match[0].length));
+    const swiftPackageFacade = language === 'swift' && match[1] === 'enum' &&
+      /^\s*\{\s*public\s+struct\s+/.test(code.slice(match.index! + match[0].length));
     const enumType = language === 'python' ? match[2]?.includes('_IntEnum')
-      : language === 'go' ? match[2] === 'int32' : /enum|const/.test(match[1]) && !packageFacade;
+      : language === 'go' ? match[2] === 'int32' : /enum|const/.test(match[1]) && !packageFacade && !swiftPackageFacade;
     const start = match.index! + match[0].indexOf(name);
     symbols.push({ name, qualified: name, kind: enumType ? 'enum' : 'class', start,
       end: start + name.length, declaration: match.index!, body: start, definition: true });

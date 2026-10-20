@@ -77,6 +77,9 @@ internal class SrlXmlRule(private val kind: String, private val whitespace: Stri
     }
     // Validate the complete normalized candidate before native conversion or output publication.
     fun check(raw: String, maximumItems: Int = srlXmlMaxListItems): String = check(raw,Work(maximumItems=maximumItems))
+    // Package-only classification leaves ordinary scalar-limit exception behavior untouched.
+    fun check(raw: String, maximumItems: Int, operation: SrlXmlBudget.Operation?): String =
+        try { check(raw,maximumItems) } catch (failure: SrlXmlScalarLimit) { operation?.limit(failure.message ?: "XML scalar resource limit"); throw failure }
     // A union's invalid lexical branch may fall through; a depleted operation budget may not.
     private fun check(raw: String, work: Work): String {
         work.spend(raw.length); val text=normalize(raw); lexical(text)
@@ -101,6 +104,9 @@ internal class SrlXmlRule(private val kind: String, private val whitespace: Stri
         if (text.isEmpty() && normalize(fallback).isNotEmpty()) { require(whitespace == "collapse") { "Empty XML value would activate a different XSD default" }; return " " }
         return text
     }
+    // Preserve located failures before generated member-owner scopes are restored.
+    fun output(raw: String, fallback: String, maximumItems: Int, operation: SrlXmlBudget.Operation?): String =
+        try { output(raw,fallback,maximumItems) } catch (failure: SrlXmlScalarLimit) { operation?.limit(failure.message ?: "XML scalar resource limit"); throw failure }
     companion object {
         private val integerLexeme=Regex("[+-]?[0-9]+")
         private val decimalLexeme=Regex("[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)")
@@ -113,6 +119,11 @@ internal class SrlXmlRule(private val kind: String, private val whitespace: Stri
             require(items.all { it.isNotEmpty() && it.none { character -> character in " \t\r\n" } }) { "Unrepresentable XML list item" }
             return items.joinToString(" ")
         }
+        // Distinguish a configured item quota from an ordinary fixed-extent mismatch.
+        fun listText(items: List<String>, extent: Int, maximum: Int, operation: SrlXmlBudget.Operation?): String {
+            if(items.size>maximum) SrlXmlBudget.limit("XML lexical list size",operation)
+            return listText(items,extent,maximum)
+        }
         // Build unrestricted builtin list-item metadata without mutable global counters.
         private fun itemRule(kind: String) = SrlXmlRule(kind,"collapse",arrayOf("","","",""),-1,-1,-1,emptyArray(),false,emptyArray(),"",emptyArray(),null)
         // Count list items before allocating any item strings or token arrays.
@@ -121,6 +132,9 @@ internal class SrlXmlRule(private val kind: String, private val whitespace: Stri
             for (character in raw) { val space=character in " \t\r\n"; if (!space && !item) { if (count >= maximum) throw SrlXmlScalarLimit("XML list item limit exceeded"); ++count }; item = !space }
             return if (count == 0) emptyList() else raw.trim(' ','\t','\r','\n').split(Regex("[ \\t\\r\\n]+"))
         }
+        // Keep the existing ordinary exception while attaching package resource context when present.
+        fun tokens(raw: String, maximum: Int, operation: SrlXmlBudget.Operation?): List<String> =
+            try { tokens(raw,maximum) } catch (failure: SrlXmlScalarLimit) { operation?.limit(failure.message ?: "XML list resource limit"); throw failure }
     }
 )xmlscalar"
 R"xmlscalar(
@@ -179,6 +193,12 @@ R"xmlscalar(
 // Convert one fully validated lexical list into a private native candidate with exact extent.
 internal fun <T> srlXmlReadList(text: String, extent: Int, maximum: Int, decode: (String) -> T): MutableList<T> {
     val items=SrlXmlRule.tokens(text,maximum)
+    require(extent == 0 || items.size == extent) { "XML lexical list fixed extent" }
+    return items.mapTo(mutableListOf(),decode)
+}
+// Locate only quota failures; fixed extent and item conversion failures retain ordinary semantics.
+internal fun <T> srlXmlReadList(text: String, extent: Int, maximum: Int, operation: SrlXmlBudget.Operation?, decode: (String) -> T): MutableList<T> {
+    val items=SrlXmlRule.tokens(text,maximum,operation)
     require(extent == 0 || items.size == extent) { "XML lexical list fixed extent" }
     return items.mapTo(mutableListOf(),decode)
 }
