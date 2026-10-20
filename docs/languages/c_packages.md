@@ -113,9 +113,49 @@ Typed payload graphs that require XML document companions for QName/list/prefix
 scopes or preserved XML extension slots reject, including nested/inherited uses.
 Keep those graphs outside this package profile until companion integration is
 implemented; ordinary native/XML document APIs retain their existing support.
-XSD key/unique/keyref graphs also reject during package generation until native
-identity observers can spend the same operation ledger. Ordinary C XML identity
-APIs and package-level application selectors remain available separately.
+Compiler/runtime 2.18.0 admits supported XSD key/unique/keyref graphs through
+operation-aware native codecs. Each complete key, unique or keyref tuple spends
+one reference before equal keyrefs are deduplicated. Nested owners keep separate
+indexes. The primary codec owns XML node/attribute/scalar admissions; identity
+replays spend their actual additional work/allocation and tuple references.
+
+Caller-selected codecs use the additive `serializer_package_selected_codec`
+table. Its `role` uses the schema role name; `userdata` remains caller-owned,
+and either direction may be null to retain the generated codec. An encoder or
+decoder receives a borrowed `serializer_package_xml_context*` containing the
+same package budget, role, actual part and relationship ID. Compose generated
+native descriptors with `serializer_package_xml_encode` /
+`serializer_package_xml_decode` and
+`srl_xml_operation_codec_<native-model>()`; do not create a replacement budget
+inside the callback. The callback returns zero on success or its original
+nonzero integer error. The first callback/native failure fences the context.
+
+The collision-selected entry point prefix is recorded in the generated
+`Generated C selected-codec prefix` comment. With the default helper and the
+example package above, these are
+`serializer_package_profile_archive_load_with_codecs`,
+`serializer_package_profile_archive_encode_with_codecs`,
+`serializer_package_profile_archive_read_with_codecs`,
+`serializer_package_profile_archive_write_with_codecs` and
+`serializer_package_profile_archive_save_with_codecs`.
+Their trailing arguments are the borrowed codec table and
+its count. Save runs selected encode and decode validation before publication.
+Existing package entry points retain their signatures and choose the same
+operation-aware native codecs automatically.
+
+For ordinary XML composition, zero-initialize `srl_xml_operation`, then supply
+its synchronous `consume`, `poll` and `userdata` callbacks. Descriptor
+`encode`/`decode` calls accept existing native limits and optional validation
+alongside the operation. `caller_status` retains the exact first caller integer;
+`failure` explicitly distinguishes native resource/allocation/semantic failures,
+and `field` borrows immutable generated schema owner/member metadata. Existing
+`srl_limits`, XML output/identity aggregates, model methods and function-pointer
+signatures remain unchanged. Separate operations may run concurrently; one
+operation and its destination require exclusive synchronous access.
+Set the optional borrowed `operation.policies` to select existing independent
+map/mixed/digest/identity policies through `srl_xml_operation_policies`. These
+objects and callbacks must outlive the descriptor call. Existing native policy
+structs and ordinary entry points retain their layouts.
 
 Run the actual Windows C11 SDK gate from a Visual Studio developer shell:
 

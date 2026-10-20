@@ -9,7 +9,26 @@ language **1.20.0** `package` declarations. Ordinary models, schema identifiers,
 module layout and native codec bytes retain their existing behavior. Typed package
 roles currently use generated XML; opaque roles carry independent bytes. Runtime
 JSON/binary codec selection and generated application key/reference rules remain
-outside this profile.
+outside that original 2.14 profile; language 1.21 adds the separately documented
+[application key/reference contract](../serialization/package_application_contracts.md).
+
+Compiler/runtime 2.18.0 adds `options.codecs`, keyed by schema role name. Each
+entry may supply synchronous `encode(model, limits, context)` returning XML text
+and/or `decode(text, limits, context)` returning the declared native model.
+Omitted directions use the generated codec. Pass the supplied public `XmlLimits`
+into generated `encodeXml`/`decodeXml` calls to compose selected codecs with the
+same operation ledger. `context` is immutable and exposes the public `budget`,
+schema `role`, actual `part` and `relationshipId`; its lifetime is the call.
+Unknown/binary roles, nonfunctions, Promise results and wrong model results
+reject. Callback failures retain their exact thrown value, including falsy values.
+Expanded root/type dispatch precedes selected decoders, and selected encoders'
+root/type is checked before staging. Save carries the same table through encoded
+and reloaded validation before file publication.
+
+Matching TypeScript output exposes the facade's typed `Codecs`, `Options`,
+`LoadOptions` and `SaveOptions`, using `SerializerPackage.Codec<Model>` and
+`CodecContext`. Strict consumers need no private runtime access or declaration
+checking exemptions. Existing option objects and native model APIs remain valid.
 
 Generate matching outputs together:
 

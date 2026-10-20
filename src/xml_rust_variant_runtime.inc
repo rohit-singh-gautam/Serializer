@@ -11,7 +11,7 @@ fn srl_xml_variant_ncname(text:&str) -> bool {
     values.next().is_some_and(start) && values.all(|value| start(value) ||
         matches!(value as u32,0x2d..=0x2e|0x30..=0x39|0xb7|0x300..=0x36f|0x203f..=0x2040))
 }
-impl SrlXmlInput<'_> {
+impl SrlXmlInput<'_,'_> {
     /// Resolve and remove one authorized xsi:type before the normal scalar or record consumes attributes.
     fn take_type(&mut self) -> Result<Option<(String,String)>,Error> {
         let lexical=if let SrlXmlToken::Start(_,attributes)=&mut self.current {

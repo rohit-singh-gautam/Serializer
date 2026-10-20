@@ -60,11 +60,12 @@ inline std::string c_map_method(const xml_binding::field& field, const std::stri
     line("if (!" + has(map.wrapper) + " || input->member_attributes || !srl_xml_input_next(input)) { return false; }");
     line("size_t entries=0,key_bytes=0;");
     line("while (" + has(map.entry) + ") {");
-    line("if (entries >= input->map_limits.max_entries) { input->status=srl_limit; return false; }");
+    line("if (entries >= input->map_limits.max_entries) { input->status=srl_xml_operation_fail(srl_xml_operation_input_context(input->reader),srl_limit); return false; }");
     line("if (" + payload + ".size == " + payload + ".capacity) {");
     line("const size_t initial_capacity=4u; size_t capacity=" + payload + ".capacity ? " + payload + ".capacity : initial_capacity;");
     line("if (capacity > SIZE_MAX/2u) { return false; } capacity*=2u; if (capacity > input->map_limits.max_entries) { capacity=input->map_limits.max_entries; }");
     line("if (capacity <= " + payload + ".size || capacity > SIZE_MAX/sizeof(" + payload + ".data[0])) { return false; }");
+    line("if(!srl_xml_operation_input_allocate(input,(capacity-" + payload + ".capacity)*sizeof(" + payload + ".data[0]))){return false;}");
     line("void* memory=realloc(" + payload + ".data,capacity*sizeof(" + payload + ".data[0])); if (!memory) { input->status=srl_allocation; return false; }");
     line(payload + ".data=(" + storage + "_entry*)memory; " + payload + ".capacity=capacity; }");
     line("const size_t slot=" + payload + ".size++; " + storage + "_entry* entry=&" + payload + ".data[slot]; memset(entry,0,sizeof(*entry));");
@@ -88,23 +89,26 @@ inline std::string c_map_method(const xml_binding::field& field, const std::stri
       line("} else { break; } } if (!key_seen || !value_seen) { return false; }");
     }
     line("if (!srl_xml_input_close(input," + name(map.entry) + ") || !" + key_helper + "(&entry->key,&canonical_bytes)) { return false; }");
-    line("if (!srl_xml_map_admit(&input->map_limits,&entries,&key_bytes,lexical_bytes,canonical_bytes)) { input->status=srl_limit; return false; } }");
+    line("if (!srl_xml_map_admit(&input->map_limits,&entries,&key_bytes,lexical_bytes,canonical_bytes)) { input->status=srl_xml_operation_fail(srl_xml_operation_input_context(input->reader),srl_limit); return false; } }");
     line("if (!srl_xml_input_close(input," + name(map.wrapper) + ")) { return false; }");
-    line("if (" + payload + ".size > 1u) { qsort(" + payload + ".data," + payload + ".size,sizeof(" + payload + ".data[0])," + storage + "_compare); }");
+    line("if(!srl_xml_operation_sort(" + payload + ".data," + payload + ".size,sizeof(" + payload + ".data[0])," + storage + "_compare,srl_xml_operation_input_context(input->reader))){input->status=srl_invalid;return false;}");
     line("for (size_t index=1u; index < " + payload + ".size; ++index) { if (" + key_equal(payload + ".data[index-1u].key", payload + ".data[index].key") + ") { return false; } }");
   } else {
+    line("if(" + payload + ".size>out->map_limits.max_entries||" + payload + ".size>SIZE_MAX/sizeof(const " + storage + "_entry*)){return srl_xml_operation_output_limit(out,operation);}");
     line("if ((" + payload + ".size && !" + payload + ".data) || " + payload + ".size > out->map_limits.max_entries || " + payload + ".size > SIZE_MAX/sizeof(const " + storage + "_entry*)) { return false; }");
     line("size_t entries=0,key_bytes=0;");
-    line("for (size_t index=0; index < " + payload + ".size; ++index) { size_t bytes=0; if (!" + key_helper + "(&" + payload + ".data[index].key,&bytes) || !srl_xml_map_admit(&out->map_limits,&entries,&key_bytes,bytes,bytes)) { return false; } }");
+    line("for (size_t index=0; index < " + payload + ".size; ++index) { if(!srl_xml_operation_charge(operation,srl_xml_operation_work,1u)){out->writer.status=srl_invalid;return false;}size_t bytes=0;if(!" + key_helper + "(&" + payload + ".data[index].key,&bytes)){return false;}if(!srl_xml_map_admit(&out->map_limits,&entries,&key_bytes,bytes,bytes)){return srl_xml_operation_output_limit(out,operation);} }");
+    line("if (!srl_xml_operation_node(out,operation)) { return false; }");
     line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || xmlTextWriterStartElementNS(writer," +
         std::string{map.wrapper.namespace_uri.empty() ? "NULL" : "BAD_CAST \"srl\""} + ",BAD_CAST " + native::quote(map.wrapper.local) + "," +
         (map.wrapper.namespace_uri.empty() ? "NULL" : "BAD_CAST " + native::quote(map.wrapper.namespace_uri)) + ") < 0) { return false; }");
+    line("if(!srl_xml_operation_charge(operation,srl_xml_operation_allocation," + payload + ".size*sizeof(const " + storage + "_entry*))){out->writer.status=srl_invalid;return false;}");
     line("const " + storage + "_entry** sorted=" + payload + ".size ? (const " + storage + "_entry**)malloc(" + payload + ".size*sizeof(*sorted)) : NULL;");
     line("if (" + payload + ".size && !sorted) { return false; } for (size_t index=0; index < " + payload + ".size; ++index) { sorted[index]=&" + payload + ".data[index]; }");
-    line("if (" + payload + ".size > 1u) { qsort(sorted," + payload + ".size,sizeof(*sorted)," + storage + "_compare_pointer); }");
+    line("if(!srl_xml_operation_sort(sorted," + payload + ".size,sizeof(*sorted)," + storage + "_compare_pointer,operation)){free(sorted);out->writer.status=srl_invalid;return false;}");
     line("bool good=true; for (size_t index=0; good && index < " + payload + ".size; ++index) {");
     line("if (index && (" + key_equal("sorted[index-1u]->key", "sorted[index]->key") + ")) { good=false; break; }");
-    line("good=" + entry_helper + "(writer,out,sorted[index]); } free(sorted); if (!good) { return false; }");
+    line("good=" + entry_helper + "(writer,out,sorted[index],operation); } free(sorted); if (!good) { return false; }");
     line("--out->writer.depth; if (xmlTextWriterEndElement(writer) < 0) { return false; }");
   }
   if (map.optional_container) { line("}"); }

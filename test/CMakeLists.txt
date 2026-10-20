@@ -653,6 +653,10 @@ if(Python3_Interpreter_FOUND)
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_owning_contract_test.py"
         --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/package_application_kotlin"
         --language kotlin --java "${Java_JAVA_EXECUTABLE}" --kotlinc "${serializer_compression_kotlinc}")
+    add_test(NAME serializer_package_selected_codec_kotlin
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_selected_codec_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/package_selected_codec_kotlin"
+        --language kotlin --java "${Java_JAVA_EXECUTABLE}" --kotlinc "${serializer_compression_kotlinc}")
   endif()
   if(Java_FOUND)
     foreach(package_suite IN ITEMS application_contract shared_codec_budget)
@@ -663,7 +667,7 @@ if(Python3_Interpreter_FOUND)
     endforeach()
   endif()
   if(serializer_compression_go)
-    foreach(package_suite IN ITEMS application_contract shared_codec_budget)
+    foreach(package_suite IN ITEMS application_contract shared_codec_budget selected_codec)
       add_test(NAME serializer_package_${package_suite}_go
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_${package_suite}_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/package_${package_suite}_go"
@@ -671,13 +675,19 @@ if(Python3_Interpreter_FOUND)
     endforeach()
   endif()
   if(serializer_compression_node AND serializer_compression_typescript_cli)
-    foreach(package_suite IN ITEMS application_contract shared_codec_budget)
+    foreach(package_suite IN ITEMS application_contract shared_codec_budget selected_codec)
       add_test(NAME serializer_package_${package_suite}_javascript
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_${package_suite}_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/package_${package_suite}_javascript"
           --language javascript --node "${serializer_compression_node}"
           --node-dependencies "${CMAKE_SOURCE_DIR}/editors/vscode/node_modules")
     endforeach()
+    add_test(NAME serializer_package_selected_codec_typescript
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_selected_codec_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/package_selected_codec_typescript"
+        --language typescript --node "${serializer_compression_node}"
+        --typescript-cli "${serializer_compression_typescript_cli}"
+        --node-dependencies "${CMAKE_SOURCE_DIR}/editors/vscode/node_modules")
   endif()
   if(serializer_compression_swiftc)
     add_test(NAME serializer_package_swift
@@ -690,6 +700,14 @@ if(Python3_Interpreter_FOUND)
     add_test(NAME serializer_package_rust
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/rust_package_test.py"
         --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/rust_package"
+        --cargo "${serializer_package_cargo}")
+    add_test(NAME serializer_package_shared_codec_budget_rust
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_shared_codec_budget_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/package_shared_codec_budget_rust"
+        --language rust --cargo "${serializer_package_cargo}")
+    add_test(NAME serializer_rust_xml_operation_policy
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/rust_xml_operation_policy_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/rust_xml_operation_policy"
         --cargo "${serializer_package_cargo}")
   endif()
   if(SERIALIZER_WITH_XML AND SERIALIZER_WITH_ZLIB)
@@ -707,6 +725,14 @@ if(Python3_Interpreter_FOUND)
       add_test(NAME serializer_package_c
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/c_package_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/c_package"
+          --cc "${serializer_package_cc}" ${serializer_package_c_provider_args})
+      add_test(NAME serializer_package_shared_codec_budget_c
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_shared_codec_budget_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/package_shared_codec_budget_c"
+          --language c --cc "${serializer_package_cc}" ${serializer_package_c_provider_args})
+      add_test(NAME serializer_c_xml_operation_policy
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/c_xml_operation_policy_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/c_xml_operation_policy"
           --cc "${serializer_package_cc}" ${serializer_package_c_provider_args})
     endif()
   endif()

@@ -224,6 +224,15 @@ streaming pass over original input or completed private output. It retains activ
 paths and bounded owner-local tuple indexes, without a completed XML tree. This
 adds a validation scan. Their `with_identity_limits` companion entrypoints select
 the independent policy while preserving ordinary entrypoints and limit layouts.
+Release 2.18.0 adds separate C operation descriptors and a collision-selected Rust
+operation module/qualified trait. Primary native XML events are charged once;
+secondary identity passes add real work/allocation and one reference for every
+complete tuple before equal keyrefs are deduplicated. Canonical schema owner/member
+paths identify fields independently of XML names or output naming profiles.
+Known generated default storage is admitted before construction. Opaque authored
+factories and provider internals retain their separate transient-allocation and
+preemption limits. See [C package contexts](../languages/c_packages.md) and
+[Rust package contexts](../languages/rust_packages.md).
 C/Rust/Kotlin/Swift expose the approved balanced ordinary HTML event adapter separately
 from XML parsing, with exact input/output/event/depth/attribute/text limits.
 Their scalar adapters check exact numeric boundaries, lexical lists/unions,

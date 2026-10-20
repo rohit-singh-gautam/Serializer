@@ -6,6 +6,41 @@ typedef struct @p@_role {const char* field;const char* name;const char* content_
   size_t source_role;const char* relationship;const char* id;unsigned method;
   size_t minimum,maximum;bool fixed;const char* root_uri;const char* root_local;
   const char* type_uri;const char* type_local;} @p@_role;
+/* A synchronous native XML context borrows the same package ledger and immutable role location. */
+typedef struct @p@_xml_context {@p@_budget* budget;const @p@_role* role;const char* part;const char* link;srl_xml_operation operation;} @p@_xml_context;
+typedef int (*@p@_encode_codec)(void*,const void*,srl_buffer*,const srl_limits*,@p@_xml_context*);
+typedef int (*@p@_decode_codec)(void*,void*,const uint8_t*,size_t,const srl_limits*,@p@_xml_context*);
+/* Select optional caller-owned role codecs; null directions retain the generated native codec. */
+typedef struct @p@_selected_codec {const char* role;void* userdata;@p@_encode_codec encode;@p@_decode_codec decode;} @p@_selected_codec;
+/* Map explicit native resource kinds to the existing cumulative package resources. */
+static inline int @p@_xml_consume(void* userdata,srl_xml_operation_resource resource,size_t count,const char* field){
+  @p@_xml_context* context=(@p@_xml_context*)userdata;@p@_resource selected;
+  switch(resource){case srl_xml_operation_work:selected=@p@_work_units;break;case srl_xml_operation_allocation:selected=@p@_allocation_bytes;break;case srl_xml_operation_nodes:selected=@p@_xml_nodes;break;case srl_xml_operation_attributes:selected=@p@_xml_attributes;break;case srl_xml_operation_scalar_bytes:selected=@p@_scalar_bytes;break;case srl_xml_operation_references:selected=@p@_references;break;default:return @p@_fail(context->budget,@p@_invalid_options,context->part,context->role->field,context->link);}
+  return @p@_consume(context->budget,selected,count,context->part,field&&*field?field:context->role->field,context->link);
+}
+/* Preserve cancellation at the exact current native field before further parser/provider work. */
+static inline int @p@_xml_poll(void* userdata,const char* field){@p@_xml_context* context=(@p@_xml_context*)userdata;return @p@_poll_at(context->budget,context->part,field&&*field?field:context->role->field,context->link);}
+/* Initialize in place so callback userdata never points to a copied stack context. */
+static inline void @p@_xml_context_init(@p@_xml_context* context,@p@_budget* budget,const @p@_role* role,const char* part,const char* link){memset(context,0,sizeof(*context));context->budget=budget;context->role=role;context->part=part;context->link=link;context->operation.consume=@p@_xml_consume;context->operation.poll=@p@_xml_poll;context->operation.userdata=context;context->operation.field=role->field;}
+/* Retain native status separately from exact caller integers and explicit local quota failures. */
+static inline int @p@_xml_result(@p@_xml_context* context,srl_status status){
+  @p@_budget* budget=context->budget;if(budget->status){return budget->status;}const char* field=context->operation.field?context->operation.field:context->role->field;
+  if(context->operation.caller_status){return @p@_fail(budget,context->operation.caller_status,context->part,field,context->link);}
+  if(status!=srl_ok||context->operation.failure!=srl_xml_operation_none){if(status==srl_ok){status=context->operation.failure==srl_xml_operation_resource_limit?srl_limit:context->operation.failure==srl_xml_operation_allocation_failure?srl_allocation:srl_invalid;}budget->native_status=status;const int code=context->operation.failure==srl_xml_operation_resource_limit?@p@_resource_limit:context->operation.failure==srl_xml_operation_allocation_failure?@p@_allocation:@p@_codec;return @p@_fail(budget,code,context->part,field,context->link);}
+  return @p@_xml_poll(context,field);
+}
+/* Compose one selected native encoder with the caller's existing shared context. */
+static inline int @p@_xml_encode(@p@_xml_context* context,const srl_xml_operation_codec* codec,const void* model,srl_buffer* bytes,const srl_limits* limits){return @p@_xml_result(context,codec->encode(model,bytes,limits,NULL,&context->operation));}
+/* Decode transactionally through the descriptor's checked package root/type entry point. */
+static inline int @p@_xml_decode(@p@_xml_context* context,const srl_xml_operation_codec* codec,void* model,const uint8_t* bytes,size_t size,const srl_limits* limits){return @p@_xml_result(context,codec->decode_package(model,bytes,size,limits,NULL,&context->operation));}
+/* Reject unknown, binary or repeated role overrides before invoking any selected callback. */
+static inline int @p@_validate_codecs(const @p@_selected_codec* codecs,size_t size,const @p@_role* roles,size_t roles_size,@p@_budget* budget){if(size&&!codecs){return @p@_fail(budget,@p@_invalid_options,NULL,NULL,NULL);}for(size_t index=0;index<size;++index){const @p@_role* role=NULL;for(size_t item=0;item<roles_size;++item){if(codecs[index].role&&!strcmp(codecs[index].role,roles[item].field)){role=&roles[item];break;}}if(!role||!role->root_local){return @p@_fail(budget,@p@_invalid_options,NULL,codecs[index].role,NULL);}for(size_t earlier=0;earlier<index;++earlier){if(!strcmp(codecs[earlier].role,codecs[index].role)){return @p@_fail(budget,@p@_invalid_options,NULL,role->field,NULL);}}}return @p@_poll(budget);}
+/* Resolve an optional direction independently so a caller may replace only decoding or encoding. */
+static inline const @p@_selected_codec* @p@_find_codec(const @p@_selected_codec* codecs,size_t size,const @p@_role* role){for(size_t index=0;index<size;++index){if(!strcmp(codecs[index].role,role->field)){return &codecs[index];}}return NULL;}
+/* Run an optional caller encoder without translating its first nonzero integer result. */
+static inline int @p@_encode_selected(const @p@_selected_codec* codecs,size_t size,const @p@_role* role,const srl_xml_operation_codec* native,const void* model,srl_buffer* bytes,const srl_limits* limits,const char* part,const char* link,@p@_budget* budget){@p@_xml_context context;@p@_xml_context_init(&context,budget,role,part,link);const @p@_selected_codec* codec=@p@_find_codec(codecs,size,role);const int status=codec&&codec->encode?codec->encode(codec->userdata,model,bytes,limits,&context):@p@_xml_encode(&context,native,model,bytes,limits);if(status){return @p@_fail(budget,status,part,context.operation.field,link);}return @p@_xml_result(&context,srl_ok);}
+/* Run an optional caller decoder only on a private initialized aggregate member. */
+static inline int @p@_decode_selected(const @p@_selected_codec* codecs,size_t size,const @p@_role* role,const srl_xml_operation_codec* native,void* model,const uint8_t* bytes,size_t bytes_size,const srl_limits* limits,const char* part,const char* link,@p@_budget* budget){@p@_xml_context context;@p@_xml_context_init(&context,budget,role,part,link);const @p@_selected_codec* codec=@p@_find_codec(codecs,size,role);const int status=codec&&codec->decode?codec->decode(codec->userdata,model,bytes,bytes_size,limits,&context):@p@_xml_decode(&context,native,model,bytes,bytes_size,limits);if(status){return @p@_fail(budget,status,part,context.operation.field,link);}return @p@_xml_result(&context,srl_ok);}
 typedef struct @p@_names {const char** values;size_t size;} @p@_names;
 typedef struct @p@_composer {@p@_catalog catalog;@p@_names* sources;size_t roles_size;@p@_budget* budget;} @p@_composer;
 /* Dispose of private encoded candidates without touching any caller-authored models. */
@@ -19,11 +54,25 @@ static inline unsigned @p@_method(const @p@_role* role,const @p@_budget* budget)
 /* Reject missing/overfull role occurrences before aggregate publication. */
 static inline int @p@_occurs(const @p@_role* role,size_t count,@p@_budget* budget){return count<role->minimum||count>role->maximum?@p@_fail(budget,@p@_semantic,NULL,role->field,NULL):@p@_poll(budget);}
 /* Preflight the immutable expected expanded root/type before invoking a native model decoder. */
-static inline int @p@_typed(const @p@_role* role,const uint8_t* bytes,size_t size,const char* part,const char* link,@p@_budget* budget){xmlDocPtr document=@p@_xml(bytes,size,part,role->field,link,budget);if(!document){return budget->status;}xmlNodePtr root=xmlDocGetRootElement(document);bool valid=role->root_local&&@p@_xml_name(root,role->root_local,role->root_uri);xmlChar* type=xmlGetNsProp(root,BAD_CAST "type",BAD_CAST "http://www.w3.org/2001/XMLSchema-instance");if(type){xmlChar* lexical=type;while(*lexical&&srl_xml_space(*lexical)){++lexical;}size_t length=(size_t)xmlStrlen(lexical);while(length&&srl_xml_space(lexical[length-1])){--length;}lexical[length]=0;xmlChar* colon=(xmlChar*)strchr((char*)lexical,':');xmlNsPtr binding=NULL;const xmlChar* local=lexical;if(colon){*colon=0;binding=xmlSearchNs(document,root,lexical);local=colon+1;}else{binding=xmlSearchNs(document,root,NULL);}const char* uri=binding&&binding->href?(const char*)binding->href:"";valid=valid&&role->type_local&&!strcmp((const char*)local,role->type_local)&&!strcmp(uri,role->type_uri);xmlFree(type);}xmlFreeDoc(document);return valid?@p@_poll(budget):@p@_fail(budget,@p@_codec,part,role->field,link);}
+static inline int @p@_typed(const @p@_role* role,const uint8_t* bytes,size_t size,const char* part,const char* link,@p@_budget* budget){
+  if(size>budget->max_part_bytes||size>INT_MAX||@p@_consume(budget,@p@_work_units,size,part,role->field,link)||@p@_consume(budget,@p@_allocation_bytes,size<@p@_chunk_bytes?size:@p@_chunk_bytes,part,role->field,link)){return @p@_fail(budget,@p@_resource_limit,part,role->field,link);}
+  if((size&&!bytes)||!srl_utf8(bytes,size)){return @p@_fail(budget,@p@_codec,part,role->field,link);}
+  xmlTextReaderPtr reader=xmlReaderForMemory((const char*)bytes,(int)size,NULL,NULL,XML_PARSE_NONET|XML_PARSE_NOERROR|XML_PARSE_NOWARNING);if(!reader){return @p@_fail(budget,@p@_codec,part,role->field,link);}
+  bool valid=false;int status;
+  while((status=xmlTextReaderRead(reader))==1){if(@p@_poll_at(budget,part,role->field,link)){break;}const int kind=xmlTextReaderNodeType(reader);if(kind==XML_READER_TYPE_DOCUMENT_TYPE||kind==XML_READER_TYPE_ENTITY_REFERENCE){break;}if(kind!=XML_READER_TYPE_ELEMENT){continue;}
+    const xmlChar* local=xmlTextReaderConstLocalName(reader);const xmlChar* uri=xmlTextReaderConstNamespaceUri(reader);valid=role->root_local&&local&&!strcmp((const char*)local,role->root_local)&&!strcmp(uri?(const char*)uri:"",role->root_uri);
+    xmlChar* type=xmlTextReaderGetAttributeNs(reader,BAD_CAST "type",BAD_CAST "http://www.w3.org/2001/XMLSchema-instance");if(type){xmlChar* lexical=type;while(*lexical&&srl_xml_space(*lexical)){++lexical;}size_t length=(size_t)xmlStrlen(lexical);while(length&&srl_xml_space(lexical[length-1])){--length;}lexical[length]=0;xmlChar* colon=(xmlChar*)strchr((char*)lexical,':');xmlChar* resolved=NULL;const xmlChar* name=lexical;bool lexical_valid=xmlValidateQName(lexical,0)==0;if(colon){*colon=0;resolved=xmlTextReaderLookupNamespace(reader,lexical);name=colon+1;lexical_valid=lexical_valid&&resolved;}else{resolved=xmlTextReaderLookupNamespace(reader,BAD_CAST "");}valid=valid&&lexical_valid&&role->type_local&&!strcmp((const char*)name,role->type_local)&&!strcmp(resolved?(const char*)resolved:"",role->type_uri);xmlFree(resolved);xmlFree(type);}break;
+  }
+  xmlFreeTextReader(reader);return valid?@p@_poll_at(budget,part,role->field,link):@p@_fail(budget,@p@_codec,part,role->field,link);
+}
 /* Adapt model failures without losing their original native status code. */
-static inline int @p@_native(@p@_budget* budget,srl_status status,const char* part,const char* field){if(status!=srl_ok){if(!budget->status){budget->native_status=status;}return @p@_fail(budget,@p@_codec,part,field,NULL);}return @p@_poll(budget);}
+static inline int @p@_native_at(@p@_budget* budget,srl_status status,const char* part,const char* field,const char* link){if(status!=srl_ok){if(!budget->status){budget->native_status=status;}return @p@_fail(budget,status==srl_limit?@p@_resource_limit:status==srl_allocation?@p@_allocation:@p@_codec,part,field,link);}return @p@_poll_at(budget,part,field,link);}
+/* Retain the original native adapter for callers without a relationship origin. */
+static inline int @p@_native(@p@_budget* budget,srl_status status,const char* part,const char* field){return @p@_native_at(budget,status,part,field,NULL);}
 /* Derive finite native per-part bounds; shared XML preflight adds cumulative admission. */
 static inline srl_limits @p@_native_limits(const @p@_budget* budget){srl_limits result=srl_default_limits();result.max_bytes=budget->max_part_bytes;result.max_string_bytes=budget->max_part_bytes;result.max_depth=budget->max_depth;return result;}
+)cpackage"
+R"cpackage(
 /* Copy an opaque part into private complete-candidate ownership. */
 static inline int @p@_copy_part(@p@_binary_part* target,const @p@_binary_part* source,@p@_budget* budget){if(!source->name||!source->content_type||(source->bytes.size&&!source->bytes.data)){return @p@_fail(budget,@p@_invalid_options,NULL,NULL,NULL);}target->name=@p@_string(budget,source->name,strlen(source->name));target->content_type=@p@_string(budget,source->content_type,strlen(source->content_type));target->method=source->method;target->source_index=source->source_index;if(!target->name||!target->content_type||@p@_append(budget,&target->bytes,source->bytes.data,source->bytes.size,budget->max_part_bytes)){return budget->status;}return @p@_ok;}
 /* Copy one inert link exactly, retaining relative scope, selector and external URI spelling. */

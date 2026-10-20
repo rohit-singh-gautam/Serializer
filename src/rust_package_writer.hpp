@@ -18,7 +18,8 @@ inline std::string rust(const package_node& package, const std::string& name,
     const std::string& helper, const xml_options& xml,
     const std::function<std::string(const type_name&)>& render_type,
     const std::function<std::string(std::string_view)>& render_field,
-    const std::function<std::string(std::string_view)>& literal) {
+    const std::function<std::string(std::string_view)>& literal,
+    const std::string& operation_module) {
   const auto parts = ordered(package);
   std::set<std::string> fields{"extensions", "paths", "reference_links"};
   std::set<std::pair<std::string, std::string>> dispatch;
@@ -26,6 +27,35 @@ inline std::string rust(const package_node& package, const std::string& name,
   const auto line = [&](const std::string& text) { output += text + '\n'; };
   const auto api = [&](std::string_view type) { return helper + "::" + std::string{type}; };
   const auto optional = [&](const auto& value) { return value ? "Some(" + literal(*value) + ")" : "None"; };
+  // Keep selected codecs in typed function arguments instead of introducing collision-prone model names.
+  const auto codec_parameters = [&](bool encode, const std::string& prefix) {
+    std::string result;
+    for (std::size_t role_index{}; role_index < parts.size(); ++role_index) {
+      const auto* part = parts[role_index];
+      if (!part->value_type) { continue; }
+      const auto type = render_type(*part->value_type);
+      result += ',' + prefix + '_' + std::to_string(role_index) + ":impl FnMut(" +
+          (encode ? '&' + type : "&str") + ",&mut " + api("XmlOperation") +
+          "<'_,'_>)->" + api("Result") + '<' + (encode ? "String" : type) + '>';
+    }
+    return result;
+  };
+  // Forward each typed role exactly once, allowing callers to borrow mutable callback state explicitly.
+  const auto codec_arguments = [&](const std::string& prefix) {
+    std::string result;
+    for (std::size_t role_index{}; role_index < parts.size(); ++role_index) {
+      if (parts[role_index]->value_type) { result += ',' + prefix + '_' + std::to_string(role_index); }
+    }
+    return result;
+  };
+  // Ordinary entry points retain their signatures and choose operation-aware native codecs.
+  const auto native_arguments = [&](bool encode) {
+    std::string result;
+    for (const auto* part : parts) {
+      if (part->value_type) { result += encode ? ",|model,context|context.encode(model)" : ",|text,context|context.decode(text)"; }
+    }
+    return result;
+  };
   for (const auto* part : parts) {
     require_native_package_graph(*part, xml, "Rust");
     if (!fields.insert(render_field(part->name)).second ||
@@ -40,6 +70,7 @@ inline std::string rust(const package_node& package, const std::string& name,
     }
   }
   line("/// Complete owning package candidate; failure never publishes a partially loaded value.");
+  line("// Generated Rust package operation module: " + operation_module);
   line("#[derive(Default)] pub struct " + name + "Value {");
   for (const auto* part : parts) {
     const auto type = singleton(*part) ? "Option<" + render_type(*part->value_type) + ">" :
@@ -106,35 +137,31 @@ inline std::string rust(const package_node& package, const std::string& name,
   }
   line("    index.finish(budget)\n  }");
   line("  /// Assemble and validate the entire archive before exposing bytes or touching a sink.");
-  line("  pub fn encode(value:&" + name + "Input,budget:&mut " + api("Budget") + ") -> " + api("Result") + "<Vec<u8>> {");
+  line("  pub fn encode(value:&" + name + "Input,budget:&mut " + api("Budget") + ") -> " + api("Result") + "<Vec<u8>> {Self::encode_with_codecs(value,budget" + native_arguments(true) + ")}");
+  line("  /// Compose caller-selected synchronous encoders with the same package operation context.");
+  line("  pub fn encode_with_codecs(value:&" + name + "Input,budget:&mut " + api("Budget") + codec_parameters(true, "codec") + ") -> " + api("Result") + "<Vec<u8>> {");
   line("    " + helper + "::validate_overrides(Self::profiles(),budget)?; Self::validate_references(value,budget)?;");
   line("    let mut composer=" + api("Composer") + "::new(budget,&value.paths);");
   index = 0;
   for (const auto* part : parts) {
-    line("    composer." + std::string{part->value_type ? (singleton(*part) ? "single" : "models") : "binaries"} +
-        "(&Self::ROLE_" + std::to_string(index++) + ",&value." + render_field(part->name) +
-        (part->value_type ? ",|model,limits| model.encode_xml_with_validation(limits,None).map_err(" + api("native_error") + ")" : "") + ")?;");
+    line("    composer." + std::string{part->value_type ? (singleton(*part) ? "single_with_operation" : "models_with_operation") : "binaries"} +
+        "(&Self::ROLE_" + std::to_string(index) + ",&value." + render_field(part->name) +
+        (part->value_type ? ",codec_" + std::to_string(index) : "") + ")?;");
+    ++index;
   }
   line("    composer.finish(&value.extensions)\n  }");
   line("  /// Decode declared roles and all reference checks before returning an owning aggregate.");
-  line("  pub fn load(bytes:&[u8],budget:&mut " + api("Budget") + ",policy:" + api("ExtensionPolicy") + ") -> " + api("Result") + "<" + name + "Value> {");
+  line("  pub fn load(bytes:&[u8],budget:&mut " + api("Budget") + ",policy:" + api("ExtensionPolicy") + ") -> " + api("Result") + "<" + name + "Value> {Self::load_with_codecs(bytes,budget,policy" + native_arguments(false) + ")}");
+  line("  /// Select typed decoders after root dispatch while retaining exact caller errors and shared budgets.");
+  line("  pub fn load_with_codecs(bytes:&[u8],budget:&mut " + api("Budget") + ",policy:" + api("ExtensionPolicy") + codec_parameters(false, "codec") + ") -> " + api("Result") + "<" + name + "Value> {");
   line("    " + helper + "::validate_overrides(Self::profiles(),budget)?;");
   line("    let mut loader=" + api("Loader") + "::new(bytes,budget)?; let mut value=" + name + "Value::default();");
   index = 0;
   for (const auto* part : parts) {
-    std::string decoder;
-    if (part->value_type) {
-      const auto& owner = static_cast<const class_node&>(*part->value_type->resolved_node);
-      const auto binding = xml_binding::schema{xml}.bind(owner);
-      decoder = ",|text,limits| {let mut input=SrlXmlInput::new(text,limits).map_err(" + api("native_error") +
-          ")?;let _=input.take_type().map_err(" + api("native_error") + ")?;let value=" +
-          render_type(*part->value_type) + "::srl_xml_read_tokens(&mut input," + literal(binding.root.namespace_uri) +
-          "," + literal(binding.root.local) + ").map_err(" + api("native_error") +
-          ")?;input.finish_document().map_err(" + api("native_error") + ")?;Ok(value)}";
-    }
     line("    value." + render_field(part->name) + "=loader." +
-        std::string{part->value_type ? (singleton(*part) ? "single" : "models") : "binaries"} + "(&Self::ROLE_" + std::to_string(index++) +
-        decoder + ")?;");
+        std::string{part->value_type ? (singleton(*part) ? "single_with_operation" : "models_with_operation") : "binaries"} + "(&Self::ROLE_" + std::to_string(index) +
+        (part->value_type ? ",codec_" + std::to_string(index) : "") + ")?;");
+    ++index;
   }
   line("    value.paths=loader.paths(); value.reference_links=loader.reference_links(); value.extensions=loader.finish(policy)?; Self::validate_references(&value,budget)?; Ok(value)\n  }");
   line("  /// Read a bounded nonseekable source without taking ownership of it.");
@@ -142,7 +169,13 @@ inline std::string rust(const package_node& package, const std::string& name,
   line("  /// Prepare a complete archive before writing; a failed borrowed sink may retain a prefix.");
   line("  pub fn write(destination:&mut impl std::io::Write,value:&" + name + "Input,budget:&mut " + api("Budget") + ") -> " + api("Result") + "<()> { let bytes=Self::encode(value,budget)?; " + helper + "::write_sink(destination,&bytes,budget) }");
   line("  /// Validate a complete candidate, then atomically replace a same-directory file.");
-  line("  pub fn save(path:&std::path::Path,value:&" + name + "Input,budget:&mut " + api("Budget") + ",fault:Option<&dyn Fn(&str)->" + api("Result") + "<()>>) -> " + api("Result") + "<()> { let bytes=Self::encode(value,budget)?; let _=Self::load(&bytes,budget," + api("ExtensionPolicy") + "::preserve())?; " + helper + "::save(path,&bytes,budget,fault) }\n}");
+  line("  pub fn save(path:&std::path::Path,value:&" + name + "Input,budget:&mut " + api("Budget") + ",fault:Option<&dyn Fn(&str)->" + api("Result") + "<()>>) -> " + api("Result") + "<()> { let bytes=Self::encode(value,budget)?; let _=Self::load(&bytes,budget," + api("ExtensionPolicy") + "::preserve())?; " + helper + "::save(path,&bytes,budget,fault) }");
+  line("  /// Read and compose selected decoders with the same source, XML and reference ledger.");
+  line("  pub fn read_with_codecs(source:&mut impl std::io::Read,budget:&mut " + api("Budget") + ",policy:" + api("ExtensionPolicy") + codec_parameters(false, "codec") + ") -> " + api("Result") + "<" + name + "Value> {let bytes=" + helper + "::read_source(source,budget)?;Self::load_with_codecs(&bytes,budget,policy" + codec_arguments("codec") + ")}");
+  line("  /// Finish every selected encoder before borrowing the destination sink.");
+  line("  pub fn write_with_codecs(destination:&mut impl std::io::Write,value:&" + name + "Input,budget:&mut " + api("Budget") + codec_parameters(true, "codec") + ") -> " + api("Result") + "<()> {let bytes=Self::encode_with_codecs(value,budget" + codec_arguments("codec") + ")?;" + helper + "::write_sink(destination,&bytes,budget)}");
+  line("  /// Run selected encoders and decoders before atomically publishing a validated package file.");
+  line("  pub fn save_with_codecs(path:&std::path::Path,value:&" + name + "Input,budget:&mut " + api("Budget") + ",fault:Option<&dyn Fn(&str)->" + api("Result") + "<()>>" + codec_parameters(true, "encode") + codec_parameters(false, "decode") + ") -> " + api("Result") + "<()> {let bytes=Self::encode_with_codecs(value,budget" + codec_arguments("encode") + ")?;let _=Self::load_with_codecs(&bytes,budget," + api("ExtensionPolicy") + "::preserve()" + codec_arguments("decode") + ")?;" + helper + "::save(path,&bytes,budget,fault)}\n}");
   return output;
 }
 } // namespace rohit::serializer::writer::package_codegen

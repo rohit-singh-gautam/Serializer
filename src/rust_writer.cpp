@@ -86,6 +86,7 @@ class rust_emitter {
   behavior::checked_helpers arithmetic_helpers{};
   std::set<const syntax_node*> borrowed_nodes_{};
   std::set<const class_node*> xml_mixed_fragments_{};
+  std::string xml_operation_module_{"serializer_xml_operation"};
   std::string output{"#![allow(dead_code, unused_imports)]\n"};
   std::size_t indent{};
   bool variable_first{};
@@ -1380,6 +1381,11 @@ class rust_emitter {
     line("Ok(())");
     close();
     close();
+    if (model.xml.enabled && !xml_mixed_fragments_.contains(&value)) {
+      const xml_binding::schema bindings{model.xml};
+      output += xml_binding::rust_operation_impl(value, bindings.bind(value), name,
+          xml_operation_module_, model.xml, lifetime);
+    }
   }
   // Emit a static byte slice without relying on source encoding or escape ambiguity.
   std::string bytes(const std::string& value) const {
@@ -1393,6 +1399,14 @@ class rust_emitter {
 public:
   // Bind schema metadata for one Rust module.
   explicit rust_emitter(const schema& value) : model{value} {
+    std::set<std::string> operation_names;
+    for (const auto& [node, name] : model.names) {
+      static_cast<void>(node);
+      operation_names.insert(compression_name_key(name));
+    }
+    for (std::size_t suffix{2}; operation_names.contains(compression_name_key(xml_operation_module_)); ++suffix) {
+      xml_operation_module_ = "serializer_xml_operation_" + std::to_string(suffix);
+    }
     collect_borrowed_nodes();
     if (model.xml.enabled) {
       const xml_binding::schema bindings{model.xml};
@@ -1418,7 +1432,7 @@ public:
           return node->type == object_type::class_type &&
               reference_support::native_value_reference(static_cast<const class_node&>(*node));
         })) { output += reference_support::native_value_runtime("rust"); }
-    if (model.xml.enabled) { output += xml_binding::rust_runtime(); }
+    if (model.xml.enabled) { output += xml_binding::rust_runtime(xml_operation_module_); }
     output += behavior::helpers("rust", arithmetic_helpers);
     output += behavior::helpers_predicate("rust", arithmetic_helpers);
   }
@@ -1525,7 +1539,8 @@ public:
       // Select complete helper families without renaming existing native models or wire names.
       for (const auto& [token, replacement] : {
               std::pair{std::string{"@package_name@"}, helper},
-              std::pair{std::string{"@compression_name@"}, compression_name}}) {
+              std::pair{std::string{"@compression_name@"}, compression_name},
+              std::pair{std::string{"@xml_operation@"}, xml_operation_module_}}) {
         for (std::size_t position{}; (position = support.find(token, position)) != std::string::npos;) {
           support.replace(position, token.size(), replacement);
           position += replacement.size();
@@ -1536,7 +1551,7 @@ public:
         output += package_codegen::rust(*package, model.names.at(package), helper, model.xml,
             [&](const auto& value) { return type(value); },
             [&](const auto value) { return field(value); },
-            [&](const auto value) { return quote(value); });
+            [&](const auto value) { return quote(value); }, xml_operation_module_);
       }
     }
     return output;

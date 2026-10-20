@@ -1,0 +1,12 @@
+serializer version 1.21.0;
+include xml_identity_generated.serializer;
+
+namespace native_operation {
+  class pair {
+    public identity_xml::registry first;
+    public identity_xml::registry second;
+  }
+  class inherited : public identity_xml::registry {}
+  class box<Value> { xml(root("box")); public Value value; }
+  class generic_owner { public box<identity_xml::registry> wrapped; }
+}

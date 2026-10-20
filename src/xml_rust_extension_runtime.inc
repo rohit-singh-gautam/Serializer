@@ -83,7 +83,7 @@ fn srl_xml_extension_escape(output:&mut String,value:&str,attribute:bool,maximum
     for value in value.chars() {let mut bytes=[0;4];let text=match value {'&'=>"&amp;",'<'=>"&lt;",'>'=>"&gt;",'"' if attribute=>"&quot;",'\r'=>"&#13;",'\n' if attribute=>"&#10;",'\t' if attribute=>"&#9;",_=>value.encode_utf8(&mut bytes)};srl_xml_extension_put(output,text,maximum)?;}Ok(())
 }
 /// Flatten only an admitted original scope, preserving unused aliases and nearest shadowing.
-fn srl_xml_extension_scope(input:&SrlXmlInput<'_>)->Vec<(String,String)> {
+fn srl_xml_extension_scope(input:&SrlXmlInput<'_,'_>)->Vec<(String,String)> {
     let mut result=std::collections::BTreeMap::new();result.insert("xml".to_owned(),SRL_XML_NAMESPACE.to_owned());result.insert(String::new(),String::new());
     for (prefix,uri) in &input.bindings {result.insert((*prefix).to_owned(),uri.clone());}result.into_iter().collect()
 }
@@ -136,7 +136,7 @@ fn srl_xml_extension_replay_children(output:&mut String,owner:Option<&SrlXmlExte
     }Ok(())
 }
 /// Replay borrowed sidecar items while traversing only the generated codec's known transport tokens.
-fn srl_xml_extension_replay_owner(input:&mut SrlXmlInput<'_>,output:&mut String,model:&'static SrlXmlExtensionModel,path:&mut Vec<(usize,usize)>,state:&XmlExtensionState,used:&mut[bool],admission:&mut XmlExtensionState,options:&XmlExtensionOptions,inherited:&[(String,String)],maximum:usize)->Result<(),Error> {
+fn srl_xml_extension_replay_owner(input:&mut SrlXmlInput<'_,'_>,output:&mut String,model:&'static SrlXmlExtensionModel,path:&mut Vec<(usize,usize)>,state:&XmlExtensionState,used:&mut[bool],admission:&mut XmlExtensionState,options:&XmlExtensionOptions,inherited:&[(String,String)],maximum:usize)->Result<(),Error> {
     let matched=state.owners.iter().enumerate().find(|(_,owner)|owner.path==*path);
     let owner=matched.map(|(index,owner)|{used[index]=true;owner});
     if owner.is_some_and(|owner|owner.identity!=model.identity) {return Err(Error("Preserved XML extension owner type changed"));}
@@ -203,7 +203,7 @@ fn srl_xml_extension_replay(text:&str,limits:XmlLimits,options:&XmlExtensionOpti
 )rustext"
 R"rustext(
 /// Reuse a compatible original binding; allocate a fresh prefix only for a genuine framing collision.
-fn srl_xml_extension_select_prefix(declarations:&mut std::collections::BTreeMap<String,String>,input:&SrlXmlInput<'_>,uri:&str,preferred:&str,attribute:bool)->String {
+fn srl_xml_extension_select_prefix(declarations:&mut std::collections::BTreeMap<String,String>,input:&SrlXmlInput<'_,'_>,uri:&str,preferred:&str,attribute:bool)->String {
     if uri.is_empty() {if !attribute {declarations.insert(String::new(),String::new());}return String::new();}
     if uri==SRL_XML_NAMESPACE {return "xml".to_owned();}
     let effective=|prefix:&str|declarations.get(prefix).map(String::as_str).or_else(||input.bindings.iter().rev().find(|(value,_)|*value==prefix).map(|(_,value)|value.as_str()));
@@ -213,7 +213,7 @@ fn srl_xml_extension_select_prefix(declarations:&mut std::collections::BTreeMap<
     let mut serial=0usize;loop {let prefix=format!("srlopaque{serial}");serial+=1;if !declarations.contains_key(&prefix) && !input.bindings.iter().any(|(value,_)|*value==prefix) {declarations.insert(prefix.clone(),uri.to_owned());return prefix;}}
 }
 /// Serialize expanded names while leaving every opaque lexical binding intact and replay stable.
-fn srl_xml_extension_start(output:&mut String,input:&SrlXmlInput<'_>,attributes:&[(SrlXmlTokenName<'_>,String)],scope:Option<&[(String,String)]>,maximum:usize)->Result<String,Error> {
+fn srl_xml_extension_start(output:&mut String,input:&SrlXmlInput<'_,'_>,attributes:&[(SrlXmlTokenName<'_>,String)],scope:Option<&[(String,String)]>,maximum:usize)->Result<String,Error> {
     let (name,_) = match &input.current {SrlXmlToken::Start(name,values)=>(name,values),_=>return Err(Error("Expected XML extension start"))};
     let mut declarations=std::collections::BTreeMap::<String,String>::new();
     if let Some(scope)=scope {for (prefix,uri) in scope {declarations.insert(prefix.clone(),uri.clone());}}
@@ -230,7 +230,7 @@ fn srl_xml_extension_start(output:&mut String,input:&SrlXmlInput<'_>,attributes:
 /// End one independently prefixed transport element.
 fn srl_xml_extension_end(output:&mut String,name:&str,maximum:usize)->Result<(),Error> {srl_xml_extension_put(output,"</",maximum)?;srl_xml_extension_put(output,name,maximum)?;srl_xml_extension_put(output,">",maximum)}
 /// Traverse an opaque foreign subtree directly; skip retains no completed token or payload.
-fn srl_xml_extension_foreign(input:&mut SrlXmlInput<'_>,mut output:Option<&mut String>,maximum:usize,full_scope:bool)->Result<(),Error> {
+fn srl_xml_extension_foreign(input:&mut SrlXmlInput<'_,'_>,mut output:Option<&mut String>,maximum:usize,full_scope:bool)->Result<(),Error> {
     let attributes=match &input.current {SrlXmlToken::Start(_,attributes)=>attributes,_=>return Err(Error("Expected foreign XML start"))};
     let name=if let Some(target)=output.as_deref_mut() {let scope=full_scope.then(||srl_xml_extension_scope(input));srl_xml_extension_start(target,input,attributes,scope.as_deref(),maximum)?}else{String::new()};
     input.advance()?;
@@ -242,7 +242,7 @@ fn srl_xml_extension_foreign(input:&mut SrlXmlInput<'_>,mut output:Option<&mut S
     }}
 }
 /// Retain an original owner scope lazily, after its complete logical size has been admitted.
-fn srl_xml_extension_owner(state:&mut XmlExtensionState,model:&SrlXmlExtensionModel,path:&[(usize,usize)],input:&SrlXmlInput<'_>,binding_end:usize,options:&XmlExtensionOptions)->Result<usize,Error> {
+fn srl_xml_extension_owner(state:&mut XmlExtensionState,model:&SrlXmlExtensionModel,path:&[(usize,usize)],input:&SrlXmlInput<'_,'_>,binding_end:usize,options:&XmlExtensionOptions)->Result<usize,Error> {
     if let Some(index)=state.owners.iter().position(|owner|owner.path==path) {return Ok(index);}
     let mut size=64usize.checked_add(path.len().checked_mul(2*std::mem::size_of::<usize>()).ok_or(Error("XML extension path limit"))?).ok_or(Error("XML extension path limit"))?;
     // Charge all active declarations conservatively before flattening; shadowed bindings may cost more, never less.
@@ -253,7 +253,7 @@ fn srl_xml_extension_owner(state:&mut XmlExtensionState,model:&SrlXmlExtensionMo
     let index=state.owners.len();state.owners.push(SrlXmlExtensionOwner {path:path.to_vec(),identity:model.identity,scope:scope.into_iter().collect(),attributes:Vec::new(),children:Vec::new()});Ok(index)
 }
 /// Filter one typed ordinary owner, preserving only explicitly admitted foreign roots and attributes.
-fn srl_xml_extension_filter_owner(input:&mut SrlXmlInput<'_>,output:&mut String,model:&'static SrlXmlExtensionModel,path:&mut Vec<(usize,usize)>,state:&mut XmlExtensionState,options:&XmlExtensionOptions,maximum:usize)->Result<(),Error> {
+fn srl_xml_extension_filter_owner(input:&mut SrlXmlInput<'_,'_>,output:&mut String,model:&'static SrlXmlExtensionModel,path:&mut Vec<(usize,usize)>,state:&mut XmlExtensionState,options:&XmlExtensionOptions,maximum:usize)->Result<(),Error> {
     let original_owners=state.owners.len();let binding_end=input.bindings.len();if let Some(contract)=model.contract {srl_xml_extension_capabilities(contract,&srl_xml_extension_scope(input),options)?;}
     let mut namespace_owner=model.namespace_text!=0;let mut namespace_value=String::new();
     let mut counts=vec![0;model.contract.map_or(0,|contract|contract.slots.len())];let mut known=Vec::new();

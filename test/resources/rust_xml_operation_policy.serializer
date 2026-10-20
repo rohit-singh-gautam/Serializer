@@ -1,0 +1,21 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.21.0;
+
+namespace operation_policy {
+  class scalar { public array[2] uint16 value xml(text, list); }
+  class maps { public map(uint32) string entries; }
+  class emphasis { public string text xml(text); }
+  class fragment { private variant(string = text, emphasis = emphasis) value; }
+  class mixed { public string id xml(attribute); public array<fragment> content; }
+  class digests { public digest[2] exact xml(attribute); }
+  class child {
+    public string wireValue { "known default storage" };
+    public digest[3] bytes xml(attribute);
+  }
+  class defaults {
+    public child nested;
+    public array[3] digest[2] slots;
+    public transient string retained { "unmapped retained default" };
+  }
+}

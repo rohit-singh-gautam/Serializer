@@ -130,7 +130,7 @@ R"packagejs(
     function nativeLimits(state,role,part,link='') {
       return new XmlLimits({expectedType:role.expectedTypeUri+'\0'+role.expectedTypeLocal,maxBytes:Math.min(state.budget.limits.maxPartBytes,16777216),operation(resource,count,field){
         try{state.poll();}catch(error){throw state.fail(error);}try{state.budget.consume(resource==='allocation'?'decoderAllocationBytes':resource==='reference'?'references':'workUnits',count,part);}
-        catch(error){if(error instanceof PackageError){error.fieldPath=role.field+(field?'.'+field:'');if(!error.relationshipId)error.relationshipId=link;}throw error;}
+        catch(error){if(error instanceof PackageError){error.fieldPath=role.field+(field?'.'+field:'');if(!error.relationshipId)error.relationshipId=link;}throw state.fail(error);}
         try{state.poll();}catch(error){throw state.fail(error);}
       }});
     }
@@ -152,13 +152,29 @@ R"packagejs(
       }
       for(const [key,target,field,part,id]of pending){consume('workUnits',key.length+1,part,id,field);if(keys.get(key)!==target){const error=new PackageError(Code.InvalidRelationship,'Missing or wrong-type application key',part,id);error.fieldPath=field;throw error;}}
     }
+)packagejs"
+R"packagejs(
     // Validate runtime overrides against the closed role inventory before provider work.
     function profiles(options){const selected=new Map(),supplied=options.profiles||{};for(const key of Object.keys(supplied))if(!roles.some(role=>role.role===key))throw new PackageError(Code.InvalidOptions,'Unknown package profile role');for(const role of roles){const compression=!Object.hasOwn(supplied,role.role)||supplied[role.role]===undefined?role.compression:supplied[role.role];if(!['stored','deflate'].includes(compression)||role.policy==='fixed'&&compression!==role.compression)throw new PackageError(Code.InvalidOptions,'Conflicting package profile override');selected.set(role.field,compression);}return selected;}
+    // Snapshot selected synchronous directions before an asynchronous provider can change caller options.
+    function codecs(options){const selected=new Map(),supplied=options.codecs;if(supplied===undefined)return selected;if(supplied===null||typeof supplied!=='object'||Array.isArray(supplied))throw new PackageError(Code.InvalidOptions,'Expected a role codec table');for(const key of Object.keys(supplied)){const role=roles.find(role=>role.role===key),value=supplied[key];if(!role||role.model===null||value===null||typeof value!=='object'||Array.isArray(value))throw new PackageError(Code.InvalidOptions,'Invalid selected codec role');const encode=value.encode,decode=value.decode;if(encode!==undefined&&typeof encode!=='function'||decode!==undefined&&typeof decode!=='function')throw new PackageError(Code.InvalidOptions,'Expected synchronous codec functions');selected.set(role.field,Object.freeze({encode,decode}));}return selected;}
+    // Check immutable expanded root/type before a selected decoder receives the complete XML payload.
+    function typedHeader(text,state,role,part,link){
+      const stop={},parser=new SerializerPackageSaxes({xmlns:true,defaultXMLVersion:'1.0',forceXMLVersion:true});let found=false;
+      const failure=()=>{const error=new PackageError(Code.InvalidMetadata,'Payload has unexpected XML root or type',part,link);error.fieldPath=role.field;return error;};
+      const size=srlXmlUtf8Length(text);if(size>state.budget.limits.maxPartBytes)throw new PackageError(Code.ResourceLimit,'Payload exceeds part limit',part,link);state.budget.consume('workUnits',size,part);state.budget.consume('decoderAllocationBytes',Math.min(2*text.length,2*chunkBytes),part);
+      parser.on('error',()=>{throw failure();});parser.on('doctype',()=>{throw failure();});
+      parser.on('xmldecl',value=>{if(value.version!=='1.0'||value.encoding&&fold(value.encoding)!=='utf-8')throw failure();});
+      parser.on('opentag',node=>{if(srlXmlTokenName(node.uri||'',node.local)!==role.model._srlXmlToken.root)throw failure();for(const attribute of Object.values(node.attributes)){if(attribute.uri!=='http://www.w3.org/2001/XMLSchema-instance'||attribute.local!=='type')continue;const parts=srlXmlTrim(attribute.value).split(':');if(parts.length>2||parts.some(value=>!SrlXmlNcName.test(value)))throw failure();const prefix=parts.length===2?parts[0]:'',local=parts[parts.length-1],uri=node.ns[prefix]||'';if(prefix&&!Object.hasOwn(node.ns,prefix)||uri!==role.expectedTypeUri||local!==role.expectedTypeLocal)throw failure();}found=true;throw stop;});
+      try{for(let at=0;at<text.length;at+=chunkBytes){state.poll();parser.write(text.slice(at,at+chunkBytes));}parser.close();}catch(error){if(error!==stop)throw error;}if(!found)throw failure();state.poll();
+    }
+    // Retain even falsy thrown values and reject asynchronous codecs before any package publication.
+    function selectedCodec(callback,value,limits,state,role,part,link){try{state.poll();const context=Object.freeze({budget:state.budget,role:role.role,part,relationshipId:link}),result=callback(value,limits,context);if(result&&typeof result.then==='function'){NativePromise.resolve(result).catch(()=>{});throw new PackageError(Code.InvalidOptions,'Selected codecs must return synchronously',part,link);}state.poll();return result;}catch(error){throw state.fail(nativeFailure(error,state,role,part,link));}}
     // Prepare all native payloads and metadata before the first asynchronous provider call.
     async function encode(value, options = {}) {
 )packagejs"
 R"packagejs(      const budget = getBudget(options), state = new State(budget), parts = [], links = [], sources = new Map(); state.provider = options.compressionProvider;
-      const selectedProfiles=profiles(options);references(value,budget);admitCompression(8, options.compressionProvider);
+      const selectedProfiles=profiles(options),selectedCodecs=codecs(options);references(value,budget);admitCompression(8, options.compressionProvider);
       try {
       for (const role of roles) {
         const supplied = value[role.field];
@@ -174,7 +190,7 @@ R"packagejs(      const budget = getBudget(options), state = new State(budget), 
           partName(name); mimeIdentity(contentType); let data;
           if (role.model !== null) {
             const model = role.singleton ? item : item.value; if (!(model instanceof role.model)) throw new PackageError(Code.InvalidOptions, 'Typed package resource has the wrong native type', name);
-            const id=role.id===null?'srl_'+role.role+'_'+index:role.id;state.poll();try{data=srlXmlWithPackageQuota(()=>srlUtf8(model.encodeXml(nativeLimits(state,role,name,id))));}catch(cause){throw nativeFailure(cause,state,role,name,id);}state.poll();
+            const id=role.id===null?'srl_'+role.role+'_'+index:role.id,codec=selectedCodecs.get(role.field)?.encode;state.poll();try{data=srlXmlWithPackageQuota(()=>{const limits=nativeLimits(state,role,name,id),text=codec?selectedCodec(codec,model,limits,state,role,name,id):model.encodeXml(limits);if(typeof text!=='string')throw new PackageError(Code.InvalidOptions,'Selected encoder must return XML text',name,id);if(codec)typedHeader(text,state,role,name,id);return srlUtf8(text);});}catch(cause){throw nativeFailure(cause,state,role,name,id);}state.poll();
 )packagejs"
 R"packagejs(          } else data = item.data;
           if (!(data instanceof Uint8Array)) throw new PackageError(Code.InvalidOptions, 'Package resource requires bytes', name);
@@ -196,6 +212,7 @@ R"packagejs(          } else data = item.data;
     async function load(source, options = {}) {
       const budget = getBudget(options), state = new State(budget), policy = options.policy === undefined ? new ExtensionPolicy() : options.policy;
       if (!(policy instanceof ExtensionPolicy) || options.validate !== undefined && typeof options.validate !== 'function') throw new PackageError(Code.InvalidOptions, 'Invalid package load policy');
+      const selectedCodecs=codecs(options);
       const archive = await ZipReader.open(source, {...options, limits: undefined, budget});
       try {
         const metadata = await opcRead(archive, budget), candidate = new Value(), sources = new Map(), locations=new Map(), decoded = new Map(), selected = new Map();
@@ -211,7 +228,7 @@ R"packagejs(          } else data = item.data;
             if(role.policy==='fixed'&&part.entry.method!==role.compression)throw new PackageError(Code.InvalidOptions,'Fixed package compression mismatch',part.name,link.id);
             budget.consume('decoderAllocationBytes',64,part.name);roleLocations.push([part.name,link.id]);selected.set(index, true); decoded.set(key, true); const data = await archive.read(part.entry.name); state.poll();
             if (role.model !== null) {
-              let model; try { model = srlXmlWithPackageQuota(()=>role.model.decodeXml(srlDecoder.decode(data),nativeLimits(state,role,part.name,link.id))); } catch (cause) { const selected=nativeFailure(cause,state,role,part.name,link.id);if(state.failed||selected instanceof PackageError)throw selected;const error = new PackageError(Code.InvalidMetadata, 'Typed package XML decoding failed', part.name, link.id); error.cause = selected; throw error; }
+              const codec=selectedCodecs.get(role.field)?.decode;let model; try { model = srlXmlWithPackageQuota(()=>{const text=srlDecoder.decode(data),limits=nativeLimits(state,role,part.name,link.id);if(codec)typedHeader(text,state,role,part.name,link.id);const value=codec?selectedCodec(codec,text,limits,state,role,part.name,link.id):role.model.decodeXml(text,limits);if(!(value instanceof role.model))throw new PackageError(Code.InvalidMetadata,'Selected decoder returned the wrong native model',part.name,link.id);return value;}); } catch (cause) { const selected=nativeFailure(cause,state,role,part.name,link.id);if(state.failed||selected instanceof PackageError)throw selected;const error = new PackageError(Code.InvalidMetadata, 'Typed package XML decoding failed', part.name, link.id); error.cause = selected; throw error; }
               state.poll(); values.push(role.singleton ? model : new ModelPart(model, part.name, part.contentType, parent));
             } else values.push(new BinaryPart(data, part.name, part.contentType, parent, part.entry.method)); discovered.push(part.name);
           }

@@ -9,13 +9,13 @@ impl Default for XmlMixedLimits {
     /// Apply the shared conservative ordered-fragment defaults at every nested mixed owner.
     fn default() -> Self { Self {max_fragments:100000,max_text_bytes:8*1024*1024} }
 }
-impl SrlXmlInput<'_> {
+impl SrlXmlInput<'_,'_> {
     /// Join adjacent text/CDATA/entity spans, retaining their exact logical bytes until the next child.
     fn mixed_text(&mut self,maximum:usize) -> Result<String,Error> {
         let mut result=String::new();
         while let SrlXmlToken::Text(value)=&self.current {
-            if value.len() > maximum.saturating_sub(result.len()) { return Err(Error("XML mixed text byte limit")); }
-            result.try_reserve(value.len()).map_err(|_| Error("XML mixed text allocation"))?;
+            if value.len() > maximum.saturating_sub(result.len()) { return Err(self.quota("XML mixed text byte limit")); }
+            self.allocate(value.len())?; result.try_reserve(value.len()).map_err(|_| self.quota("XML mixed text allocation"))?;
             result.push_str(value); self.advance()?;
         }
         Ok(result)

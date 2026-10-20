@@ -74,11 +74,15 @@ constexpr std::string_view c_runtime =
 #include "xml_c_mixed_runtime.inc"
 #include "xml_c_model_runtime.inc"
 #include "xml_c_runtime.inc"
+#include "xml_c_operation_provider_runtime.inc"
 #include "xml_c_tokens_runtime.inc"
 #include "xml_c_variant_runtime.inc"
 #include "xml_c_html_runtime.inc"
 #include "xml_c_scalar_runtime.inc"
+#include "xml_c_operation_scalar_runtime.inc"
 #include "xml_c_identity_runtime.inc"
+#include "xml_c_operation_reader_runtime.inc"
+#include "xml_c_operation_identity_runtime.inc"
 #include "xml_c_extension_runtime.inc"
 ;
 // Emit reflection-free field bindings over native optional XML parsing providers.
@@ -1345,15 +1349,19 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
           return native_extension_graph(child, bindings_) ? native::snake(model_.names.at(&child)) + "_srl_xml_extension_model" : std::string{};
         }, [&](std::string_view value) { return quote(value); }, false));
   }
-  if (identity_enabled) {
-    line(c_identity_declaration(identity_identifier, identity_graph, [&](std::string_view value) { return quote(value); }));
-  }
+  line(c_identity_declaration(identity_identifier, identity_graph, [&](std::string_view value) { return quote(value); }));
+  line(c_identity_diagnostic_declaration(identity_identifier, identity_graph, [&](std::string_view value) { return quote(value); }));
   line("/* Validate original/final XML using bounded active paths and tuple indexes, without native copies. */");
   open("static inline srl_status " + n + "_srl_xml_identity_check(const uint8_t* bytes,size_t size,const srl_limits* limits,const srl_xml_identity_limits* identity_limits)");
   if (identity_enabled) {
     line("const srl_limits bounds=limits?*limits:srl_default_limits();const srl_xml_identity_limits policy=identity_limits?*identity_limits:srl_xml_default_identity_limits();");
     line("return srl_xml_identity_validate(bytes,size,&bounds,&policy," + identity_identifier + ",sizeof(" + identity_identifier + ")/sizeof(" + identity_identifier + "[0]));");
   } else { line("(void)bytes;(void)size;(void)limits;(void)identity_limits;return srl_ok;"); }
+  close();
+  line("/* Admit shared tuple resources using parallel native-name diagnostics. */");
+  open("static inline srl_status srl_xml_operation_identity_check_" + n + "(const uint8_t* bytes,size_t size,const srl_limits* limits,const srl_xml_identity_limits* identity_limits,srl_xml_operation* operation)");
+  line("const srl_limits bounds=limits?*limits:srl_default_limits();const srl_xml_identity_limits policy=identity_limits?*identity_limits:srl_xml_default_identity_limits();");
+  line("return srl_xml_operation_identity_validate(bytes,size,&bounds,&policy," + identity_identifier + ",sizeof(" + identity_identifier + ")/sizeof(" + identity_identifier + "[0])," + identity_identifier + "_diagnostics,operation);");
   close();
   std::map<const member*, std::string> native_scalar_rules;
   for (std::size_t index{}; index < contract.fields.size(); ++index) {
@@ -1363,6 +1371,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
     native_scalar_rules.emplace(field.source, identifier);
     line(c_scalar_declaration(identifier, field, [&](std::string_view text) { return quote(text); }));
   }
+  bool token_read = true;
   const auto free_leaf = [&](const type_name& value, const std::string& target) {
     if (value.is_digest()) { line("srl_buffer_free(&" + target + ");"); }
     else if (value.name == "string" || value.name.starts_with("version")) { line("srl_string_free(&" + target + ");"); }
@@ -1370,7 +1379,8 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
   };
   const auto initialize_leaf = [&](const type_name& value, const std::string& target) {
     if (value.type == object_type::class_type) {
-      line("if (" + type(value) + "_init(&" + target + ") != srl_ok) { return false; }");
+      line("if (" + std::string{token_read ? "srl_xml_operation_init_" + type(value) : type(value) + "_init"} + "(&" + target +
+          (token_read ? ",srl_xml_operation_input_context(input->reader)" : "") + ") != srl_ok) { return false; }");
     }
   };
   // Explicit XML states retain each native optional layer and require wrappers for collections.
@@ -1388,7 +1398,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
   // Format one admitted native scalar while retaining its exact temporary ownership.
   const auto format_leaf = [&](const type_name& value_type, const std::string& expression) {
     if (value_type.is_digest()) {
-      line("srl_buffer digest_text={0}; const srl_status digest_status=srl_xml_digest_text(&" + expression + "," + std::to_string(value_type.digest_extent) + "u,out->digest_limits,&digest_text); if (digest_status != srl_ok) { out->writer.status=digest_status; return false; }");
+      line("srl_buffer digest_text={0}; const srl_status digest_status=srl_xml_operation_digest_text(operation,&" + expression + "," + std::to_string(value_type.digest_extent) + "u,out->digest_limits,&digest_text); if (digest_status != srl_ok) { out->writer.status=digest_status; return false; }");
       line("const char* text=(const char*)digest_text.data; const size_t text_size=digest_text.size;");
     } else if (value_type.name == "string" || value_type.name.starts_with("version")) {
       line("const char* text = " + expression + ".data ? " + expression + ".data : \"\"; const size_t text_size = " + expression + ".size;");
@@ -1417,6 +1427,8 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
   std::function<void(const xml_binding::field&, const std::string&, std::size_t, const type_name*)> emit_leaf;
   emit_leaf = [&](const xml_binding::field& field, const std::string& expression, std::size_t prefix,
       const type_name* explicit_type) {
+    line("srl_xml_operation_select(operation," + quote(source.get_full_name() + '.' + (field.source ? field.source->name : std::string{"$value"})) + ");");
+    line("if (!srl_xml_operation_charge(operation,srl_xml_operation_work,1u)) { out->writer.status=srl_invalid; return false; }");
     const auto& value_type = explicit_type ? *explicit_type : leaf(*field.source);
     const auto* owner = value_type.type == object_type::class_type ? static_cast<const class_node*>(value_type.resolved_node) : nullptr;
     if (owner && owner->reference && owner->reference->value_projection) {
@@ -1424,7 +1436,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
       const auto& payload = owner->reference->value_type;
       reference_helpers += capture([&] {
         line("/* Emit one borrowed selected field; the caller pins its owner for this entire function. */");
-        open("static inline bool " + helper + "(xmlTextWriterPtr writer, srl_xml_output* out, const " + type(payload) + "* selected)");
+        open("static inline bool " + helper + "(xmlTextWriterPtr writer, srl_xml_output* out, const " + type(payload) + "* selected,srl_xml_operation* operation)");
         emit_leaf(field, "(*selected)", prefix, &payload); line("return true;"); close();
       });
       open(""); line("const " + type(payload) + "* selected=NULL;");
@@ -1433,35 +1445,36 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
       if (!borrowed) {
         line("srl_reference_scope* scope=" + expression + ".srl_reference; if (srl_reference_scope_retain(scope) != srl_ok) { return false; }");
       }
-      line("const bool emitted=" + helper + "(writer,out,selected);");
+      line("const bool emitted=" + helper + "(writer,out,selected,operation);");
       if (!borrowed) { line("srl_reference_scope_release(scope);"); }
       line("if (!emitted) { return false; }"); close(); return;
     }
     if (value_type.type == object_type::class_type) {
-      line("if (!" + type(value_type) + "_srl_xml_write(writer, out, &" + expression + ", " +
-           quote(field.qualified_name.local) + ", " + quote(field.qualified_name.namespace_uri) + ")) { return false; }");
+      line("if (!srl_xml_operation_write_" + type(value_type) + "(writer, out, &" + expression + ", " +
+           quote(field.qualified_name.local) + ", " + quote(field.qualified_name.namespace_uri) + ",operation)) { return false; }");
       return;
     }
     if (!field.attribute && !field.text) {
-      line("if (++out->nodes > out->limits.max_elements || out->writer.depth >= out->limits.max_depth || xmlTextWriterStartElementNS(writer, " +
+      line("if (!srl_xml_operation_node(out,operation)) { return false; }");
+    line("if (++out->nodes > out->limits.max_elements || out->writer.depth >= out->limits.max_depth || xmlTextWriterStartElementNS(writer, " +
            std::string{field.qualified_name.namespace_uri.empty() ? "NULL" : "BAD_CAST \"srl\""} + ", BAD_CAST " + quote(field.qualified_name.local) + ", " +
            (field.qualified_name.namespace_uri.empty() ? "NULL" : "BAD_CAST " + quote(field.qualified_name.namespace_uri)) + ") < 0) { return false; }");
-      line("if (!srl_xml_output_type(writer, out)) { return false; }");
+      line("if (!srl_xml_operation_output_type(writer,out,operation)) { return false; }");
     }
     if (field.list) {
       const auto helper = "srl_xml_list_item_" + n + '_' + std::to_string(reference_helper_index++);
       reference_helpers += capture([&] {
         line("/* Append a borrowed native list item while keeping temporary lexical storage local. */");
-        open("static inline bool " + helper + "(const " + type(value_type) + "* item, srl_xml_output* out, srl_buffer* joined)");
+        open("static inline bool " + helper + "(const " + type(value_type) + "* item, srl_xml_output* out, srl_buffer* joined,srl_xml_operation* operation)");
         format_leaf(value_type, "(*item)");
-        line("const srl_status status=srl_xml_scalar_append(joined,text,text_size,out->limits.max_string_bytes);");
+        line("const srl_status status=srl_xml_operation_scalar_append(operation,joined,text,text_size,out->limits.max_string_bytes);");
         release_leaf_text(value_type);
         line("if (status!=srl_ok) { out->writer.status=status; return false; } return true;"); close();
       });
       line("if ((" + expression + ".size&&!" + expression + ".data)||" + expression + ".size>out->limits.max_elements) { out->writer.status=srl_limit; return false; }");
       if (field.source->fixed_extent != 0U) { line("if (" + expression + ".size!=" + std::to_string(field.source->fixed_extent) + "u) { return false; }"); }
       line("srl_buffer joined={0};");
-      line("for (size_t index=0;index<" + expression + ".size;++index) { if (!" + helper + "(&" + expression + ".data[index],out,&joined)) { srl_buffer_free(&joined); return false; } }");
+      line("for (size_t index=0;index<" + expression + ".size;++index) { if (!" + helper + "(&" + expression + ".data[index],out,&joined,operation)) { srl_buffer_free(&joined); return false; } }");
       line("const char* text=(const char*)joined.data; const size_t text_size=joined.size;");
     } else { format_leaf(value_type, expression); }
     const auto rule = native_scalar_rules.find(field.source);
@@ -1470,12 +1483,12 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
       open("if (text_size>out->limits.max_string_bytes)");
       if (field.list) { line("srl_buffer_free(&joined);"); } else { release_leaf_text(value_type); }
       line("out->writer.status=srl_limit; return false;"); close();
-      line("srl_string normalized={0}; const srl_status scalar_status=srl_xml_scalar_output(&" + rule->second +
+      line("srl_string normalized={0}; const srl_status scalar_status=srl_xml_operation_scalar_output(operation,&" + rule->second +
           ",text,text_size," + (fallback && !field.attribute ? quote(*fallback) : "NULL") + ",out->limits.max_elements,&normalized);");
       if (field.list) { line("srl_buffer_free(&joined);"); } else { release_leaf_text(value_type); }
       line("if (scalar_status!=srl_ok) { out->writer.status=scalar_status; return false; }");
     }
-    line("const bool emitted = srl_xml_emit_text(writer, out, " +
+    line("const bool emitted = srl_xml_operation_emit_text(operation,writer, out, " +
          (field.attribute ? quote(field.qualified_name.local) : "NULL") + ", " +
          quote(field.qualified_name.namespace_uri) + ", " + quote("a" + std::to_string(prefix)) + ", " +
          (rule != native_scalar_rules.end() ? "normalized.data, normalized.size" : "text, text_size") + ");");
@@ -1488,9 +1501,9 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
   const auto read_leaf_checked = [&](const type_name& value_type, const std::string& target, const std::string& raw,
       const std::string& cleanup) {
     if (value_type.is_digest()) {
-      line("const srl_status digest_status=srl_xml_digest_read((const char*)" + raw + ",(size_t)xmlStrlen(" + raw + ")," + std::to_string(value_type.digest_extent) + "u,input->digest_limits,&" + target + "); if (digest_status != srl_ok) { input->status=digest_status; " + cleanup + " return false; }");
+      line("const srl_status digest_status=srl_xml_operation_digest_read(srl_xml_operation_input_context(input->reader),(const char*)" + raw + ",(size_t)xmlStrlen(" + raw + ")," + std::to_string(value_type.digest_extent) + "u,input->digest_limits,&" + target + "); if (digest_status != srl_ok) { input->status=digest_status; " + cleanup + " return false; }");
     } else if (value_type.name == "string" || value_type.name.starts_with("version")) {
-      line("if (srl_string_set(&" + target + ", (const char*)" + raw + ", (size_t)xmlStrlen(" + raw + ")) != srl_ok) { " + cleanup + " return false; }");
+      line("if (srl_xml_operation_string_set(" + std::string{token_read ? "srl_xml_operation_input_context(input->reader)" : "NULL"} + ",&" + target + ", (const char*)" + raw + ", (size_t)xmlStrlen(" + raw + ")) != srl_ok) { " + cleanup + " return false; }");
     } else if (value_type.type == object_type::enum_type) {
       const auto count = static_cast<const enum_node&>(*value_type.resolved_node).enum_name_list.size();
       line("size_t ordinal = 0; while (ordinal < " + std::to_string(count) + "u && strcmp((const char*)" + raw + ", " + type(value_type) + "_srl_names[ordinal]) != 0) { ++ordinal; }");
@@ -1513,6 +1526,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
   // Validate a scalar/list before assigning candidate-owned fields; every failure releases the lexical buffers.
   const auto read_field_leaf = [&](const xml_binding::field& field, const type_name& value_type,
       const std::string& target, const std::string& raw) {
+    line("srl_xml_operation_select(srl_xml_operation_input_context(input->reader)," + quote(source.get_full_name() + '.' + field.source->name) + ");");
     const auto rule = native_scalar_rules.find(field.source);
     if (rule == native_scalar_rules.end()) { read_leaf(value_type, target, raw); return; }
     open("");
@@ -1521,19 +1535,20 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
     if (fallback && !field.attribute) {
       line("if (!lexical_size) { lexical=" + quote(*fallback) + "; lexical_size=" + std::to_string(fallback->size()) + "u; }");
     }
-    line("srl_string normalized={0}; const srl_status scalar_status=srl_xml_scalar_check(&" + rule->second +
+    line("srl_string normalized={0}; const srl_status scalar_status=srl_xml_operation_scalar_check(srl_xml_operation_input_context(input->reader),&" + rule->second +
         ",lexical,lexical_size,limits->max_elements,&normalized); if (scalar_status!=srl_ok) { input->status=scalar_status; xmlFree(" + raw + "); return false; }");
     const auto cleanup = "srl_string_free(&normalized); xmlFree(" + raw + ");";
     if (field.list) {
       const auto& original = field.source->type_name_list.front();
       const auto& collection = original.is_optional() ? original.arguments.front() : original;
       const auto collection_name = field.source->modifier == member::modifier_type::array ? array_name(*field.source) : storage_type(storage_type, collection);
-      line("size_t count=0; const srl_status counted=srl_xml_scalar_count(normalized.data,limits->max_elements,&count); if (counted!=srl_ok) { input->status=counted; " + cleanup + " return false; }");
+      line("size_t count=0; const srl_status counted=srl_xml_operation_scalar_count(srl_xml_operation_input_context(input->reader),normalized.data,limits->max_elements,&count); if (counted!=srl_ok) { input->status=counted; " + cleanup + " return false; }");
       if (field.source->fixed_extent != 0U) {
         line("if (count!=" + std::to_string(field.source->fixed_extent) + "u) { " + cleanup + " return false; }");
       }
       line(collection_name + "_clear(&" + target + ");");
       line("if (count>SIZE_MAX/sizeof(" + target + ".data[0])) { input->status=srl_limit; " + cleanup + " return false; }");
+      line("if(!srl_xml_operation_input_allocate(input,count*sizeof(" + target + ".data[0]))){" + cleanup + "return false;}");
       line("if (count) { " + target + ".data=(" + type(value_type) + "*)calloc(count,sizeof(" + target + ".data[0])); if (!" + target + ".data) { input->status=srl_allocation; " + cleanup + " return false; } }");
       line(target + ".size=count; " + target + ".capacity=count; size_t offset=0,begin=0,item_size=0,index=0;");
       open("while (srl_xml_scalar_token(normalized.data,&offset,&begin,&item_size))");
@@ -1549,7 +1564,8 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
     const auto& map = *field.map_binding;
     const auto helper = "srl_xml_map_" + n + '_' + field_name(field.source->name);
     line(c_map_key_size(map, helper + "_key_size", [&](const type_name& value) { return type(value); }));
-    open("static inline bool " + helper + "_entry(xmlTextWriterPtr writer, srl_xml_output* out, const " + map_storage(field) + "_entry* entry)");
+    open("static inline bool " + helper + "_entry(xmlTextWriterPtr writer, srl_xml_output* out, const " + map_storage(field) + "_entry* entry,srl_xml_operation* operation)");
+    line("if (!srl_xml_operation_node(out,operation)) { return false; }");
     line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || xmlTextWriterStartElementNS(writer," +
         std::string{map.entry.namespace_uri.empty() ? "NULL" : "BAD_CAST \"srl\""} + ",BAD_CAST " + quote(map.entry.local) + "," +
         (map.entry.namespace_uri.empty() ? "NULL" : "BAD_CAST " + quote(map.entry.namespace_uri)) + ") < 0) { return false; }");
@@ -1560,20 +1576,21 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
     line("--out->writer.depth; return xmlTextWriterEndElement(writer) >= 0;"); close();
   }
   line("/* Write statically mapped fields through the optional bounded libxml2 provider. */");
-  open("static inline bool " + n + "_srl_xml_write(xmlTextWriterPtr writer, srl_xml_output* out, const " + n + "* value, const char* local, const char* uri)");
+  open("static inline bool srl_xml_operation_write_" + n + "(xmlTextWriterPtr writer, srl_xml_output* out, const " + n + "* value, const char* local, const char* uri,srl_xml_operation* operation)");
   const bool reference_record = source.reference && source.reference->value_type.type == object_type::class_type;
   if (reference_record) {
     const auto& payload = source.reference->value_type;
     line("const " + type(payload) + "* selected=NULL; if (" + n + "_read_value(value,&selected) != srl_ok) { return false; }");
     const bool borrowed = source.reference->mode == reference_declaration::mode_type::borrowed;
     if (!borrowed) { line("srl_reference_scope* scope=value->srl_reference; if (srl_reference_scope_retain(scope) != srl_ok) { return false; }"); }
-    line("const bool emitted=" + type(payload) + "_srl_xml_write(writer,out,selected,local,uri);");
+    line("const bool emitted=srl_xml_operation_write_" + type(payload) + "(writer,out,selected,local,uri,operation);");
     if (!borrowed) { line("srl_reference_scope_release(scope);"); }
     line("return emitted;");
   } else {
   line(native_choice_checks(contract, [&](const member& field) { return member_access(field); }, "c"));
-  line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || xmlTextWriterStartElementNS(writer, *uri ? BAD_CAST \"srl\" : NULL, BAD_CAST local, *uri ? BAD_CAST uri : NULL) < 0) { return false; }");
-  line("if (!srl_xml_output_type(writer, out)) { return false; }");
+  line("if (!srl_xml_operation_node(out,operation)) { return false; }");
+    line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || xmlTextWriterStartElementNS(writer, *uri ? BAD_CAST \"srl\" : NULL, BAD_CAST local, *uri ? BAD_CAST uri : NULL) < 0) { return false; }");
+  line("if (!srl_xml_operation_output_type(writer,out,operation)) { return false; }");
   if (contract.model.revision) {
     const auto& revision = *contract.model.revision;
     const auto& revision_type = revision.type_name_list.front();
@@ -1586,7 +1603,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
     open(""); emit_leaf(metadata, revision_path(), std::numeric_limits<std::size_t>::max()-1U, nullptr); close();
   }
   if (contract.model.magic) {
-    line("if (!srl_xml_emit_text(writer,out,\"magic\"," + quote(xml_binding::model_metadata_namespace) + ",\"srlmodel\"," + quote(*contract.model.magic) + "," + std::to_string(contract.model.magic->size()) + "u)) { return false; }");
+    line("if (!srl_xml_operation_emit_text(operation,writer,out,\"magic\"," + quote(xml_binding::model_metadata_namespace) + ",\"srlmodel\"," + quote(*contract.model.magic) + "," + std::to_string(contract.model.magic->size()) + "u)) { return false; }");
   }
   if (source.reference) {
     type_name reference_type{std::string{source.name}, source.parent_namespace}; reference_type.type = object_type::class_type;
@@ -1599,6 +1616,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
   for (const bool attributes : {true, false}) {
     for (const auto& field : contract.fields) {
       if (field.attribute != attributes) { continue; }
+      line("srl_xml_operation_select(operation," + quote(source.get_full_name() + '.' + field.source->name) + ");");
       const auto lifecycle = active_scope(*field.source);
       const auto expression = member_access(*field.source);
       const auto& source_type = field.source->type_name_list.front();
@@ -1621,18 +1639,21 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
         if (presence.allows_nil) {
           open("if (!" + payload + ".has_value)");
           const auto& element = field.wrapper ? *field.wrapper : field.qualified_name;
-          line("if (++out->nodes > out->limits.max_elements || out->writer.depth >= out->limits.max_depth || xmlTextWriterStartElementNS(writer, " +
+          line("if (!srl_xml_operation_node(out,operation)) { return false; }");
+    line("if (++out->nodes > out->limits.max_elements || out->writer.depth >= out->limits.max_depth || xmlTextWriterStartElementNS(writer, " +
               std::string{element.namespace_uri.empty() ? "NULL" : "BAD_CAST \"srl\""} + ", BAD_CAST " + quote(element.local) + ", " +
               (element.namespace_uri.empty() ? "NULL" : "BAD_CAST " + quote(element.namespace_uri)) + ") < 0) { return false; }");
-          line("if (!srl_xml_emit_text(writer, out, \"nil\", \"http://www.w3.org/2001/XMLSchema-instance\", \"xsi\", \"true\", sizeof(\"true\")-1) || xmlTextWriterEndElement(writer) < 0) { return false; }");
+          line("if (!srl_xml_operation_emit_text(operation,writer, out, \"nil\", \"http://www.w3.org/2001/XMLSchema-instance\", \"xsi\", \"true\", sizeof(\"true\")-1) || xmlTextWriterEndElement(writer) < 0) { return false; }");
           close(" else {"); ++indent_; payload += ".value";
         }
         if (field.wrapper) {
-          line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || xmlTextWriterStartElementNS(writer, " +
+          line("if (!srl_xml_operation_node(out,operation)) { return false; }");
+    line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || xmlTextWriterStartElementNS(writer, " +
               std::string{field.wrapper->namespace_uri.empty() ? "NULL" : "BAD_CAST \"srl\""} + ", BAD_CAST " + quote(field.wrapper->local) + ", " +
               (field.wrapper->namespace_uri.empty() ? "NULL" : "BAD_CAST " + quote(field.wrapper->namespace_uri)) + ") < 0) { return false; }");
         }
         if (presence.collection) {
+          line("if(" + payload + ".size>out->limits.max_elements){return srl_xml_operation_output_limit(out,operation);}");
           line("if ((" + payload + ".size && !" + payload + ".data) || " + payload + ".size > out->limits.max_elements) { return false; }");
           const auto minimum = field.source->fixed_extent != 0U ? field.source->fixed_extent : field.min_occurs;
           const auto maximum = field.source->fixed_extent != 0U ? std::optional<std::size_t>{field.source->fixed_extent} : field.max_occurs;
@@ -1647,11 +1668,13 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
         close(); continue;
       }
       if (field.wrapper) {
-        line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || xmlTextWriterStartElementNS(writer, " +
+        line("if (!srl_xml_operation_node(out,operation)) { return false; }");
+    line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || xmlTextWriterStartElementNS(writer, " +
             std::string{field.wrapper->namespace_uri.empty() ? "NULL" : "BAD_CAST \"srl\""} + ", BAD_CAST " + quote(field.wrapper->local) + ", " +
             (field.wrapper->namespace_uri.empty() ? "NULL" : "BAD_CAST " + quote(field.wrapper->namespace_uri)) + ") < 0) { return false; }");
       }
       if (field.repeated) {
+        line("if(" + expression + ".size>out->limits.max_elements){return srl_xml_operation_output_limit(out,operation);}");
         line("if ((" + expression + ".size && !" + expression + ".data) || " + expression + ".size > out->limits.max_elements) { return false; }");
         if (field.min_occurs > 0U) { line("if (" + expression + ".size < " + std::to_string(field.min_occurs) + "u) { return false; }"); }
         if (field.max_occurs) { line("if (" + expression + ".size > " + std::to_string(*field.max_occurs) + "u) { return false; }"); }
@@ -1672,12 +1695,17 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
         [&](const type_name& value_type, const xml::name& name, const std::string& value) {
           xml_binding::field selected{}; selected.source = contract.mixed->source; selected.qualified_name = name;
           return capture([&] { emit_leaf(selected, value, prefix++, &value_type); });
-        }));
+        },source.get_full_name() + '.' + contract.mixed->source->name));
   }
   line("--out->writer.depth; return xmlTextWriterEndElement(writer) >= 0;");
   }
   close();
+  line("/* Preserve the original nested-writer signature with no attached operation. */");
+  open("static inline bool " + n + "_srl_xml_write(xmlTextWriterPtr writer,srl_xml_output* out,const " + n + "* value,const char* local,const char* uri)");
+  line("return srl_xml_operation_write_" + n + "(writer,out,value,local,uri,NULL);");
+  close();
   if (!output_only) {
+  token_read = false;
   line("/* Decode a complete record into candidate-owned fields without publishing partial state. */");
   open("static inline bool " + n + "_srl_xml_read(xmlNodePtr node, " + n + "* value, const srl_limits* limits)");
   const bool token_presence_only = export_graph || contract.model.revision || contract.model.magic || contract.model.digest || contract.mixed || std::any_of(contract.fields.begin(), contract.fields.end(),
@@ -1763,6 +1791,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
   line("return cursor == NULL && used_attributes == attribute_count;");
   }
   close();
+  token_read = true;
   // A scalar owns only its active lexical buffer; nested records recurse into their candidate.
   const auto read_token_value = [&](const xml_binding::field& field, const std::string& destination,
       const type_name* explicit_type = nullptr) {
@@ -1803,6 +1832,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
           array_name(*field.source) : storage_type(storage_type, *presence.value_type);
       line(collection_name + "_clear(&" + payload + ");");
       open("while (srl_xml_input_has(input, " + quote(field.qualified_name.local) + ", " + quote(field.qualified_name.namespace_uri) + "))");
+      line("if(" + payload + ".size>=limits->max_elements){return srl_xml_operation_input_limit(input);}");
       const auto maximum = field.source->fixed_extent != 0U ? std::optional<std::size_t>{field.source->fixed_extent} : field.max_occurs;
       line("if (" + payload + ".size >= limits->max_elements" +
           (maximum ? " || " + payload + ".size >= " + std::to_string(*maximum) + "u" : "") + ") { return false; }");
@@ -1810,6 +1840,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
       line("const size_t initial_capacity_elements = 4u; size_t capacity = " + payload + ".capacity ? " + payload + ".capacity : initial_capacity_elements;");
       line("if (capacity > SIZE_MAX/2u) { return false; } capacity *= 2u; if (capacity > limits->max_elements) { capacity = limits->max_elements; }");
       line("if (capacity <= " + payload + ".size || capacity > SIZE_MAX/sizeof(" + payload + ".data[0])) { return false; }");
+      line("if(!srl_xml_operation_input_allocate(input,(capacity-" + payload + ".capacity)*sizeof(" + payload + ".data[0]))){return false;}");
       line("void* memory = realloc(" + payload + ".data, capacity*sizeof(" + payload + ".data[0])); if (!memory) { return false; } " + payload + ".data = (" + type(value_type) + "*)memory; " + payload + ".capacity = capacity;"); close();
       line("memset(&" + payload + ".data[" + payload + ".size], 0, sizeof(" + payload + ".data[0])); const size_t slot = " + payload + ".size++;");
       initialize_leaf(value_type, payload + ".data[slot]"); read_token_value(field, payload + ".data[slot]"); close();
@@ -1914,6 +1945,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
           array_name(*field.source) : storage_type(storage_type, source_type);
       line(collection_name + "_clear(&" + target + ");");
       open("while (srl_xml_input_has(input, " + quote(field.qualified_name.local) + ", " + quote(field.qualified_name.namespace_uri) + "))");
+      line("if(" + target + ".size>=limits->max_elements){return srl_xml_operation_input_limit(input);}");
       const auto maximum = field.source->fixed_extent != 0U ?
           std::optional<std::size_t>{field.source->fixed_extent} : field.max_occurs;
       line("if (" + target + ".size >= limits->max_elements" +
@@ -1923,6 +1955,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
       line("size_t capacity = " + target + ".capacity ? " + target + ".capacity : initial_capacity_elements;");
       line("if (capacity > SIZE_MAX/2u) { return false; } capacity *= 2u; if (capacity > limits->max_elements) { capacity = limits->max_elements; }");
       line("if (capacity <= " + target + ".size || capacity > SIZE_MAX/sizeof(" + target + ".data[0])) { return false; }");
+      line("if(!srl_xml_operation_input_allocate(input,(capacity-" + target + ".capacity)*sizeof(" + target + ".data[0]))){return false;}");
       line("void* memory = realloc(" + target + ".data, capacity*sizeof(" + target + ".data[0])); if (!memory) { return false; } " + target + ".data = (" + type(value_type) + "*)memory; " + target + ".capacity = capacity;"); close();
       line("memset(&" + target + ".data[" + target + ".size], 0, sizeof(" + target + ".data[0]));");
       line("const size_t slot = " + target + ".size++;");
@@ -1998,7 +2031,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
         [&](const type_name& value_type, const xml::name& name, const std::string& value) {
           xml_binding::field selected{}; selected.source = contract.mixed->source; selected.qualified_name = name;
           return capture([&] { read_token_value(selected, value, &value_type); });
-        }, {}));
+        }, {},source.get_full_name() + '.' + contract.mixed->source->name));
   }
   line("return srl_xml_input_close(input, local, uri);");
   }
@@ -2006,7 +2039,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
   }
   line("/* Replace initialized result bytes only after the complete XML document is finalized. */");
   const auto validator_parameter = options_.runtime_xsd ? ", const srl_xml_validation* validation" : "";
-  open("static inline srl_status " + n + "_srl_xml_encode_known(const " + n + "* value, srl_buffer* result, const srl_limits* limits" + validator_parameter + ", const srl_xml_map_limits* map_limits, const srl_xml_mixed_limits* mixed_limits, const srl_xml_digest_limits* digest_limits, const srl_xml_identity_limits* identity_limits, bool check_identity, const srl_limits* transport_limits)");
+  open("static inline srl_status srl_xml_operation_encode_" + n + "(const " + n + "* value, srl_buffer* result, const srl_limits* limits" + validator_parameter + ", const srl_xml_map_limits* map_limits, const srl_xml_mixed_limits* mixed_limits, const srl_xml_digest_limits* digest_limits, const srl_xml_identity_limits* identity_limits, bool check_identity, const srl_limits* transport_limits,srl_xml_operation* operation)");
   if (options_.runtime_xsd && options_.validation_scope == "input") { line("(void)validation;"); }
   line("if (!value || !result) { return srl_invalid; } srl_xml_output out = {0}; out.limits = limits ? *limits : srl_default_limits();");
   line("/* Bound private namespace framing independently; modeled strings/lists retain the original limits. */");
@@ -2014,15 +2047,20 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
   line("out.map_limits = map_limits ? *map_limits : srl_xml_default_map_limits();");
   line("out.mixed_limits = mixed_limits ? *mixed_limits : srl_xml_default_mixed_limits();");
   line("out.digest_limits = digest_limits ? *digest_limits : srl_xml_default_digest_limits();");
-  line("xmlOutputBufferPtr buffer = xmlOutputBufferCreateIO(srl_xml_output_write, srl_xml_output_close, &out, NULL); if (!buffer) { return srl_allocation; }");
-  line("xmlTextWriterPtr writer = xmlNewTextWriter(buffer); if (!writer) { xmlOutputBufferClose(buffer); return srl_allocation; }");
-  line("const bool good = " + n + "_srl_xml_write(writer, &out, value, " + quote(contract.root.local) + ", " + quote(contract.root.namespace_uri) + ") && xmlTextWriterFlush(writer) >= 0; xmlFreeTextWriter(writer);");
-  line("if (!good || out.writer.status != srl_ok) { srl_buffer_free(&out.writer.buffer); return out.writer.status == srl_ok ? srl_invalid : out.writer.status; }");
-  line("if (check_identity) { const srl_status identity_status=" + n + "_srl_xml_identity_check(out.writer.buffer.data,out.writer.buffer.size,&out.limits,identity_limits); if(identity_status!=srl_ok) {srl_buffer_free(&out.writer.buffer);return identity_status;} }");
+  line("srl_xml_operation_select(operation," + quote(source.get_full_name()) + ");if(!srl_xml_operation_check(operation)){return srl_invalid;}");
+  line("srl_xml_operation_output output_operation={&out,operation};xmlOutputBufferPtr buffer = xmlOutputBufferCreateIO(operation?srl_xml_operation_output_write:srl_xml_output_write, srl_xml_output_close, operation?(void*)&output_operation:(void*)&out, NULL); if (!buffer) { return srl_xml_operation_fail(operation,srl_allocation); }");
+  line("xmlTextWriterPtr writer = xmlNewTextWriter(buffer); if (!writer) { xmlOutputBufferClose(buffer); return srl_xml_operation_fail(operation,srl_allocation); }");
+  line("const bool good = srl_xml_operation_write_" + n + "(writer, &out, value, " + quote(contract.root.local) + ", " + quote(contract.root.namespace_uri) + ",operation) && xmlTextWriterFlush(writer) >= 0; xmlFreeTextWriter(writer);");
+  line("if (!good || out.writer.status != srl_ok) { srl_buffer_free(&out.writer.buffer); return srl_xml_operation_fail(operation,out.writer.status == srl_ok ? srl_invalid : out.writer.status); }");
+  line("if(operation){const srl_status observed=srl_xml_operation_observe_output(out.writer.buffer.data,out.writer.buffer.size," + identity_identifier + ",sizeof(" + identity_identifier + ")/sizeof(" + identity_identifier + "[0])," + identity_identifier + "_diagnostics,operation);if(observed!=srl_ok){srl_buffer_free(&out.writer.buffer);return observed;}}");
+  line("if (check_identity) { const srl_status identity_status=operation?srl_xml_operation_identity_check_" + n + "(out.writer.buffer.data,out.writer.buffer.size,&out.limits,identity_limits,operation):" + n + "_srl_xml_identity_check(out.writer.buffer.data,out.writer.buffer.size,&out.limits,identity_limits); if(identity_status!=srl_ok) {srl_buffer_free(&out.writer.buffer);return srl_xml_operation_fail(operation,identity_status);} }");
   if (options_.runtime_xsd && options_.validation_scope != "input") {
-    line("if (validation && validation->validate) { const srl_status validated = validation->validate(out.writer.buffer.data, out.writer.buffer.size, &out.limits, validation->context); if (validated != srl_ok) { srl_buffer_free(&out.writer.buffer); return validated; } }");
+    line("if (validation && validation->validate) { const srl_status validated = validation->validate(out.writer.buffer.data, out.writer.buffer.size, &out.limits, validation->context); if (validated != srl_ok) { srl_buffer_free(&out.writer.buffer); return srl_xml_operation_fail(operation,validated); } }");
   }
-  line("srl_buffer_free(result); *result = out.writer.buffer; return srl_ok;"); close();
+  line("if(!srl_xml_operation_check(operation)){srl_buffer_free(&out.writer.buffer);return srl_invalid;}srl_buffer_free(result); *result = out.writer.buffer; return srl_ok;"); close();
+  line("/* Preserve the original known-model encoder and its function pointer type. */");
+  open("static inline srl_status " + n + "_srl_xml_encode_known(const " + n + "* value,srl_buffer* result,const srl_limits* limits" + validator_parameter + ",const srl_xml_map_limits* map_limits,const srl_xml_mixed_limits* mixed_limits,const srl_xml_digest_limits* digest_limits,const srl_xml_identity_limits* identity_limits,bool check_identity,const srl_limits* transport_limits)");
+  line("return srl_xml_operation_encode_" + n + "(value,result,limits" + (options_.runtime_xsd ? ",validation" : "") + ",map_limits,mixed_limits,digest_limits,identity_limits,check_identity,transport_limits,NULL);");close();
   line("/* Preserve every existing policy arity while applying default independent identity admission. */");
   open("static inline srl_status " + n + "_encode_xml_with_all_policies(const " + n + "* value, srl_buffer* result, const srl_limits* limits" + validator_parameter + ", const srl_xml_map_limits* map_limits, const srl_xml_mixed_limits* mixed_limits, const srl_xml_digest_limits* digest_limits)");
   if (extension_graph) {
@@ -2056,30 +2094,37 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
   line("return " + n + "_encode_xml_with_map_limits(value,result,limits" + (options_.runtime_xsd ? ",validation" : "") + ",NULL);"); close();
   if (!output_only) {
   line("/* Decode exactly into a fresh candidate; syntax/contract failure retains the destination. */");
-  open("static inline srl_status " + n + "_srl_xml_decode_known(" + n + "* result, const uint8_t* bytes, size_t size, const srl_limits* limits" + validator_parameter + ", const srl_xml_map_limits* map_limits, const srl_xml_mixed_limits* mixed_limits, const srl_xml_digest_limits* digest_limits,const srl_xml_identity_limits* identity_limits,bool check_identity,const srl_limits* transport_limits)");
+  open("static inline srl_status srl_xml_operation_decode_" + n + "(" + n + "* result, const uint8_t* bytes, size_t size, const srl_limits* limits" + validator_parameter + ", const srl_xml_map_limits* map_limits, const srl_xml_mixed_limits* mixed_limits, const srl_xml_digest_limits* digest_limits,const srl_xml_identity_limits* identity_limits,bool check_identity,const srl_limits* transport_limits,srl_xml_operation* operation,bool package_type)");
   if (export_graph) {
-    line("(void)result; (void)bytes; (void)size; (void)limits; (void)map_limits; (void)mixed_limits; (void)digest_limits; (void)identity_limits; (void)check_identity; (void)transport_limits;");
+    line("(void)result; (void)bytes; (void)size; (void)limits; (void)map_limits; (void)mixed_limits; (void)digest_limits; (void)identity_limits; (void)check_identity; (void)transport_limits;(void)operation;(void)package_type;");
     if (options_.runtime_xsd) { line("(void)validation;"); }
     line("return srl_invalid;");
   } else {
   if (options_.runtime_xsd && options_.validation_scope == "output") { line("(void)validation;"); }
   line("if (!result || (size && !bytes)) { return srl_invalid; } const srl_limits bounds = limits ? *limits : srl_default_limits();");
-  line("if (check_identity) {const srl_status identity_status=" + n + "_srl_xml_identity_check(bytes,size,&bounds,identity_limits);if(identity_status!=srl_ok){return identity_status;}}");
+  line("srl_xml_operation_select(operation," + quote(source.get_full_name()) + ");if(!srl_xml_operation_check(operation)){return srl_invalid;}");
+  line("if (check_identity) {const srl_status identity_status=operation?srl_xml_operation_identity_check_" + n + "(bytes,size,&bounds,identity_limits,operation):" + n + "_srl_xml_identity_check(bytes,size,&bounds,identity_limits);if(identity_status!=srl_ok){return srl_xml_operation_fail(operation,identity_status);}}");
   line("/* Canonical namespace framing may need a larger provider budget; native field/list bounds stay original. */");
-  line("srl_xml_input input; const srl_status checked = srl_xml_input_init(&input, bytes, size, transport_limits ? transport_limits : &bounds);");
-  line("if (checked != srl_ok) { srl_xml_input_free(&input); return checked; }");
+  line("srl_xml_operation_reader reader_operation={0};reader_operation.operation=operation;reader_operation.graph=" + identity_identifier + ";reader_operation.diagnostics=" + identity_identifier + "_diagnostics;reader_operation.graph_count=sizeof(" + identity_identifier + ")/sizeof(" + identity_identifier + "[0]);");
+  line("srl_xml_input input; const srl_status checked = srl_xml_operation_input_init(&input, bytes, size, transport_limits ? transport_limits : &bounds,operation?&reader_operation:NULL);");
+  line("if (checked != srl_ok) { srl_xml_input_free(&input);free(reader_operation.path);return srl_xml_operation_fail(operation,checked); }");
+  const auto operation_type_uri = "urn:serializer:native:" + (source.parent_namespace ? get_full_name_for_namespace(source.parent_namespace) : std::string{});
+  line("if(package_type){srl_xml_type_identity selected;const bool typed=srl_xml_input_type(&input,&selected);const bool authorized=typed&&(!selected.present||(xmlStrEqual(selected.uri,BAD_CAST " + quote(operation_type_uri) + ")&&xmlStrEqual(selected.local,BAD_CAST " + quote(source.name) + ")));srl_xml_type_free(&selected);if(!authorized){const srl_status status=input.status;srl_xml_input_free(&input);free(reader_operation.path);return srl_xml_operation_fail(operation,status==srl_ok?srl_invalid:status);}}");
   line("input.map_limits = map_limits ? *map_limits : srl_xml_default_map_limits();");
   line("input.mixed_limits = mixed_limits ? *mixed_limits : srl_xml_default_mixed_limits();");
   line("input.digest_limits = digest_limits ? *digest_limits : srl_xml_default_digest_limits();");
   if (options_.runtime_xsd && options_.validation_scope != "output") {
-    line("if (validation && validation->validate) { const srl_status validated = validation->validate(bytes, size, &bounds, validation->context); if (validated != srl_ok) { srl_xml_input_free(&input); return validated; } }");
+    line("if (validation && validation->validate) { const srl_status validated = validation->validate(bytes, size, &bounds, validation->context); if (validated != srl_ok) { srl_xml_input_free(&input);free(reader_operation.path);return srl_xml_operation_fail(operation,validated); } }");
   }
-  line(n + " candidate = {0}; const srl_status initialized = " + n + "_init(&candidate);");
+  line(n + " candidate = {0}; const srl_status initialized = srl_xml_operation_init_" + n + "(&candidate,operation);");
   line("const bool good = initialized == srl_ok && " + n + "_srl_xml_read_tokens(&input, &candidate, &bounds, " + quote(contract.root.local) + ", " + quote(contract.root.namespace_uri) + ") && srl_xml_input_finish(&input);");
-  line("const srl_status parsed = input.status; srl_xml_input_free(&input);");
-  line("if (!good) { " + n + "_free(&candidate); return initialized != srl_ok ? initialized : parsed == srl_ok ? srl_invalid : parsed; } " + n + "_free(result); *result = candidate; return srl_ok;");
+  line("const srl_status parsed = input.status; srl_xml_input_free(&input);free(reader_operation.path);");
+  line("if (!good||!srl_xml_operation_check(operation)) { " + n + "_free(&candidate);return srl_xml_operation_fail(operation,initialized != srl_ok ? initialized : parsed == srl_ok ? srl_invalid : parsed); } " + n + "_free(result); *result = candidate; return srl_ok;");
   }
   close();
+  line("/* Preserve the original known-model decoder and its complete argument list. */");
+  open("static inline srl_status " + n + "_srl_xml_decode_known(" + n + "* result,const uint8_t* bytes,size_t size,const srl_limits* limits" + validator_parameter + ",const srl_xml_map_limits* map_limits,const srl_xml_mixed_limits* mixed_limits,const srl_xml_digest_limits* digest_limits,const srl_xml_identity_limits* identity_limits,bool check_identity,const srl_limits* transport_limits)");
+  line("return srl_xml_operation_decode_" + n + "(result,bytes,size,limits" + (options_.runtime_xsd ? ",validation" : "") + ",map_limits,mixed_limits,digest_limits,identity_limits,check_identity,transport_limits,NULL,false);");close();
   if (!model_.packages.empty() && !extension_graph && !export_graph) {
     const auto type_uri = "urn:serializer:native:" +
         (source.parent_namespace ? get_full_name_for_namespace(source.parent_namespace) : std::string{});
@@ -2122,6 +2167,35 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
   open("static inline srl_status " + n + "_decode_xml(" + n + "* result, const uint8_t* bytes, size_t size, const srl_limits* limits" + validator_parameter + ")");
   line("return " + n + "_decode_xml_with_map_limits(result,bytes,size,limits" + (options_.runtime_xsd ? ",validation" : "") + ",NULL);"); close();
   }
+  line("/* Operation-owned codec descriptors introduce no authored-model suffix names. */");
+  open("static inline srl_status srl_xml_operation_codec_encode_" + n + "(const void* value,srl_buffer* result,const srl_limits* limits,const srl_xml_validation* validation,srl_xml_operation* operation)");
+  line("(void)validation;");
+  if (extension_graph) {
+    line("(void)value;(void)result;(void)limits;return srl_xml_operation_fail(operation,srl_invalid);");
+  } else {
+    line("const srl_xml_operation_policies* policies=operation?operation->policies:NULL;");
+    line("return srl_xml_operation_encode_" + n + "((const " + n + "*)value,result,limits" + (options_.runtime_xsd ? ",validation" : "") + ",policies?policies->map:NULL,policies?policies->mixed:NULL,policies?policies->digest:NULL,policies?policies->identity:NULL,true,NULL,operation);");
+  }
+  close();
+  if (!output_only) {
+    for (const bool package : {false, true}) {
+      line("/* Decode a private typed candidate, optionally accepting its exact package root type. */");
+      open("static inline srl_status srl_xml_operation_codec_decode_" + std::string{package ? "package_" : ""} + n + "(void* value,const uint8_t* bytes,size_t size,const srl_limits* limits,const srl_xml_validation* validation,srl_xml_operation* operation)");
+      line("(void)validation;");
+      if (extension_graph || export_graph) {
+        line("(void)value;(void)bytes;(void)size;(void)limits;return srl_xml_operation_fail(operation,srl_invalid);");
+      } else {
+        line("const srl_xml_operation_policies* policies=operation?operation->policies:NULL;");
+        line("return srl_xml_operation_decode_" + n + "((" + n + "*)value,bytes,size,limits" + (options_.runtime_xsd ? ",validation" : "") + ",policies?policies->map:NULL,policies?policies->mixed:NULL,policies?policies->digest:NULL,policies?policies->identity:NULL,true,NULL,operation," + (package ? "true" : "false") + ");");
+      }
+      close();
+    }
+  }
+  line("/* Return immutable compiler-owned function pointers; caller operations own every mutable value. */");
+  open("static inline const srl_xml_operation_codec* srl_xml_operation_codec_" + n + "(void)");
+  line("static const srl_xml_operation_codec value={srl_xml_operation_codec_encode_" + n + ',' +
+      (output_only ? "NULL,NULL" : "srl_xml_operation_codec_decode_" + n + ",srl_xml_operation_codec_decode_package_" + n) + "};return &value;");
+  close();
   if (extension_graph) { line(c_extension_frames(n, options_)); }
   output_.insert(output_start, reference_helpers);
 }
@@ -2353,6 +2427,7 @@ internal fun srlXmlFloatText(number: Float): String = when {
       const auto n = native::snake(model_.names.at(node));
       line("/* Internal XML declarations support nested owning records. */");
       line("static inline bool " + n + "_srl_xml_write(xmlTextWriterPtr writer, srl_xml_output* out, const " + n + "* value, const char* local, const char* uri);");
+      line("static inline bool srl_xml_operation_write_" + n + "(xmlTextWriterPtr writer,srl_xml_output* out,const " + n + "* value,const char* local,const char* uri,srl_xml_operation* operation);");
       line("static inline bool " + n + "_srl_xml_read(xmlNodePtr node, " + n + "* value, const srl_limits* limits);");
       line("static inline bool " + n + "_srl_xml_read_tokens(srl_xml_input* input, " + n + "* value, const srl_limits* limits, const char* local, const char* uri);");
       if (native_extension_graph(static_cast<const class_node&>(*node), bindings_)) {

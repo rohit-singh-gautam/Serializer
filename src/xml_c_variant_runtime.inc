@@ -12,6 +12,12 @@ static inline void srl_xml_type_free(srl_xml_type_identity* value) {
 static inline bool srl_xml_input_type(srl_xml_input* input,srl_xml_type_identity* result) {
   memset(result,0,sizeof(*result));
   if (input->kind != XML_READER_TYPE_ELEMENT || input->nil_attribute) { return false; }
+  srl_xml_operation* operation=srl_xml_operation_input_context(input->reader);
+  if(operation&&xmlTextReaderMoveToAttributeNs(input->reader,BAD_CAST "type",BAD_CAST "http://www.w3.org/2001/XMLSchema-instance")==1){
+    const xmlChar* value=xmlTextReaderConstValue(input->reader);const size_t size=value?(size_t)xmlStrlen(value):0;
+    const bool admitted=srl_xml_operation_input_allocate(input,size+1u)&&srl_xml_operation_charge(operation,srl_xml_operation_work,size+1u);
+    xmlTextReaderMoveToElement(input->reader);if(!admitted){input->status=srl_invalid;return false;}
+  }
   xmlChar* raw=xmlTextReaderGetAttributeNs(input->reader,BAD_CAST "type",BAD_CAST "http://www.w3.org/2001/XMLSchema-instance");
   if (!raw) { return true; }
   xmlChar* text=raw; while (srl_xml_space(*text)) { ++text; }
@@ -21,15 +27,18 @@ static inline bool srl_xml_input_type(srl_xml_input* input,srl_xml_type_identity
   if (colon) {
     *colon=0;
     if (xmlStrEqual(text,BAD_CAST "xmlns")) { xmlFree(raw); return false; }
+    if(!srl_xml_operation_input_allocate(input,(size_t)xmlStrlen(colon+1)+1u)){xmlFree(raw);return false;}
     result->uri=xmlTextReaderLookupNamespace(input->reader,text);
     result->local=xmlStrdup(colon+1);
     if (!result->uri) { xmlFree(raw); srl_xml_type_free(result); return false; }
   } else {
+    if(!srl_xml_operation_input_allocate(input,(size_t)xmlStrlen(text)+1u)){xmlFree(raw);return false;}
     result->uri=xmlTextReaderLookupNamespace(input->reader,NULL);
     if (!result->uri) { result->uri=xmlStrdup(BAD_CAST ""); }
     result->local=xmlStrdup(text);
   }
   xmlFree(raw);
+  if(operation&&result->uri&&!srl_xml_operation_input_allocate(input,(size_t)xmlStrlen(result->uri)+1u)){srl_xml_type_free(result);return false;}
   if (!result->uri || !result->local) { srl_xml_type_free(result); input->status=srl_allocation; return false; }
   if (!input->member_attributes) { srl_xml_type_free(result); return false; }
   --input->member_attributes; result->present=true; return true;
@@ -48,5 +57,18 @@ static inline bool srl_xml_output_type(xmlTextWriterPtr writer,srl_xml_output* o
   } else { memcpy(lexical,local,size+1u); }
   const bool good=srl_xml_emit_text(writer,output,"type","http://www.w3.org/2001/XMLSchema-instance","srlxsi",lexical,strlen(lexical));
   free(lexical); return good;
+}
+/* Emit a configured type marker with explicit native quota and temporary-storage admission. */
+static inline bool srl_xml_operation_output_type(xmlTextWriterPtr writer,srl_xml_output* output,srl_xml_operation* operation) {
+  if(!operation){return srl_xml_output_type(writer,output);}if(!output->pending_type_local){return true;}
+  const char* local=output->pending_type_local;const char* uri=output->pending_type_uri;
+  output->pending_type_local=NULL;output->pending_type_uri=NULL;
+  const size_t size=strlen(local),prefix_size=sizeof("srltype:")-1u;
+  if(size>SIZE_MAX-prefix_size-1u||size+prefix_size>output->limits.max_string_bytes){return srl_xml_operation_output_limit(output,operation);}
+  if(!srl_xml_operation_charge(operation,srl_xml_operation_allocation,size+prefix_size+1u)){output->writer.status=srl_invalid;return false;}
+  char* lexical=(char*)malloc(size+prefix_size+1u);if(!lexical){output->writer.status=srl_xml_operation_fail(operation,srl_allocation);return false;}
+  if(*uri){if(!srl_xml_operation_emit_text(operation,writer,output,"xmlns:srltype","","",uri,strlen(uri))){free(lexical);return false;}memcpy(lexical,"srltype:",prefix_size);memcpy(lexical+prefix_size,local,size+1u);}
+  else{memcpy(lexical,local,size+1u);}
+  const bool good=srl_xml_operation_emit_text(operation,writer,output,"type","http://www.w3.org/2001/XMLSchema-instance","srlxsi",lexical,strlen(lexical));free(lexical);return good;
 }
 )cvariant"

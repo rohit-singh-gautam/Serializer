@@ -20,6 +20,7 @@ from python_package_test import (CT, MC, MODEL_MIME, RELS, independent_collectio
                                  independent_content_type_parts, independent_parts,
                                  independent_zip, wire_descriptor_zip, independent_external_relationships)
 from package_zip64_test import count_fixture, wire_classic, wire_zip64, U32
+from package_node_dependencies import prepare_node_dependencies
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -394,13 +395,12 @@ def main():
     if build == ROOT or ROOT in build.parents and 'out' not in build.relative_to(ROOT).parts:
         parser.error('Repository scratch must remain under ignored out/')
     build.mkdir(parents=True, exist_ok=True)
-    modules = build / 'node_modules'
-    if args.node_dependencies and not modules.exists():
-        shutil.copytree(args.node_dependencies.resolve(), modules)
-    elif not args.node_dependencies:
-        for name in ('package.json', 'package-lock.json'):
-            shutil.copyfile(ROOT / 'test/resources/xml_shapes/typescript' / name, build / name)
-        run(['npm.cmd' if sys.platform == 'win32' else 'npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund'], build)
+    def dependency_run(command, name):
+        """Restore the declared XML SDK lock when supplied editor dependencies are incomplete."""
+        del name
+        run(command, build)
+
+    modules = prepare_node_dependencies(build, args.node_dependencies or ROOT, dependency_run)
     for package, version in (('saxes', '6.0.0'), ('xmlchars', '2.2.0'), ('typescript', '5.9.3'), ('@xmldom/xmldom', '0.9.12')):
         if json.loads((modules / package / 'package.json').read_text(encoding='utf8'))['version'] != version:
             raise RuntimeError('Actual Node dependency differs from the maintained exact lock: ' + package)

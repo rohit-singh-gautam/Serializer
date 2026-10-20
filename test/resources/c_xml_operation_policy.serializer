@@ -1,0 +1,15 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.21.0;
+include rust_xml_operation_policy.serializer;
+
+namespace operation_policy {
+  class factory_child {
+    public string label { "seed" };
+    public factory preset() { label = "factory retained string"; }
+  }
+  class factory_defaults {
+    public factory_child nested default(preset);
+    public transient string retained { "untouched private default" };
+  }
+}

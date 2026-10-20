@@ -67,6 +67,17 @@ files are compiler-owned; do not insert them as application parts. Dispatch uses
 source role, relationship type and media identity. All required roles must be
 present before a newly decoded aggregate can be returned.
 
+From compiler/runtime 2.18.0, Kotlin's generated facade exposes public
+`xmlLimits(context: SerializerPackage.CodecContext)` for caller-selected public
+Composer/Loader callbacks, including consumers compiled in a separate module.
+Pass the returned `XmlLimits` to generated `encodeXml`/`decodeXml` methods;
+multiple codecs then share the same package budget and actual part/link origin.
+Use `xmlLimits(context, configuredLimits)` to narrow the four independent native
+bounds while retaining that bridge and expected root type. Constructing a fresh
+policy or using the data class's ordinary `copy` does not retain its internal
+operation binding. Callbacks and their captured resources remain synchronous
+and caller-owned. Existing facade calls and ordinary XML limit APIs are unchanged.
+
 ## Sources, budgets and publication
 
 Use `ZipReader.Open` / `ZipReader.open` for physical ZIP access and dispose/close

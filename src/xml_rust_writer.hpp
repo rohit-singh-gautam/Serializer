@@ -22,8 +22,10 @@
 
 namespace rohit::serializer::writer::xml_binding {
 // Emit bounded native Rust XML helpers; roxmltree is required only when XML is selected.
-inline std::string rust_runtime() {
-  return xml_codegen::rust_scalar_constants() + xml_codegen::native_identity_constants(true) + xml_codegen::native_extension_constants(true) + R"xml(
+inline std::string rust_runtime(std::string_view operation_module = "serializer_xml_operation") {
+  std::string result =
+#include "xml_rust_operation_runtime.inc"
+      + xml_codegen::rust_scalar_constants() + xml_codegen::native_identity_constants(true) + xml_codegen::native_extension_constants(true) + R"xml(
 /// Complete-document XML budgets; native parser storage is bounded by input/nodes.
 #[derive(Clone, Copy, Debug)]
 pub struct XmlLimits { pub max_bytes:usize, pub max_text_bytes:usize, pub max_nodes:usize,
@@ -118,20 +120,33 @@ fn srl_xml_parse(text:&str, limits:XmlLimits) -> Result<roxmltree::Document<'_>,
     Ok(document)
 }
 /// Encode directly to bounded escaped text without an intermediate XML tree.
-struct SrlXmlWriter { text:String, limits:XmlLimits, value_limits:XmlLimits, map_limits:XmlMapLimits, mixed_limits:XmlMixedLimits, digest_limits:XmlDigestLimits, nodes:usize, depth:usize, attributes:usize, text_bytes:usize, namespaces:Vec<String>, pending_type:Option<(&'static str,&'static str)>, prefixed_type_depths:Vec<usize> }
-impl SrlXmlWriter {
+struct SrlXmlWriter<'a> { operation:Option<@xml_operation@::State<'a>>,text:String, limits:XmlLimits, value_limits:XmlLimits, map_limits:XmlMapLimits, mixed_limits:XmlMixedLimits, digest_limits:XmlDigestLimits, nodes:usize, depth:usize, attributes:usize, text_bytes:usize, namespaces:Vec<String>, pending_type:Option<(&'static str,&'static str)>, prefixed_type_depths:Vec<usize> }
+impl<'a> SrlXmlWriter<'a> {
+    /// Select a compiler-owned projection before policy checks or deferred scalar conversion.
+    fn select(&self,field:&'static str) {if let Some(operation)=&self.operation {operation.field(field);}}
+    /// Classify a native resource origin without changing the ordinary Error spelling.
+    fn quota(&self,message:&'static str)->Error {@xml_operation@::quota(self.operation.as_ref(),message)}
+    /// Admit retained native storage only for an explicitly selected shared operation.
+    fn allocate(&self,count:usize)->Result<(),Error> {@xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::DecoderAllocationBytes,count)}
+
     /// Keep one cumulative XML output policy across nested generated record calls.
-    fn new(limits:XmlLimits) -> Self { Self {text:String::new(),limits,value_limits:limits,map_limits:XmlMapLimits::default(),mixed_limits:XmlMixedLimits::default(),digest_limits:XmlDigestLimits::default(),nodes:0,depth:0,attributes:0,text_bytes:0,namespaces:Vec::new(),pending_type:None,prefixed_type_depths:Vec::new()} }
+    fn new(limits:XmlLimits) -> Self { Self {operation:None,text:String::new(),limits,value_limits:limits,map_limits:XmlMapLimits::default(),mixed_limits:XmlMixedLimits::default(),digest_limits:XmlDigestLimits::default(),nodes:0,depth:0,attributes:0,text_bytes:0,namespaces:Vec::new(),pending_type:None,prefixed_type_depths:Vec::new()} }
+    /// Attach only a selected operation, leaving the existing constructor and public call forms intact.
+    fn new_with_operation(limits:XmlLimits,operation:Option<@xml_operation@::State<'a>>)->Self {let mut result=Self::new(limits);result.operation=operation;result}
     /// Bound output before allocation and append one trusted framing fragment.
     fn put(&mut self,value:&str) -> Result<(),Error> {
-        if value.len() > self.limits.max_bytes.saturating_sub(self.text.len()) { return Err(Error("XML output byte limit")); }
-        self.text.try_reserve(value.len()).map_err(|_| Error("XML output allocation"))?;
+        @xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::WorkUnits,value.len())?;
+        @xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::DecoderAllocationBytes,value.len())?;
+        if value.len() > self.limits.max_bytes.saturating_sub(self.text.len()) { return Err(@xml_operation@::quota(self.operation.as_ref(),"XML output byte limit")); }
+        self.text.try_reserve(value.len()).map_err(|_| @xml_operation@::quota(self.operation.as_ref(),"XML output allocation"))?;
         self.text.push_str(value); Ok(())
     }
     /// Charge the same retained name/namespace/value bytes as the native decoder.
     fn charge(&mut self,value:&str) -> Result<(),Error> {
-        self.text_bytes = self.text_bytes.checked_add(value.len()).ok_or(Error("XML text limit"))?;
-        if self.text_bytes > self.limits.max_text_bytes { return Err(Error("XML text limit")); }
+        @xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::ScalarBytes,value.len())?;
+        @xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::WorkUnits,value.len())?;
+        self.text_bytes = self.text_bytes.checked_add(value.len()).ok_or_else(||@xml_operation@::quota(self.operation.as_ref(),"XML text limit"))?;
+        if self.text_bytes > self.limits.max_text_bytes { return Err(@xml_operation@::quota(self.operation.as_ref(),"XML text limit")); }
         Ok(())
     }
     /// Escape scalar characters for XML text or attributes, preserving normalized whitespace.
@@ -153,27 +168,30 @@ impl SrlXmlWriter {
     /// Begin a statically named element and its local default namespace binding.
     fn open(&mut self,local:&str,uri:&str) -> Result<(),Error> {
         self.nodes += 1; self.depth += 1;
-        if self.nodes > self.limits.max_nodes || self.depth > self.limits.max_depth { return Err(Error("XML node/depth limit")); }
+        @xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::XmlNodes,1)?;
+        if self.nodes > self.limits.max_nodes || self.depth > self.limits.max_depth { return Err(@xml_operation@::quota(self.operation.as_ref(),"XML node/depth limit")); }
         self.charge(local)?; self.charge(uri)?;
         let pending=self.pending_type.take();
         let prefixed=pending.is_some_and(|(namespace,_)| namespace.is_empty() && !uri.is_empty());
         self.put("<")?; if prefixed { self.put("srlvalue:")?; } self.put(local)?;
         let default_uri=if prefixed {""} else {uri};
         if prefixed {
-            self.attributes+=1; if self.attributes > self.limits.max_attributes { return Err(Error("XML attribute limit")); }
-            self.put(" xmlns:srlvalue=\"")?; self.escaped(uri,true)?; self.put("\"")?;
-            self.prefixed_type_depths.push(self.depth);
+            self.attributes+=1; @xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::XmlAttributes,1)?; if self.attributes > self.limits.max_attributes { return Err(@xml_operation@::quota(self.operation.as_ref(),"XML attribute limit")); }
+            @xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::ScalarBytes,"srlvalue".len())?; self.put(" xmlns:srlvalue=\"")?; self.escaped(uri,true)?; self.put("\"")?;
+            self.allocate(std::mem::size_of::<usize>())?; self.prefixed_type_depths.push(self.depth);
         }
         if self.namespaces.last().map(String::as_str).unwrap_or("") != default_uri {
-            self.attributes += 1;
-            if self.attributes > self.limits.max_attributes { return Err(Error("XML attribute limit")); }
+            self.attributes += 1; @xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::XmlAttributes,1)?;
+            if self.attributes > self.limits.max_attributes { return Err(@xml_operation@::quota(self.operation.as_ref(),"XML attribute limit")); }
             self.put(" xmlns=\"")?; self.escaped(default_uri,true)?; self.put("\"")?;
         }
+        self.allocate(std::mem::size_of::<String>().saturating_add(default_uri.len()))?;
         self.namespaces.push(default_uri.to_owned());
         if let Some((namespace,identity))=pending {
+            self.allocate(identity.len().saturating_add(if namespace.is_empty(){0}else{"srltype:".len()}))?;
             let lexical=if namespace.is_empty() {identity.to_owned()} else {
-                self.attributes+=1; if self.attributes > self.limits.max_attributes { return Err(Error("XML attribute limit")); }
-                self.put(" xmlns:srltype=\"")?; self.escaped(namespace,true)?; self.put("\"")?;
+                self.attributes+=1; @xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::XmlAttributes,1)?; if self.attributes > self.limits.max_attributes { return Err(@xml_operation@::quota(self.operation.as_ref(),"XML attribute limit")); }
+                @xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::ScalarBytes,"srltype".len())?; self.put(" xmlns:srltype=\"")?; self.escaped(namespace,true)?; self.put("\"")?;
                 format!("srltype:{identity}")
             };
             self.attribute("type","http://www.w3.org/2001/XMLSchema-instance",&lexical,usize::MAX)?;
@@ -182,14 +200,15 @@ impl SrlXmlWriter {
     }
     /// Emit a statically named attribute with an explicit deterministic prefix when qualified.
     fn attribute(&mut self,local:&str,uri:&str,value:&str,index:usize) -> Result<(),Error> {
-        self.attributes += 1; if self.attributes > self.limits.max_attributes { return Err(Error("XML attribute limit")); }
+        self.attributes += 1; @xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::XmlAttributes,1)?; if self.attributes > self.limits.max_attributes { return Err(@xml_operation@::quota(self.operation.as_ref(),"XML attribute limit")); }
         self.charge(local)?; self.charge(uri)?;
         self.put(" ")?;
         if uri == "http://www.w3.org/XML/1998/namespace" {
             self.put("xml:")?;
         } else if !uri.is_empty() {
-            self.attributes += 1;
-            if self.attributes > self.limits.max_attributes { return Err(Error("XML attribute limit")); }
+            self.attributes += 1; @xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::XmlAttributes,1)?;
+            if self.attributes > self.limits.max_attributes { return Err(@xml_operation@::quota(self.operation.as_ref(),"XML attribute limit")); }
+            if self.operation.is_some(){let mut digits=1usize;let mut remaining=index;while remaining>=10{remaining/=10;digits+=1;}self.allocate("srl".len().saturating_add(digits))?;}
             let prefix=format!("srl{}",index); self.charge(&prefix)?; self.put("xmlns:")?; self.put(&prefix)?;
             self.put("=\"")?; self.escaped(uri,true)?; self.put("\" ")?; self.put(&prefix)?; self.put(":")?;
         }
@@ -278,6 +297,81 @@ impl<'a,'input:'a> SrlXmlFields<'a,'input> {
 #include "xml_rust_identity_runtime.inc"
 #include "xml_rust_extension_runtime.inc"
 ;
+  constexpr std::string_view marker{"@xml_operation@"};
+  for (std::size_t position{}; (position = result.find(marker, position)) != std::string::npos;) {
+    result.replace(position, marker.size(), operation_module);
+    position += operation_module.size();
+  }
+  return "// Generated Rust XML operation module: " + std::string{operation_module} + '\n' + result;
+}
+
+// Admit compiler-known owned defaults before the unchanged generated Default implementation runs.
+inline std::string rust_default_admissions(const class_node& owner,
+    const std::function<std::string(const type_name&)>& type_identifier) {
+  std::string result;
+  std::function<void(const class_node&, const std::string&)> record;
+  std::function<void(const type_name&, const std::string&, const std::string&)> scalar;
+  std::function<void(const value_initializer&, const std::string&)> initializer;
+  const auto storage = [&](const std::string& bytes, const std::string& factor) {
+    result += "input.default_storage((" + bytes + ").saturating_mul(" + factor + "))?;\n";
+  };
+  // Rust string literals retain the same two portable control-character escapes as native defaults.
+  const auto text_literal = [](std::string text) {
+    for (std::size_t index{1}; index + 1 < text.size(); ++index) {
+      if (text[index] != '\\') { continue; }
+      ++index;
+      if (text[index] == 'b' || text[index] == 'f') {
+        const std::string replacement{text[index] == 'b' ? "u{8}" : "u{c}"};
+        text.replace(index, 1, replacement); index += replacement.size() - 1;
+      }
+    }
+    return text;
+  };
+  scalar = [&](const type_name& type, const std::string& literal, const std::string& factor) {
+    if (type.is_optional() || type.is_sequence() || type.is_associative()) { return; }
+    if (type.is_digest()) {
+      if (type.digest_extent != 0) { storage(std::to_string(type.digest_extent) + "usize", factor); }
+    } else if (type.type == object_type::class_type) {
+      record(static_cast<const class_node&>(*type.resolved_node), factor);
+    } else if ((type.name == "string" || type.name.starts_with("version")) && !literal.empty()) {
+      const auto value = type.name.starts_with("version") ? native::quote(literal) : text_literal(literal);
+      storage("(" + value + ").len()", factor);
+    }
+  };
+  initializer = [&](const value_initializer& value, const std::string& factor) {
+    using kind = value_initializer::kind_type;
+    if (value.kind == kind::factory_owner || value.kind == kind::default_owner) { return; }
+    if (value.kind == kind::scalar) { scalar(value.type, value.value, factor); return; }
+    if (value.kind == kind::fixed_array) {
+      storage("std::mem::size_of::<" + type_identifier(value.type) + ">().saturating_mul(" + std::to_string(value.elements.size()) + ")", factor);
+    } else if (value.type.type == object_type::class_type) {
+      record(static_cast<const class_node&>(*value.type.resolved_node), factor);
+    }
+    for (const auto& element : value.elements) { initializer(element, factor); }
+  };
+  record = [&](const class_node& value, const std::string& factor) {
+    if (value.reference) { return; }
+    result += "input.default_work(" + factor + ")?;\n";
+    for (const auto& base : value.parents) { record(*base.parent_class, factor); }
+    for (const auto& field : value.member_list) {
+      if (field.wire_only || !field.default_factory.empty()) { continue; }
+      result += "input.select(" + native::quote(value.get_full_name() + '.' + field.name) + ");\n";
+      if (field.initializer) { initializer(*field.initializer, factor); continue; }
+      if (field.modifier == member::modifier_type::variant) {
+        for (const auto& alternative : field.type_name_list) { scalar(alternative, {}, factor); }
+      } else if (field.modifier == member::modifier_type::array) {
+        if (field.fixed_extent == 0) { continue; }
+        const auto count = std::to_string(field.fixed_extent) + "usize";
+        storage("std::mem::size_of::<" + type_identifier(field.type_name_list.front()) + ">().saturating_mul(" + count + ")", factor);
+        scalar(field.type_name_list.front(), {}, "(" + factor + ").saturating_mul(" + count + ")");
+      } else if (field.modifier != member::modifier_type::map) {
+        scalar(field.type_name_list.front(), native::literal(field), factor);
+      }
+    }
+  };
+  record(owner, "1usize");
+  result += "input.select(" + native::quote(owner.get_full_name()) + ");\n";
+  return result;
 }
 
 // Generate native Rust static XML methods using the same frozen binding IR as C++.
@@ -322,6 +416,7 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
   };
   // Lifecycle guards close at field-emitter scope exit, including container early returns.
   const auto active_scope = [&](const member& field, bool input) -> xml_codegen::model_emission_scope {
+    line(std::string{input ? "input" : "output"} + ".select(" + quote(owner.get_full_name() + '.' + field.name) + ");");
     const auto condition = xml_codegen::native_xml_active(contract, field, version_language::rust, revision_path(input));
     if (!condition.empty()) { line("if " + behavior::ungroup_expression(condition) + " {"); }
     return xml_codegen::model_emission_scope{condition.empty() ? std::function<void()>{} : std::function<void()>{[&] { line("}"); }}};
@@ -340,7 +435,7 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
       for (const auto& value : values) { expression += quote(value) + " => " + type_identifier(type) + "::" + native::pascal(value) + ","; }
       return expression + "_ => return Err(Error(\"Unknown XML enum\")) }";
     }
-    if (type.is_digest()) { return "srl_xml_digest_read(&" + text + "," + std::to_string(type.digest_extent) + ",input.digest_limits)?"; }
+    if (type.is_digest()) { return "srl_xml_digest_read_with_operation(&" + text + "," + std::to_string(type.digest_extent) + ",input.digest_limits,input.operation.as_ref())?"; }
     if (type.name == "string" || type.name.starts_with("version")) { return text; }
     if (type.name == "bool") { return "srl_xml_bool(&" + text + ")?"; }
     if (type.name == "float" || type.name == "float32") {
@@ -351,7 +446,7 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
   };
   // Borrow string/enum spellings and only format primitive numeric temporaries.
   const auto scalar = [&](const type_name& type, const std::string& expression) {
-    if (type.is_digest()) { return "&srl_xml_digest_text(" + behavior::ungroup_expression(expression) + "," + std::to_string(type.digest_extent) + ",output.digest_limits)?"; }
+    if (type.is_digest()) { return "&srl_xml_digest_text_with_operation(" + behavior::ungroup_expression(expression) + "," + std::to_string(type.digest_extent) + ",output.digest_limits,output.operation.as_ref())?"; }
     if (type.name == "string" || type.name.starts_with("version")) { return "(" + expression + ").as_str()"; }
     if (type.type == object_type::enum_type) { return type_identifier(type) + "::NAMES[*" + expression + " as usize]"; }
     if (type.name == "float" || type.name == "float32" || type.name == "double" || type.name == "float64") {
@@ -363,21 +458,22 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
   };
   // Validate the complete lexical value before allocating native list storage or converting one scalar.
   const auto read_field_scalar = [&](const field& selected, const type_name& type, const std::string& raw) {
-    if (!xml_portable::needs_scalar_rule(selected)) { return read_scalar(type, raw); }
+    const auto selection = "input.select(" + quote(owner.get_full_name() + '.' + selected.source->name) + "); ";
+    if (!xml_portable::needs_scalar_rule(selected)) { return "{let raw_result=(||Ok::<_,Error>(" + raw + "))(); " + selection + "let raw=raw_result?; " + read_scalar(type, "raw") + "}"; }
     std::string expression = "{ const RULE:SrlXmlRule=" + xml_codegen::rust_scalar_rule(selected, quote) +
-        "; let raw=" + raw + "; ";
+        "; let raw_result=(||Ok::<_,Error>(" + raw + "))(); " + selection + "let raw=raw_result?; ";
     const auto fallback = selected.fixed_value ? selected.fixed_value : selected.default_value;
     if (fallback && !selected.attribute) {
       expression += "let raw=if raw.is_empty(){" + quote(*fallback) + ".to_owned()}else{raw}; ";
     }
-    expression += "let text=RULE.check(&raw,input.limits.max_nodes)?; ";
+    expression += "let text=RULE.check_with_operation(&raw,input.limits.max_nodes,input.operation.clone())?; ";
     if (selected.list) {
-      expression += "let tokens=srl_xml_scalar_tokens(&text,input.limits.max_nodes)?; ";
+      expression += "let tokens=srl_xml_scalar_tokens_with_operation(&text,input.limits.max_nodes,input.operation.as_ref())?; ";
       if (selected.source->fixed_extent != 0U) {
         expression += "if tokens.len()!=" + std::to_string(selected.source->fixed_extent) +
             " {return Err(Error(\"XML native list extent\"));} ";
       }
-      expression += "let mut values=Vec::new(); values.try_reserve_exact(tokens.len()).map_err(|_|Error(\"XML scalar allocation\"))?; "
+      expression += "let mut values=Vec::new(); input.allocate(tokens.len().saturating_mul(std::mem::size_of::<" + type_identifier(type) + ">()))?; values.try_reserve_exact(tokens.len()).map_err(|_|input.quota(\"XML scalar allocation\"))?; "
           "for item in tokens {values.push(" + read_scalar(type, "item.to_owned()") + ");} values }";
     } else { expression += read_scalar(type, "text") + " }"; }
     return expression;
@@ -387,17 +483,17 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
     if (!xml_portable::needs_scalar_rule(selected)) { return scalar(type, value); }
     std::string expression = "&{ const RULE:SrlXmlRule=" + xml_codegen::rust_scalar_rule(selected, quote) + "; ";
     if (selected.list) {
-      expression += "let items=" + behavior::ungroup_expression(value) + "; if items.len()>output.value_limits.max_nodes {return Err(Error(\"XML list item limit\"));} ";
+      expression += "let items=" + behavior::ungroup_expression(value) + "; if items.len()>output.value_limits.max_nodes {return Err(output.quota(\"XML list item limit\"));} ";
       if (selected.source->fixed_extent != 0U) {
         expression += "if items.len()!=" + std::to_string(selected.source->fixed_extent) +
             " {return Err(Error(\"XML native list extent\"));} ";
       }
-      expression += "let mut joined=String::new(); for item in items.iter(){srl_xml_scalar_append(&mut joined," +
-          scalar(type, "item") + ",output.value_limits.max_text_bytes)?;} ";
-    } else { expression += "let joined=" + scalar(type, value) + "; if joined.len()>output.value_limits.max_text_bytes {return Err(Error(\"XML scalar text limit\"));} "; }
+      expression += "let mut joined=String::new(); for item in items.iter(){srl_xml_scalar_append_with_operation(&mut joined," +
+          scalar(type, "item") + ",output.value_limits.max_text_bytes,output.operation.as_ref())?;} ";
+    } else { expression += "let joined=" + scalar(type, value) + "; if joined.len()>output.value_limits.max_text_bytes {return Err(output.quota(\"XML scalar text limit\"));} "; }
     const auto fallback = selected.fixed_value ? selected.fixed_value : selected.default_value;
-    return expression + "RULE.output(" + (selected.list ? "&joined" : "joined") + ',' +
-        (fallback && !selected.attribute ? "Some(" + quote(*fallback) + ")" : "None") + ",output.value_limits.max_nodes)? }";
+    return expression + "RULE.output_with_operation(" + (selected.list ? "&joined" : "joined") + ',' +
+        (fallback && !selected.attribute ? "Some(" + quote(*fallback) + ")" : "None") + ",output.value_limits.max_nodes,output.operation.clone())? }";
   };
   // Keep explicit XML states aligned with nested native Option layers and wrapped collections.
   const auto controlled_presence = [](const field& value) {
@@ -429,7 +525,7 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
       const auto maximum = value.source->fixed_extent != 0U ?
           std::optional<std::size_t>{value.source->fixed_extent} : value.max_occurs;
       if (maximum) { line("if items.len() >= " + std::to_string(*maximum) + " { return Err(Error(\"XML collection occurrence bound\")); }"); }
-      line("items.try_reserve(1).map_err(|_| Error(\"XML collection allocation\"))?; items.push(" + conversion + "); }");
+      line("input.allocate(std::mem::size_of::<" + type_identifier(*leaf) + ">())?; items.try_reserve(1).map_err(|_| input.quota(\"XML collection allocation\"))?; items.push(" + conversion + "); }");
       const auto minimum = value.source->fixed_extent != 0U ? value.source->fixed_extent : value.min_occurs;
       if (minimum > 0U) { line("if items.len() < " + std::to_string(minimum) + " { return Err(Error(\"XML collection occurrence bound\")); }"); }
       line("input.close(" + uri + "," + local + ")?;");
@@ -590,11 +686,14 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
   line("fields.finish()?; Ok(value) }");
   }
   line("/// Read one statically mapped owning candidate without a retained XML node.");
-  line("fn srl_xml_read_tokens(input:&mut SrlXmlInput<'_>,uri:&str,local:&str) -> Result<Self,Error> {");
+  line("fn srl_xml_read_tokens(input:&mut SrlXmlInput<'_,'_>,uri:&str,local:&str) -> Result<Self,Error> {");
   const bool has_attributes = contract.model.revision || contract.model.magic || std::any_of(contract.fields.begin(), contract.fields.end(),
       [](const auto& field) { return field.attribute; });
-  line("let " + std::string{has_attributes ? "mut " : ""} + "fields=input.open(uri,local)?; let " +
-      (contract.fields.empty() && !contract.mixed && !contract.model.revision ? "" : "mut ") + "value=Self::default();");
+  line("let " + std::string{has_attributes ? "mut " : ""} + "fields=input.open(uri,local)?;");
+  line("if input.operation.is_some() {");
+  line(rust_default_admissions(owner, type_identifier));
+  line("}");
+  line(std::string{"let "} + (contract.fields.empty() && !contract.mixed && !contract.model.revision ? "" : "mut ") + "value=Self::default();");
   if (contract.model.revision) {
     const auto& revision = *contract.model.revision;
     const auto& type = revision.type_name_list.front();
@@ -655,7 +754,7 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
       if (maximum) {
         line("if " + temporary + ".len() >= " + std::to_string(*maximum) + " { return Err(Error(\"XML collection occurrence bound\")); }");
       }
-      line(temporary + ".try_reserve(1).map_err(|_| Error(\"XML collection allocation\"))?;");
+      line("input.allocate(std::mem::size_of::<" + type_identifier(*leaf) + ">())?; " + temporary + ".try_reserve(1).map_err(|_| input.quota(\"XML collection allocation\"))?;");
       line(temporary + ".push(" + conversion + "); }");
       if (minimum > 0U) {
         line("if " + temporary + ".len() < " + std::to_string(minimum) + " { return Err(Error(\"XML collection occurrence bound\")); }");
@@ -720,12 +819,12 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
     line("/// Reject legacy node input without materializing a selected payload.");
     line("fn srl_xml_read(_node:roxmltree::Node<'_, '_>)->Result<Self,Error> {Err(Error(\"Export-only XML projection\"))}");
     line("/// Reject nested input before accessing source storage.");
-    line("fn srl_xml_read_tokens(_input:&mut SrlXmlInput<'_>,_uri:&str,_local:&str)->Result<Self,Error> {Err(Error(\"Export-only XML projection\"))}");
+    line("fn srl_xml_read_tokens(_input:&mut SrlXmlInput<'_,'_>,_uri:&str,_local:&str)->Result<Self,Error> {Err(Error(\"Export-only XML projection\"))}");
   }
   if (extension_graph) { line(xml_codegen::rust_extension_frames(options)); }
   if (custom_output) { line(custom_output()); return result; }
   line("/// Emit a nested owning value under its caller-selected static expanded element name.");
-  line("fn srl_xml_write(&self,output:&mut SrlXmlWriter,local:&str,uri:&str) -> Result<(),Error> { output.open(local,uri)?;");
+  line("fn srl_xml_write(&self,output:&mut SrlXmlWriter,local:&str,uri:&str) -> Result<(),Error> { output.select(" + quote(owner.get_full_name()) + "); output.open(local,uri)?;");
   line(xml_codegen::native_choice_checks(contract, [&](const member& field) { return output_reference(field); }, "rust"));
   if (contract.model.revision) {
     const auto& revision = *contract.model.revision;
@@ -816,8 +915,66 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
     if (optional) { line("}"); }
   }
   if (contract.mixed) { const auto lifecycle = active_scope(*contract.mixed->source, false); line(mixed_method(false)); }
-  line("output.close(local) }");
+  line("output.select(" + quote(owner.get_full_name()) + "); output.close(local) }");
   static_cast<void>(owner);
+  return result;
+}
+
+// Add qualified operation entry points without reserving new inherent methods on existing models.
+inline std::string rust_operation_impl(const class_node& owner, const record& contract,
+    std::string_view name, std::string_view module, const xml_options& options,
+    std::string_view lifetime = {}) {
+  const auto quote = [](std::string_view value) { return native::quote(value); };
+  const auto graph = xml_codegen::native_identity_graph(owner, contract, xml_binding::schema{options});
+  const bool extensions = xml_codegen::native_extension_graph(owner, xml_binding::schema{options});
+  std::string result;
+  const auto line = [&](const std::string& value) { result += value + '\n'; };
+  const std::string api{module};
+  line("impl" + std::string{lifetime} + " " + api + "::Codec for " + std::string{name} + std::string{lifetime} + " {");
+  // Each entry point owns its latch; the caller's operation may be reused by a later invocation.
+  const auto prepare = [&] {
+    line("use " + api + "::{SrlXmlIdentityDiagnosticNode,SrlXmlIdentityDiagnosticConstraint,SrlXmlIdentityDiagnosticScalar};");
+    line("const GRAPH:&[SrlXmlIdentityNode]=" + xml_codegen::rust_identity_graph(graph, quote) + ";");
+    line("const DIAGNOSTICS:&[SrlXmlIdentityDiagnosticNode]=" + xml_codegen::rust_identity_diagnostics(graph, quote) + ";");
+    line("let state=" + api + "::State::new(operation,GRAPH,DIAGNOSTICS)?;");
+  };
+  line("/// Encode through the ordinary generated traversal and the exact borrowed operation.");
+  line("fn encode_xml_with_operation(&self,options:" + api + "::Options<'_>,operation:&mut dyn " + api + "::Operation)->" + api + "::Result<String> {");
+  prepare();
+  line("let result=(||{state.poll()?;");
+  if (extensions) {
+    line("let _=options;Err(Error(\"XML extension document companion required\"))");
+  } else {
+    line("let mut output=SrlXmlWriter::new_with_operation(options.limits,Some(state.clone()));output.map_limits=options.map_limits;output.mixed_limits=options.mixed_limits;output.digest_limits=options.digest_limits;");
+    line("self.srl_xml_write(&mut output," + quote(contract.root.local) + "," + quote(contract.root.namespace_uri) + ")?;");
+    line("srl_xml_identity_validate_with_operation(&output.text,options.limits,options.identity_limits,GRAPH,Some(state.secondary()),DIAGNOSTICS)?;");
+    if (!options.runtime_xsd) {
+      line("if options.validator.is_some(){return Err(Error(\"Runtime XSD not enabled during generation\"));}");
+    } else if (options.validation_scope != "input") {
+      line("if let Some(validator)=options.validator{state.poll()?;validator.validate(&output.text)?;state.poll()?;}");
+    }
+    line("state.poll()?;Ok(output.text)");
+  }
+  line("})();state.finish(result) }");
+  line("/// Ordinary operation input retains the native unknown-attribute and model identity rules.");
+  line("fn decode_xml_with_operation(text:&str,options:" + api + "::Options<'_>,operation:&mut dyn " + api + "::Operation)->" + api + "::Result<Self> { <Self as " + api + "::Codec>::decode_package_with_operation(text,options,None,operation) }");
+  line("/// Consume only a preselected package root type, validating its expanded identity before mapping.");
+  line("fn decode_package_with_operation(text:&str,options:" + api + "::Options<'_>,expected_type:Option<(&str,&str)>,operation:&mut dyn " + api + "::Operation)->" + api + "::Result<Self> {");
+  prepare();
+  line("let result=(||{state.poll()?;");
+  if (extensions || xml_codegen::native_xml_export_graph(owner)) {
+    line("let _=(text,options,expected_type);Err(Error(\"XML extension or export-only operation requires its native companion\"))");
+  } else {
+    line("srl_xml_identity_validate_with_operation(text,options.limits,options.identity_limits,GRAPH,Some(state.secondary()),DIAGNOSTICS)?;");
+    if (!options.runtime_xsd) {
+      line("if options.validator.is_some(){return Err(Error(\"Runtime XSD not enabled during generation\"));}");
+    } else if (options.validation_scope != "output") {
+      line("if let Some(validator)=options.validator{state.poll()?;validator.validate(text)?;state.poll()?;}");
+    }
+    line("let mut input=SrlXmlInput::new_with_operation(text,options.limits,Some(state.clone()))?;input.permitted_root_type=expected_type;input.map_limits=options.map_limits;input.mixed_limits=options.mixed_limits;input.digest_limits=options.digest_limits;");
+    line("let value=Self::srl_xml_read_tokens(&mut input," + quote(contract.root.namespace_uri) + "," + quote(contract.root.local) + ")?;input.finish_document()?;state.poll()?;Ok(value)");
+  }
+  line("})();state.finish(result) }\n}");
   return result;
 }
 } // namespace rohit::serializer::writer::xml_binding

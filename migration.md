@@ -1,5 +1,23 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.18.0
+
+Regenerate affected C/Rust XML/package output to use shared native operation
+admission and supported XSD identity package graphs. Old native models, limit
+aggregates and entry points remain valid. New C descriptors and qualified Rust
+operation traits are additive; preserve the generated collision-selected helper
+names instead of hardcoding a default when a schema claims that name.
+
+Go selected-codec functions receive existing public `XmlOptions` already bound to
+the package ledger. JS/TS `options.codecs` uses schema role names and synchronous
+typed functions with bridged `XmlLimits`. Kotlin exposes `xmlLimits(CodecContext)`
+for Composer/Loader callbacks in a separate consuming module. Use the supplied
+context when invoking native codecs and keep it alive only for the synchronous
+call. Existing package methods select generated native codecs automatically.
+Known generated default allocations are admitted before construction; opaque
+factory/provider internal transient work and allocation remain outside hard peak
+or preemption claims. Schema language, wire IDs and saved formats do not change.
+
 ## Compiler/runtime 2.17.1
 
 Rebuild C++ applications against matching runtime headers. A fresh local

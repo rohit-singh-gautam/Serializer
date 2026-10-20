@@ -11,23 +11,29 @@ struct SrlXmlRule { kind:&'static str, whitespace:&'static str, bounds:[&'static
  length:Option<usize>, minimum:Option<usize>, maximum:Option<usize>, enumeration:&'static [&'static str],
  finite:bool, groups:&'static [&'static [SrlXmlPattern]], list_kind:&'static str, members:&'static [SrlXmlRule], fixed:Option<&'static str> }
 /// Preserve resource failures across union alternatives and inherited pattern groups.
-struct SrlXmlScalarWork { remaining:usize, max_items:usize }
-impl SrlXmlScalarWork {
+struct SrlXmlScalarWork<'a> { remaining:usize, max_items:usize,operation:Option<@xml_operation@::State<'a>> }
+impl SrlXmlScalarWork<'_> {
  /// Admit work before a scan, allocation or instruction visit.
- fn spend(&mut self,units:usize)->Result<(),Error> { if units>self.remaining {return Err(Error("XML scalar work limit"));} self.remaining-=units;Ok(()) }
+ fn spend(&mut self,units:usize)->Result<(),Error> { if units>self.remaining {return Err(@xml_operation@::quota(self.operation.as_ref(),"XML scalar work limit"));} @xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::WorkUnits,units)?;self.remaining-=units;Ok(()) }
 }
 /// Recognize only the four XML whitespace characters rather than Unicode separator categories.
 fn srl_xml_scalar_space(value:char)->bool {matches!(value,' '| '\t'|'\r'|'\n')}
 /// Count list items before allocating either lexical slices or native collection storage.
-fn srl_xml_scalar_tokens(text:&str,maximum:usize)->Result<Vec<&str>,Error> {
+fn srl_xml_scalar_tokens(text:&str,maximum:usize)->Result<Vec<&str>,Error> {srl_xml_scalar_tokens_with_operation(text,maximum,None)}
+/// Bound list retention under the selected caller before allocating lexical slices.
+fn srl_xml_scalar_tokens_with_operation<'a>(text:&'a str,maximum:usize,operation:Option<&@xml_operation@::State<'_>>)->Result<Vec<&'a str>,Error> {
+ @xml_operation@::consume(operation,@xml_operation@::Resource::WorkUnits,text.len())?;
  let mut count=0;let mut item=false;
- for value in text.chars(){let space=srl_xml_scalar_space(value);if !space&&!item{if count>=maximum{return Err(Error("XML list item limit"));}count+=1;}item=!space;}
- let mut result=Vec::new();result.try_reserve_exact(count).map_err(|_|Error("XML scalar allocation"))?;
+ for value in text.chars(){let space=srl_xml_scalar_space(value);if !space&&!item{if count>=maximum{return Err(@xml_operation@::quota(operation,"XML list item limit"));}count+=1;}item=!space;}
+ @xml_operation@::consume(operation,@xml_operation@::Resource::DecoderAllocationBytes,count.saturating_mul(std::mem::size_of::<&str>()))?;let mut result=Vec::new();result.try_reserve_exact(count).map_err(|_|@xml_operation@::quota(operation,"XML scalar allocation"))?;
  result.extend(text.split(srl_xml_scalar_space).filter(|item|!item.is_empty()));Ok(result)
 }
 /// Apply XML whitespace replacement/collapse with bounded allocation and no native-value mutation.
-fn srl_xml_scalar_normalize(raw:&str,mode:&str)->Result<String,Error>{
- let mut result=String::new();result.try_reserve_exact(raw.len()).map_err(|_|Error("XML scalar allocation"))?;
+fn srl_xml_scalar_normalize(raw:&str,mode:&str)->Result<String,Error>{srl_xml_scalar_normalize_with_operation(raw,mode,None)}
+/// Preserve the selected operation through normalized owning scalar storage.
+fn srl_xml_scalar_normalize_with_operation(raw:&str,mode:&str,operation:Option<&@xml_operation@::State<'_>>)->Result<String,Error>{
+ @xml_operation@::consume(operation,@xml_operation@::Resource::DecoderAllocationBytes,raw.len())?;
+ let mut result=String::new();result.try_reserve_exact(raw.len()).map_err(|_|@xml_operation@::quota(operation,"XML scalar allocation"))?;
  if mode!="replace"&&mode!="collapse"{result.push_str(raw);return Ok(result);}
  let mut pending=false;
  for value in raw.chars(){let value=if srl_xml_scalar_space(value){' '}else{value};
@@ -79,10 +85,10 @@ impl SrlXmlRule {
   }}Ok(())
  }
  /// Compare logical scalar/list values while keeping NaN unordered for numeric bounds.
- fn compare(&self,left:&str,right:&str,equal_nan:bool,maximum:usize)->Result<Option<std::cmp::Ordering>,Error>{
+ fn compare(&self,left:&str,right:&str,equal_nan:bool,maximum:usize,operation:Option<&@xml_operation@::State<'_>>)->Result<Option<std::cmp::Ordering>,Error>{
   use std::cmp::Ordering;
-  if !self.list_kind.is_empty(){let first=srl_xml_scalar_tokens(left,maximum)?;let second=srl_xml_scalar_tokens(right,maximum)?;if first.len()!=second.len(){return Ok(Some(Ordering::Greater));}
-   let item=Self::item(self.list_kind);for (first,second) in first.iter().zip(second.iter()){if item.compare(first,second,equal_nan,maximum)?!=Some(Ordering::Equal){return Ok(Some(Ordering::Greater));}}return Ok(Some(Ordering::Equal));}
+  if !self.list_kind.is_empty(){let first=srl_xml_scalar_tokens_with_operation(left,maximum,operation)?;let second=srl_xml_scalar_tokens_with_operation(right,maximum,operation)?;if first.len()!=second.len(){return Ok(Some(Ordering::Greater));}
+   let item=Self::item(self.list_kind);for (first,second) in first.iter().zip(second.iter()){if item.compare(first,second,equal_nan,maximum,operation)?!=Some(Ordering::Equal){return Ok(Some(Ordering::Greater));}}return Ok(Some(Ordering::Equal));}
   if self.integer_kind()||self.kind=="decimal"{return Ok(Some(srl_xml_decimal_compare(left,right)));}
   if self.kind=="boolean"{return Ok(Some(srl_xml_bool(left)?.cmp(&srl_xml_bool(right)?)));}
   if self.kind=="float"||self.kind=="double"{let a=if self.kind=="float"{srl_xml_float32(left)? as f64}else{srl_xml_float(left)?};let b=if self.kind=="float"{srl_xml_float32(right)? as f64}else{srl_xml_float(right)?};if a.is_nan()||b.is_nan(){return Ok(if equal_nan&&a.is_nan()&&b.is_nan(){Some(Ordering::Equal)}else{None});}return Ok(a.partial_cmp(&b));}
@@ -91,28 +97,34 @@ impl SrlXmlRule {
  /// Construct an unrestricted builtin list-item descriptor without retaining mutable counters.
  fn item(kind:&'static str)->Self{Self{kind,whitespace:"collapse",bounds:["";4],length:None,minimum:None,maximum:None,enumeration:&[],finite:false,groups:&[],list_kind:"",members:&[],fixed:None}}
  /// Validate one normalized candidate before conversion or escaped publication.
- fn check(&self,raw:&str,maximum:usize)->Result<String,Error>{let mut work=SrlXmlScalarWork{remaining:SRL_XML_SCALAR_MAX_WORK,max_items:maximum};self.check_with(raw,&mut work)}
+ fn check(&self,raw:&str,maximum:usize)->Result<String,Error>{self.check_with_operation(raw,maximum,None)}
+ /// Share only an explicitly borrowed operation through lexical, union and pattern work.
+ fn check_with_operation(&self,raw:&str,maximum:usize,operation:Option<@xml_operation@::State<'_>>)->Result<String,Error>{let mut work=SrlXmlScalarWork{remaining:SRL_XML_SCALAR_MAX_WORK,max_items:maximum,operation};self.check_with(raw,&mut work)}
  /// Share finite work through union alternatives and every inherited pattern group.
  fn check_with(&self,raw:&str,work:&mut SrlXmlScalarWork)->Result<String,Error>{
-  work.spend(raw.len())?;let text=srl_xml_scalar_normalize(raw,self.whitespace)?;self.lexical(&text)?;
+  work.spend(raw.len())?;let text=srl_xml_scalar_normalize_with_operation(raw,self.whitespace,work.operation.as_ref())?;self.lexical(&text)?;
   if !self.members.is_empty(){let mut matched=false;for member in self.members{match member.check_with(&text,work){Ok(_)=>{matched=true;break;},Err(error) if matches!(error.0,"XML scalar work limit"|"XML scalar allocation"|"XML pattern input limit"|"XML list item limit")=>return Err(error),Err(_)=>{}}}if !matched{return Err(Error("XML union has no member"));}}
-  let mut count=text.chars().count();if !self.list_kind.is_empty(){let items=srl_xml_scalar_tokens(&text,work.max_items)?;count=items.len();let item=Self::item(self.list_kind);for text in items{work.spend(text.len())?;item.lexical(text)?;}}
+  let mut count=text.chars().count();if !self.list_kind.is_empty(){let items=srl_xml_scalar_tokens_with_operation(&text,work.max_items,work.operation.as_ref())?;count=items.len();let item=Self::item(self.list_kind);for text in items{work.spend(text.len())?;item.lexical(text)?;}}
   if self.length.is_some_and(|bound|count!=bound)||self.minimum.is_some_and(|bound|count<bound)||self.maximum.is_some_and(|bound|count>bound){return Err(Error("XML length facet"));}
-  for (index,bound) in self.bounds.iter().enumerate(){if bound.is_empty(){continue;}let order=self.compare(&text,bound,false,work.max_items)?.ok_or(Error("Unordered XML bound"))?;if matches!(index,0|2)&&order.is_lt()||matches!(index,1|3)&&order.is_gt()||index>=2&&order.is_eq(){return Err(Error("XML numeric facet"));}}
-  if !self.enumeration.is_empty(){let mut matched=false;for value in self.enumeration{if self.compare(&text,&srl_xml_scalar_normalize(value,self.whitespace)?,true,work.max_items)?==Some(std::cmp::Ordering::Equal){matched=true;break;}}if !matched{return Err(Error("XML enumeration facet"));}}
-  if let Some(fixed)=self.fixed{if self.compare(&text,&srl_xml_scalar_normalize(fixed,self.whitespace)?,true,work.max_items)?!=Some(std::cmp::Ordering::Equal){return Err(Error("XML fixed value"));}}
+  for (index,bound) in self.bounds.iter().enumerate(){if bound.is_empty(){continue;}let order=self.compare(&text,bound,false,work.max_items,work.operation.as_ref())?.ok_or(Error("Unordered XML bound"))?;if matches!(index,0|2)&&order.is_lt()||matches!(index,1|3)&&order.is_gt()||index>=2&&order.is_eq(){return Err(Error("XML numeric facet"));}}
+  if !self.enumeration.is_empty(){let mut matched=false;for value in self.enumeration{if self.compare(&text,&srl_xml_scalar_normalize_with_operation(value,self.whitespace,work.operation.as_ref())?,true,work.max_items,work.operation.as_ref())?==Some(std::cmp::Ordering::Equal){matched=true;break;}}if !matched{return Err(Error("XML enumeration facet"));}}
+  if let Some(fixed)=self.fixed{if self.compare(&text,&srl_xml_scalar_normalize_with_operation(fixed,self.whitespace,work.operation.as_ref())?,true,work.max_items,work.operation.as_ref())?!=Some(std::cmp::Ordering::Equal){return Err(Error("XML fixed value"));}}
   if self.finite{let value=if self.kind=="float"{srl_xml_float32(&text)? as f64}else{srl_xml_float(&text)?};if !value.is_finite(){return Err(Error("XML finite facet"));}}
   for group in self.groups{let mut matched=false;for pattern in *group{if pattern.matches(&text,work)?{matched=true;break;}}if !matched{return Err(Error("XML portable pattern facet"));}}
   Ok(text)
  }
  /// Preserve a normalized empty collapse value rather than reactivating a different element default.
- fn output(&self,raw:&str,fallback:Option<&str>,maximum:usize)->Result<String,Error>{let text=self.check(raw,maximum)?;if text.is_empty(){if let Some(fallback)=fallback{if !srl_xml_scalar_normalize(fallback,self.whitespace)?.is_empty(){if self.whitespace!="collapse"{return Err(Error("Unrepresentable empty XML default"));}return Ok(" ".to_owned());}}}Ok(text)}
+ fn output(&self,raw:&str,fallback:Option<&str>,maximum:usize)->Result<String,Error>{self.output_with_operation(raw,fallback,maximum,None)}
+ /// Keep output facet checks and their temporary storage in the exact selected operation.
+ fn output_with_operation(&self,raw:&str,fallback:Option<&str>,maximum:usize,operation:Option<@xml_operation@::State<'_>>)->Result<String,Error>{let text=self.check_with_operation(raw,maximum,operation.clone())?;if text.is_empty(){if let Some(fallback)=fallback{if !srl_xml_scalar_normalize_with_operation(fallback,self.whitespace,operation.as_ref())?.is_empty(){if self.whitespace!="collapse"{return Err(Error("Unrepresentable empty XML default"));}return Ok(" ".to_owned());}}}Ok(text)}
 }
 /// Join one admitted native list item with unambiguous XML whitespace framing.
-fn srl_xml_scalar_append(joined:&mut String,text:&str,maximum:usize)->Result<(),Error>{
+fn srl_xml_scalar_append(joined:&mut String,text:&str,maximum:usize)->Result<(),Error>{srl_xml_scalar_append_with_operation(joined,text,maximum,None)}
+/// Admit joined list storage without modifying any native payload value.
+fn srl_xml_scalar_append_with_operation(joined:&mut String,text:&str,maximum:usize,operation:Option<&@xml_operation@::State<'_>>)->Result<(),Error>{
  if text.is_empty()||text.chars().any(srl_xml_scalar_space){return Err(Error("Unrepresentable XML list item"));}
- let separator=usize::from(!joined.is_empty());if separator>maximum.saturating_sub(joined.len())||text.len()>maximum.saturating_sub(joined.len()+separator){return Err(Error("XML list text limit"));}
- joined.try_reserve(separator+text.len()).map_err(|_|Error("XML scalar allocation"))?;if separator!=0{joined.push(' ');}joined.push_str(text);Ok(())
+ let separator=usize::from(!joined.is_empty());if separator>maximum.saturating_sub(joined.len())||text.len()>maximum.saturating_sub(joined.len()+separator){return Err(@xml_operation@::quota(operation,"XML list text limit"));}
+ @xml_operation@::consume(operation,@xml_operation@::Resource::WorkUnits,text.len())?;@xml_operation@::consume(operation,@xml_operation@::Resource::DecoderAllocationBytes,separator+text.len())?;joined.try_reserve(separator+text.len()).map_err(|_|@xml_operation@::quota(operation,"XML scalar allocation"))?;if separator!=0{joined.push(' ');}joined.push_str(text);Ok(())
 }
 
 )rustscalar"
@@ -128,9 +140,9 @@ impl SrlXmlPattern {
  }
  /// Match complete Unicode sequences without backtracking, under shared input and work admission.
  fn matches(&self,text:&str,work:&mut SrlXmlScalarWork)->Result<bool,Error>{
-  if text.len()>SRL_XML_SCALAR_PATTERN_BYTES{return Err(Error("XML pattern input limit"));}
-  let count=self.states.len();let mut visited=Vec::new();visited.try_reserve_exact(count).map_err(|_|Error("XML scalar allocation"))?;visited.resize(count,false);
-  let allocate=||->Result<Vec<usize>,Error>{let mut result=Vec::new();result.try_reserve_exact(count).map_err(|_|Error("XML scalar allocation"))?;result.resize(count,0);Ok(result)};
+  if text.len()>SRL_XML_SCALAR_PATTERN_BYTES{return Err(@xml_operation@::quota(work.operation.as_ref(),"XML pattern input limit"));}
+  let count=self.states.len();@xml_operation@::consume(work.operation.as_ref(),@xml_operation@::Resource::DecoderAllocationBytes,count.saturating_mul(std::mem::size_of::<bool>()+3*std::mem::size_of::<usize>()))?;let mut visited=Vec::new();visited.try_reserve_exact(count).map_err(|_|@xml_operation@::quota(work.operation.as_ref(),"XML scalar allocation"))?;visited.resize(count,false);
+  let allocate=||->Result<Vec<usize>,Error>{let mut result=Vec::new();result.try_reserve_exact(count).map_err(|_|@xml_operation@::quota(work.operation.as_ref(),"XML scalar allocation"))?;result.resize(count,0);Ok(result)};
   let mut active=allocate()?;let mut following=allocate()?;let mut stack=allocate()?;active[0]=self.start;
   let mut count=self.closure(&mut active,1,&mut visited,&mut stack,work)?;
   for code in text.chars().map(|value|value as u32){work.spend(1)?;let mut next=0;

@@ -23,6 +23,8 @@ export declare namespace SerializerPackage {
   }
   type Resource = 'ioBytes' | 'metadataBytes' | 'expandedBytes' | 'entries' | 'relationships' | 'decoderAllocationBytes' | 'workUnits' | 'references' | 'preservedBytes';
   class Budget { readonly limits: Limits; readonly used: {readonly [K in Resource]: number}; readonly bufferBytes: number; constructor(limits?: Limits); check(): void; consume(resource: Resource, count: number, part?: string): void; remaining(resource: Resource): number; reserve(count: number, part?: string): () => void; }
+  interface CodecContext { readonly budget: Budget; readonly role: string; readonly part: string; readonly relationshipId: string; }
+  interface Codec<T> { readonly encode?: (value: T, limits: XmlLimits, context: CodecContext) => string; readonly decode?: (text: string, limits: XmlLimits, context: CodecContext) => T; }
   interface RandomSource { readonly size: number; readAt(offsetBytes: number, maxBytes: number): Uint8Array | globalThis.PromiseLike<Uint8Array>; }
   interface SequentialSource { read(maxBytes: number): Uint8Array | null | globalThis.PromiseLike<Uint8Array | null>; }
   interface Sink { write(bytes: Uint8Array): void | globalThis.PromiseLike<void>; }

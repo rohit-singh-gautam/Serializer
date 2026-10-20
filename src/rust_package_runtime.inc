@@ -7,6 +7,7 @@ pub mod @package_name@ {
     use std::collections::{BTreeMap,BTreeSet};
     use std::sync::Arc;
     use super::@compression_name@ as compression;
+    use super::@xml_operation@ as native_operation;
     /// Original caller and native errors retain their concrete error types.
     pub type Error=Arc<dyn std::error::Error+Send+Sync>;
     /// No failed operation returns a partially constructed candidate.
@@ -60,6 +61,32 @@ pub mod @package_name@ {
         /// Derive per-codec caps from the same cumulative operation ledger.
         pub fn xml_limits(&self)->super::XmlLimits {super::XmlLimits{max_bytes:self.limits.max_part_bytes,max_text_bytes:self.limits.max_part_bytes,max_nodes:(self.limits.maximum[Resource::XmlNodes as usize].saturating_sub(self.used[Resource::XmlNodes as usize])).min(usize::MAX as u64) as usize,max_attributes:(self.limits.maximum[Resource::XmlAttributes as usize].saturating_sub(self.used[Resource::XmlAttributes as usize])).min(usize::MAX as u64) as usize,max_depth:self.limits.max_depth}}
     }
+    /// Borrow one native codec location and the existing cumulative package ledger synchronously.
+    pub struct XmlOperation<'a,'b> {pub budget:&'a mut Budget<'b>,pub role:&'a Role,pub part:&'a str,pub link:&'a str,first:Option<Error>}
+    impl<'a,'b> XmlOperation<'a,'b> {
+        /// Keep separate codec contexts independent while borrowing the caller's operation ledger.
+        pub fn new(budget:&'a mut Budget<'b>,role:&'a Role,part:&'a str,link:&'a str)->Self {Self{budget,role,part,link,first:None}}
+        /// Preserve the exact first caller error before attaching context to native codec failures.
+        fn native_result<T>(&mut self,result:native_operation::Result<T>)->Result<T>{result.map_err(|error|{if let Some(first)=&self.first{return first.clone();}if error.downcast_ref::<super::Error>().is_some(){Arc::new(Failure{code:Code::Codec,message:"Native XML codec rejected payload",part:self.part.into(),field:self.role.field.into(),link:self.link.into(),cause:Some(error)}) as Error}else{error}})}
+        /// Encode the selected native model with the same package operation and existing local policies.
+        pub fn encode<T:native_operation::Codec>(&mut self,value:&T)->Result<String>{let limits=self.budget.xml_limits();let result=<T as native_operation::Codec>::encode_xml_with_operation(value,native_operation::Options{limits,..Default::default()},self);self.native_result(result)}
+        /// Decode only the package role's prevalidated matching root type into a private native value.
+        pub fn decode<T:native_operation::Codec>(&mut self,text:&str)->Result<T>{let limits=self.budget.xml_limits();let expected=self.role.expected_type;let result=<T as native_operation::Codec>::decode_package_with_operation(text,native_operation::Options{limits,..Default::default()},expected,self);self.native_result(result)}
+        /// Return a successful callback only while the shared context remains unfenced.
+        pub fn finish<T>(&mut self,value:T)->Result<T>{if let Some(first)=&self.first{return Err(first.clone());}self.budget.poll()?;Ok(value)}
+    }
+    impl native_operation::Operation for XmlOperation<'_,'_> {
+        /// Map explicit native counters to package counters without relying on enum ordinals.
+        fn consume(&mut self,resource:native_operation::Resource,count:usize,field:&str)->Result<()>{if let Some(first)=&self.first{return Err(first.clone());}let resource=match resource{native_operation::Resource::WorkUnits=>Resource::WorkUnits,native_operation::Resource::DecoderAllocationBytes=>Resource::DecoderAllocationBytes,native_operation::Resource::XmlNodes=>Resource::XmlNodes,native_operation::Resource::XmlAttributes=>Resource::XmlAttributes,native_operation::Resource::ScalarBytes=>Resource::ScalarBytes,native_operation::Resource::References=>Resource::References};let result=self.budget.consume(resource,count,self.part,if field.is_empty(){self.role.field}else{field},self.link);if let Err(error)=&result{self.first=Some(error.clone());}result}
+        /// Preserve the original cancellation Arc and prevent any later callback from replacing it.
+        fn poll(&mut self,_field:&str)->Result<()>{if let Some(first)=&self.first{return Err(first.clone());}let result=self.budget.poll();if let Err(error)=&result{self.first=Some(error.clone());}result}
+        /// Classify native local quotas explicitly while retaining their native owner/member origin.
+        fn limit(&mut self,message:&'static str,field:&str)->Error{if let Some(first)=&self.first{return first.clone();}let error=fail(Code::ResourceLimit,message,self.part,if field.is_empty(){self.role.field}else{field},self.link);self.first=Some(error.clone());error}
+        /// Locate native semantic failures without translating arbitrary callback error handles.
+        fn codec(&mut self,error:super::Error,field:&str)->Error{if let Some(first)=&self.first{return first.clone();}let error=Arc::new(Failure{code:Code::Codec,message:"Native XML codec rejected payload",part:self.part.into(),field:if field.is_empty(){self.role.field}else{field}.into(),link:self.link.into(),cause:Some(native_error(error))}) as Error;self.first=Some(error.clone());error}
+    }
+)rustpackage"
+R"rustpackage(
     /// Decode explicit wire integers after checking the complete source span.
     fn number(data:&[u8],offset:usize,count:usize)->Result<u64> {if count>8||offset>data.len()||count>data.len()-offset {return Err(fail(Code::InvalidZip,"Truncated ZIP integer","","",""));}Ok(data[offset..offset+count].iter().enumerate().fold(0,|value,(index,byte)|value|(u64::from(*byte)<<(index*8))))}
     /// Convert untrusted offsets only when the whole span is addressable.
@@ -242,6 +269,32 @@ R"rustpackage(        pub fn reference(&mut self,scope:&str,value:&str,role:&str
     fn occurs(role:&Role,count:usize)->Result<()> {if count<role.minimum||role.maximum.is_some_and(|maximum|count>maximum){return Err(fail(Code::Semantic,"Package role cardinality failed","",role.field,""));}Ok(())}
     /// Account one payload and verify its immutable expanded root before native model decode.
     fn typed<'a>(bytes:&'a [u8],role:&Role,name:&str,link:&str,budget:&mut Budget<'_>)->Result<&'a str>{let text=std::str::from_utf8(bytes).map_err(native_error)?;let document=xml_document(text,name,role.field,link,budget)?;let root=document.root_element();if let Some(kind)=root.attribute(("http://www.w3.org/2001/XMLSchema-instance","type")){let kind=kind.trim_matches([' ','\t','\r','\n']);let(prefix,local)=kind.split_once(':').unwrap_or(("",kind));let uri=root.lookup_namespace_uri(if prefix.is_empty(){None}else{Some(prefix)}).unwrap_or("");if role.expected_type!=Some((uri,local)){return Err(fail(Code::Codec,"Payload has unexpected expanded xsi:type",name,role.field,link));}}if role.root.is_none_or(|(uri,local)|root.tag_name().namespace().unwrap_or("")!=uri||root.tag_name().name()!=local){return Err(fail(Code::Codec,"Payload has unexpected expanded root",name,role.field,link));}Ok(text)}
+)rustpackage"
+R"rustpackage(
+    /// Inspect only root/type dispatch; the selected native codec owns logical XML event accounting.
+    fn typed_header<'a>(bytes:&'a [u8],role:&Role,name:&str,link:&str,budget:&mut Budget<'_>)->Result<&'a str>{
+        budget.poll()?;
+        if bytes.len()>budget.limits.max_part_bytes||budget.limits.max_depth==0{return Err(fail(Code::ResourceLimit,"Payload header exceeds local policy",name,role.field,link));}
+        budget.consume(Resource::WorkUnits,bytes.len(),name,role.field,link)?;
+        let text=std::str::from_utf8(bytes).map_err(native_error)?;
+        let limits=super::XmlLimits{max_bytes:budget.limits.max_part_bytes,max_text_bytes:budget.limits.max_part_bytes,max_nodes:usize::MAX,max_attributes:usize::MAX,max_depth:budget.limits.max_depth};
+        let mut context=XmlOperation::new(budget,role,name,link);
+        {
+            // Header dispatch spends real work/storage; the selected codec alone admits logical XML events.
+            let state=native_operation::State::new(&mut context,&[],&[])?;state.field(role.field);
+            let result=(||{
+                let mut input=super::SrlXmlInput::new_with_operation(text,limits,Some(state.secondary()))?;
+                if !matches!(&input.current,super::SrlXmlToken::Start(actual,_) if role.root==Some((actual.uri.as_str(),actual.local))){return Err(super::Error("Payload has unexpected expanded root"));}
+                let selected=input.take_type()?;
+                if selected.as_ref().is_some_and(|(uri,local)|role.expected_type!=Some((uri.as_str(),local.as_str()))){return Err(super::Error("Payload has unexpected expanded xsi:type"));}
+                Ok(())
+            })();
+            state.finish(result)?;
+        }
+        context.finish(text)
+    }
+    /// Derive the exact generated relationship ID before a selected encoder receives its location.
+    fn role_link(role:&Role,name:&str)->String{role.id.map(str::to_owned).unwrap_or_else(||format!("srl_{}_{}",role.field,name.as_bytes().iter().map(|byte|format!("{byte:02x}")).collect::<String>()))}
     /// Composer retains private encoded role candidates until every package invariant passes.
     pub struct Composer<'a,'b>{budget:&'a mut Budget<'b>,parts:Vec<BinaryPart>,links:Vec<Relationship>,sources:BTreeMap<String,Vec<String>>,paths:BTreeMap<String,String>}
     impl<'a,'b> Composer<'a,'b>{
@@ -252,8 +305,12 @@ R"rustpackage(        pub fn reference(&mut self,scope:&str,value:&str,role:&str
         /// Encode one fixed singleton while preserving required/optional presence semantics.
 )rustpackage"
 R"rustpackage(        pub fn single<T>(&mut self,role:&Role,value:&Option<T>,encoder:impl Fn(&T,super::XmlLimits)->Result<String>)->Result<()>{occurs(role,usize::from(value.is_some()))?;let mut discovered=Vec::new();if let Some(value)=value{let text=encoder(value,self.budget.xml_limits())?;typed(text.as_bytes(),role,role.name.unwrap_or(""),"",self.budget)?;self.add(role,BinaryPart{data:text.into_bytes(),..Default::default()},0,&mut discovered)?;}self.sources.insert(role.field.into(),discovered);Ok(())}
+        /// Encode one singleton using a caller-selected codec and the same native operation context.
+        pub fn single_with_operation<T>(&mut self,role:&Role,value:&Option<T>,mut encoder:impl FnMut(&T,&mut XmlOperation<'_,'_>)->Result<String>)->Result<()>{occurs(role,usize::from(value.is_some()))?;let mut discovered=Vec::new();if let Some(value)=value{let path=self.paths.get(role.field).map(String::as_str).unwrap_or(role.name.unwrap_or("")).to_owned();let link=role_link(role,&path);let mut context=XmlOperation::new(self.budget,role,&path,&link);let text=encoder(value,&mut context)?;let text=context.finish(text)?;typed_header(text.as_bytes(),role,&path,&link,self.budget)?;self.add(role,BinaryPart{data:text.into_bytes(),..Default::default()},0,&mut discovered)?;}self.sources.insert(role.field.into(),discovered);Ok(())}
         /// Encode dynamic or repeated typed models in declared occurrence order.
         pub fn models<T>(&mut self,role:&Role,values:&[ModelPart<T>],encoder:impl Fn(&T,super::XmlLimits)->Result<String>)->Result<()>{occurs(role,values.len())?;let mut discovered=Vec::new();for(index,item)in values.iter().enumerate(){let limits=self.budget.xml_limits();let text=encoder(&item.value,limits)?;typed(text.as_bytes(),role,&item.name,"",self.budget)?;self.add(role,BinaryPart{name:item.name.clone(),content_type:item.content_type.clone(),data:text.into_bytes(),source_index:item.source_index,method:role.method},index,&mut discovered)?;}self.sources.insert(role.field.into(),discovered);Ok(())}
+        /// Compose repeated native models without charging their primary XML events a second time.
+        pub fn models_with_operation<T>(&mut self,role:&Role,values:&[ModelPart<T>],mut encoder:impl FnMut(&T,&mut XmlOperation<'_,'_>)->Result<String>)->Result<()>{occurs(role,values.len())?;let mut discovered=Vec::new();for(index,item)in values.iter().enumerate(){let link=role_link(role,&item.name);let mut context=XmlOperation::new(self.budget,role,&item.name,&link);let text=encoder(&item.value,&mut context)?;let text=context.finish(text)?;typed_header(text.as_bytes(),role,&item.name,&link,self.budget)?;self.add(role,BinaryPart{name:item.name.clone(),content_type:item.content_type.clone(),data:text.into_bytes(),source_index:item.source_index,method:role.method},index,&mut discovered)?;}self.sources.insert(role.field.into(),discovered);Ok(())}
         /// Add opaque bytes without interpreting unknown model content.
         pub fn binaries(&mut self,role:&Role,values:&[BinaryPart])->Result<()>{occurs(role,values.len())?;let mut discovered=Vec::new();for(index,item)in values.iter().enumerate(){self.budget.consume(Resource::DecoderAllocationBytes,item.data.len(),&item.name,role.field,"")?;self.add(role,item.clone(),index,&mut discovered)?;}self.sources.insert(role.field.into(),discovered);Ok(())}
         /// Validate preserved internal closure and canonical ordering before archive publication.
@@ -268,8 +325,12 @@ R"rustpackage(        pub fn single<T>(&mut self,role:&Role,value:&Option<T>,enc
         fn select(&mut self,role:&Role)->Result<Vec<(BinaryPart,String)>>{let parents=if role.source=="/"{vec!["/".into()]}else{self.sources.get(role.source).cloned().ok_or_else(||fail(Code::MissingPart,"Role source missing","",role.field,""))?};let mut values=Vec::new();let mut discovered=Vec::new();for(index,link)in self.links.iter().enumerate(){if link.kind!=role.relationship||!parents.contains(&link.source){continue;}if link.external||role.id.is_some_and(|id|id!=link.id){return Err(fail(Code::InvalidRelationship,"Declared role relationship mismatch",&link.source,role.field,&link.id));}let name=target(&link.source,&link.target)?;let key=part_name(&name)?;let mut part=self.parts.get(&key).cloned().ok_or_else(||fail(Code::MissingPart,"Declared role part missing",&name,role.field,&link.id))?;if role.fixed&&part.method!=role.method||role.content_type.is_some_and(|expected|mime(expected).ok()!=mime(&part.content_type).ok()){return Err(fail(Code::Codec,"Declared role metadata mismatch",&name,role.field,&link.id));}if !self.used_parts.insert(key){return Err(fail(Code::Semantic,"Part selected by multiple roles",&name,role.field,&link.id));}self.used_links.insert(index);part.source_index=parents.iter().position(|source|source==&link.source).unwrap();part.data=self.archive.read(&part.name[1..],self.budget)?;discovered.push(part.name.clone());values.push((part,link.id.clone()));}occurs(role,values.len())?;for(part,link)in &values{self.budget.consume(Resource::DecoderAllocationBytes,link.len(),&part.name,role.field,link)?;self.budget.consume(Resource::DecoderAllocationBytes,std::mem::size_of::<String>(),&part.name,role.field,link)?;}self.reference_links.insert(role.field.into(),values.iter().map(|(_,link)|link.clone()).collect());self.sources.insert(role.field.into(),discovered);Ok(values)}
         /// Decode one required or optional singleton from a fresh owning candidate.
         pub fn single<T>(&mut self,role:&Role,decoder:impl Fn(&str,super::XmlLimits)->Result<T>)->Result<Option<T>>{let mut values=self.models(role,decoder)?;Ok(values.pop().map(|part|part.value))}
+        /// Decode a singleton through the selected codec before returning any owning aggregate.
+        pub fn single_with_operation<T>(&mut self,role:&Role,decoder:impl FnMut(&str,&mut XmlOperation<'_,'_>)->Result<T>)->Result<Option<T>>{let mut values=self.models_with_operation(role,decoder)?;Ok(values.pop().map(|part|part.value))}
         /// Decode all typed occurrences using root checks before callbacks and one shared ledger.
         pub fn models<T>(&mut self,role:&Role,decoder:impl Fn(&str,super::XmlLimits)->Result<T>)->Result<Vec<ModelPart<T>>>{let mut values=Vec::new();for(part,link)in self.select(role)?{let limits=self.budget.xml_limits();let text=typed(&part.data,role,&part.name,&link,self.budget)?;let value=decoder(text,limits)?;self.budget.poll()?;values.push(ModelPart{name:part.name,content_type:part.content_type,source_index:part.source_index,value});}Ok(values)}
+        /// Share native event/identity counters across every occurrence and publish only complete values.
+        pub fn models_with_operation<T>(&mut self,role:&Role,mut decoder:impl FnMut(&str,&mut XmlOperation<'_,'_>)->Result<T>)->Result<Vec<ModelPart<T>>>{let mut values=Vec::new();for(part,link)in self.select(role)?{let text=typed_header(&part.data,role,&part.name,&link,self.budget)?;let mut context=XmlOperation::new(self.budget,role,&part.name,&link);let value=decoder(text,&mut context)?;let value=context.finish(value)?;self.budget.consume(Resource::DecoderAllocationBytes,std::mem::size_of::<ModelPart<T>>(),&part.name,role.field,&link)?;values.try_reserve_exact(1).map_err(native_error)?;values.push(ModelPart{name:part.name,content_type:part.content_type,source_index:part.source_index,value});}Ok(values)}
         /// Retain declared opaque resources with checked discovered metadata.
         pub fn binaries(&mut self,role:&Role)->Result<Vec<BinaryPart>>{Ok(self.select(role)?.into_iter().map(|(part,_)|part).collect())}
         /// Retain discovered singleton names for lossless loaded-package editing.

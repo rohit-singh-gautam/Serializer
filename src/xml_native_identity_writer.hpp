@@ -24,10 +24,19 @@ struct native_identity_edge {
   xml::name name{};
   std::optional<xml::name> type{};
   std::size_t target{std::numeric_limits<std::size_t>::max()};
+  std::string member{};
+};
+struct native_identity_scalar {
+  xml::name name{};
+  std::string member{};
+  bool attribute{};
+  bool text{};
 };
 struct native_identity_node {
   std::optional<xml::identity_scope> scope{};
   std::vector<native_identity_edge> edges{};
+  std::string owner{};
+  std::vector<native_identity_scalar> scalars{};
 };
 
 // Compile only active typed transitions; recursive records use indexes rather than expanded document paths.
@@ -57,20 +66,25 @@ inline std::vector<native_identity_node> native_identity_graph(const class_node&
     const auto index = result.size(); records.emplace(&owner, index); result.emplace_back();
     const auto contract = supplied ? *supplied : bindings.bind(owner);
     result[index].scope = contract.identity;
+    result[index].owner = owner.get_full_name();
     for (const auto& field : contract.fields) {
-      if (field.attribute || field.text) { continue; }
+      const auto member = field.source->name;
+      if (field.attribute || field.text) {
+        result[index].scalars.push_back({field.qualified_name, member, field.attribute, field.text});
+        continue;
+      }
       if (field.map_binding) {
         const auto& map = *field.map_binding;
         const auto outer = wrapper(), entry = wrapper();
-        result[index].edges.push_back({map.wrapper, {}, outer});
+        result[index].edges.push_back({map.wrapper, {}, outer, member});
         result[outer].edges.push_back({map.entry, {}, entry});
         if (map.key_placement == xml_binding::map_key_placement::element) {
-          const auto key = target(map.key_type); result[entry].edges.push_back({map.key, {}, key});
+          const auto key = target(map.key_type); result[entry].edges.push_back({map.key, {}, key, "key"});
         }
-        const auto value = target(map.value_type); result[entry].edges.push_back({map.value, {}, value});
+        const auto value = target(map.value_type); result[entry].edges.push_back({map.value, {}, value, "value"});
       } else if (field.variant_binding) {
         const auto& variant = *field.variant_binding;
-        const auto outer = wrapper(); result[index].edges.push_back({variant.wrapper, {}, outer});
+        const auto outer = wrapper(); result[index].edges.push_back({variant.wrapper, {}, outer, member});
         for (const auto& alternative : variant.alternatives) {
           const auto selected = target(alternative.native_type);
           result[outer].edges.push_back({alternative.tag,
@@ -80,21 +94,181 @@ inline std::vector<native_identity_node> native_identity_graph(const class_node&
       } else {
         const auto selected = target(field.source->type_name_list.front());
         if (field.wrapper) {
-          const auto outer = wrapper(); result[index].edges.push_back({*field.wrapper, {}, outer});
+          const auto outer = wrapper(); result[index].edges.push_back({*field.wrapper, {}, outer, member});
           result[outer].edges.push_back({field.qualified_name, {}, selected});
-        } else { result[index].edges.push_back({field.qualified_name, {}, selected}); }
+        } else { result[index].edges.push_back({field.qualified_name, {}, selected, member}); }
       }
     }
     if (contract.mixed) {
+      // Mixed text belongs to the native content member even during token lookahead.
+      result[index].scalars.push_back({{}, contract.mixed->source->name, false, true});
       for (const auto& child : contract.mixed->children) {
         const auto selected = target(*child.value_type);
-        result[index].edges.push_back({child.qualified_name, {}, selected});
+        result[index].edges.push_back({child.qualified_name, {}, selected,
+            contract.mixed->source->name + '.' + child.branch});
       }
     }
     return index;
   };
   record(root, &root_contract);
   return result;
+}
+
+struct native_identity_projection {
+  std::size_t node{};
+  std::string path{};
+};
+
+// Extend a static native member path without inventing segments for XML-only wrappers.
+inline std::string native_identity_member_path(const std::string& parent, const std::string& member) {
+  return member.empty() ? parent : parent.empty() ? member : parent + '.' + member;
+}
+
+// XML-only wrappers retain the enclosing native field instead of exposing unqualified synthetic labels.
+inline std::string native_identity_diagnostic_member(const native_identity_node& node,
+    const std::string& member) {
+  return node.owner.empty() ? std::string{} : native_identity_member_path(node.owner, member);
+}
+
+// Resolve finite prepared XML selectors to native paths; recursive types are visited once per search.
+inline std::vector<native_identity_projection> native_identity_projections(
+    const std::vector<native_identity_node>& graph, std::size_t owner,
+    const xml::identity_path& selector, const std::string& prefix) {
+  std::vector<native_identity_projection> current{{owner, prefix}};
+  if (selector.descendants) {
+    std::vector<bool> visited(graph.size());
+    if (owner < graph.size()) { visited[owner] = true; }
+    for (std::size_t index{}; index < current.size(); ++index) {
+      const auto value = current[index];
+      if (value.node >= graph.size()) { continue; }
+      for (const auto& edge : graph[value.node].edges) {
+        if (edge.target >= graph.size() || visited[edge.target]) { continue; }
+        visited[edge.target] = true;
+        current.push_back({edge.target, native_identity_member_path(value.path, edge.member)});
+      }
+    }
+  }
+  for (const auto& step : selector.steps) {
+    std::vector<native_identity_projection> next;
+    for (const auto& value : current) {
+      if (value.node >= graph.size()) { continue; }
+      for (const auto& edge : graph[value.node].edges) {
+        if (edge.name == step) {
+          next.push_back({edge.target, native_identity_member_path(value.path, edge.member)});
+        }
+      }
+    }
+    current = std::move(next);
+  }
+  return current;
+}
+
+// Keep diagnostic identity fields in native spelling even when XSD names differ from schema members.
+inline std::string native_identity_field_path(const std::vector<native_identity_node>& graph,
+    std::size_t owner, const xml::identity_constraint& constraint, const xml::identity_field& field) {
+  const auto selected = native_identity_projections(graph, owner, constraint.selector, graph[owner].owner);
+  for (const auto& source : selected) {
+    for (const auto& value : native_identity_projections(graph, source.node, field.path, source.path)) {
+      if (value.node >= graph.size()) {
+        if (!field.path.attribute) { return value.path; }
+        continue;
+      }
+      for (const auto& scalar : graph[value.node].scalars) {
+        if ((field.path.attribute && scalar.attribute && scalar.name == *field.path.attribute) ||
+            (!field.path.attribute && scalar.text)) {
+          return native_identity_member_path(value.path, scalar.member);
+        }
+      }
+      if (!field.path.attribute) { return value.path; }
+    }
+  }
+  // An ambiguous or XML-only selector still identifies its exact native constraint owner.
+  return native_identity_member_path(graph[owner].owner, constraint.id.local);
+}
+
+// Emit additive Rust diagnostic tables without changing existing identity metadata struct layouts.
+inline std::string rust_identity_diagnostics(const std::vector<native_identity_node>& graph,
+    const std::function<std::string(std::string_view)>& quote) {
+  std::string result{"&["};
+  for (std::size_t index{}; index < graph.size(); ++index) {
+    const auto& node = graph[index];
+    result += "SrlXmlIdentityDiagnosticNode{owner:" + quote(node.owner) + ",constraints:&[";
+    if (node.scope) {
+      for (const auto& constraint : node.scope->constraints) {
+        result += "SrlXmlIdentityDiagnosticConstraint{name:" +
+            quote('{' + constraint.id.namespace_uri + '}' + constraint.id.local) + ",fields:&[";
+        for (const auto& field : constraint.fields) {
+          result += quote(native_identity_field_path(graph, index, constraint, field)) + ',';
+        }
+        result += "]},";
+      }
+    }
+    result += "],edges:&[";
+    for (const auto& edge : node.edges) {
+      result += quote(native_identity_diagnostic_member(node, edge.member)) + ',';
+    }
+    result += "],scalars:&[";
+    for (const auto& scalar : node.scalars) {
+      result += "SrlXmlIdentityDiagnosticScalar{uri:" + quote(scalar.name.namespace_uri) +
+          ",local:" + quote(scalar.name.local) + ",member:" +
+          quote(native_identity_diagnostic_member(node, scalar.member)) +
+          ",attribute:" + (scalar.attribute ? "true" : "false") +
+          ",text:" + (scalar.text ? "true" : "false") + "},";
+    }
+    result += "]},";
+  }
+  return result + ']';
+}
+
+// Emit separate C diagnostic arrays, preserving positional initializers of existing identity tables.
+inline std::string c_identity_diagnostic_declaration(const std::string& identifier,
+    const std::vector<native_identity_node>& graph,
+    const std::function<std::string(std::string_view)>& quote) {
+  std::string result;
+  std::string nodes;
+  for (std::size_t index{}; index < graph.size(); ++index) {
+    const auto& node = graph[index];
+    const auto prefix = identifier + "_diagnostic_" + std::to_string(index);
+    std::string constraints;
+    if (node.scope) {
+      for (std::size_t item{}; item < node.scope->constraints.size(); ++item) {
+        const auto& constraint = node.scope->constraints[item];
+        const auto fields = prefix + "_fields_" + std::to_string(item);
+        result += "static const char* const " + fields + "[]={";
+        for (const auto& field : constraint.fields) {
+          result += quote(native_identity_field_path(graph, index, constraint, field)) + ',';
+        }
+        result += "};\n";
+        constraints += '{' + quote('{' + constraint.id.namespace_uri + '}' + constraint.id.local) +
+            ',' + fields + ',' + std::to_string(constraint.fields.size()) + "u},";
+      }
+    }
+    if (!constraints.empty()) {
+      result += "static const srl_xml_identity_diagnostic_constraint " + prefix + "_constraints[]={" + constraints + "};\n";
+    }
+    if (!node.edges.empty()) {
+      result += "static const char* const " + prefix + "_edges[]={";
+      for (const auto& edge : node.edges) {
+        result += quote(native_identity_diagnostic_member(node, edge.member)) + ',';
+      }
+      result += "};\n";
+    }
+    if (!node.scalars.empty()) {
+      result += "static const srl_xml_identity_diagnostic_scalar " + prefix + "_scalars[]={";
+      for (const auto& scalar : node.scalars) {
+        result += '{' + quote(scalar.name.namespace_uri) + ',' + quote(scalar.name.local) + ',' +
+            quote(native_identity_diagnostic_member(node, scalar.member)) + ',' +
+            (scalar.attribute ? "true" : "false") + ',' +
+            (scalar.text ? "true" : "false") + "},";
+      }
+      result += "};\n";
+    }
+    nodes += '{' + quote(node.owner) + ',' + (constraints.empty() ? "NULL" : prefix + "_constraints") +
+        ',' + (node.edges.empty() ? "NULL" : prefix + "_edges") + ',' +
+        (node.scalars.empty() ? "NULL" : prefix + "_scalars") + ',' +
+        std::to_string(node.scalars.size()) + "u},";
+  }
+  return result + "static const srl_xml_identity_diagnostic_node " + identifier + "_diagnostics[]={" + nodes + "};\n";
 }
 
 // Derive all native policy defaults from the immutable shared identity contract.

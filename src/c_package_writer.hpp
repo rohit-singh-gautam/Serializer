@@ -49,9 +49,11 @@ inline std::string c(const package_node& package, const std::string& name,
   std::string output;
   const auto line = [&](const std::string& text) { output += text + '\n'; };
   const auto api = [&](std::string_view suffix) { return helper + "_" + std::string{suffix}; };
+  const auto selected_api = helper + '_' + name;
   const auto role = [&](std::size_t index) { return "&" + name + "_profiles[" + std::to_string(index) + "]"; };
   const auto optional = [&](const auto& value) { return value ? literal(*value) : "NULL"; };
   line("/* Serializer package facade: " + package.get_full_name() + " " + name + " */");
+  line("/* Generated C selected-codec prefix: " + selected_api + " */");
   for (const auto* part : parts) {
     if (!part->value_type || singleton(*part)) { continue; }
     const auto member = render_field(part->name);
@@ -166,14 +168,14 @@ inline std::string c(const package_node& package, const std::string& name,
   }
   line("  " + api("key_finish") + "(&keys,budget);goto done;done:" + api("key_index_free") + "(&keys);return budget->status;\n}");
   line("/* Assemble a complete archive privately; failed encoding retains the initialized output buffer. */");
-  line("static inline int " + name + "_encode(const " + name + "_input* value,srl_buffer* result," + api("budget") + "* budget){ " + api("composer") + " composer={0};srl_buffer bytes={0};srl_limits limits=" + api("native_limits") + "(budget);");
+  line("static inline int " + selected_api + "_encode_with_codecs(const " + name + "_input* value,srl_buffer* result," + api("budget") + "* budget,const " + api("selected_codec") + "* codecs,size_t codecs_size){ " + api("composer") + " composer={0};srl_buffer bytes={0};srl_limits limits=" + api("native_limits") + "(budget);");
   line("  if(!value||!result){return " + api("fail") + "(budget," + api("invalid_options") + ",NULL,NULL,NULL);}");
   for (const auto* part : parts) {
     if (singleton(*part)) { continue; }
     const auto member = render_field(part->name);
     line("  if(value->" + member + "_size&&!value->" + member + "){return " + api("fail") + "(budget," + api("invalid_options") + ",NULL," + literal(part->name) + ",NULL);}");
   }
-  line("  if(" + api("profiles") + "(" + name + "_profiles,sizeof(" + name + "_profiles)/sizeof(" + name + "_profiles[0]),budget)||" + name + "_check_references(value,budget)||" + api("composer_init") + "(&composer," + std::to_string(parts.size()) + ",budget)){goto done;}");
+  line("  if(" + api("validate_codecs") + "(codecs,codecs_size," + name + "_profiles,sizeof(" + name + "_profiles)/sizeof(" + name + "_profiles[0]),budget)||" + api("profiles") + "(" + name + "_profiles,sizeof(" + name + "_profiles)/sizeof(" + name + "_profiles[0]),budget)||" + name + "_check_references(value,budget)||" + api("composer_init") + "(&composer," + std::to_string(parts.size()) + ",budget)){goto done;}");
   for (std::size_t index{}; index < parts.size(); ++index) {
     const auto* part = parts[index];
     const auto member = render_field(part->name), selected = role(index);
@@ -184,11 +186,13 @@ inline std::string c(const package_node& package, const std::string& name,
     line("  if(" + api("occurs") + "(" + selected + "," + count + ",budget)){goto done;}");
     if (singleton(*part)) {
       line("  if(value->" + member + "){const char* path=value->" + member + "_path?value->" + member + "_path:" + literal(*part->part_name) + ";");
-      line("    if(" + api("native") + "(budget," + render_type(*part->value_type) + "_encode_xml(value->" + member + ",&bytes,&limits" + (xml.runtime_xsd ? ",NULL" : "") + "),path," + literal(part->name) + ")||" + api("typed") + "(" + selected + ",bytes.data,bytes.size,path,NULL,budget)||" + api("compose") + "(&composer," + selected + "," + std::to_string(index) + ",path,NULL,0,&bytes)){goto done;}");
+      line("    const char* link=value->" + member + "_link?value->" + member + "_link:" + literal(part->relationship_id.value_or(part->name)) + ";");
+      line("    if(" + api("encode_selected") + "(codecs,codecs_size," + selected + ",srl_xml_operation_codec_" + render_type(*part->value_type) + "(),value->" + member + ",&bytes,&limits,path,link,budget)||" + api("typed") + "(" + selected + ",bytes.data,bytes.size,path,link,budget)||" + api("compose") + "(&composer," + selected + "," + std::to_string(index) + ",path,NULL,0,&bytes)){goto done;}");
     } else {
       line("  for(size_t index=0;index<value->" + member + "_size;++index){const char* path=value->" + member + "[index].name;");
       if (part->value_type) {
-        line("    if(" + api("native") + "(budget," + render_type(*part->value_type) + "_encode_xml(&value->" + member + "[index].value,&bytes,&limits" + (xml.runtime_xsd ? ",NULL" : "") + "),path," + literal(part->name) + ")||" + api("typed") + "(" + selected + ",bytes.data,bytes.size,path,NULL,budget)){goto done;}");
+        line("    const char* link=value->" + member + "[index].link?value->" + member + "[index].link:" + literal(part->relationship_id.value_or(part->name)) + ";");
+        line("    if(" + api("encode_selected") + "(codecs,codecs_size," + selected + ",srl_xml_operation_codec_" + render_type(*part->value_type) + "(),&value->" + member + "[index].value,&bytes,&limits,path,link,budget)||" + api("typed") + "(" + selected + ",bytes.data,bytes.size,path,link,budget)){goto done;}");
       } else {
         line("    if(" + api("append") + "(budget,&bytes,value->" + member + "[index].bytes.data,value->" + member + "[index].bytes.size,budget->max_part_bytes)){goto done;}");
       }
@@ -197,9 +201,11 @@ inline std::string c(const package_node& package, const std::string& name,
     line("  }");
   }
   line("  " + api("compose_finish") + "(&composer,value->extensions,result);goto done;done:srl_buffer_free(&bytes);" + api("composer_free") + "(&composer);(void)limits;return budget->status;\n}");
+  line("/* Preserve the original generated encoder with default operation-aware native codecs. */");
+  line("static inline int " + name + "_encode(const " + name + "_input* value,srl_buffer* result," + api("budget") + "* budget){return " + selected_api + "_encode_with_codecs(value,result,budget,NULL,0);}");
   line("/* Decode into a private aggregate; failure leaves the initialized destination unchanged. */");
-  line("static inline int " + name + "_load(" + name + "_value* result,const uint8_t* bytes,size_t size," + api("policy") + " policy," + api("budget") + "* budget){ " + name + "_value fresh={0};" + api("loader") + " loader={0};" + api("selection") + "* selected=NULL;size_t count=0;srl_buffer payload={0};srl_limits limits=" + api("native_limits") + "(budget);");
-  line("  if(!result){return " + api("fail") + "(budget," + api("invalid_options") + ",NULL,NULL,NULL);}if(" + api("profiles") + "(" + name + "_profiles,sizeof(" + name + "_profiles)/sizeof(" + name + "_profiles[0]),budget)||" + api("loader_init") + "(&loader,bytes,size," + std::to_string(parts.size()) + ",budget)){goto done;}");
+  line("static inline int " + selected_api + "_load_with_codecs(" + name + "_value* result,const uint8_t* bytes,size_t size," + api("policy") + " policy," + api("budget") + "* budget,const " + api("selected_codec") + "* codecs,size_t codecs_size){ " + name + "_value fresh={0};" + api("loader") + " loader={0};" + api("selection") + "* selected=NULL;size_t count=0;srl_buffer payload={0};srl_limits limits=" + api("native_limits") + "(budget);");
+  line("  if(!result){return " + api("fail") + "(budget," + api("invalid_options") + ",NULL,NULL,NULL);}if(" + api("validate_codecs") + "(codecs,codecs_size," + name + "_profiles,sizeof(" + name + "_profiles)/sizeof(" + name + "_profiles[0]),budget)||" + api("profiles") + "(" + name + "_profiles,sizeof(" + name + "_profiles)/sizeof(" + name + "_profiles[0]),budget)||" + api("loader_init") + "(&loader,bytes,size," + std::to_string(parts.size()) + ",budget)){goto done;}");
   for (std::size_t index{}; index < parts.size(); ++index) {
     const auto* part = parts[index];
     const auto member = render_field(part->name), metadata = role(index);
@@ -214,11 +220,11 @@ inline std::string c(const package_node& package, const std::string& name,
       if (singleton(*part)) {
         line("    if(" + api("consume") + "(budget," + api("allocation_bytes") + ",sizeof(*fresh." + member + "),part->value.name," + literal(part->name) + ",link->id)){goto done;}fresh." + member + "=(" + native + "*)calloc(1,sizeof(*fresh." + member + "));if(!fresh." + member + "){ " + api("fail") + "(budget," + api("allocation") + ",part->value.name," + literal(part->name) + ",link->id);goto done;}");
       }
-      line("    if(" + api("native") + "(budget," + native + "_init(" + value + "),part->value.name," + literal(part->name) + ")||" + api("typed") + "(" + metadata + ",payload.data,payload.size,part->value.name,link->id,budget)||" + api("native") + "(budget," + native + "_srl_xml_decode_package(" + value + ",payload.data,payload.size,&limits),part->value.name," + literal(part->name) + ")){goto done;}");
+      line("    if(" + api("native_at") + "(budget," + native + "_init(" + value + "),part->value.name," + literal(part->name) + ",link->id)||" + api("typed") + "(" + metadata + ",payload.data,payload.size,part->value.name,link->id,budget)||" + api("decode_selected") + "(codecs,codecs_size," + metadata + ",srl_xml_operation_codec_" + native + "()," + value + ",payload.data,payload.size,&limits,part->value.name,link->id,budget)){goto done;}");
       if (singleton(*part)) {
-        line("    fresh." + member + "_path=" + api("string") + "(budget,part->value.name,strlen(part->value.name));fresh." + member + "_link=" + api("string") + "(budget,link->id,strlen(link->id));if(!fresh." + member + "_path||!fresh." + member + "_link){goto done;}");
+        line("    fresh." + member + "_path=" + api("string_at") + "(budget,part->value.name,strlen(part->value.name),part->value.name," + literal(part->name) + ",link->id);fresh." + member + "_link=" + api("string_at") + "(budget,link->id,strlen(link->id),part->value.name," + literal(part->name) + ",link->id);if(!fresh." + member + "_path||!fresh." + member + "_link){goto done;}");
       } else {
-        line("    fresh." + member + "[index].name=" + api("string") + "(budget,part->value.name,strlen(part->value.name));fresh." + member + "[index].content_type=" + api("string") + "(budget,part->value.content_type,strlen(part->value.content_type));fresh." + member + "[index].link=" + api("string") + "(budget,link->id,strlen(link->id));fresh." + member + "[index].source_index=selected[index].source_index;if(!fresh." + member + "[index].name||!fresh." + member + "[index].content_type||!fresh." + member + "[index].link){goto done;}");
+        line("    fresh." + member + "[index].name=" + api("string_at") + "(budget,part->value.name,strlen(part->value.name),part->value.name," + literal(part->name) + ",link->id);fresh." + member + "[index].content_type=" + api("string_at") + "(budget,part->value.content_type,strlen(part->value.content_type),part->value.name," + literal(part->name) + ",link->id);fresh." + member + "[index].link=" + api("string_at") + "(budget,link->id,strlen(link->id),part->value.name," + literal(part->name) + ",link->id);fresh." + member + "[index].source_index=selected[index].source_index;if(!fresh." + member + "[index].name||!fresh." + member + "[index].content_type||!fresh." + member + "[index].link){goto done;}");
       }
     } else {
       line("    fresh." + member + "[index].name=" + api("string") + "(budget,part->value.name,strlen(part->value.name));fresh." + member + "[index].content_type=" + api("string") + "(budget,part->value.content_type,strlen(part->value.content_type));fresh." + member + "[index].source_index=selected[index].source_index;fresh." + member + "[index].method=part->value.method;fresh." + member + "[index].bytes=payload;memset(&payload,0,sizeof(payload));if(!fresh." + member + "[index].name||!fresh." + member + "[index].content_type){goto done;}(void)link;");
@@ -226,12 +232,20 @@ inline std::string c(const package_node& package, const std::string& name,
     line("    srl_buffer_free(&payload);\n  }free(selected);selected=NULL;count=0;");
   }
   line("  if(" + api("load_finish") + "(&loader,policy,&fresh.extensions)){goto done;} {const " + name + "_input input=" + name + "_as_input(&fresh);if(" + name + "_check_references(&input,budget)){goto done;}} " + name + "_free(result);*result=fresh;memset(&fresh,0,sizeof(fresh));goto done;done:srl_buffer_free(&payload);free(selected);" + api("loader_free") + "(&loader);" + name + "_free(&fresh);(void)limits;return budget->status;\n}");
+  line("/* Preserve the original generated loader with default operation-aware native codecs. */");
+  line("static inline int " + name + "_load(" + name + "_value* result,const uint8_t* bytes,size_t size," + api("policy") + " policy," + api("budget") + "* budget){return " + selected_api + "_load_with_codecs(result,bytes,size,policy,budget,NULL,0);}");
   line("/* Bounded private memory spooling preserves source ownership and original callback statuses. */");
   line("static inline int " + name + "_read(" + name + "_value* result," + api("source") + " source,void* context," + api("policy") + " policy," + api("budget") + "* budget){srl_buffer bytes={0};int status=" + api("read_source") + "(source,context,&bytes,budget);if(!status){status=" + name + "_load(result,bytes.data,bytes.size,policy,budget);}srl_buffer_free(&bytes);return status;}");
   line("/* Prepare a complete archive before borrowing a sink; a transport failure can retain a prefix. */");
   line("static inline int " + name + "_write(const " + name + "_input* value," + api("sink") + " sink,void* context," + api("budget") + "* budget){srl_buffer bytes={0};int status=" + name + "_encode(value,&bytes,budget);if(!status){status=" + api("write_sink") + "(sink,context,bytes.data,bytes.size,budget);}srl_buffer_free(&bytes);return status;}");
   line("/* Validate the complete generated candidate before atomically replacing a destination path. */");
   line("static inline int " + name + "_save(const char* path,const " + name + "_input* value," + api("budget") + "* budget," + api("fault") + " fault,void* context){srl_buffer bytes={0};" + name + "_value candidate={0};int status=" + name + "_encode(value,&bytes,budget);if(!status){status=" + name + "_load(&candidate,bytes.data,bytes.size," + api("preserve_policy") + "(),budget);}if(!status){status=" + api("save_file") + "(path,bytes.data,bytes.size,budget,fault,context);}" + name + "_free(&candidate);srl_buffer_free(&bytes);return status;}");
+  line("/* Read with caller-selected synchronous codecs and the same cumulative source/XML ledger. */");
+  line("static inline int " + selected_api + "_read_with_codecs(" + name + "_value* result," + api("source") + " source,void* context," + api("policy") + " policy," + api("budget") + "* budget,const " + api("selected_codec") + "* codecs,size_t codecs_size){srl_buffer bytes={0};int status=" + api("read_source") + "(source,context,&bytes,budget);if(!status){status=" + selected_api + "_load_with_codecs(result,bytes.data,bytes.size,policy,budget,codecs,codecs_size);}srl_buffer_free(&bytes);return status;}");
+  line("/* Prepare all selected codecs before publishing any bytes to the borrowed sink. */");
+  line("static inline int " + selected_api + "_write_with_codecs(const " + name + "_input* value," + api("sink") + " sink,void* context," + api("budget") + "* budget,const " + api("selected_codec") + "* codecs,size_t codecs_size){srl_buffer bytes={0};int status=" + selected_api + "_encode_with_codecs(value,&bytes,budget,codecs,codecs_size);if(!status){status=" + api("write_sink") + "(sink,context,bytes.data,bytes.size,budget);}srl_buffer_free(&bytes);return status;}");
+  line("/* Run selected encode/decode validation before same-directory atomic file publication. */");
+  line("static inline int " + selected_api + "_save_with_codecs(const char* path,const " + name + "_input* value," + api("budget") + "* budget," + api("fault") + " fault,void* context,const " + api("selected_codec") + "* codecs,size_t codecs_size){srl_buffer bytes={0};" + name + "_value candidate={0};int status=" + selected_api + "_encode_with_codecs(value,&bytes,budget,codecs,codecs_size);if(!status){status=" + selected_api + "_load_with_codecs(&candidate,bytes.data,bytes.size," + api("preserve_policy") + "(),budget,codecs,codecs_size);}if(!status){status=" + api("save_file") + "(path,bytes.data,bytes.size,budget,fault,context);}" + name + "_free(&candidate);srl_buffer_free(&bytes);return status;}");
   return output;
 }
 } // namespace rohit::serializer::writer::package_codegen

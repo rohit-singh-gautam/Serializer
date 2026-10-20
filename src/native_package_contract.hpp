@@ -24,11 +24,6 @@ inline void require_native_package_graph(const package_part_declaration& part,
           " typed package roles require ordinary owning XML records: " + part.name};
     }
     const auto contract = bindings.bind(owner);
-    if (contract.identity && !contract.identity->constraints.empty()) {
-      throw std::invalid_argument{std::string{language} +
-          " package XML identity graphs require shared native codec operation hooks: " +
-          part.name};
-    }
     if (contract.extensions || std::any_of(contract.fields.begin(), contract.fields.end(),
             [](const auto& field) { return xml_portable::namespace_dependent(field); })) {
       throw std::invalid_argument{std::string{language} +

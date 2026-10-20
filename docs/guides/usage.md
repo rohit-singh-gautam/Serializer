@@ -1,5 +1,12 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.18.0** adds compatible C/Rust XML operation APIs and shared
+native identity admission in generated packages. Caller-selected Go, JS/TS and
+external-module Kotlin codecs can retain the same shared package context.
+Regenerate affected outputs and follow the backend package guides linked from
+the [package contract](../serialization/package_application_contracts.md).
+Schema language **1.21.0**, native IDs and serialized formats are unchanged.
+
 Compiler/runtime **2.17.1** fixes the first synchronization of C++ clients joining
 documents with typed managed references. Rebuild clients against matching runtime
 headers and follow the [local collaboration contract](../managed/local_collaboration.md).

@@ -79,6 +79,8 @@ class c_emitter {
   std::set<const class_node*> defining_classes{};
   std::size_t next_behavior_call{};
   std::string compression_prefix_{};
+  bool xml_operation_initializer_{};
+  std::size_t xml_operation_inventory_index_{};
   // Reserve generated global symbols before emitting C's shared typedef/function namespace.
   std::set<std::string> validate_symbols() const {
     behavior::require_unique_free_names(model.nodes, "c", [&](const auto& node) { return name(&node); });
@@ -317,13 +319,18 @@ class c_emitter {
     if (value.is_optional() || value.is_sequence() || value.is_associative()) {
       line("memset(&" + dst + ", 0, sizeof(" + dst + "));");
     } else if (value.is_digest()) {
+      if (xml_operation_initializer_) {
+        line("if(" + status + "==srl_ok&&!srl_xml_operation_charge(operation,srl_xml_operation_allocation," + std::to_string(value.digest_extent) + "u)){" + status + "=srl_invalid;}");
+      }
       line("if (" + status + " == srl_ok) { " + status + " = srl_digest_init(&" + dst + ", " + std::to_string(value.digest_extent) + "); }");
     } else if (value.type == object_type::class_type) {
-      line("if (" + status + " == srl_ok) { " + status + " = " + type(value) + "_init(&" + dst +
-           "); }");
+      line("if (" + status + " == srl_ok) { " + status + " = " +
+           (xml_operation_initializer_ ? "srl_xml_operation_init_" + type(value) : type(value) + "_init") + "(&" + dst +
+           (xml_operation_initializer_ ? ",operation" : "") + "); }");
     } else if ((value.name == "string" || value.name.starts_with("version"))) {
       if (!literal_value.empty() && literal_value != "\"\"") {
-        line("if (" + status + " == srl_ok) { " + status + " = srl_string_set(&" + dst + ", " +
+        line("if (" + status + " == srl_ok) { " + status + " = " +
+             std::string{xml_operation_initializer_ ? "srl_xml_operation_string_set(operation," : "srl_string_set("} + '&' + dst + ", " +
              literal_value + ", sizeof(" + literal_value + ")-1); }");
       }
     } else {
@@ -1218,6 +1225,9 @@ class c_emitter {
     if (value.kind == value_initializer::kind_type::fixed_array) {
       if (!initialized) {
         const auto count = std::to_string(value.elements.size());
+        if (xml_operation_initializer_) {
+          line("if(" + status + "==srl_ok&&(" + count + "u>SIZE_MAX/sizeof(" + destination + ".data[0])||!srl_xml_operation_charge(operation,srl_xml_operation_allocation," + count + "u*sizeof(" + destination + ".data[0])))){" + status + "=srl_invalid;}");
+        }
         line("if (" + status + " == srl_ok) { " + destination + ".data = (" + type(value.type) +
             "*)calloc(" + count + ", sizeof(" + destination + ".data[0])); if (!" + destination +
             ".data) { " + status + " = srl_allocation; } else { " + destination + ".capacity = " + count + "; } }");
@@ -1736,8 +1746,113 @@ class c_emitter {
     close();
   }
 
+  // Admit retained ownership returned by opaque factories without inspecting their transient implementation.
+  void xml_operation_inventory_value(const type_name& value, const std::string& expression) {
+    if (value.is_optional()) {
+      open("if(" + expression + ".has_value)");
+      xml_operation_inventory_value(value.arguments.front(), expression + ".value"); close();
+    } else if (value.is_sequence() || value.is_associative()) {
+      const auto index = "srl_xml_item_" + std::to_string(xml_operation_inventory_index_++);
+      open("");
+      line("const size_t count=" + expression + ".capacity>" + expression + ".size?" + expression + ".capacity:" + expression + ".size;");
+      line("if(count>SIZE_MAX/sizeof(" + expression + ".data[0])){return srl_xml_operation_fail(operation,srl_limit);}");
+      line("if(!srl_xml_operation_charge(operation,srl_xml_operation_allocation,count*sizeof(" + expression + ".data[0]))){return srl_invalid;}");
+      line("if(" + expression + ".size&&!" + expression + ".data){return srl_xml_operation_fail(operation,srl_invalid);}");
+      open("for(size_t " + index + "=0;" + index + '<' + expression + ".size;++" + index + ')');
+      line("if(!srl_xml_operation_charge(operation,srl_xml_operation_work,1u)){return srl_invalid;}");
+      if (value.is_associative()) {
+        xml_operation_inventory_value(value.arguments.front(), expression + ".data[" + index + "].key");
+        xml_operation_inventory_value(value.arguments.back(), expression + ".data[" + index + "].value");
+      } else { xml_operation_inventory_value(value.arguments.front(), expression + ".data[" + index + ']'); }
+      close(); close();
+    } else if (value.is_digest()) {
+      line("if(" + expression + ".data&&!srl_xml_operation_charge(operation,srl_xml_operation_allocation," + expression + ".capacity>" + expression + ".size?" + expression + ".capacity:" + expression + ".size)){return srl_invalid;}");
+    } else if (value.name == "string" || value.name.starts_with("version")) {
+      line("if(" + expression + ".size==SIZE_MAX){return srl_xml_operation_fail(operation,srl_limit);}");
+      line("if(" + expression + ".data&&!srl_xml_operation_charge(operation,srl_xml_operation_allocation," + expression + ".size+1u)){return srl_invalid;}");
+    } else if (value.type == object_type::class_type) {
+      line("{const srl_status retained=srl_xml_operation_inventory_" + type(value) + "(&" + expression + ",operation);if(retained!=srl_ok){return retained;}}");
+    }
+  }
+  // Emit independent default initialization and retained-ownership callbacks without altering native init APIs.
+  void xml_operation_initializer(const class_node& value, bool opaque_reference = false) {
+    if (!model.xml.enabled) { return; }
+    const auto n = name(&value);
+    line("/* Admit inspectable retained factory ownership; opaque transient allocations remain caller-owned. */");
+    open("static inline srl_status srl_xml_operation_inventory_" + n + "(const " + n + "* value,srl_xml_operation* operation)");
+    line("if(!operation){return srl_ok;}if(!value){return srl_xml_operation_fail(operation,srl_invalid);}if(!srl_xml_operation_check(operation)){return srl_invalid;}(void)value;");
+    if (!opaque_reference) {
+      for (const auto& parent : value.parents) {
+        const auto index = static_cast<std::size_t>(&parent - value.parents.data());
+        line("{const srl_status retained=srl_xml_operation_inventory_" + name(parent.parent_class) + "(&value->base" + std::to_string(index) + ",operation);if(retained!=srl_ok){return retained;}}");
+      }
+      for (const auto& item : value.member_list) {
+        if (item.wire_only) { continue; }
+        line("srl_xml_operation_select(operation," + quote(value.get_full_name() + '.' + item.name) + ");");
+        const auto expression = "value->" + field(item.name);
+        if (item.modifier == member::modifier_type::variant) {
+          for (const auto& alternative : item.type_name_list) { xml_operation_inventory_value(alternative, expression + '_' + field(alternative.enum_name)); }
+        } else if (item.modifier == member::modifier_type::none) { xml_operation_inventory_value(item.type_name_list.front(), expression); }
+        else {
+          const auto index = "srl_xml_item_" + std::to_string(xml_operation_inventory_index_++);
+          open("");
+          line("const size_t count=" + expression + ".capacity>" + expression + ".size?" + expression + ".capacity:" + expression + ".size;");
+          line("if(count>SIZE_MAX/sizeof(" + expression + ".data[0])){return srl_xml_operation_fail(operation,srl_limit);}");
+          line("if(!srl_xml_operation_charge(operation,srl_xml_operation_allocation,count*sizeof(" + expression + ".data[0]))){return srl_invalid;}");
+          line("if(" + expression + ".size&&!" + expression + ".data){return srl_xml_operation_fail(operation,srl_invalid);}");
+          open("for(size_t " + index + "=0;" + index + '<' + expression + ".size;++" + index + ')');
+          line("if(!srl_xml_operation_charge(operation,srl_xml_operation_work,1u)){return srl_invalid;}");
+          const auto element = expression + ".data[" + index + ']';
+          if (item.modifier == member::modifier_type::map) {
+            xml_operation_inventory_value(map_key(item), element + ".key");
+            xml_operation_inventory_value(item.type_name_list.front(), element + ".value");
+          } else { xml_operation_inventory_value(item.type_name_list.front(), element); }
+          close(); close();
+        }
+      }
+    }
+    line("return srl_ok;"); close();
+    line("/* Initialize private XML candidates with shared admission before each compiler-owned allocation. */");
+    open("static inline srl_status srl_xml_operation_init_" + n + '(' + n + "* value,srl_xml_operation* operation)");
+    line("if(!operation){return " + n + "_init(value);}if(!value){return srl_xml_operation_fail(operation,srl_invalid);}memset(value,0,sizeof(*value));srl_status status=srl_ok;");
+    line("if(!srl_xml_operation_charge(operation,srl_xml_operation_work,1u)){return srl_invalid;}");
+    if (opaque_reference) {
+      line("status=" + n + "_init(value);");
+    } else {
+      xml_operation_initializer_ = true;
+      for (std::size_t index{}; index < value.parents.size(); ++index) {
+        line("if(status==srl_ok){status=srl_xml_operation_init_" + name(value.parents[index].parent_class) + "(&value->base" + std::to_string(index) + ",operation);}");
+      }
+      for (const auto& item : value.member_list) {
+        if (item.wire_only) { continue; }
+        line("srl_xml_operation_select(operation," + quote(value.get_full_name() + '.' + item.name) + ");");
+        const auto destination = "value->" + field(item.name);
+        if (item.modifier == member::modifier_type::variant) {
+          for (const auto& alternative : item.type_name_list) { init_value(alternative, destination + '_' + field(alternative.enum_name), {}, "status"); }
+        } else if (item.modifier == member::modifier_type::none) {
+          if (item.initializer) { initialize_default(*item.initializer, destination, "status"); }
+          else { init_value(item.type_name_list.front(), destination, literal(item), "status"); }
+          if (!item.default_factory.empty()) {
+            line("if(status==srl_ok&&!srl_xml_operation_charge(operation,srl_xml_operation_work,1u)){status=srl_invalid;}");
+            line("if(status==srl_ok){status=" + type(item.type_name_list.front()) + '_' + field(item.default_factory) + "(&" + destination + ");}");
+            line("if(status==srl_ok){status=srl_xml_operation_inventory_" + type(item.type_name_list.front()) + "(&" + destination + ",operation);}");
+          }
+        } else if (item.fixed_extent != 0U) {
+          if (item.initializer) { initialize_default(*item.initializer, destination, "status"); continue; }
+          const auto count = std::to_string(item.fixed_extent);
+          line("if(status==srl_ok&&(" + count + "u>SIZE_MAX/sizeof(" + destination + ".data[0])||!srl_xml_operation_charge(operation,srl_xml_operation_allocation," + count + "u*sizeof(" + destination + ".data[0])))){status=srl_invalid;}");
+          line("if(status==srl_ok){" + destination + ".data=(" + type(item.type_name_list.front()) + "*)calloc(" + count + "u,sizeof(" + destination + ".data[0]));if(!" + destination + ".data){status=srl_allocation;}else{" + destination + ".capacity=" + count + "u;}}");
+          open("for(size_t index=0;status==srl_ok&&index<" + count + "u;++index)");
+          line("++" + destination + ".size;"); init_value(item.type_name_list.front(), destination + ".data[index]", {}, "status"); close();
+        }
+      }
+      xml_operation_initializer_ = false;
+    }
+    line("if(status==srl_ok&&!srl_xml_operation_check(operation)){status=srl_invalid;}if(status!=srl_ok){" + n + "_free(value);}return srl_xml_operation_fail(operation,status);"); close();
+  }
+  // Emit ownership, codecs and optional additive XML initialization for one native record.
   void object(const class_node& value) {
-    if (reference_support::native_value_reference(value)) { value_reference_object(value); return; }
+    if (reference_support::native_value_reference(value)) { value_reference_object(value); xml_operation_initializer(value,true); return; }
     const auto n = name(&value);
     behaviors(value);
     for (const auto& f : value.member_list) {
@@ -1821,6 +1936,7 @@ class c_emitter {
     }
     line("if (status != srl_ok) { " + n + "_free(value); } return status;");
     close();
+    xml_operation_initializer(value);
     constructions(value);
     output += conversion::methods(value, n, "c",
         [&](const auto& item) { return type(item); },
@@ -2111,6 +2227,11 @@ public:
                     "_fields"} {
     output += runtime;
     output += "\n#endif /* SRL_NATIVE_RUNTIME_INCLUDED */\n";
+    if (model.xml.enabled) {
+      output +=
+#include "xml_c_operation_runtime.inc"
+          ;
+    }
     if (std::any_of(model.nodes.begin(), model.nodes.end(), [](const auto* node) {
           return node->type == object_type::class_type && static_cast<const class_node&>(*node).reference.has_value();
         })) {
@@ -2248,6 +2369,10 @@ public:
       const auto n = name(node);
       line("/* Lifecycle and internal codec declarations allow recursive collection fields. */");
       line("static inline srl_status " + n + "_init(" + n + "* value);");
+      if (model.xml.enabled) {
+        line("static inline srl_status srl_xml_operation_init_" + n + '(' + n + "*,srl_xml_operation*);");
+        line("static inline srl_status srl_xml_operation_inventory_" + n + "(const " + n + "*,srl_xml_operation*);");
+      }
       line("static inline void " + n + "_free(" + n + "* value);");
       line("static inline void " + n + "_srl_read(srl_reader* in, " + n + "* value);");
       line("static inline void " + n + "_srl_write(srl_writer* out, const " + n + "* value);");
@@ -2303,6 +2428,7 @@ public:
         for (const auto& part : package->parts) {
           if (!part.value_type || !declarations.insert(part.value_type->resolved_node).second) { continue; }
           const auto native = type(*part.value_type);
+          line("static inline const srl_xml_operation_codec* srl_xml_operation_codec_" + native + "(void);");
           const auto validator = model.xml.runtime_xsd ? ",const srl_xml_validation*" : "";
           line("/* XML definitions follow the native declarations in this generated header. */");
           line("static inline srl_status " + native + "_encode_xml(const " + native +

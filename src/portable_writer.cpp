@@ -3235,9 +3235,23 @@ public:
     }
     for (const auto* package : packages) {
       if (language == target::go) {
+        auto selected_prefix = "SerializerPackageCodecs" + names.at(package);
+        const auto selected_base = selected_prefix;
+        std::size_t selected_suffix{1U};
+        while (std::any_of(globals.begin(), globals.end(), [&](const auto& symbol) {
+          return symbol.starts_with(selected_prefix);
+        })) {
+          if (selected_suffix == std::numeric_limits<std::size_t>::max()) {
+            throw std::length_error{"Go selected codec names exhausted"};
+          }
+          selected_prefix = selected_base + '_' + std::to_string(++selected_suffix);
+        }
+        for (const auto suffix : {"Encode", "Load", "Write", "Save"}) {
+          globals.insert(selected_prefix + suffix);
+        }
         source += package_codegen::go(*package, names.at(package), go_package_prefix,
             [&](const auto& value) { return type(value); },
-            [&](const auto value) { return field(value); }, [&](const auto value) { return quote(value); },options.xml);
+            [&](const auto value) { return field(value); }, [&](const auto value) { return quote(value); },options.xml,selected_prefix);
       } else if (language == target::csharp) {
         const auto qualified_name = (options.namespace_name.empty() ? "" : options.namespace_name + ".") +
             unit + "." + names.at(package);

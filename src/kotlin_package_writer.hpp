@@ -132,10 +132,15 @@ inline std::string kotlin(const package_node& package, const std::string& name,
   line("        references.validate()");
   line("    }");
   line("    /** Bridge the shared package ledger into nested XML/provider/member admission. */");
-  line("    private fun xmlLimits(context: " + api("CodecContext") + "): XmlLimits {");
+  line("    fun xmlLimits(context: " + api("CodecContext") + "): XmlLimits {");
   line("        val bytes = minOf(context.budget.configured().maxPartBytes,Int.MAX_VALUE.toLong()).toInt()");
   line("        val nodes = minOf(context.budget.remaining(" + api("Resource") + ".WORK_UNITS),Int.MAX_VALUE.toLong()).toInt()");
   line("        return XmlLimits(bytes,nodes,64,bytes).also { it.srlPackageContext = SrlXmlBudget.Operation(context::check,context::consume,context::resourceLimit); it.srlPackageRootType = context.role.expectedType?.let { value -> val end=value.indexOf('}'); if(value.startsWith('{')) SrlXmlName(value.substring(end+1),value.substring(1,end)) else SrlXmlName(value) } }");
+  line("    }");
+  line("    /** Narrow caller-selected native limits while retaining this exact package context and root type. */");
+  line("    fun xmlLimits(context: " + api("CodecContext") + ", configured: XmlLimits): XmlLimits {");
+  line("        val shared = xmlLimits(context)");
+  line("        return XmlLimits(minOf(shared.maxBytes,configured.maxBytes),minOf(shared.maxNodes,configured.maxNodes),minOf(shared.maxDepth,configured.maxDepth),minOf(shared.maxTextBytes,configured.maxTextBytes)).also { it.srlPackageContext = shared.srlPackageContext; it.srlPackageRootType = shared.srlPackageRootType }");
   line("    }");
   line("    /** Return an owning archive after all declared roles and preserved edges validate. */");
   line("    fun encode(value: " + std::string{input} + ", budget: " + api("Budget") + " = " + api("Budget") + "()): ByteArray {");

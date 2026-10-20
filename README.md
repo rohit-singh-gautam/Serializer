@@ -38,11 +38,21 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.17.1**. Bug fixes and minor updates
+The current compiler and runtime release is **2.18.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.21.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.18.0** adds caller-owned native XML operation contexts in
+[C](docs/languages/c_packages.md) and [Rust](docs/languages/rust_packages.md),
+including shared XSD identity tuple admission inside generated packages. Selected
+codecs compose with the same package budget in Go, JavaScript/TypeScript and
+Kotlin consuming applications. Existing model APIs, limit layouts, schema
+language and serialized representations retain their contracts. Logical
+admissions do not measure provider or opaque factory internals as hard process
+peaks; document-companion package graphs remain explicitly gated.
+See the [native operation and public codec verification](docs/verification/verification-native-xml-operations-2026-10-21.md).
 
 Release **2.17.1** fixes initial C++ collaboration joins of documents containing
 typed managed references. Incoming references use the staged authority namespace
@@ -56,8 +66,8 @@ Generated [C](docs/languages/c_packages.md), [Rust](docs/languages/rust_packages
 and [Swift](docs/languages/swift_packages.md) outputs now provide bounded owning
 ZIP/OPC facades, typed loading, preservation and staged Save. Both editor packages
 are **2.0.10** and recognize language **1.21.0** package declarations.
-C/Rust package graphs requiring XML document companions or XSD identity operation
-hooks reject explicitly; their ordinary XML APIs retain those separate contracts.
+C/Rust package graphs requiring XML document companions reject explicitly;
+their ordinary XML document APIs retain those separate contracts.
 Language 1.21 declarations select fixed/default ZIP storage and scoped typed keys
 and references. Runtime storage overrides retain declared XML/model identities;
 automatic duplicate, missing and wrong-type checks run before aggregate/file

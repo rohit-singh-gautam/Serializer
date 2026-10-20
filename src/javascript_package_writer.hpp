@@ -77,10 +77,20 @@ inline std::string javascript(const package_node& package, const std::string& na
   line("    constructor(values?: Values);");
   line("  }");
   line("  class Value extends Input {}");
-  line("  function encode(value: Input, options?: " + helper + ".Options): globalThis.Promise<Uint8Array>;");
-  line("  function write(sink: " + helper + ".Sink, value: Input, options?: " + helper + ".Options): globalThis.Promise<void>;");
-  line("  function load(source: " + helper + ".Source, options?: " + helper + ".LoadOptions<Value>): globalThis.Promise<" + helper + ".Result<Value>>;");
-  line("  function save(path: string, value: Input, options: " + helper + ".SaveOptions<Value>): globalThis.Promise<void>;");
+  line("  interface Codecs {");
+  for (const auto* part : parts) {
+    if (part->value_type) {
+      line("    readonly " + literal(part->name) + "?: " + helper + ".Codec<" + render_type(*part->value_type) + ">;");
+    }
+  }
+  line("  }");
+  line("  interface Options extends " + helper + ".Options { codecs?: Codecs; }");
+  line("  interface LoadOptions extends " + helper + ".LoadOptions<Value> { codecs?: Codecs; }");
+  line("  interface SaveOptions extends " + helper + ".SaveOptions<Value> { codecs?: Codecs; }");
+  line("  function encode(value: Input, options?: Options): globalThis.Promise<Uint8Array>;");
+  line("  function write(sink: " + helper + ".Sink, value: Input, options?: Options): globalThis.Promise<void>;");
+  line("  function load(source: " + helper + ".Source, options?: LoadOptions): globalThis.Promise<" + helper + ".Result<Value>>;");
+  line("  function save(path: string, value: Input, options: SaveOptions): globalThis.Promise<void>;");
   line("}");
   return output;
 }

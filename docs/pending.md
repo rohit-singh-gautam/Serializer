@@ -1,10 +1,16 @@
 # Pending requirements across Serializer
 
+Compiler/runtime **2.18.0** completes `XML-B20`: additive C/Rust native XML
+operations, shared XSD identity budgets and public selected-codec composition in
+all eleven outputs. Windows/Linux SDKs, strict native checks and sanitizers pass
+within the [recorded profiles and provider limits](verification/verification-native-xml-operations-2026-10-21.md).
+**62 requirements remain unchecked**; 785 of 847 rows are checked.
+
 Compiler/runtime **2.17.1** completes managed reference/resource/journal and
 collaboration qualification (`MR01`, `MR02`) on Windows and Linux, including an
 initial-join namespace fix. The completed eleven-output package evidence also
-closes API parity parents `OPC-R07` and `XML-B17`. **63 requirements remain
-unchecked**. See the [managed batch and parent reconciliation](verification/verification-managed-reference-faults-2026-10-21.md).
+closes API parity parents `OPC-R07` and `XML-B17`, leaving 63 unchecked at that
+checkpoint. See the [managed batch and parent reconciliation](verification/verification-managed-reference-faults-2026-10-21.md).
 
 Compiler/runtime **2.17.0** and schema language **1.21.0** completed the next
 **105 existing bounded IDs**: 85 package work units and 20 malformed/provider
@@ -159,7 +165,7 @@ and actual SDK checks before the parent requirement can be checked.
 | [x] | XML-B17 | — | Package parity: Complete ZIP/OPC source/sink, metadata, shared budgets and full-Save guarantees across every output; [eleven-output completion and limits](verification/verification-managed-reference-faults-2026-10-21.md#package-parent-reconciliation). | — |
 | [ ] | XML-B18 | — | ZIP extensions: Broaden large-archive, stress and provider coverage; qualify ZIP64/spooling, peak-memory and cancellation boundaries in every backend; unsupported features reject explicitly. | — |
 | [ ] | XML-B19 | — | Typed profiles: Extend C++/Python declarations with pipeline/runtime selection, vocabulary profiles and generated payload reference checks before publication; implement equivalent contracts in other backends. | — |
-| [ ] | XML-B20 | — | Typed package loading: Complete generated transactional profiles and automatic codec/reference budgets in every backend; caller-owned callbacks compose selected codecs with the same shared context. | — |
+| [x] | XML-B20 | — | Typed package loading: Complete generated transactional profiles and automatic codec/reference budgets in every backend; caller-owned callbacks compose selected codecs with the same shared context; [2.18 SDK verification and graph limits](verification/verification-native-xml-operations-2026-10-21.md). | — |
 | [ ] | XML-B21 | — | Complete-operation context: Propagate shared accounting/deadlines across remaining backends; qualify projection/compression/provider cancellation and large-input boundaries, including explicit provider-internal peak/preemption limits. | — |
 | [ ] | XML-B22 | — | Preservation: Broaden XML/package policy and collision qualification in every backend; keep signatures and lexical preservation under separate contracts. | — |
 | [ ] | XML-B23 | — | Reproducibility: Extend independently checked canonical ordering/metadata policies across backends; pin provider/version/options when qualifying compressed byte equality. | — |

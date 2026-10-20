@@ -26,9 +26,9 @@ inline std::string rust_map_method(const field& field, const std::string& member
   if (input) {
     if (map.optional_container) { line("if input.has(" + uri(map.wrapper) + "," + local(map.wrapper) + ")? {"); }
     line("input.open(" + uri(map.wrapper) + "," + local(map.wrapper) + ")?.finish()?;");
-    line("let mut entries=std::collections::BTreeMap::new(); let mut budget=SrlXmlMapBudget::new(input.map_limits);");
+    line("let mut entries=std::collections::BTreeMap::new(); let mut budget=SrlXmlMapBudget::new_with_operation(input.map_limits,input.operation.clone());");
     line("while input.has(" + uri(map.entry) + "," + local(map.entry) + ")? {");
-    line("if budget.entries >= budget.limits.max_entries { return Err(Error(\"XML map entry limit\")); }");
+    line("if budget.entries >= budget.limits.max_entries { return Err(input.quota(\"XML map entry limit\")); }");
     if (map.key_placement == map_key_placement::attribute) {
       line("let mut attributes=input.open(" + uri(map.entry) + "," + local(map.entry) + ")?;");
       line("let text=attributes.attribute(" + uri(map.key) + "," + local(map.key) + ",false)?.ok_or(Error(\"XML map key missing\"))?; attributes.finish()?;");
@@ -47,15 +47,15 @@ inline std::string rust_map_method(const field& field, const std::string& member
     }
     line("input.close(" + uri(map.entry) + "," + local(map.entry) + ")?;");
     line("budget.admit(lexical_bytes,(" + scalar(map.key_type, "&key") + ").len())?;");
-    line("if entries.insert(key,value).is_some() { return Err(Error(\"Duplicate native XML map key\")); } }");
+    line("input.allocate(std::mem::size_of::<(" + type_identifier(map.key_type) + "," + type_identifier(map.value_type) + ")>())?; if entries.insert(key,value).is_some() { return Err(Error(\"Duplicate native XML map key\")); } }");
     line("input.close(" + uri(map.wrapper) + "," + local(map.wrapper) + ")?;");
     line(member + "=" + (map.optional_container ? "Some(entries)" : "entries") + ";");
     if (map.optional_container) { line("} else { " + member + "=None; }"); }
   } else {
     if (map.optional_container) { line("if let Some(entries)=" + member + ".as_ref() {"); }
     else { line("let entries=&" + member + ";"); }
-    line("let mut budget=SrlXmlMapBudget::new(output.map_limits);");
-    line("if entries.len() > budget.limits.max_entries { return Err(Error(\"XML map entry limit\")); }");
+    line("let mut budget=SrlXmlMapBudget::new_with_operation(output.map_limits,output.operation.clone());");
+    line("if entries.len() > budget.limits.max_entries { return Err(output.quota(\"XML map entry limit\")); }");
     line("output.open(" + local(map.wrapper) + "," + uri(map.wrapper) + ")?; output.put(\">\")?;");
     line("for (key,value) in entries {");
     line("let lexical=" + scalar(map.key_type, "key") + "; budget.admit(lexical.len(),lexical.len())?;");

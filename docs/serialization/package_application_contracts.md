@@ -66,8 +66,10 @@ Other backend overloads are documented in their package guides. Override maps us
 schema role names.
 
 C/Rust package roles reject XML graphs requiring document-companion namespace or
-extension state, and XSD identity constraints requiring native operation hooks.
-Their ordinary XML document/identity APIs remain available. Declarative package
+extension state. Their ordinary XML document APIs remain available. Release
+2.18.0 adds native operation hooks for supported XSD identity graphs and selected
+caller codecs; see [C package contexts](../languages/c_packages.md) and
+[Rust package contexts](../languages/rust_packages.md). Declarative package
 `key`/`reference` selectors use the shared package ledger independently of XSD
 identity constraints. Unsupported combinations fail during generation.
 

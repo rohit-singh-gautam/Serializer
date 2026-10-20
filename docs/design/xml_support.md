@@ -1,15 +1,17 @@
 # XML and package support design
 
-Status: implementation specification and remaining requirements, **2026-10-17**.
-Compiler/runtime **2.4.0**, schema language **1.17.0**. See the
+Status: implementation specification and remaining requirements, **2026-10-21**.
+Compiler/runtime **2.18.0**, schema language **1.21.0**. See the
 [implemented API and exact subset](../serialization/xml_packages.md),
 [generated-language examples](../../example/xml/README.md) and the
 [central pending backlog](../pending.md). XML generation now covers all output
-backends; compression streams and ZIP/OPC have a C++ implementation. Cross-language
-parity and qualification remain completion gates. Examples marked **proposed**
+backends; selected owning XML, compression and ZIP/OPC profiles are implemented
+in all eleven outputs. C/Rust native XML operations and public package codec
+bridges share caller-owned accounting with the selected codecs. Broader graph,
+provider, resource and platform qualification remain completion gates. Examples marked **proposed**
 remain design sketches, not accepted syntax or options.
 
-The 2.4.0 implementation adds configured simple text with attributes and wrappers,
+The earlier 2.4.0 implementation added configured simple text with attributes and wrappers,
 pinned local XSD bundles and subset export/compatibility tools, native positional
 format selection across backends, and C++ ZIP64/spooling/aggregate profiles.
 The pending report remains authoritative for unimplemented requirements; these

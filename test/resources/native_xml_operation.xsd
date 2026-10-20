@@ -1,0 +1,40 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:t="urn:serializer:identity-test"
+           targetNamespace="urn:serializer:identity-test" elementFormDefault="qualified">
+  <xs:complexType name="entry">
+    <xs:attribute name="id" type="xs:unsignedInt"/>
+    <xs:attribute name="label" type="xs:token"/>
+  </xs:complexType>
+  <xs:complexType name="request"><xs:attribute name="id" type="xs:unsignedInt"/></xs:complexType>
+  <xs:complexType name="registry">
+    <xs:sequence>
+      <xs:element name="ref" type="t:request" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="entry" type="t:entry" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:element name="registry" type="t:registry">
+    <xs:keyref name="references" refer="t:ids"><xs:selector xpath="t:ref"/><xs:field xpath="@id"/></xs:keyref>
+    <xs:key name="ids"><xs:selector xpath="t:entry"/><xs:field xpath="@id"/></xs:key>
+    <xs:unique name="labels"><xs:selector xpath="t:entry"/><xs:field xpath="@label"/></xs:unique>
+  </xs:element>
+  <xs:element name="pair">
+    <xs:complexType><xs:sequence>
+      <xs:element name="first" type="t:registry"/>
+      <xs:element name="second" type="t:registry"/>
+    </xs:sequence></xs:complexType>
+  </xs:element>
+  <xs:element name="inherited" type="t:registry">
+    <xs:keyref name="inherited_references" refer="t:inherited_ids"><xs:selector xpath="t:ref"/><xs:field xpath="@id"/></xs:keyref>
+    <xs:key name="inherited_ids"><xs:selector xpath="t:entry"/><xs:field xpath="@id"/></xs:key>
+    <xs:unique name="inherited_labels"><xs:selector xpath="t:entry"/><xs:field xpath="@label"/></xs:unique>
+  </xs:element>
+  <xs:complexType name="box"><xs:sequence><xs:element name="value" type="t:registry"/></xs:sequence></xs:complexType>
+  <xs:element name="box" type="t:box"/>
+  <xs:element name="generic_owner">
+    <xs:complexType><xs:sequence><xs:element name="wrapped" type="t:box"/></xs:sequence></xs:complexType>
+  </xs:element>
+  <xs:element name="serializer_xml_operation"><xs:complexType/></xs:element>
+  <xs:element name="serializer_xml_operation_2"><xs:complexType/></xs:element>
+  <xs:element name="registry_encode_xml_with_operation"><xs:complexType/></xs:element>
+  <xs:element name="registry_decode_xml_with_operation"><xs:complexType/></xs:element>
+</xs:schema>

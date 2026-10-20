@@ -11,9 +11,10 @@ one available suffix, such as `SerializerPackage_3`, when an existing generated
 declaration already uses a family name. The generated comment records the selected
 prefix. Existing model names and independently selected compression names stay
 unchanged. Private helper names use the compiler's existing reserved `srl` family.
-OPC support is emitted only when the schema declares a package. Ordinary Go
-output and all ten other ordinary language outputs remain byte-identical in the
-executed before/after comparison.
+OPC support is emitted only when the schema declares a package. The original ZIP
+rollout's recorded before/after comparison preserved ordinary Go and the other
+ten ordinary language outputs. Later additive XML operation APIs have their own
+compatibility qualification.
 
 ## Typed OPC facades
 
@@ -22,6 +23,24 @@ A schema package such as `profile::archive` generates `ProfileArchive`, its
 and `Save` functions. `Load` constructs an independent fresh aggregate and returns
 `nil` on any error, including failure in a middle repeated part. Ordinary model
 binary and XML APIs remain available.
+
+Release 2.18.0 adds selected-codec functions under a separate collision-selected
+prefix, recorded by `Generated Go selected-codec prefix`. Its usual form is
+`SerializerPackageCodecsProfileArchive`. `Encode(value, profiles, budget, ...)`
+and `Load(source, loadOptions, ...)` take one typed callback per typed role in
+schema dependency order; nil selects the generated native direction. Callbacks
+receive the native model or XML bytes, existing public `XmlOptions`, actual part
+name and relationship ID. Pass those options into `EncodeXML` / `Decode...XML`
+to retain the same cumulative budget and immutable root/type selection when
+composing several native codecs. The callback may capture that public budget;
+its returned error retains the exact original identity.
+
+The same prefix exposes `Write` and `Save`; Save takes all encoder callbacks
+followed by all decoder callbacks and validates the full staged round trip before
+publication. Root/type dispatch rejects mismatches before selected decoders.
+Existing facade names, `XmlOptions`, positional LoadOptions/SaveOptions literals
+and old signatures remain unchanged. Callbacks are synchronous and must not
+retain the borrowed context or use it concurrently.
 
 ```go
 input := &model.ProfileArchiveInput{

@@ -18,11 +18,22 @@ typedef struct srl_xml_input {
   bool nil_attribute;
 } srl_xml_input;
 
+/* Preserve ordinary input status while reporting attached-operation resource admission. */
+static inline bool srl_xml_operation_input_limit(srl_xml_input* input) {
+  srl_xml_operation* operation=srl_xml_operation_input_context(input->reader);
+  if(operation){input->status=srl_xml_operation_fail(operation,srl_limit);}return false;
+}
+/* Admit candidate-owned storage before native allocation without altering input layout. */
+static inline bool srl_xml_operation_input_allocate(srl_xml_input* input,size_t bytes) {
+  if(!srl_xml_operation_charge(srl_xml_operation_input_context(input->reader),srl_xml_operation_allocation,bytes)){input->status=srl_invalid;return false;}return true;
+}
+
 /* Charge logical decoded values before exposing provider storage to a generated consumer. */
 static inline bool srl_xml_input_charge(srl_xml_input* input, const xmlChar* text) {
   const size_t count = text ? (size_t)xmlStrlen(text) : 0;
+  if(!srl_xml_operation_reader_scalar(input->reader,text,xmlTextReaderNodeType(input->reader)==XML_READER_TYPE_ATTRIBUTE)){input->status=srl_invalid;return false;}
   if (count > input->limits.max_string_bytes || input->text_bytes > input->limits.max_bytes || count > input->limits.max_bytes - input->text_bytes) {
-    input->status = srl_limit;
+    input->status = srl_xml_operation_fail(srl_xml_operation_input_context(input->reader),srl_limit);
     return false;
   }
   input->text_bytes += count;
@@ -40,6 +51,7 @@ static inline bool srl_xml_input_next(srl_xml_input* input) {
   int status;
   while ((status = xmlTextReaderRead(input->reader)) == 1) {
     input->kind = xmlTextReaderNodeType(input->reader);
+    if(!srl_xml_operation_reader_event(input->reader,input->kind)){input->status=srl_invalid;return false;}
     const xmlChar* version = xmlTextReaderConstXmlVersion(input->reader);
     if ((version && !xmlStrEqual(version, BAD_CAST "1.0")) ||
         input->kind == XML_READER_TYPE_DOCUMENT_TYPE || input->kind == XML_READER_TYPE_ENTITY || input->kind == XML_READER_TYPE_ENTITY_REFERENCE) {
@@ -48,7 +60,7 @@ static inline bool srl_xml_input_next(srl_xml_input* input) {
     }
     if (input->kind == XML_READER_TYPE_ELEMENT) {
       if (input->nodes >= input->limits.max_elements || (size_t)xmlTextReaderDepth(input->reader) >= input->limits.max_depth) {
-        input->status = srl_limit;
+        input->status = srl_xml_operation_fail(srl_xml_operation_input_context(input->reader),srl_limit);
         return false;
       }
       ++input->nodes;
@@ -57,7 +69,7 @@ static inline bool srl_xml_input_next(srl_xml_input* input) {
       if (xmlTextReaderMoveToFirstAttribute(input->reader) == 1) {
         do {
           if (input->nodes >= input->limits.max_elements || !srl_xml_input_charge(input, xmlTextReaderConstValue(input->reader))) {
-            input->status = srl_limit;
+            input->status = srl_xml_operation_fail(srl_xml_operation_input_context(input->reader),srl_limit);
             xmlTextReaderMoveToElement(input->reader);
             return false;
           }
@@ -86,16 +98,18 @@ static inline bool srl_xml_input_next(srl_xml_input* input) {
 }
 
 /* Construct an operation-local nonresolving UTF8/XML1.0 provider with no retained document. */
-static inline srl_status srl_xml_input_init(srl_xml_input* input, const uint8_t* bytes, size_t size, const srl_limits* limits) {
+static inline srl_status srl_xml_operation_input_init(srl_xml_input* input, const uint8_t* bytes, size_t size, const srl_limits* limits,srl_xml_operation_reader* operation) {
   memset(input, 0, sizeof(*input));
   input->limits = *limits;
   input->map_limits = srl_xml_default_map_limits();
   input->mixed_limits = srl_xml_default_mixed_limits();
   input->digest_limits = srl_xml_default_digest_limits();
-  if (size > limits->max_bytes || size > INT_MAX) { input->status = srl_limit; return input->status; }
-  if (!srl_utf8(bytes, size) || !srl_xml_utf8_declaration(bytes, size)) { input->status = srl_invalid; return input->status; }
+  if (size > limits->max_bytes || size > INT_MAX) { input->status = srl_xml_operation_fail(srl_xml_operation_input_context(input->reader),srl_limit); return input->status; }
+  if (!srl_xml_operation_utf8(operation?operation->operation:NULL,bytes,size) || !srl_xml_utf8_declaration(bytes, size)) { input->status = srl_invalid; return input->status; }
+  if(operation&&!srl_xml_operation_charge(operation->operation,srl_xml_operation_allocation,sizeof(*input))){input->status=srl_invalid;return input->status;}
   input->reader = xmlReaderForMemory((const char*)bytes, (int)size, NULL, "UTF-8", XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING);
   if (!input->reader) { input->status = srl_invalid; return input->status; }
+  if(operation){xmlTextReaderSetErrorHandler(input->reader,srl_xml_operation_reader_error,operation);}
   if (xmlTextReaderSetParserProp(input->reader, XML_PARSER_LOADDTD, 0) < 0 ||
       xmlTextReaderSetParserProp(input->reader, XML_PARSER_DEFAULTATTRS, 0) < 0 ||
       xmlTextReaderSetParserProp(input->reader, XML_PARSER_SUBST_ENTITIES, 0) < 0) {
@@ -104,6 +118,11 @@ static inline srl_status srl_xml_input_init(srl_xml_input* input, const uint8_t*
   }
   srl_xml_input_next(input);
   return input->status;
+}
+
+/* Preserve the original function pointer signature and aggregate initialization contract. */
+static inline srl_status srl_xml_input_init(srl_xml_input* input,const uint8_t* bytes,size_t size,const srl_limits* limits) {
+  return srl_xml_operation_input_init(input,bytes,size,limits,NULL);
 }
 
 /* Release only the current operation's provider; owning candidate cleanup belongs to the caller. */
@@ -150,7 +169,7 @@ static inline xmlChar* srl_xml_input_text_run(srl_xml_input* input, size_t maxim
     const xmlChar* text = xmlTextReaderConstValue(input->reader);
     const size_t count = text ? (size_t)xmlStrlen(text) : 0;
     if (size > maximum || count > maximum-size || size > input->limits.max_string_bytes || count > input->limits.max_string_bytes - size || count >= SIZE_MAX - size) {
-      input->status = srl_limit;
+      input->status = srl_xml_operation_fail(srl_xml_operation_input_context(input->reader),srl_limit);
       xmlFree(result);
       return NULL;
     }
@@ -159,6 +178,7 @@ static inline xmlChar* srl_xml_input_text_run(srl_xml_input* input, size_t maxim
       const size_t initial_capacity_bytes = 16;
       size_t next = capacity ? capacity : initial_capacity_bytes;
       while (next < required) { if (next > SIZE_MAX / 2) { next = required; break; } next *= 2; }
+      if(!srl_xml_operation_input_allocate(input,next-capacity)){xmlFree(result);return NULL;}
       xmlChar* memory = (xmlChar*)xmlRealloc(result, next);
       if (!memory) { input->status = srl_allocation; xmlFree(result); return NULL; }
       result = memory; capacity = next;
@@ -170,6 +190,7 @@ static inline xmlChar* srl_xml_input_text_run(srl_xml_input* input, size_t maxim
   }
   if (require_end && input->kind != XML_READER_TYPE_END_ELEMENT) { xmlFree(result); return NULL; }
   if (!result) {
+    if(!srl_xml_operation_input_allocate(input,1u)){return NULL;}
     result = xmlStrdup(BAD_CAST "");
     if (!result) { input->status = srl_allocation; }
   }

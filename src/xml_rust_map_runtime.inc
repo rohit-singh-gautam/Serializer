@@ -10,15 +10,18 @@ impl Default for XmlMapLimits {
     fn default() -> Self { Self { max_entries:1024, max_key_bytes:1024*1024 } }
 }
 /// Account original and canonical key spellings before the native map discards lexical aliases.
-struct SrlXmlMapBudget { limits:XmlMapLimits, entries:usize, key_bytes:usize }
-impl SrlXmlMapBudget {
+struct SrlXmlMapBudget<'a> {operation:Option<@xml_operation@::State<'a>>, limits:XmlMapLimits, entries:usize, key_bytes:usize }
+impl<'a> SrlXmlMapBudget<'a> {
     /// Start fresh independent accounting for one map wrapper.
-    fn new(limits:XmlMapLimits) -> Self { Self {limits,entries:0,key_bytes:0} }
+    fn new(limits:XmlMapLimits) -> Self { Self {operation:None,limits,entries:0,key_bytes:0} }
+    /// Attach one shared operation without extending the public map policy.
+    fn new_with_operation(limits:XmlMapLimits,operation:Option<@xml_operation@::State<'a>>)->Self {let mut result=Self::new(limits);result.operation=operation;result}
     /// Admit one complete native key before allocating an owning map entry.
     fn admit(&mut self,lexical:usize,canonical:usize) -> Result<(),Error> {
-        if self.entries >= self.limits.max_entries { return Err(Error("XML map entry limit")); }
+        if self.entries >= self.limits.max_entries { return Err(@xml_operation@::quota(self.operation.as_ref(),"XML map entry limit")); }
         let bytes=lexical.max(canonical);
-        if bytes > self.limits.max_key_bytes.saturating_sub(self.key_bytes) { return Err(Error("XML map key byte limit")); }
+        if bytes > self.limits.max_key_bytes.saturating_sub(self.key_bytes) { return Err(@xml_operation@::quota(self.operation.as_ref(),"XML map key byte limit")); }
+        @xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::WorkUnits,bytes.saturating_add(1))?;
         self.entries+=1; self.key_bytes+=bytes; Ok(())
     }
 }

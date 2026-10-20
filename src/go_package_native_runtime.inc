@@ -33,8 +33,21 @@ func srlPackageNativeXMLAt(state *srlPackageState,role srlPackageRole,part,id st
 }
 // srlPackageNativeXML preserves the existing internal adapter for independent provider probes.
 func srlPackageNativeXML(budget *SerializerPackageBudget)XmlOptions{return srlPackageNativeXMLAt(&srlPackageState{budget:budget},srlPackageRole{},"","")}
+// srlPackageTypedHeader checks immutable expanded dispatch before selected callbacks; native codecs own XML counts.
+func srlPackageTypedHeader(data []byte,state *srlPackageState,role srlPackageRole,part,id string)error{
+  if int64(len(data))>state.budget.limits.MaxPartBytes{return &SerializerPackageError{Code:SerializerPackageResourceLimit,Message:"Payload exceeds part limit",Part:part,FieldPath:role.field,RelationshipID:id}}
+  if err:=state.consume(SerializerPackageWorkUnits,int64(len(data)),part);err!=nil{return err};if err:=state.consume(SerializerPackageDecoderAllocationBytes,int64(len(data)),part);err!=nil{return err}
+  maximum:=int(^uint(0)>>1);limits:=DefaultXmlLimits();limits.MaxBytes=len(data);limits.MaxTextBytes=maximum;limits.MaxAttributes=maximum;limits.MaxNodes=1;limits.MaxDepth=1
+  input,err:=srlXmlInputStart(data,limits);if err!=nil{return srlPackageCodec(role,part,id,err)}
+  // Expanded namespace vocabulary can exceed raw header bytes; charge its actual extra work/storage.
+  bridge:=srlPackageNativeXMLAt(state,role,part,id);if context,ok:=bridge.Validator.(srlXmlOperationValidator);ok{input.budget.operation=context.operation}
+  root,err:=input.peek();if err!=nil{return srlPackageCodec(role,part,id,err)}
+  expanded:=func(name srlxml.Name)string{if name.Space==""{return name.Local};return "{"+name.Space+"}"+name.Local}
+  if root.kind!='s'||expanded(root.name)!=role.expectedRoot{return srlPackageCodec(role,part,id,nil)}
+  selected,err:=input.typeIdentity(false);if err!=nil{return srlPackageCodec(role,part,id,err)};if selected.Local!=""&&expanded(selected)!=role.expectedType{return srlPackageCodec(role,part,id,nil)};return state.poll()
+}
 // srlPackageEncodeNative preserves older callback controls while new facades receive the located XML policy.
-func srlPackageEncodeNative(encode any,value any,state *srlPackageState,role srlPackageRole,part,id string)([]byte,error){switch action:=encode.(type){case func(any,XmlOptions)([]byte,error):return action(value,srlPackageNativeXMLAt(state,role,part,id));case func(any,*SerializerPackageBudget)([]byte,error):return action(value,state.budget);default:return nil,srlPackageFailure(SerializerPackageInvalidOptions,"Invalid typed package encoder",part)}}
+func srlPackageEncodeNative(encode any,value any,state *srlPackageState,role srlPackageRole,part,id string)([]byte,error){switch action:=encode.(type){case func(any,XmlOptions,string,string)([]byte,error):data,err:=action(value,srlPackageNativeXMLAt(state,role,part,id),part,id);if err!=nil{if _,limited:=err.(srlXmlLimitError);!limited{return nil,state.fail(err)}}else{if err=srlPackageTypedHeader(data,state,role,part,id);err!=nil{return nil,state.fail(err)}};return data,err;case func(any,XmlOptions)([]byte,error):return action(value,srlPackageNativeXMLAt(state,role,part,id));case func(any,*SerializerPackageBudget)([]byte,error):return action(value,state.budget);default:return nil,srlPackageFailure(SerializerPackageInvalidOptions,"Invalid typed package encoder",part)}}
 // srlPackageDecodeNative keeps the former callback probes while production facades share located admission.
-func srlPackageDecodeNative(decode any,data []byte,state *srlPackageState,role srlPackageRole,part,id string)(any,error){switch action:=decode.(type){case func([]byte,XmlOptions)(any,error):return action(data,srlPackageNativeXMLAt(state,role,part,id));case func([]byte,*SerializerPackageBudget)(any,error):return action(data,state.budget);default:return nil,srlPackageFailure(SerializerPackageInvalidOptions,"Invalid typed package decoder",part)}}
+func srlPackageDecodeNative(decode any,data []byte,state *srlPackageState,role srlPackageRole,part,id string)(any,error){switch action:=decode.(type){case func([]byte,XmlOptions,string,string)(any,error):if err:=srlPackageTypedHeader(data,state,role,part,id);err!=nil{return nil,state.fail(err)};value,err:=action(data,srlPackageNativeXMLAt(state,role,part,id),part,id);if err!=nil{if _,limited:=err.(srlXmlLimitError);!limited{return nil,state.fail(err)}};return value,err;case func([]byte,XmlOptions)(any,error):return action(data,srlPackageNativeXMLAt(state,role,part,id));case func([]byte,*SerializerPackageBudget)(any,error):return action(data,state.budget);default:return nil,srlPackageFailure(SerializerPackageInvalidOptions,"Invalid typed package decoder",part)}}
 )packagego"

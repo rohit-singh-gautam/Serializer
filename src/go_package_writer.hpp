@@ -18,7 +18,8 @@ inline std::string go(const package_node& package, const std::string& name,
     const std::string& helper,
     const std::function<std::string(const type_name&)>& render_type,
     const std::function<std::string(std::string_view)>& render_field,
-    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {}) {
+    const std::function<std::string(std::string_view)>& literal, const xml_options& xml,
+    const std::string& selected_prefix) {
   const auto parts = ordered(package);
   const auto contract = compile_package_profile(package,xml);
   std::set<std::string> fields{"Extensions"};
@@ -48,11 +49,35 @@ inline std::string go(const package_node& package, const std::string& name,
   const auto line = [&](const std::string& text = {}) { output += text + '\n'; };
   const auto api = [&](std::string_view suffix) { return helper + std::string{suffix}; };
   const auto role = [&](std::size_t index) { return "srlPackageRole" + name + std::to_string(index); };
+  // Typed callback arguments reuse public XmlOptions without extending old positional option structs.
+  const auto codec_parameters = [&](bool encode, const std::string& prefix) {
+    std::string result;
+    for (std::size_t role_index{}; role_index < parts.size(); ++role_index) {
+      const auto* part = parts[role_index];
+      if (!part->value_type) { continue; }
+      const auto type = render_type(*part->value_type);
+      result += ',' + prefix + std::to_string(role_index) + " func(" +
+          (encode ? type : "[]byte") + ",XmlOptions,string,string)(" +
+          (encode ? "[]byte" : type) + ",error)";
+    }
+    return result;
+  };
+  // Forward callbacks by role order, or select the existing native direction with nil.
+  const auto codec_arguments = [&](const std::string& prefix) {
+    std::string result;
+    for (std::size_t role_index{}; role_index < parts.size(); ++role_index) {
+      if (parts[role_index]->value_type) {
+        result += ',' + (prefix.empty() ? std::string{"nil"} : prefix + std::to_string(role_index));
+      }
+    }
+    return result;
+  };
   const auto role_type = [&](const package_part_declaration& part) {
     if (singleton(part)) { return render_type(*part.value_type); }
     return "[]" + (part.value_type ? api("ModelPart") + '[' + render_type(*part.value_type) + ']' : api("BinaryPart"));
   };
   line("// " + name + " binds complete declared package roles and independently retained extensions.");
+  line("// Generated Go selected-codec prefix: " + selected_prefix);
   line("type " + name + " struct {");
   for (const auto* part : parts) { line("  " + render_field(part->name) + ' ' + role_type(*part)); }
   line("  Extensions " + api("Extensions"));
@@ -99,11 +124,13 @@ inline std::string go(const package_node& package, const std::string& name,
   line("  if value==nil{return nil,srlPackageFailure(" + api("InvalidOptions") + ",\"Missing package input\",\"\")}");
   line("  budget,err:=srlPackageBudget(budgets);if err!=nil{return nil,err};return "+name+"EncodeWithProfiles(value,nil,budget)}");
   line("// "+name+"EncodeWithProfiles resolves closed per-role compression defaults.");
-  line("func "+name+"EncodeWithProfiles(value *"+name+"Input,profiles map[string]string,budgets ...*"+api("Budget")+")([]byte,error){if value==nil{return nil,srlPackageFailure("+api("InvalidOptions")+",\"Missing package input\",\"\")}");
+  line("func "+name+"EncodeWithProfiles(value *"+name+"Input,profiles map[string]string,budgets ...*"+api("Budget")+")([]byte,error){budget,err:=srlPackageBudget(budgets);if err!=nil{return nil,err};return "+selected_prefix+"Encode(value,profiles,budget"+codec_arguments("")+")}");
+  line("// "+selected_prefix+"Encode shares bridged native XML policies with caller-selected typed encoders.");
+  line("func "+selected_prefix+"Encode(value *"+name+"Input,profiles map[string]string,selectedBudget *"+api("Budget")+codec_parameters(true,"codec")+")([]byte,error){if value==nil{return nil,srlPackageFailure("+api("InvalidOptions")+",\"Missing package input\",\"\")}");
   std::string known;
   for(const auto* part:parts){if(!known.empty()){known+="&&";}known+="key!="+literal(part->name);}
   line("  for key:=range profiles{if "+(known.empty()?"true":known)+"{return nil,srlPackageFailure("+api("InvalidOptions")+",\"Unknown package profile role\",key)}}");
-  line("  budget,err:=srlPackageBudget(budgets);if err!=nil{return nil,err};composer:=srlPackageNewComposer(budget);defer composer.close()");
+  line("  budget,err:=srlPackageBudget([]*"+api("Budget")+"{selectedBudget});if err!=nil{return nil,err};composer:=srlPackageNewComposer(budget);defer composer.close()");
   line("  if err=srlPackageReferences"+name+"(value,budget);err!=nil{return nil,err}");
   index = 0;
   for (const auto* part : parts) {
@@ -130,7 +157,10 @@ inline std::string go(const package_node& package, const std::string& name,
     } else {
       line("  for _,item:=range " + native + '{' + values + "=append(" + values + ",srlPackageModelInput{value:item.Value,name:item.Name,contentType:item.ContentType,parent:item.SourceIndex})}");
     }
-    line("  if err=composer.models(" + role(selected) + ',' + values + ",func(native any,xmlOptions XmlOptions)([]byte,error){typed,ok:=native.(" + type + ");if !ok||typed==nil{return nil,srlPackageFailure(" + api("Codec") + ",\"Missing typed package value\",\"\")};return typed.EncodeXML(xmlOptions)});err!=nil{return nil,err}");
+    const auto encoder = "srlEncoder" + std::to_string(selected);
+    line("  var " + encoder + " any=func(native any,xmlOptions XmlOptions)([]byte,error){typed,ok:=native.(" + type + ");if !ok||typed==nil{return nil,srlPackageFailure(" + api("Codec") + ",\"Missing typed package value\",\"\")};return typed.EncodeXML(xmlOptions)}");
+    line("  if codec" + std::to_string(selected) + "!=nil{" + encoder + "=func(native any,xmlOptions XmlOptions,part,id string)([]byte,error){typed,ok:=native.(" + type + ");if !ok||typed==nil{return nil,srlPackageFailure(" + api("Codec") + ",\"Missing typed package value\",part)};return codec" + std::to_string(selected) + "(typed,xmlOptions,part,id)}}");
+    line("  if err=composer.models(" + role(selected) + ',' + values + ',' + encoder + ");err!=nil{return nil,err}");
   }
   line("  return composer.finish(value.Extensions)");
   line("}");
@@ -141,6 +171,9 @@ inline std::string go(const package_node& package, const std::string& name,
   line("// " + name + "Load publishes only a complete fresh aggregate after native codecs, extensions and domain validation.");
   line("func " + name + "Load(source any,values ..." + name + "LoadOptions)(*" + name + "Value,error){");
   line("  if len(values)>1{return nil,srlPackageFailure(" + api("InvalidOptions") + ",\"Too many package load options\",\"\")};options:=" + name + "LoadOptions{};if len(values)==1{options=values[0]}");
+  line("  return " + selected_prefix + "Load(source,options" + codec_arguments("") + ")}");
+  line("// " + selected_prefix + "Load composes selected decoders with the same located native operation policy.");
+  line("func " + selected_prefix + "Load(source any,options " + name + "LoadOptions" + codec_parameters(false,"codec") + ")(*" + name + "Value,error){");
   line("  if options.ExtensionPolicy.Parts>" + api("Preserve") + "||options.ExtensionPolicy.Relationships>" + api("Preserve") + "{return nil,srlPackageFailure(" + api("InvalidOptions") + ",\"Invalid package extension policy\",\"\")}");
   line("  budget,err:=srlPackageBudget([]*" + api("Budget") + "{options.Budget});if err!=nil{return nil,err};loader,err:=srlPackageNewLoader(source,budget);if err!=nil{return nil,err};defer loader.close();value:=&" + name + "Value{}");
   index = 0;
@@ -153,7 +186,10 @@ inline std::string go(const package_node& package, const std::string& name,
     }
     const auto type = render_type(*part->value_type);
     const auto values = "srlValues" + std::to_string(selected);
-    line("  " + values + ",err:=loader.models(" + role(selected) + ",func(data []byte,xmlOptions XmlOptions)(any,error){native,err:=Decode" + type.substr(1) + "XML(data,xmlOptions);if err!=nil{return nil,err};return native,nil});if err!=nil{return nil,err}");
+    const auto decoder = "srlDecoder" + std::to_string(selected);
+    line("  var " + decoder + " any=func(data []byte,xmlOptions XmlOptions)(any,error){native,err:=Decode" + type.substr(1) + "XML(data,xmlOptions);if err!=nil{return nil,err};return native,nil}");
+    line("  if codec" + std::to_string(selected) + "!=nil{" + decoder + "=func(data []byte,xmlOptions XmlOptions,part,id string)(any,error){native,err:=codec" + std::to_string(selected) + "(data,xmlOptions,part,id);if err!=nil{return nil,err};if native==nil{return nil,srlPackageFailure(" + api("Codec") + ",\"Missing decoded typed package value\",part)};return native,nil}}");
+    line("  " + values + ",err:=loader.models(" + role(selected) + ',' + decoder + ");if err!=nil{return nil,err}");
     if (singleton(*part)) {
       line("  if len(" + values + ")!=0{" + field + '=' + values + "[0].value.(" + type + ")}");
     } else {
@@ -164,6 +200,10 @@ inline std::string go(const package_node& package, const std::string& name,
   line("  var validate func(*" + api("Budget") + ")error;if options.Validate!=nil{validate=func(budget *" + api("Budget") + ")error{return options.Validate(value,budget)}}");
   line("  if err=loader.finish(options.ExtensionPolicy,func(extensions " + api("Extensions") + "){value.Extensions=extensions},validate);err!=nil{return nil,err};return value,nil");
   line("}");
+  line("// " + selected_prefix + "Write stages selected encoders before writing to the borrowed sink.");
+  line("func " + selected_prefix + "Write(destination srlPackageIO.Writer,value *" + name + "Input,budget *" + api("Budget") + codec_parameters(true,"codec") + ")(int64,error){if destination==nil{return 0,srlPackageFailure(" + api("InvalidOptions") + ",\"Missing package sink\",\"\")};data,err:=" + selected_prefix + "Encode(value,nil,budget" + codec_arguments("codec") + ");if err!=nil{return 0,err};return " + api("Write") + "(destination,data,budget)}");
+  line("// " + selected_prefix + "Save validates selected encode/decode callbacks before final file publication.");
+  line("func " + selected_prefix + "Save(path string,value *" + name + "Input,options " + name + "SaveOptions" + codec_parameters(true,"encode") + codec_parameters(false,"decode") + ")error{if path==\"\"{return srlPackageFailure(" + api("InvalidOptions") + ",\"Missing save path\",\"\")};budget,err:=srlPackageBudget([]*" + api("Budget") + "{options.Budget});if err!=nil{return err};data,err:=" + selected_prefix + "Encode(value,nil,budget" + codec_arguments("encode") + ");if err!=nil{return err};_,err=" + selected_prefix + "Load(" + api("Source") + "{Reader:srlPackageBytes.NewReader(data),SizeBytes:int64(len(data))}," + name + "LoadOptions{Budget:budget,ExtensionPolicy:" + api("ExtensionPolicy") + "{Parts:" + api("Preserve") + ",Relationships:" + api("Preserve") + "},Validate:options.Validate}" + codec_arguments("decode") + ");if err!=nil{return err};return " + api("SaveBytes") + "(path,data,budget,options.Fault)}");
   line("// " + name + "Save validates a fresh round-trip before same-directory platform-specific Save publication.");
   line("func " + name + "Save(path string,value *" + name + "Input,values ..." + name + "SaveOptions)error{");
   line("  if path==\"\"||len(values)>1{return srlPackageFailure(" + api("InvalidOptions") + ",\"Invalid package save options\",\"\")};options:=" + name + "SaveOptions{};if len(values)==1{options=values[0]};budget,err:=srlPackageBudget([]*" + api("Budget") + "{options.Budget});if err!=nil{return err}");

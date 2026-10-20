@@ -1,5 +1,10 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.18.0** adds operation/context APIs and native package XSD
+identity validation in C/Rust. Selected codec composition and admission metadata
+do not add model fields, protocol IDs, ZIP framing or payload revisions. Existing
+native bytes and expanded XML identities retain their contracts.
+
 Compiler/runtime **2.17.1** corrects the validation namespace used by a C++ client's
 initial collaboration join. Native codecs, managed tokens, journals and client
 checkpoints retain their existing representations; no payload revision changes.

@@ -1,0 +1,11 @@
+serializer version 1.21.0;
+include opc_identity.serializer;
+include native_xml_operation_models.serializer;
+
+// Existing schema names remain available when the new operation API is emitted.
+class serializer_xml_operation {}
+class serializer_xml_operation_2 {}
+namespace identity_xml {
+  class registry_encode_xml_with_operation {}
+  class registry_decode_xml_with_operation {}
+}

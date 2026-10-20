@@ -44,6 +44,7 @@ inline std::string c_variant_method(const xml_binding::field& field, const std::
     line("else { " + std::string{typed ? "srl_xml_type_free(&selected); " : ""} + "return false; }");
     line("if (!srl_xml_input_close(input," + name(variant.wrapper) + ")) { return false; }");
   } else {
+    line("if (!srl_xml_operation_node(out,operation)) { return false; }");
     line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || xmlTextWriterStartElementNS(writer," +
         std::string{variant.wrapper.namespace_uri.empty() ? "NULL" : "BAD_CAST \"srl\""} + ",BAD_CAST " + quote(variant.wrapper.local) + ',' +
         (variant.wrapper.namespace_uri.empty() ? "NULL" : "BAD_CAST " + quote(variant.wrapper.namespace_uri)) + ") < 0) { return false; }");

@@ -731,6 +731,25 @@ callback runs. The broader automatic diagnostic gate remains open for attributio
 and classification in these phases.
 The borrowed context and callback captures must outlive the synchronous operation.
 
+Release 2.18.0 adds native C/Rust operation composition and supported XSD identity
+package graphs. C descriptors accept an independent `srl_xml_operation` and optional
+policy selection without extending old native aggregates; Rust provides qualified
+operation traits without changing `XmlLimits` literals or old native errors/results.
+The native operation inventory counts primary elements, physical attributes
+(including namespace declarations) and expanded-name/decoded scalar vocabulary
+once. Identity replays add actual work/allocation and one reference per complete
+tuple before keyref deduplication. Infrastructure metadata retains its own existing
+admission inventory; these logical counters are not process-peak measurements.
+Known default construction is admitted before generated allocation. Opaque
+authored factory/provider internals do not gain allocation or preemption hooks.
+
+Selected-codec C/Rust/Go entry points, JS/TS `options.codecs` and Kotlin's public
+`xmlLimits(CodecContext)` keep caller codecs on that same ledger. Use supplied
+bridged policies rather than reconstructing them inside callbacks. Preserve their
+synchronous lifetime and declared model contract. See the backend package guides
+for typed callbacks and collision-selected helper names. Document-companion and
+other explicitly rejected XML graphs remain separate pending work.
+
 Ordinary XML input remains UTF-8. C++ and Python OPC infrastructure metadata additionally
 accepts BOM-marked UTF-16 in either byte order; its declaration must be absent or
 identify `UTF-16`. Unsupported/conflicting encodings reject, and generated output

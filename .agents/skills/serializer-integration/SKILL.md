@@ -46,7 +46,7 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-The current compiler/runtime release is **2.17.1**, with schema language
+The current compiler/runtime release is **2.18.0**, with schema language
 **1.21.0**. Preserve the supported native managed identity, transaction,
 preview, journal and collaboration contracts when composing those features.
 For local collaboration, attach a fresh placeholder store before editing or
@@ -59,6 +59,27 @@ Use the [native reference qualification record](../../../docs/verification/verif
 for actual ID/storage profiles and failure/recovery boundaries. Root/control-block
 allocation hooks and resident admission estimates do not replace allocators in
 generated standard-library payload containers.
+
+For C/Rust XML composition in 2.18.0, use the additive operation descriptor/trait
+APIs with the same caller-owned ledger. Package codecs automatically share native
+XML and XSD identity tuple admissions; equal keyrefs spend references before
+deduplication. Use the selected-codec package entry points for custom native
+composition, retaining the supplied context and synchronous callback lifetime.
+Go callbacks receive already bridged public `XmlOptions`; JavaScript/TypeScript
+role codecs receive bridged `XmlLimits` and immutable location metadata. Kotlin
+consumers in another module can call the facade's public `xmlLimits(context)`
+inside public Composer/Loader callbacks. Follow the
+[C](../../../docs/languages/c_packages.md),
+[Rust](../../../docs/languages/rust_packages.md),
+[Go](../../../docs/languages/go_packages.md),
+[JS/TS](../../../docs/languages/javascript_packages.md) and
+[Kotlin](../../../docs/languages/csharp_kotlin_packages.md) usage contracts.
+Regenerate affected outputs. Preserve existing native model/limit APIs and wire
+identities. Logical admissions cover instrumented generated operations and known
+default construction; provider and opaque authored factory internals do not gain
+hard peak-allocation or preemption guarantees.
+Use the [native operation verification record](../../../docs/verification/verification-native-xml-operations-2026-10-21.md)
+for actual SDK, field-origin, first-failure and publication checks.
 
 Compiler/runtime **2.17.0** adds language **1.21.0** package `policy(fixed|defaults)`,
 `key("scope", field)` and `reference("scope", field, target_role)` declarations.
@@ -74,8 +95,8 @@ Generated [C](../../../docs/languages/c_packages.md),
 [Rust](../../../docs/languages/rust_packages.md) and
 [Swift](../../../docs/languages/swift_packages.md) outputs also provide owning
 ZIP/OPC facades with bounded typed loading, preservation and staged Save. C/Rust
-typed package graphs requiring XML document companions or XSD identity operation
-hooks remain explicitly gated; their ordinary XML APIs retain separate support.
+typed package graphs requiring XML document companions remain explicitly gated;
+their ordinary XML document APIs retain separate support.
 Both editor packages are **2.0.10** and understand the new declarations.
 
 Compiler/runtime **2.16.0** retains each C++/Python namespace-dependent scalar

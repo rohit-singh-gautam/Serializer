@@ -299,10 +299,10 @@ def main():
     (build / 'companion.rs').unlink(missing_ok=True)
     diagnostic = run([compiler, '--input', companion, '--language', 'rust', '--rust.output', build / 'companion.rs'], 'companion-graph-rejection', failure=True)
     assert 'document-companion' in diagnostic and not (build / 'companion.rs').exists()
-    diagnostic = run([compiler, '--input', ROOT / 'test/resources/opc_identity.serializer',
-                      '--config', ROOT / 'test/resources/opc_identity.ini', '--language', 'rust',
-                      '--rust.output', build / 'identity.rs'], 'identity-package-rejection', failure=True)
-    assert 'identity graphs require shared native codec operation hooks' in diagnostic and not (build / 'identity.rs').exists()
+    run([compiler, '--input', ROOT / 'test/resources/opc_identity.serializer',
+         '--config', ROOT / 'test/resources/opc_identity.ini', '--language', 'rust',
+         '--rust.output', build / 'identity.rs'], 'identity-package-generation')
+    assert 'pub struct IdentityPackageArchive' in (build / 'identity.rs').read_text(encoding='utf-8')
     run([compiler, '--input', ROOT / 'test/resources/xml_identity_generated.serializer',
          '--config', ROOT / 'test/resources/opc_identity.ini', '--language', 'rust',
          '--rust.output', build / 'identity_native.rs'], 'ordinary-identity-generation')

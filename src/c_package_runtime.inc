@@ -49,13 +49,24 @@ static inline int @p@_fail(@p@_budget* budget,int status,const char* part,const 
     snprintf(budget->field,sizeof(budget->field),"%s",field?field:"");snprintf(budget->link,sizeof(budget->link),"%s",link?link:"");}
   return budget->status;
 }
-/* Poll cooperative cancellation without replacing a previously retained caller error. */
+/* Poll cooperative cancellation at the current location without replacing the first error. */
+static inline int @p@_poll_at(@p@_budget* budget,const char* part,const char* field,const char* link) {
+  if (!budget->status && budget->is_cancelled && budget->is_cancelled(budget->context)) {return @p@_fail(budget,@p@_cancelled,part,field,link);}return budget->status;
+}
+/* Preserve the original unlocated polling entry point for infrastructure callers. */
 static inline int @p@_poll(@p@_budget* budget) {
-  if (!budget->status && budget->is_cancelled && budget->is_cancelled(budget->context)) {return @p@_fail(budget,@p@_cancelled,NULL,NULL,NULL);}return budget->status;
+  return @p@_poll_at(budget,NULL,NULL,NULL);
 }
 /* Admit cumulative counts before allocation, indexing or traversal. */
 static inline int @p@_consume(@p@_budget* budget,@p@_resource resource,size_t count,const char* part,const char* field,const char* link) {
-  if (@p@_poll(budget)) {return budget->status;}if (budget->used[resource]>budget->maximum[resource]||count>budget->maximum[resource]-budget->used[resource]) {return @p@_fail(budget,@p@_resource_limit,part,field,link);}budget->used[resource]+=count;return @p@_ok;
+  if (@p@_poll_at(budget,part,field,link)) {return budget->status;}if (budget->used[resource]>budget->maximum[resource]||count>budget->maximum[resource]-budget->used[resource]) {return @p@_fail(budget,@p@_resource_limit,part,field,link);}budget->used[resource]+=count;return @p@_ok;
+}
+/* Copy admitted routing metadata while retaining its exact part/member/link failure origin. */
+static inline char* @p@_string_at(@p@_budget* budget,const char* text,size_t size,const char* part,const char* field,const char* link) {
+  if(size>@p@_name_bytes||size==SIZE_MAX){@p@_fail(budget,@p@_resource_limit,part,field,link);return NULL;}
+  if(@p@_consume(budget,@p@_allocation_bytes,size+1,part,field,link)){return NULL;}
+  char* copy=(char*)malloc(size+1);if(!copy){@p@_fail(budget,@p@_allocation,part,field,link);return NULL;}
+  if(size){memcpy(copy,text,size);}copy[size]='\0';return copy;
 }
 /* Copy one bounded metadata string, retaining ownership only after successful allocation. */
 static inline char* @p@_string(@p@_budget* budget,const char* text,size_t size) {

@@ -38,8 +38,8 @@ Use a fresh `Budget` for each operation. `used` records cumulative admissions;
 `limits.maximum[Resource::References as usize]` and the other named slots set
 shared limits. The ledger spans physical/expanded ZIP bytes, metadata, directory
 entries, relationships, XML nodes/attributes/scalars, declared application keys
-and references, preservation and logical allocation. XML input is preflighted
-against the shared ledger before the generated model decoder is invoked.
+and references, preservation and logical allocation. Root/type dispatch precedes
+the selected decoder; operation-aware native codecs own primary XML accounting.
 Allocator overhead and native container spare capacity are not hard process-memory
 guarantees. Cancellation is a borrowed `Fn() -> Result<()>`; original cancellation,
 native and I/O error objects retain their concrete types through `Arc` handles.
@@ -92,9 +92,43 @@ not supported by this contract.
 Typed package graphs requiring document companions for QName/list/prefix scopes
 or preserved XML extension slots reject, including nested/inherited uses. Existing
 ordinary native and XML document-companion APIs retain their support separately.
-XSD key/unique/keyref package graphs reject until native identity observers can
-spend the same operation ledger. Ordinary Rust XML identity APIs and declarative
-package-level application selectors retain their separate supported contracts.
+Compiler/runtime 2.18.0 admits supported XSD key/unique/keyref package graphs.
+Each complete tuple spends one reference before equal keyrefs are deduplicated;
+nested owners retain independent indexes. Identity replays add their actual
+work/allocation and tuple counts without charging primary XML events again.
+
+`encode_with_codecs` and `load_with_codecs` accept one typed `FnMut` argument
+per typed role, in `profiles()` order. Encoders receive `&Model`; decoders receive
+`&str`. Both also borrow `&mut package::XmlOperation`, whose public `budget`,
+`role`, `part` and `link` identify the same synchronous operation. Use
+`context.encode(model)` / `context.decode(text)` to compose selected generated
+codecs with their automatic native policies and shared counters:
+
+```rust
+// This example has one typed role; additional typed roles add callback arguments.
+let loaded = ProfileArchive::load_with_codecs(
+    &bytes,
+    &mut package::Budget::default(),
+    package::ExtensionPolicy::preserve(),
+    |text, context| context.decode(text),
+)?;
+```
+
+The corresponding `read_with_codecs`, `write_with_codecs` and `save_with_codecs`
+carry the same callbacks through source/sink/full-Save handling. Save takes all
+encoder callbacks followed by all decoder callbacks and validates before file
+publication. Callbacks return `package::Result`; the first caller error retains
+the identical `Arc`, including cancellation. Native resource and semantic errors
+retain actual part/member/link diagnostics. Callbacks and their captures remain
+borrowed for the call and must preserve the selected model's codec contract.
+
+Ordinary XML callers use the collision-selected `serializer_xml_operation`
+module (see its generated marker), with `Operation`, `Options` and qualified
+`Codec` trait calls. `Options` composes existing XML/map/mixed/digest/identity
+limits and an optional validator. Existing `XmlLimits` struct literals,
+`Error(pub &'static str)`, inherent methods and their `Result` signatures remain
+valid. Each native operation borrows its own context; there is no global or
+thread-local mutable ledger.
 
 Run actual SDK and independent producer/consumer checks with:
 

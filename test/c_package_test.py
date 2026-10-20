@@ -107,10 +107,10 @@ def main():
     (build / 'companion.h').unlink(missing_ok=True)
     diagnostic = run([compiler, '--input', companion, '--language', 'c', '--output', build / 'companion.h'], 'companion-graph-rejection', failure=True)
     assert 'document-companion' in diagnostic and not (build / 'companion.h').exists()
-    diagnostic = run([compiler, '--input', ROOT / 'test/resources/opc_identity.serializer',
-                      '--config', ROOT / 'test/resources/opc_identity.ini', '--language', 'c',
-                      '--output', build / 'identity.h'], 'identity-package-rejection', failure=True)
-    assert 'identity graphs require shared native codec operation hooks' in diagnostic and not (build / 'identity.h').exists()
+    run([compiler, '--input', ROOT / 'test/resources/opc_identity.serializer',
+         '--config', ROOT / 'test/resources/opc_identity.ini', '--language', 'c',
+         '--output', build / 'identity.h'], 'identity-package-generation')
+    assert 'identity_package_archive_load' in (build / 'identity.h').read_text(encoding='utf-8')
     run([compiler, '--input', ROOT / 'test/resources/xml_identity_generated.serializer',
          '--config', ROOT / 'test/resources/opc_identity.ini', '--language', 'c',
          '--output', build / 'identity_native.h'], 'ordinary-identity-generation')
