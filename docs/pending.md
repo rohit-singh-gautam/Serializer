@@ -1,480 +1,1117 @@
 # Pending requirements across Serializer
 
-This is the authoritative backlog for pending requirements documented anywhere
-under `docs/`. Its existing filename is retained so earlier links keep working.
-It covers XML/XSD/OPC and 3MF, managed state and identity, migrations, compiler and
-backend proposals, storage adapters, and remaining qualification/distribution work.
-Design documents retain contracts and rationale; their remaining work is tracked
-here rather than in independent completion lists.
-
-## How to read this backlog
-
-- **Pending** means implementation or a required verification result is missing.
-- **In progress** means source work has started; it is not yet a verified feature.
-- **Qualification pending** means an implementation exists but the stated check
-  has not been completed for the specified backend, provider or platform.
-- **Proposal** records a documented extension, not an accepted implementation
-  commitment or an addition to the active OPC/backend completion task.
-- **External** requires a separately authorized publication, remote change or
-  external verification. Local packaging does not complete that work.
-
-Do not turn every occurrence of the word `pending` into a new task: pending
-transactions/outboxes are runtime states, and dated verification records describe
-their original runs. Explicit format restrictions remain restrictions unless a
-document proposes extending them. A new completion claim needs a source revision,
-selected backend/provider/platform and executed evidence. Keep the original task
-IDs for remaining work; remove completed tasks from these tables and retain their
-IDs and executed evidence in the verification records. Dependencies may name
-completed prerequisites whose records are linked below. Close only the scope
-actually checked.
-
-| Find pending work | Section |
-| --- | --- |
-| OPC/3MF design requirements `OPC-R01`–`OPC-R13` | [OPC and 3MF](#opc-and-3mf-requirements) |
-| XML/XSD, compression and package work in every language | [XML and package backlog](#xml-and-package-backlog), [per-language work units](#work-units-capped-at-five-hours) |
-| Native managed references, imports, editing previews and recovery | [Managed references and migration](#managed-references-and-migration) |
-| Broader managed-state proposals and mostly-disk indexes | [Managed state and storage](#managed-state-and-storage) |
-| Compiler/language/backend extension proposals | [Compiler and backend proposals](#compiler-and-backend-proposals) |
-| Platform, provider, performance and external release checks | [Qualification and distribution](#qualification-and-distribution) |
-
 ## OPC and 3MF requirements
 
-These preserve the IDs from the
-[OPC/3MF design](design/opc_3mf_support.md#generic-framework-status-and-remaining-requirements).
-The C++ checkpoint provides useful implementations, not complete OPC-standard or
-official 3MF Core conformance. Application geometry and manufacturing rules remain
-application responsibilities; this table tracks generic Serializer work and
-qualification of the selected profile.
-
-| ID | Remaining requirement and completion evidence | Status at the verified checkpoint |
-| --- | --- | --- |
-| OPC-R01 | Complete qualified attributes, QName values and prefix lists in each backend; test equivalent prefixes, shadowing, Unicode names and regenerated declarations. | C++/Python subsets checked. C++ child-local/shadowed QName bindings need per-field storage; unrepresentable inputs fail. Backend parity pending. |
-| OPC-R02 | Port namespace-aware reject/skip/preserve slots, exact wildcard positions/counts and required-capability handling; unknown core names must still reject. | C++/Python positioned-extension subsets checked; broader preservation and remaining-backend qualification pending. |
-| OPC-R03 | Complete lexical lists, exact scalar facets, patterns and union branches without duplicate application INI field inventories; qualify value-space boundaries and malformed lexemes. | C++/Python rich subsets checked. Outer union enumeration/fixed values, namespace-dependent union defaults, QName-list enumeration/fixed values and C++ union-QName scalar children reject explicitly. Broader numeric boundary/provider and other-emitter coverage pending. |
-| OPC-R04 | Support the required repeated/grouped choices and ordered heterogeneous content, preserving interleaving and occurrence semantics. | C++/Python one-typed-branch repeated choices plus foreign slots checked against 1,275 independent oracle inputs. Multiple typed branches, grouped choices and broader ordered content remain pending. |
-| OPC-R05 | Import and bind the selected official 3MF Core XSD bundle, including its imported XML vocabulary and required scalar/content constructs; unsupported external schemas must reject precisely. | Pinned Core 1.4 plus W3C XML bundle import/binding and C++/Python authored-model consumers pass. Independent official 3MF corpus/application conformance remains pending. |
-| OPC-R06 | Complete generated profile/reference checks, supported target modes, vocabulary/type dispatch and fixed/default/runtime codec selection; failures publish no aggregate/file. | C++ typed XML/opaque roles checked; remaining profile contracts pending. |
-| OPC-R07 | Implement ZIP/OPC metadata, reader/writer, shared limits, preservation and full-Save APIs for every generated language, with independent producer/consumer tests. | C++ and Python checked subsets; Python package suite passes 11 cases. Other nine backends, broad corpus and provider/resource parity remain pending. |
-| OPC-R08 | Pin and qualify the supported OPC edition and URI/content-type/relationship contracts, including escaped/equivalent names, relative targets, collisions, metadata names and target modes. Cover required metadata encodings (including UTF-16) and Relationships markup-compatibility processing. | ECMA-376 Part 2 fifth edition selected; C++/Python metadata UTF-16, Relationships MCE and physical ZIP item mapping checked. Full Annex B/pass-through corpus and Python Unicode authority IRI coverage remain pending. |
-| OPC-R09 | Measure large-model CPU, peak memory, encoded/generated-code size and cancellation/provider behavior. Qualify supported platforms with the actual XML/compression providers enabled. | Broad performance/provider/platform qualification pending. |
-| OPC-R10 | Qualify value-reference/scoped-projection XML in the remaining backends, preserving source lifetime and avoiding owning payload copies; separately define any durable-address XML contract. | C++ borrowed/shared/scoped output checked; broader backend/stress coverage pending. |
-| OPC-R11 | Carry one cumulative operation context through generated codecs, XML, compression, ZIP, references, preservation and publication; test bounds, cancellation and deadlines across backends/providers. | C++ subset checked; backend and large-input propagation pending. |
-| OPC-R12 | Broaden fixed-XSD association/import/export, local bundle resolution and ambiguity diagnostics while preserving explicit native member IDs and reviewed schema evolution. | Inline binding/import baseline checked in eleven SDKs; broader XSD constructs pending. |
-| OPC-R13 | Retain one-source authoring: derive mapping from XSD or inline defaults/exceptions; qualify new/renamed-field and ambiguous-association workflows as coverage broadens. | Existing minimum-coding subset checked; residual association work belongs to OPC-R12. |
-
-The independent official 3MF application/corpus checks belong to OPC-R05/R09;
-an ordinary XML exchange or tetrahedron export cannot close those gates. Optional
-OPC core-property/signature adapters are separately proposed work below.
-OPC-R06 also retains automatic retargeting of preserved links when a fixed-name
-typed role was loaded from another path; current Save uses its declared canonical
-name and fails if retained links would dangle. Patterned numeric values retain
-their native value, so canonical output must independently satisfy the pattern;
-automatic lexical-format selection is not implemented.
-OPC-R03 also retains C++ floating conversion edge parity: native conversion
-currently rejects out-of-range inputs, including underflow-to-zero lexemes that
-XSD can round to zero. Checked width-aware facet comparisons do not close that gap.
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | OPC-R01 | — | Complete qualified attributes, QName values and prefix lists in every backend; child-local/shadowed QName storage, equivalent prefixes, Unicode names and regenerated declarations preserve expanded identity. | — |
+| [ ] | OPC-R02 | — | Broaden namespace-aware reject/skip/preserve slots, exact wildcard positions/counts and required-capability handling beyond the selected generated graphs; unknown core names must still reject. | — |
+| [ ] | OPC-R03 | — | Complete lexical lists, exact facets, patterns and unions without duplicate INI inventories; cover outer union enumeration/fixed values, namespace-dependent union defaults, QName-list enumeration/fixed values, C++ union-QName children and broader numeric/provider boundaries; canonical numeric output satisfies its pattern. | — |
+| [ ] | OPC-R04 | — | Complete multiple-typed-branch and grouped repeated choices plus ordered heterogeneous content; interleaving and occurrence semantics survive round trips. | — |
+| [ ] | OPC-R05 | — | Qualify the selected official Core 1.4 and XML XSD bundle against independent official 3MF corpus/conformance checks; required scalar/content constructs bind and unsupported external schemas reject precisely. | — |
+| [ ] | OPC-R06 | — | Complete generated profile/reference checks, target modes, vocabulary/type dispatch and fixed/default/runtime selection; automatically retarget preserved links when a loaded typed role changes to its declared canonical path; failures publish no aggregate/file. | — |
+| [ ] | OPC-R07 | — | Implement ZIP/OPC metadata, reader/writer, shared limits, preservation and full-Save APIs for every generated language, with independent producer/consumer tests; [2.14 checkpoint](verification/verification-backlog-2026-10-20.md). | — |
+| [ ] | OPC-R08 | — | Qualify ECMA-376 Part 2 fifth-edition URI/content-type/relationship contracts and full Annex B/pass-through corpus; cover escaped/equivalent names, relative targets, collisions, physical metadata names, target modes, UTF-16 and Relationships markup compatibility. | — |
+| [ ] | OPC-R09 | — | Measure large-model CPU, peak memory, encoded/generated-code size and cancellation/provider behavior. Qualify supported platforms with the actual XML/compression providers enabled. | — |
+| [ ] | OPC-R10 | — | Broaden value-reference/scoped-projection XML graph, resource and stress qualification in every backend, preserving source lifetime and avoiding owning payload copies; separately define any durable-address XML contract. | — |
+| [ ] | OPC-R11 | — | Carry one cumulative operation context through generated codecs, XML, compression, ZIP, references, preservation and publication; test bounds, cancellation and deadlines across backends/providers. | — |
+| [ ] | OPC-R12 | — | Broaden fixed-XSD association/import/export, local bundle resolution and ambiguity diagnostics while preserving explicit native member IDs and reviewed schema evolution. | — |
+| [ ] | OPC-R13 | — | Retain one-source authoring: derive mapping from XSD or inline defaults/exceptions; qualify new/renamed-field and ambiguous-association workflows as coverage broadens. | — |
 
 ## Managed references and migration
 
-The implementation/ownership contracts remain in
-[managed entity references](design/managed_entity_references.md),
-[state registries](managed/state_registry.md),
-[local collaboration](managed/local_collaboration.md) and the
-[persistent-ID migration guide](guides/persistent_id_migration.md).
-Identical document/object IDs at all collaborators are mandatory; translated-ID
-operation is not a proposed alternative.
-
-| ID | Remaining requirement and completion evidence | Status |
-| --- | --- | --- |
-| MR01 | Broaden native identity/reference lifecycle, corruption, resource and fault tests across allocation, complete-candidate validation, deletion, Undo/Redo, persistence and collaboration. | Qualification pending beyond the checked C++ profiles. |
-| MR02 | Broaden independent-import ownership/external-mapping failures, editable child moves/retirement, preview resource failures and journal/acceptance faults; preserve IDs and atomic publication. | Qualification pending; core import/edit/preview paths are implemented and checked. |
-| MR03 | Define and qualify managed token codecs for other generated outputs; keep these distinct from full native managed engines. Resolve currently rejected recursive generic/reference combinations only under an explicit supported contract. | Pending extension; native engine work is MG01. |
-| MIG01 | Qualify the ID converter against separately produced older compiler artifacts, beyond independent fixed-wire fixtures and current supported containers. | Qualification pending. |
-| MIG02 | Add explicitly selected migrations for other historical layouts/container versions and collaboration client checkpoints/outboxes/epochs when required; preserve exact identity, lease state and retries. | Proposal; current tool rejects unsupported containers. |
-| MIG03 | Define any journal/database-sink migration/rebaseline adapter separately from managed-save/raw-model conversion and test recovery after interrupted publication. | Proposal; current conversion is offline and explicit. |
-
-Fixed/compact ID conversion for supported managed saves and all three raw binary
-formats is already checked. Normal `load` must not acquire automatic detection or
-compatibility conversion as a consequence of this backlog.
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | MR01 | — | Broaden native identity/reference lifecycle, corruption, resource and fault tests across allocation, complete-candidate validation, deletion, Undo/Redo, persistence and collaboration. | — |
+| [ ] | MR02 | — | Broaden independent-import ownership/external-mapping failures, editable child moves/retirement, preview resource failures and journal/acceptance faults; preserve IDs and atomic publication. | — |
+| [ ] | MR03 | — | Define and qualify managed token codecs for other generated outputs; keep these distinct from full native managed engines. Resolve currently rejected recursive generic/reference combinations only under an explicit supported contract. | — |
+| [x] | MR04 | — | Typed C++ managed_ref, get_id, stable class_id and registry reference/resolution; document/type scope and complete-candidate validation (2.7 Windows direct/separated fixed/compact uint32/uint64 profiles; [evidence](verification/verification-opc-xsd-2026-10-19.md)). | Existing C++ managed runtime |
+| [x] | MR05 | — | Initialize required/self/cyclic managed references after native identity assignment and before first validation/publication/history snapshot (2.7 C++ typed-reference profiles; [evidence](verification/verification-opc-xsd-2026-10-19.md)). | MR04 |
+| [x] | MR06 | — | Native two-pass independent import; remap declared tokens, apply explicit external mappings, validate ownership/references and attach transactionally; ordinary integer payloads retain their values (2.7 C++ reference/import profiles; [evidence](verification/verification-opc-xsd-2026-10-19.md)). | MR04 |
+| [x] | MR07 | — | C++ apply_editable retains entity identity and reconciles owned children, with zero IDs for genuinely new children; separately, active-transaction registry.reserve and registry.adopt_reserved admit unused identities reserved by that transaction through checked attachment (2.7 generated editable/reference profiles; [evidence](verification/verification-opc-xsd-2026-10-19.md)). | MR04, MR05 |
+| [x] | MR08 | — | Owner-thread previews reserve IDs through the source allocator before exposure; canceled IDs stay burned and exact-base/exact-ID acceptance preserves native Undo/Redo and recovery (2.7 four C++ registry profiles; [evidence](verification/verification-opc-xsd-2026-10-19.md)). | MR07 |
+| [x] | MR09 | — | Identical collaborative document/object IDs with authority leases and reserve_ids; durable reservations, nonreuse, exact acceptance and forged/exhausted-range rejection (2.7 native strict-collaboration profiles; [evidence](verification/verification-opc-xsd-2026-10-19.md)). | MR04 |
+| [x] | MIG01 | — | Qualify ID conversion against genuinely rebuilt 2.6.0 compiler/runtime artifacts; all three raw binary formats and supported managed history/identity/allocation profiles convert exactly (Windows direct uint32/separated uint64, 92 conversions; [evidence](verification/verification-managed-legacy-migration-2026-10-20.md)). | — |
+| [ ] | MIG02 | — | Add explicitly selected migrations for other historical layouts/container versions and collaboration client checkpoints/outboxes/epochs when required; preserve exact identity, lease state and retries. | — |
+| [ ] | MIG03 | — | Define any journal/database-sink migration/rebaseline adapter separately from managed-save/raw-model conversion and test recovery after interrupted publication. | — |
+| [x] | MIG04 | — | Explicit same-schema fixed/compact-varint ID conversion helper/CLI for supported managed saves and raw binary formats; preserve exact identities, allocation marks, history, leases and native layout (2.7 direct uint32/separated uint64 reference profiles; [evidence](verification/verification-opc-xsd-2026-10-19.md)). | Existing same-schema C++ codecs |
 
 ## Managed state and storage
 
-These proposals are collected from the managed design documents; recording them
-here does not claim they exist or make them prerequisites for ordinary codecs.
-
-| ID | Remaining requirement / proposal and completion evidence | Source and status |
-| --- | --- | --- |
-| MG01 | Implement native managed engines for selected non-C++ backends: ownership, immutable reads, transactions, identity, history, journals and collaboration under native lifetime/error/concurrency contracts. | [Language bindings](managed/language_bindings.md); proposal. |
-| MG02 | Define versioned feature selectors/exclusions and complete component combinations, including history-policy conversion and mandatory identity/authorization rules. | [Capabilities](managed/capabilities.md), [managed state](managed/managed_state.md); proposal. |
-| MG03 | Implement inherited authorization policies, editable/read-only subtree exceptions and separate structural/policy permissions; enforce the same boundary at edit, import and authority acceptance. | [Authorization](managed/authorization.md), [managed state](managed/managed_state.md#authorization-on-the-design-hierarchy); proposal beyond existing policy hooks. |
-| MG04 | Define branch merging, conflict/dependency policies and retained-history/collaboration delta integration; qualify retries and invariant validation before publication. | [Managed state](managed/managed_state.md#branch-merging), [state enhancements](managed/state_enhancements.md); proposal. |
-| MG05 | Extend distributed transport/session, presence/lock-cache and fault/reconnect qualification without weakening strict native identity or authority ownership. | [Collaboration](managed/collaboration.md), [implemented runtime](managed/collaboration_runtime.md); qualification/proposed extensions. |
-| MG06 | Define distributed commits and external file/network effects, including durable intent, reconciliation and failure semantics. Authentication and business-side effects remain application services. | [Managed state](managed/managed_state.md#distributed-transactions); proposal. |
-| MG07 | Provide allocator-aware payload containers/decoding and hard peak-allocation hooks; distinguish admission estimates from measured process peaks. | [Ownership/allocation](managed/history.md#ownership-and-custom-allocation), [state enhancements](managed/state_enhancements.md); proposal beyond current PMR/admission hooks. |
-| MG08 | Define supported managed packed/view/recursive/Protobuf and broader inheritance/editor contracts, preserving explicit rejection until real code and qualification exist. | [C++ runtime](managed/cpp_runtime.md), [generics](schema/generics.md), [state enhancements](managed/state_enhancements.md); proposed extensions. |
-| MG09 | Define field-level merging inside managed variants, virtual/abstract/override edit dispatch and portable owned/borrowed method or typed-error contracts. | [State enhancements](managed/state_enhancements.md#remaining-work); proposal. |
-| MG10 | Extend projection/dependency notification policies and compact nested identity/history records where proposed; measure retained/deleted-entity costs and edit latency. | [Identity/history](managed/history.md), [data structures](managed/data_structures.md); proposal beyond checked callbacks and snapshots. |
-| PG01 | Implement the proposed page store/cache, persistent index keys, dirty-page writeback/recovery, bounded construction and corruption handling before claiming a mostly-disk index. | [Paged indexing](design/paged_indexing.md); proposal. |
-| PG02 | Add lazy value/storage loading and the proposed paged capability selectors only after index/page lifetime and recovery contracts are implemented and measured. | [Paged indexing](design/paged_indexing.md); later proposal. |
-| DB01 | Implement and qualify an explicit database document/journal sink adapter with ownership, transactions, schema mapping and failure/recovery semantics. Guidance for external databases is not an implemented adapter. | [Database integration](guides/database_integration.md#proposed-document-sink-boundary); proposal. |
-
-The XML/ZIP/OPC document-state bridge retains its existing detailed **D01–D21**
-tasks below; it is not supplied by native save migration or ordinary full Save.
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | MG01 | — | Implement native managed engines for selected non-C++ backends: ownership, immutable reads, transactions, identity, history, journals and collaboration under native lifetime/error/concurrency contracts; [Language bindings](managed/language_bindings.md). | — |
+| [ ] | MG02 | — | Define versioned feature selectors/exclusions and complete component combinations, including history-policy conversion and mandatory identity/authorization rules; [Capabilities](managed/capabilities.md), [managed state](managed/managed_state.md). | — |
+| [ ] | MG03 | — | Implement inherited authorization policies, editable/read-only subtree exceptions and separate structural/policy permissions; enforce the same boundary at edit, import and authority acceptance; [Authorization](managed/authorization.md), [managed state](managed/managed_state.md#authorization-on-the-design-hierarchy). | — |
+| [ ] | MG04 | — | Define branch merging, conflict/dependency policies and retained-history/collaboration delta integration; qualify retries and invariant validation before publication; [Managed state](managed/managed_state.md#branch-merging), [state enhancements](managed/state_enhancements.md). | — |
+| [ ] | MG05 | — | Extend distributed transport/session, presence/lock-cache and fault/reconnect qualification without weakening strict native identity or authority ownership; [Collaboration](managed/collaboration.md), [implemented runtime](managed/collaboration_runtime.md). | — |
+| [ ] | MG06 | — | Define distributed commits and external file/network effects, including durable intent, reconciliation and failure semantics; keep authentication and business-side effects in application services; [Managed state](managed/managed_state.md#distributed-transactions). | — |
+| [ ] | MG07 | — | Provide allocator-aware payload containers/decoding and hard peak-allocation hooks; distinguish admission estimates from measured process peaks; [Ownership/allocation](managed/history.md#ownership-and-custom-allocation), [state enhancements](managed/state_enhancements.md). | — |
+| [ ] | MG08 | — | Define supported managed packed/view/recursive/Protobuf and broader inheritance/editor contracts, preserving explicit rejection until real code and qualification exist; [C++ runtime](managed/cpp_runtime.md), [generics](schema/generics.md), [state enhancements](managed/state_enhancements.md). | — |
+| [ ] | MG09 | — | Define field-level merging inside managed variants, virtual/abstract/override edit dispatch and portable owned/borrowed method or typed-error contracts; [State enhancements](managed/state_enhancements.md#remaining-work). | — |
+| [ ] | MG10 | — | Extend projection/dependency notification policies and compact nested identity/history records where proposed; measure retained/deleted-entity costs and edit latency; [Identity/history](managed/history.md), [data structures](managed/data_structures.md). | — |
+| [ ] | PG01 | — | Implement the proposed page store/cache, persistent index keys, dirty-page writeback/recovery, bounded construction and corruption handling before claiming a mostly-disk index; [Paged indexing](design/paged_indexing.md). | — |
+| [ ] | PG02 | — | Add lazy value/storage loading and the proposed paged capability selectors only after index/page lifetime and recovery contracts are implemented and measured; [Paged indexing](design/paged_indexing.md). | — |
+| [ ] | DB01 | — | Implement and qualify an explicit database document/journal sink adapter with ownership, transactions, schema mapping and failure/recovery semantics; [Database integration](guides/database_integration.md#proposed-document-sink-boundary). | — |
 
 ## Compiler and backend proposals
 
-| ID | Remaining requirement / proposal and completion evidence | Source and status |
-| --- | --- | --- |
-| SC01 | Define proposed `compact_zigzag`, `compact_float16`, `compact_bfloat16`, `compact_float32` and `compact_scaled`, including rounding, overflow, NaN/infinity and signed zero, before adding schema keywords or wire values. | [Compact encodings](schema/compact_integers.md#proposed-signed-and-floating-encodings); proposal. |
-| SC02 | Broaden default-value validation, preserve useful input/member positions in diagnostics and define bit-field support with wire/compatibility tests. | [Feature roadmap](project/feature_status.md#other-roadmap-items); proposal. |
-| SC03 | Extend currently unsupported generic-function calls/defaults and fixed-array initializer/Protobuf combinations with explicit portable contracts and actual SDK checks. | [Generics](schema/generics.md); proposed extensions. |
-| BE01 | Implement native-backend separate-file layout where currently unavailable; preserve naming, dependency includes/modules and editor navigation. | [Native languages](languages/native_languages.md); pending extension. |
-| BE02 | Define and implement Java packed output and the proposed stream/channel, native-acceleration and output-buffer-reuse APIs, with ownership/resource tests. | [Java output](languages/java.md#defaults-and-unsupported-schema-features); proposed extensions. |
-| BE03 | Qualify borrowed/mapped-view platform, lifetime, allocation and performance boundaries; broader formats require their own mapping contract. | [Views](serialization/views.md); qualification/proposed extensions. |
-| BE04 | Add compiler-only installed CMake discovery so source-generation consumers need not resolve unused runtime-provider packages; preserve normal runtime exports and relocatable/cross-toolchain lookup. | [CMake integration](guides/cmake_integration.md); pending extension. Current `LANGUAGES NONE` consumers on multiarch Linux may need provider search prefixes or their selected toolchain's library architecture. |
-| OPC-OPT01 | Define reusable OPC core-property models/adapters if selected; applications supply property values. | [OPC design](design/opc_3mf_support.md); optional proposal. |
-| OPC-OPT02 | Define a signature/canonicalization/trust provider and independently qualify editing/signed-package behavior before claiming signature support. | [OPC design](design/opc_3mf_support.md); optional proposal. |
-| OPC-OPT03 | Define any outer package/Pack-IRI addressing API separately from internal part resolution; distinguish optional non-ASCII naming, interleaving and growth hints from mandatory selected-edition requirements. | [OPC design](design/opc_3mf_support.md); optional extension/edition qualification. |
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | SC01 | — | Define proposed `compact_zigzag`, `compact_float16`, `compact_bfloat16`, `compact_float32` and `compact_scaled`, including rounding, overflow, NaN/infinity and signed zero, before adding schema keywords or wire values; [Compact encodings](schema/compact_integers.md#proposed-signed-and-floating-encodings). | — |
+| [ ] | SC02 | — | Broaden default-value validation, preserve useful input/member positions in diagnostics and define bit-field support with wire/compatibility tests; [Feature roadmap](project/feature_status.md#other-roadmap-items). | — |
+| [ ] | SC03 | — | Extend currently unsupported generic-function calls/defaults and fixed-array initializer/Protobuf combinations with explicit portable contracts and actual SDK checks; [Generics](schema/generics.md). | — |
+| [ ] | BE01 | — | Implement native-backend separate-file layout where currently unavailable; preserve naming, dependency includes/modules and editor navigation; [Native languages](languages/native_languages.md). | — |
+| [ ] | BE02 | — | Define and implement Java packed output and the proposed stream/channel, native-acceleration and output-buffer-reuse APIs, with ownership/resource tests; [Java output](languages/java.md#defaults-and-unsupported-schema-features). | — |
+| [ ] | BE03 | — | Qualify borrowed/mapped-view platform, lifetime, allocation and performance boundaries; broader formats require their own mapping contract; [Views](serialization/views.md). | — |
+| [x] | BE04 | — | Compiler-only installed CMake discovery avoids unused runtime-provider lookup; preserve runtime exports, relocation, component selection and cross-toolchain host lookup (2.14 Windows/Linux neutral and multiarch install profiles; [evidence](verification/verification-backlog-2026-10-20.md)). | — |
+| [ ] | OPC-OPT01 | — | Define reusable OPC core-property models/adapters if selected; applications supply property values; [OPC design](design/opc_3mf_support.md). | — |
+| [ ] | OPC-OPT02 | — | Define a signature/canonicalization/trust provider and independently qualify editing/signed-package behavior before claiming signature support; [OPC design](design/opc_3mf_support.md). | — |
+| [ ] | OPC-OPT03 | — | Define any outer package/Pack-IRI addressing API separately from internal part resolution; distinguish optional non-ASCII naming, interleaving and growth hints from mandatory selected-edition requirements; [OPC design](design/opc_3mf_support.md). | — |
 
 ## Qualification and distribution
 
-| ID | Remaining check and evidence required | Status / source |
-| --- | --- | --- |
-| QA01 | Replay changed contracts on other supported platforms and remaining provider combinations with real SDKs; retain exact versions, configurations and failures. | Windows full-provider, Linux XML/zlib and minimal-OFF checks pass for the 2.8 checkpoint. Linux Zstandard/LZ4 and broader platform/provider qualification remain pending. |
-| QA02 | Execute the independent XML/XSD/ZIP/OPC/3MF corpus, malformed-input/fault/resource cases and cross-language exchanges for each newly implemented slice. | Qualification pending; per-language Q01–Q08 and G01–G09 below retain detailed gates. |
-| QA03 | Measure throughput, allocations/peak memory, encoded size and generated-code size against reproducible workloads/baselines; preserve ordinary non-OPC paths. | Qualification pending; code equality is not a universal performance result. |
-| QA04 | Qualify current editor-host behavior where a dated record identifies only shared/provider/native-interpreter checks; keep packaged/listing versions and all supported navigation synchronized when changed. | [Editor navigation](editors/editor_navigation.md), [qualification records](verification/README.md); qualification pending. |
-| REL01 | Verify actual upstream package/Marketplace contents and installed consumers independently of current source/local packages. | [Distribution](project/distribution.md), [repository specification](design/repository_extensions_vcpkg_spec.md); external qualification. |
-| REL02 | Publish prepared releases, VSIX/listing updates, GitHub metadata or upstream package-port changes only when separately authorized. Preserve stable package/extension identities. | [Repository specification](design/repository_extensions_vcpkg_spec.md); external, not authorized by this backlog. |
-
-Historical reports under `verification/` retain their original results and limits.
-Their old unrun checks do not override a later passing result for the same exact
-contract. Use this backlog and the newest applicable evidence together.
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | QA01 | — | Replay changed contracts on other supported platforms and remaining provider combinations with real SDKs; retain exact versions, configurations and failures; [2.14 checkpoint](verification/verification-backlog-2026-10-20.md). | — |
+| [ ] | QA02 | — | Execute the independent XML/XSD/ZIP/OPC/3MF corpus, malformed-input/fault/resource cases and cross-language exchanges for each newly implemented slice. | — |
+| [ ] | QA03 | — | Measure throughput, allocations/peak memory, encoded size and generated-code size against reproducible workloads/baselines; preserve ordinary non-OPC paths; [Python compression measurements](verification/verification-python-compression-performance-2026-10-20.md). | — |
+| [ ] | QA04 | — | Qualify current editor-host behavior where a dated record identifies only shared/provider/native-interpreter checks; keep packaged/listing versions and all supported navigation synchronized when changed; [Editor navigation](editors/editor_navigation.md), [qualification records](verification/README.md). | — |
+| [x] | REL01 | — | Inspect published VSIX archive/hash/identity contents and independently build/install the upstream package with an isolated installed consumer (published 2.0.0 archives and 2.0.1 x64-windows, nine consumer checks; [evidence](verification/verification-distribution-2026-10-20.md)). | — |
+| [ ] | REL02 | — | Publish separately authorized prepared releases, VSIX/listings, GitHub metadata and upstream package-port updates; preserve stable package/extension identities; [Repository specification](design/repository_extensions_vcpkg_spec.md). | — |
 
 ## XML and package backlog
 
-Compiler/runtime **2.11.0** completes shared tasks **S08-S36**: scalar/pattern,
-particle and identity contracts, advanced local XSD tooling, model/profile
-metadata, restricted HTML and the shared eleven-language fixture inventory.
-The [advanced contract guide](serialization/xml_advanced_contracts.md) and
-[verification record](verification/verification-xml-advanced-contracts-2026-10-19.md)
-separate checked shared APIs from the dependent generated-language work below.
+### Implemented XML and package capability tasks
 
-Compiler/runtime **2.10.0** adds the incremental C++ XML event reader and shared
-presence, mixed-content, map, variant and extension-slot contracts. The
-[shared-contract guide](serialization/xml_shared_contracts.md) distinguishes
-these APIs from the per-language generated codecs, which remain pending.
-The earlier **2.9.0** S01
-[normalized XML event contract](serialization/xml_events.md) defines borrowed
-payload and bounded structural validation. Earlier checkpoints below retain
-their original scope and evidence.
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | XML-C01 | — | Two-stage XSD declaration import: emit an editable native schema, then compile that schema; separately bind existing declarations with using schema; preserve explicit member IDs, authored behavior and protected existing source (2.7 eleven-SDK automatic/manual consumers; [evidence](verification/verification-opc-xsd-2026-10-19.md)). | S12, S24, S25 |
+| [x] | XML-C02 | — | Generated C++/Python owning package facades and selected XML/opaque roles; standard content-type/relationship metadata, integrity, preservation and full-Save round trips (2.7–2.14 selected C++/Python package profiles; [evidence](verification/verification-package-reference-2026-10-20.md)). | S31, S32 |
+| [x] | XML-C03 | — | Pinned official Core 1.4 plus XML vocabulary bundle import/binding and authored-model consumers; unsupported constructs reject (2.8 selected C++/Python Core consumers; [evidence](verification/verification-opc-backends-2026-10-19.md)). | XML-C01 |
+| [x] | XML-C04 | — | Readonly value-reference and scoped-projection XML output preserves source lifetime and avoids duplicate owning payloads; durable address XML has an explicit rejection boundary (selected eleven-output reference contracts; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S30 |
 
-Compiler/runtime **2.8.0**, schema language **1.20.0**, adds checked C++/Python
-rich XML and Core consumers, Python OPC profiles and XML enabled by default.
-The [2.8 verification record](verification/verification-opc-backends-2026-10-19.md)
-records focused/SDK checks, 171/171 Windows and 170/170 Linux native tests, plus
-the current minimal installed-package checks and their provider limits.
-The earlier **2.7.0** checkpoint remains recorded independently.
-Earlier **2.4.0**
-qualification remains linked below; it does not qualify newly changed code.
-Read the [implemented APIs](serialization/xml_packages.md),
-[examples](../example/xml/README.md) and [complete requirements](design/xml_support.md).
-The [OPC/3MF authoring requirements](design/opc_3mf_support.md) separate framework
-gaps from application models/validation and show the current restricted build route.
-Backend verification is recorded separately; generated code alone is not qualification.
-See the [2.4.0 checkpoint checks](verification/verification-xml-pending-2026-10-17.md)
-and the separate [2.3.0 checks](verification/verification-xml-packages-2026-10-17.md).
+### XML and package requirement tasks
 
-The 2.4.0 changes add configured text with attributes and collection wrappers to
-every XML emitter; bounded pinned local XSD imports/includes, named nested records,
-export and directional compatibility tooling; general native `binary_none` format
-selection; and C++ ZIP64, explicit nonseekable spooling, caller-authored transactional
-OPC aggregate loading, extension policies and canonical ordering. These are
-increments toward this specification. The remaining requirements below still
-prevent calling the complete feature finished.
-
-The following slices form the implemented baseline. Each verification record
-names its executed revision; the remaining-work column reflects the 2.8 scope.
-General completion still requires the remaining backend and release gates;
-a C++ result does not close another backend's task.
-
-| Addition | Implemented and checked | Still pending |
-| --- | --- | --- |
-| Schema-first XML | Inline namespace/class defaults and field exceptions; relative `using schema`; parser version/include checks. | Broader vocabulary and ambiguous association tooling. |
-| XSD declaration import | Real CLI import, stable explicit member IDs, dependency tracking, protected existing source; automatic and manual examples pass all eleven SDKs and 264 XML exchanges. | Arbitrary XSD content models, identity constraints, chameleon includes, portable pattern compilation and schema migration automation. |
-| Rich XSD/XML | C++/Python supported facets/defaults, patterns/unions, restricted repeated choices, typed lists, QName/prefix context, positioned foreign extensions and Core consumers pass. | Equivalent rich emitters in the other nine outputs, broader numeric/QName/content-model and provider qualification. |
-| Generated packages | C++/Python declarations generate Save and owning typed load; dynamic attachments, integrity, preservation and shared-limit tests pass. Independent ZIP/OPC interchange checks pass. | Other nine language facades, declarative payload reference checks, target-mode/profile selection and broad corpus/performance qualification. |
-| Operation context | C++/Python shared XML/package accounting, cancellation, deadlines and preservation tests pass. | Remaining-backend propagation and large-model/provider qualification. |
-| Ordinary native path | All eleven ordinary generated outputs are byte-identical to the captured 2.6.0 baseline fixture. | Broader repeatable throughput/peak-memory measurements; source equality is not a universal performance claim. |
-| Native checkpoint | Windows full-provider 171/171 and Linux XML/zlib 170/170 CTests pass; minimal installed header/provider checks also pass. | Other platforms/provider combinations, broad performance and complete OPC/3MF qualification. |
-
-See [the new XSD examples](../example/xsd/README.md) and
-[the earlier authoring record](verification/verification-opc-xsd-2026-10-19.md).
-
-**Coverage rule:** general formats/features must support every generated language.
-A missing backend remains pending. Only inherently language-specific features,
-such as C++ constant evaluation and borrowed native views, may differ by language.
-
-```text
-ordinary owning model
-        |
-        +-- generated XML: all outputs
-        |       |
-        |       +-- SDK qualification
-        |
-        +-- compression / ZIP / OPC
-                |
-                +-- C++ / Python package implementations
-                +-- other backend parity
-```
-
-| Area | Remaining requirement |
-| --- | --- |
-| XML performance | Tree-free token codecs; measured CPU, memory, encoded and generated-code size. Current mapping is static; several backends retain bounded trees. |
-| XML vocabulary | `xsi:nil`, general ordered mixed content, maps/variants, and namespace-aware unknown-extension policies beyond C++/Python. Foreign extension retention is a bounded subset, not general mixed-content modeling. |
-| XSD compilation | General facets/derivations, multiple-typed-branch or grouped choices, chameleon includes and identity constraints; precise union/QName limits are listed above. Port the richer C++/Python subset to other emitters. Unsupported constructs/backends fail generation. |
-| XSD tooling | Extend export to text/wrappers/enums/foreign field namespaces, choice/wildcard, union and inherited pattern-group contracts. Expand bundle/tool stress and platform qualification. Changing a fixed schema still requires regeneration; differing imported source requires review. |
-| Schema-first authoring | Broaden the implemented inline association and declaration importer beyond its checked subset. Preserve authored behavior and native ordering through reviewed schema evolution. |
-| Runtime XSD | Qualify prepared providers, limits and concurrency on every backend. Align output/input namespace-declaration accounting across adapters. Some outputs use an explicit caller-prepared validator interface. No automatic remote schema loading. |
-| Model coverage | Generics, inheritance, managed/view/revision/magic/digest mappings require explicit XML contracts. |
-| Referenced XML output | C++ borrowed/shared value and scoped projection tests pass. Broaden their stress/resource qualification and add other-backend support without duplicate owning payloads. Durable field-address XML requires an explicit contract and remains rejected. |
-| Compression parity | Whole-object stream wrappers and identical framing/error/limit contracts for every output; optional Zstandard/LZ4 providers where absent. |
-| Package parity | ZIP/OPC source/sink APIs, metadata, shared budgets and full-Save guarantees beyond the implemented C++/Python subsets. |
-| ZIP extensions | Broaden large-archive, stress and provider coverage beyond the bounded C++ ZIP64/spooling cases checked on Windows/Linux; tighten peak-memory/cancellation guarantees and implement other backend paths. Unsupported features keep failing explicitly. |
-| Typed profiles | Broaden C++/Python declarations with pipeline/runtime selection, vocabulary profiles and generated payload reference checks before publication; implement other backends. |
-| Typed package loading | Port generated transactional profiles and automatic codec/reference budgets beyond C++/Python. Caller-authored callbacks must explicitly compose their selected codecs with the shared context. |
-| Complete-operation context | Port shared XML/package accounting/deadlines beyond C++/Python; qualify projection/compression/provider cancellation latency and resource boundaries on large inputs. Provider-internal allocations/calls are not hard peak or preemption guarantees. |
-| Preservation | Broaden C++/Python XML/package policy and collision qualification and implement equivalent policies on every backend. No signature or lexical-preservation claim. |
-| Reproducibility | Extend independently checked canonical ordering/metadata policies across backends; compressed byte identity depends on provider/version/options. |
-| HTML | Separate HTML syntax/adapter. XML-form XHTML is limited by the implemented XML vocabulary; mixed-content XHTML is not supported. |
-
-Runtime **2.13.0** supplies a generic C++ external-document journal adapter through
-caller-supplied owning encode/decode callbacks. It binds exact saved bytes, restores
-native identities/history/session state, and publishes differential companions
-with recoverable generation manifests. See the
-[document-codec workflow](guides/usage.md#external-documents-with-a-differential-sidecar).
-This implementation does not automatically generate XML/OPC document projections
-or close the complete standard-specific and platform qualification work below.
-The broader document-state integration remains a separate item:
-
-```text
-editable application state
-       |
-       +-- full Save --> XML / ZIP / OPC file
-       |
-       +-- native differential side channels
-             history / journal / collaboration
-```
-
-Qualification must cover object identities, allocation marks, retained history
-and branch cursors; exact saved-baseline/layout binding; and coherent old/new
-generation recovery after interrupted publication for each selected document
-format and provider. Stale/mismatched documents must fail before decoding. Final
-document files must contain no Serializer history, active journal or session/outbox
-state. The generic adapter keeps native `binary_integer` logical records behind
-its differential side channel; it is separate from
-[explicit ID-encoding migration](guides/persistent_id_migration.md).
-
-Compression is for **one complete serialized object**. Backend byte chunks are
-an implementation detail. Incremental record callbacks and incremental object
-serialization are not requirements of this work.
-
-Before marking the complete feature finished, qualify the remaining backend
-contracts, independent XML/XSD/ZIP corpus, malformed-input/resource boundaries,
-cross-language/platform exchanges and performance measurements. The current
-eleven-SDK ordinary-XSD baseline, 169-test Windows native run and XML-disabled/minimal-provider build are
-already checked in the linked record; repeat them when relevant inputs change.
-No completion dates or unexecuted verification are implied by this list.
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | XML-B01 | — | Broaden schema-first XML vocabulary and ambiguous-association tooling. | — |
+| [ ] | XML-B02 | — | Extend declaration import to additional XSD content-model, identity, chameleon and pattern combinations; qualify schema migration automation beyond the supported subset. | — |
+| [ ] | XML-B03 | — | Implement equivalent rich XSD/XML emitters beyond C++/Python and qualify broader numeric, QName, content-model and provider combinations. | — |
+| [ ] | XML-B04 | — | Implement generated package facades for the other nine outputs; add declarative payload references, target-mode/profile selection and broad corpus/performance qualification. | — |
+| [ ] | XML-B05 | — | Propagate the shared XML/package operation context through remaining backends and qualify large-model/provider boundaries. | — |
+| [ ] | XML-B06 | — | Measure repeatable ordinary-native throughput and peak memory against reproducible baselines. | — |
+| [ ] | XML-B07 | — | Qualify additional platforms/provider combinations, broad performance and complete selected OPC/3MF profiles. | — |
+| [ ] | XML-B08 | — | XML performance: Broaden tree-free token coverage and qualify provider/platform and retained-tree helper costs; measure CPU, memory, encoded size and generated-code size on reproducible workloads. | — |
+| [ ] | XML-B09 | — | XML vocabulary: Extend combinations of presence/nil, ordered fragments, maps/variants and positioned extensions; qualify bounded foreign retention, grouped/repeated heterogeneous choices and broader mixed content. | — |
+| [ ] | XML-B10 | — | XSD compilation: Extend facets/derivations, multiple-typed-branch/grouped choices and scalar/pattern/identity/local-bundle combinations; qualify union/QName boundaries and explicit unsupported-graph capability gates. | — |
+| [ ] | XML-B11 | — | XSD tooling: Expand bundle/tool stress, ambiguous association and platform qualification across text/wrapper/enum, namespace and particle export; preserve reviewed fixed-schema regeneration and protected imported source. | — |
+| [ ] | XML-B12 | — | Schema-first authoring: Extend inline association and declaration import while preserving authored behavior and native ordering through reviewed schema evolution. | — |
+| [ ] | XML-B13 | — | Runtime XSD: Qualify prepared providers, limits and concurrency in every backend; align input/output namespace-declaration accounting, qualify caller-prepared validator interfaces and prohibit automatic remote schema loading. | — |
+| [ ] | XML-B14 | — | Model coverage: Broaden concrete generic, owning inheritance, revision/magic and digest combinations; define supported managed/view and recursive/combined graph contracts. | — |
+| [ ] | XML-B15 | — | Referenced XML output: Broaden stress/resource and ownership qualification without duplicate owning payloads; define any durable field-address XML contract before enabling it. | — |
+| [ ] | XML-B16 | — | Compression parity: Complete whole-object source/sink wrappers and identical framing/error/limit contracts across every output; qualify optional Zstandard/LZ4 adapters. | — |
+| [ ] | XML-B17 | — | Package parity: Complete ZIP/OPC source/sink, metadata, shared budgets and full-Save guarantees across every output. | — |
+| [ ] | XML-B18 | — | ZIP extensions: Broaden large-archive, stress and provider coverage; qualify ZIP64/spooling, peak-memory and cancellation boundaries in every backend; unsupported features reject explicitly. | — |
+| [ ] | XML-B19 | — | Typed profiles: Extend C++/Python declarations with pipeline/runtime selection, vocabulary profiles and generated payload reference checks before publication; implement equivalent contracts in other backends. | — |
+| [ ] | XML-B20 | — | Typed package loading: Complete generated transactional profiles and automatic codec/reference budgets in every backend; caller-owned callbacks compose selected codecs with the same shared context. | — |
+| [ ] | XML-B21 | — | Complete-operation context: Propagate shared accounting/deadlines across remaining backends; qualify projection/compression/provider cancellation and large-input boundaries, including explicit provider-internal peak/preemption limits. | — |
+| [ ] | XML-B22 | — | Preservation: Broaden XML/package policy and collision qualification in every backend; keep signatures and lexical preservation under separate contracts. | — |
+| [ ] | XML-B23 | — | Reproducibility: Extend independently checked canonical ordering/metadata policies across backends; pin provider/version/options when qualifying compressed byte equality. | — |
+| [ ] | XML-B24 | — | HTML: Broaden restricted HTML adapters only under an explicit supported contract; keep arbitrary HTML and unrestricted mixed-content XHTML outside that contract. | — |
 
 ## Work units capped at five hours
 
-Each task below is an independent active-work timebox, including its focused
-tests and a brief result note. Every cap is at most **5 hours**. A cap is not a
-promise that an unknown implementation will finish: if its completion check does
-not pass within the cap, keep the feature pending and split the residual work
-into another task capped at five hours. Do not close a task merely because its
-timebox elapsed. Do not combine multiple languages into one backend task.
-
-Start each task from the current implemented baseline and record its exact ID,
-changed contract, executed checks and remaining failures. Reuse completed APIs;
-do not rebuild a working reference implementation to fill a checklist cell.
-The caps are not a release schedule or a reliable total-duration estimate.
-
-### All language backends
-
-| Language | Task prefix | Implementation and qualification dependency |
-| --- | --- | --- |
-| C++ | `CP` | Reference implementation first; native managed bridge tracked separately below. |
-| Python | `PY` | First non-C++ parity target after shared contracts and reference fixtures. |
-| Java | `JV` | Its own owning APIs, JAXP/provider integration and SDK checks. |
-| Kotlin | `KT` | Can reuse Java provider decisions; requires its own emitter, unsigned mappings and SDK checks. |
-| C# | `CS` | Its own owning APIs, System.Xml/provider integration and SDK checks. |
-| Go | `GO` | Its own source/sink, namespace, provider and SDK checks. |
-| JavaScript | `JS` | Runtime/provider work, with Node/browser support boundaries stated explicitly. |
-| TypeScript | `TS` | Depends on the matching JS runtime task; owns declarations, typed APIs and actual TS consumer checks. |
-| Rust | `RS` | Its own ownership, provider dependency, source/sink and SDK checks. |
-| Swift | `SW` | Its own Foundation/provider, ownership and platform qualification. |
-| C | `C` | Its own explicit ownership, status/failure, provider and SDK checks. |
-
-The shared implementation tasks have one instance each. Backend task templates have a separate
-instance for **every** prefix in this table: for example `PY-Z03`, `GO-P07` and
-`TS-X05`. A template row is not one task covering eleven outputs. Track each
-instance independently as `pending`, `in progress`, or `verified`, linking its
-verification evidence when closed. TypeScript runtime sharing never substitutes
-for TypeScript declaration and SDK qualification.
-
-Bare backend dependencies such as `X04`, `Z07` and `P15` resolve under the same
-language prefix as the task being performed. Ranges are inclusive. `S`, `D` and
-`G` IDs refer to the shared tables; an explicit prefix such as `CP-P12` names that
-backend's task. Assign recurring documentation, qualification and release-gate
-runs a slice/revision suffix, for example `S36-slice-001`, `PY-Q01-slice-001` or
-`G03-slice-001`. Each run has its own cap and evidence; an older verified result
-does not close a run against changed source or providers.
-
-The 2.4.0 baseline already supplies native format selection on every backend,
-configured simple text/wrappers, and the documented C++ compression/ZIP/OPC APIs.
-For C++, compression `Z01`–`Z10` and package `P01`–`P15`, `P17`–`P19` generally
-start as qualification or contract-alignment work against those APIs. C++ 2.7
-already checks shared XML/package budgets and the generated package subset;
-broader composition/profile contracts and other backends remain pending. JavaScript, Rust
-and C already have direct XML output paths; preserve and qualify them rather than
-replacing them merely to satisfy `X01`/`X02`. Other cells start from the exact
-implemented subset in the usage guide. Completed shared prerequisites do not close
-their dependent parser, emitter or language-qualification tasks.
-
 ### Shared compiler and contract tasks
 
-Dependencies name earlier task IDs or the existing 2.4.0 implementation.
-Completed prerequisites S01 through S36 have been removed from this backlog.
-Their contracts and executed checks remain in the
-[S01 verification record](verification/verification-xml-events-2026-10-19.md) and
-[S02-S07 verification record](verification/verification-xml-shared-contracts-2026-10-19.md),
-and the [S08-S36 verification record](verification/verification-xml-advanced-contracts-2026-10-19.md).
-No shared S-task remains open. Backend dependencies retain these completed IDs;
-their separate generated-code and qualification work is still tracked below.
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | S01 | 3 h | Define token/event ownership and limits; golden event traces and malformed boundaries pass (2.9 provider-independent shared event contract; [evidence](verification/verification-xml-events-2026-10-19.md)). | Existing XML mapping |
+| [x] | S02 | 3 h | Define incremental UTF-8/name/namespace handling; split-byte, scope and DTD rejection fixtures pass (2.10 defined shared-contract subset; [evidence](verification/verification-xml-shared-contracts-2026-10-19.md)). | S01 |
+| [x] | S03 | 3 h | Define explicit nil/presence IR and configuration; ambiguous absent/empty/nil mappings reject (2.10 defined shared-contract subset; [evidence](verification/verification-xml-shared-contracts-2026-10-19.md)). | S01 |
+| [x] | S04 | 4 h | Define ordered mixed-content IR; text/child/text order fixtures pass (2.10 defined shared-contract subset; [evidence](verification/verification-xml-shared-contracts-2026-10-19.md)). | S01 |
+| [x] | S05 | 3 h | Define map entry/key/value mapping; duplicate-key and entry-presence rules have fixtures (2.10 defined shared-contract subset; [evidence](verification/verification-xml-shared-contracts-2026-10-19.md)). | S01 |
+| [x] | S06 | 3 h | Define variant/type tags; ambiguous or conflicting tags reject during generation (2.10 defined shared-contract subset; [evidence](verification/verification-xml-shared-contracts-2026-10-19.md)). | S01 |
+| [x] | S07 | 3 h | Define XML reject/skip/preserve extension slots; namespace context and required-capability fixtures pass (2.10 defined shared-contract subset; [evidence](verification/verification-xml-shared-contracts-2026-10-19.md)). | S01 |
+| [x] | S08 | 4 h | Compile numeric inclusive/exclusive facets into IR; exact boundary tests pass (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | Existing XSD binder |
+| [x] | S09 | 3 h | Compile Unicode length/enumeration facets; empty/code-point/enumeration tests pass (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | Existing XSD binder |
+| [x] | S10 | 3 h | Select an explicit portable XSD-regex subset; accepted/rejected corpus and unsupported diagnostics pass (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S09 |
+| [x] | S11 | 4 h | Compile only that regex subset to portable checks; independent reference matches agree (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S10 |
+| [x] | S12 | 3 h | Derive simpleContent/text and wrappers from XSD; authoritative binding/conflict tests pass (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | Existing XSD binder |
+| [x] | S13 | 3 h | Compile choice models and ambiguity diagnostics; alternative/occurrence fixtures pass (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S01 |
+| [x] | S14 | 3 h | Compile all models; permutation and duplicate fixtures pass (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S01 |
+| [x] | S15 | 3 h | Define supported identity selector/field XPath; unsupported expressions reject (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | Existing XSD binder |
+| [x] | S16 | 4 h | Compile key/unique scopes and tuples; duplicate/incomplete-key fixtures pass (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S15 |
+| [x] | S17 | 3 h | Resolve keyref targets/types; missing and wrong-scope references reject (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S16 |
+| [x] | S18 | 3 h | Implement chameleon namespace adoption; one file adopted into two namespaces stays isolated (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | Existing bundle loader |
+| [x] | S19 | 3 h | Handle finite cyclic bundle graphs; legal cycles deduplicate and budgets still bound growth (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S18 |
+| [x] | S20 | 3 h | Bind anonymous nested complex types; ambiguous associations reject (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | Existing XSD binder |
+| [x] | S21 | 3 h | Export text/wrappers; independent validation and reimport agree (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S12 |
+| [x] | S22 | 3 h | Export enumerations/facets; independent valid/invalid document checks agree (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S08, S09, S10, S11 |
+| [x] | S23 | 4 h | Export multiple namespaces as a pinned bundle; reimport preserves names and dependencies (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | Existing export |
+| [x] | S24 | 4 h | Import a scalar/attribute XSD subset into Serializer declarations; generated schemas compile and round-trip (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S08, S09, S10, S11, S12 |
+| [x] | S25 | 4 h | Extend import to named nested records/collections; nested/include fixtures compile (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S24 |
+| [x] | S26 | 3 h | Extend compatibility diagnostics to added/retired fields/models; both comparison directions have tests (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | Existing compare tool |
+| [x] | S27 | 3 h | Define concrete generic XML bindings; distinct instances and ambiguous names have tests (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S01 |
+| [x] | S28 | 3 h | Define inherited field order/flattening; collisions and ordering have tests (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S01 |
+| [x] | S29 | 3 h | Define revision/magic XML contracts; old/current/invalid layouts have fixtures (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S01 |
+| [x] | S30 | 3 h | Define digest and managed/view data projections; ownership/lifetime and unsupported states are explicit (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S01 |
+| [x] | S31 | 4 h | Define generated compression/package profile IR/configuration; defaults and runtime overrides validate (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | Existing package APIs |
+| [x] | S32 | 3 h | Generate vocabulary/expected-type dispatch metadata; wrong roots/types select no decoder (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S31, S06 |
+| [x] | S33 | 3 h | Define separate HTML syntax/provider boundaries; HTML and XML fixtures remain distinct (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S01 |
+| [x] | S34 | 4 h | Implement the approved minimal HTML event/output subset; independent HTML checks pass (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | S33 |
+| [x] | S35 | 3 h | Maintain a shared producer/consumer fixture manifest; all eleven languages are represented and missing SDKs fail (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | Existing SDK runners |
+| [x] | S36 | 2 h | Apply release, README, usage, migration and skill updates; review editor impact and verify affected packages when touched (2.11 defined shared-contract subset; [evidence](verification/verification-xml-advanced-contracts-2026-10-19.md)). | Each landed slice |
 
 ### XML tasks for each language
 
-Compiler/runtime **2.12.0** adds generated token paths and selected dependent
-mappings. The [per-backend verification record](verification/verification-xml-tokens-2026-10-19.md)
-records executed instances and residual scope. All X01-X22 reference tasks have
-passed generated-code compile/run checks with the actual SDK for each of the
-eleven outputs. Their completed entries have been removed from this backlog.
-Broader OPC/XSD combinations, performance, platform qualification and package
-work retain their own requirements above and below; the reference checks do not
-close those separate tasks.
+#### C++ XML
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | CP-X01 | 4 h | Direct scalar token output; escaping/namespace traces pass without a retained tree (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | CP-X02 | 4 h | Direct generated record/attribute/nested output; contract and output bounds pass (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | CP-X01 |
+| [x] | CP-X03 | 4 h | Scalar token input; split-token lexical/resource failures pass (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | CP-X04 | 4 h | Record/optional/repeated token input; exact-message transactional tests pass without a retained tree (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | CP-X03 |
+| [x] | CP-X05 | 3 h | Explicit nil mapping; absent, empty and nil remain distinguishable (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S03, CP-X04 |
+| [x] | CP-X06 | 4 h | Ordered mixed content; ordering, escaping and resource tests pass (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S04, CP-X02, CP-X04 |
+| [x] | CP-X07 | 3 h | Map mapping; key, duplicate and cardinality fixtures pass (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S05, CP-X04 |
+| [x] | CP-X08 | 3 h | Variant mapping; wrong tag/type combinations reject (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S06, CP-X04 |
+| [x] | CP-X09 | 3 h | Generated numeric facets; inclusive/exclusive boundary corpus passes (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S08, CP-X04 |
+| [x] | CP-X10 | 3 h | Text/enumeration/approved-pattern facets; Unicode and independent-oracle tests pass (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S09, S11, CP-X04 |
+| [x] | CP-X11 | 3 h | XSD-derived simpleContent/wrappers; generated authoritative contracts round-trip (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S12, CP-X04 |
+| [x] | CP-X12 | 3 h | Choice traversal; exactly one allowed alternative is accepted (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S13, CP-X04 |
+| [x] | CP-X13 | 3 h | All traversal; valid permutations pass and duplicates reject (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S14, CP-X04 |
+| [x] | CP-X14 | 3 h | Key/unique state; tuple/index budgets and failure tests pass (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S16, CP-X04 |
+| [x] | CP-X15 | 3 h | Keyref completion; forward/missing/wrong-scope references are checked before publication (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S17, CP-X14 |
+| [x] | CP-X16 | 4 h | XML extension slots; reject/skip/preserve and namespace-context round-trips pass (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S07, CP-X04 |
+| [x] | CP-X17 | 3 h | Concrete generic XML instances; generated instance fixtures pass (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S27, CP-X04 |
+| [x] | CP-X18 | 3 h | Inherited mappings; field collisions and ordering tests pass (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S28, CP-X04 |
+| [x] | CP-X19 | 4 h | Revision/magic mappings; historical/current/invalid layouts pass their expected checks (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S29, CP-X04 |
+| [x] | CP-X20 | 3 h | Digest/data-projection adapters; exact values and genuine language-specific restrictions are tested (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S30, CP-X04 |
+| [x] | CP-X21 | 3 h | Qualify a real prepared XSD provider; limits, concurrency, no-fetch and declared-root checks pass (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | Provider prerequisites |
+| [x] | CP-X22 | 4 h | Approved HTML adapter subset; ordinary HTML is checked independently of XML parsing (2.12 selected C++ XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S34 |
+
+#### Python XML
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | PY-X01 | 4 h | Direct scalar token output; escaping/namespace traces pass without a retained tree (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | PY-X02 | 4 h | Direct generated record/attribute/nested output; contract and output bounds pass (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | PY-X01 |
+| [x] | PY-X03 | 4 h | Scalar token input; split-token lexical/resource failures pass (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | PY-X04 | 4 h | Record/optional/repeated token input; exact-message transactional tests pass without a retained tree (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | PY-X03 |
+| [x] | PY-X05 | 3 h | Explicit nil mapping; absent, empty and nil remain distinguishable (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S03, PY-X04 |
+| [x] | PY-X06 | 4 h | Ordered mixed content; ordering, escaping and resource tests pass (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S04, PY-X02, PY-X04 |
+| [x] | PY-X07 | 3 h | Map mapping; key, duplicate and cardinality fixtures pass (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S05, PY-X04 |
+| [x] | PY-X08 | 3 h | Variant mapping; wrong tag/type combinations reject (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S06, PY-X04 |
+| [x] | PY-X09 | 3 h | Generated numeric facets; inclusive/exclusive boundary corpus passes (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S08, PY-X04 |
+| [x] | PY-X10 | 3 h | Text/enumeration/approved-pattern facets; Unicode and independent-oracle tests pass (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S09, S11, PY-X04 |
+| [x] | PY-X11 | 3 h | XSD-derived simpleContent/wrappers; generated authoritative contracts round-trip (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S12, PY-X04 |
+| [x] | PY-X12 | 3 h | Choice traversal; exactly one allowed alternative is accepted (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S13, PY-X04 |
+| [x] | PY-X13 | 3 h | All traversal; valid permutations pass and duplicates reject (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S14, PY-X04 |
+| [x] | PY-X14 | 3 h | Key/unique state; tuple/index budgets and failure tests pass (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S16, PY-X04 |
+| [x] | PY-X15 | 3 h | Keyref completion; forward/missing/wrong-scope references are checked before publication (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S17, PY-X14 |
+| [x] | PY-X16 | 4 h | XML extension slots; reject/skip/preserve and namespace-context round-trips pass (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S07, PY-X04 |
+| [x] | PY-X17 | 3 h | Concrete generic XML instances; generated instance fixtures pass (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S27, PY-X04 |
+| [x] | PY-X18 | 3 h | Inherited mappings; field collisions and ordering tests pass (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S28, PY-X04 |
+| [x] | PY-X19 | 4 h | Revision/magic mappings; historical/current/invalid layouts pass their expected checks (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S29, PY-X04 |
+| [x] | PY-X20 | 3 h | Digest/data-projection adapters; exact values and genuine language-specific restrictions are tested (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S30, PY-X04 |
+| [x] | PY-X21 | 3 h | Qualify a real prepared XSD provider; limits, concurrency, no-fetch and declared-root checks pass (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | Provider prerequisites |
+| [x] | PY-X22 | 4 h | Approved HTML adapter subset; ordinary HTML is checked independently of XML parsing (2.12 selected Python XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S34 |
+
+#### Java XML
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | JV-X01 | 4 h | Direct scalar token output; escaping/namespace traces pass without a retained tree (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | JV-X02 | 4 h | Direct generated record/attribute/nested output; contract and output bounds pass (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | JV-X01 |
+| [x] | JV-X03 | 4 h | Scalar token input; split-token lexical/resource failures pass (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | JV-X04 | 4 h | Record/optional/repeated token input; exact-message transactional tests pass without a retained tree (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | JV-X03 |
+| [x] | JV-X05 | 3 h | Explicit nil mapping; absent, empty and nil remain distinguishable (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S03, JV-X04 |
+| [x] | JV-X06 | 4 h | Ordered mixed content; ordering, escaping and resource tests pass (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S04, JV-X02, JV-X04 |
+| [x] | JV-X07 | 3 h | Map mapping; key, duplicate and cardinality fixtures pass (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S05, JV-X04 |
+| [x] | JV-X08 | 3 h | Variant mapping; wrong tag/type combinations reject (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S06, JV-X04 |
+| [x] | JV-X09 | 3 h | Generated numeric facets; inclusive/exclusive boundary corpus passes (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S08, JV-X04 |
+| [x] | JV-X10 | 3 h | Text/enumeration/approved-pattern facets; Unicode and independent-oracle tests pass (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S09, S11, JV-X04 |
+| [x] | JV-X11 | 3 h | XSD-derived simpleContent/wrappers; generated authoritative contracts round-trip (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S12, JV-X04 |
+| [x] | JV-X12 | 3 h | Choice traversal; exactly one allowed alternative is accepted (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S13, JV-X04 |
+| [x] | JV-X13 | 3 h | All traversal; valid permutations pass and duplicates reject (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S14, JV-X04 |
+| [x] | JV-X14 | 3 h | Key/unique state; tuple/index budgets and failure tests pass (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S16, JV-X04 |
+| [x] | JV-X15 | 3 h | Keyref completion; forward/missing/wrong-scope references are checked before publication (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S17, JV-X14 |
+| [x] | JV-X16 | 4 h | XML extension slots; reject/skip/preserve and namespace-context round-trips pass (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S07, JV-X04 |
+| [x] | JV-X17 | 3 h | Concrete generic XML instances; generated instance fixtures pass (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S27, JV-X04 |
+| [x] | JV-X18 | 3 h | Inherited mappings; field collisions and ordering tests pass (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S28, JV-X04 |
+| [x] | JV-X19 | 4 h | Revision/magic mappings; historical/current/invalid layouts pass their expected checks (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S29, JV-X04 |
+| [x] | JV-X20 | 3 h | Digest/data-projection adapters; exact values and genuine language-specific restrictions are tested (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S30, JV-X04 |
+| [x] | JV-X21 | 3 h | Qualify a real prepared XSD provider; limits, concurrency, no-fetch and declared-root checks pass (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | Provider prerequisites |
+| [x] | JV-X22 | 4 h | Approved HTML adapter subset; ordinary HTML is checked independently of XML parsing (2.12 selected Java XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S34 |
+
+#### Kotlin XML
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | KT-X01 | 4 h | Direct scalar token output; escaping/namespace traces pass without a retained tree (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | KT-X02 | 4 h | Direct generated record/attribute/nested output; contract and output bounds pass (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | KT-X01 |
+| [x] | KT-X03 | 4 h | Scalar token input; split-token lexical/resource failures pass (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | KT-X04 | 4 h | Record/optional/repeated token input; exact-message transactional tests pass without a retained tree (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | KT-X03 |
+| [x] | KT-X05 | 3 h | Explicit nil mapping; absent, empty and nil remain distinguishable (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S03, KT-X04 |
+| [x] | KT-X06 | 4 h | Ordered mixed content; ordering, escaping and resource tests pass (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S04, KT-X02, KT-X04 |
+| [x] | KT-X07 | 3 h | Map mapping; key, duplicate and cardinality fixtures pass (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S05, KT-X04 |
+| [x] | KT-X08 | 3 h | Variant mapping; wrong tag/type combinations reject (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S06, KT-X04 |
+| [x] | KT-X09 | 3 h | Generated numeric facets; inclusive/exclusive boundary corpus passes (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S08, KT-X04 |
+| [x] | KT-X10 | 3 h | Text/enumeration/approved-pattern facets; Unicode and independent-oracle tests pass (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S09, S11, KT-X04 |
+| [x] | KT-X11 | 3 h | XSD-derived simpleContent/wrappers; generated authoritative contracts round-trip (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S12, KT-X04 |
+| [x] | KT-X12 | 3 h | Choice traversal; exactly one allowed alternative is accepted (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S13, KT-X04 |
+| [x] | KT-X13 | 3 h | All traversal; valid permutations pass and duplicates reject (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S14, KT-X04 |
+| [x] | KT-X14 | 3 h | Key/unique state; tuple/index budgets and failure tests pass (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S16, KT-X04 |
+| [x] | KT-X15 | 3 h | Keyref completion; forward/missing/wrong-scope references are checked before publication (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S17, KT-X14 |
+| [x] | KT-X16 | 4 h | XML extension slots; reject/skip/preserve and namespace-context round-trips pass (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S07, KT-X04 |
+| [x] | KT-X17 | 3 h | Concrete generic XML instances; generated instance fixtures pass (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S27, KT-X04 |
+| [x] | KT-X18 | 3 h | Inherited mappings; field collisions and ordering tests pass (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S28, KT-X04 |
+| [x] | KT-X19 | 4 h | Revision/magic mappings; historical/current/invalid layouts pass their expected checks (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S29, KT-X04 |
+| [x] | KT-X20 | 3 h | Digest/data-projection adapters; exact values and genuine language-specific restrictions are tested (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S30, KT-X04 |
+| [x] | KT-X21 | 3 h | Qualify a real prepared XSD provider; limits, concurrency, no-fetch and declared-root checks pass (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | Provider prerequisites |
+| [x] | KT-X22 | 4 h | Approved HTML adapter subset; ordinary HTML is checked independently of XML parsing (2.12 selected Kotlin XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S34 |
+
+#### C# XML
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | CS-X01 | 4 h | Direct scalar token output; escaping/namespace traces pass without a retained tree (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | CS-X02 | 4 h | Direct generated record/attribute/nested output; contract and output bounds pass (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | CS-X01 |
+| [x] | CS-X03 | 4 h | Scalar token input; split-token lexical/resource failures pass (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | CS-X04 | 4 h | Record/optional/repeated token input; exact-message transactional tests pass without a retained tree (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | CS-X03 |
+| [x] | CS-X05 | 3 h | Explicit nil mapping; absent, empty and nil remain distinguishable (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S03, CS-X04 |
+| [x] | CS-X06 | 4 h | Ordered mixed content; ordering, escaping and resource tests pass (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S04, CS-X02, CS-X04 |
+| [x] | CS-X07 | 3 h | Map mapping; key, duplicate and cardinality fixtures pass (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S05, CS-X04 |
+| [x] | CS-X08 | 3 h | Variant mapping; wrong tag/type combinations reject (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S06, CS-X04 |
+| [x] | CS-X09 | 3 h | Generated numeric facets; inclusive/exclusive boundary corpus passes (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S08, CS-X04 |
+| [x] | CS-X10 | 3 h | Text/enumeration/approved-pattern facets; Unicode and independent-oracle tests pass (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S09, S11, CS-X04 |
+| [x] | CS-X11 | 3 h | XSD-derived simpleContent/wrappers; generated authoritative contracts round-trip (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S12, CS-X04 |
+| [x] | CS-X12 | 3 h | Choice traversal; exactly one allowed alternative is accepted (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S13, CS-X04 |
+| [x] | CS-X13 | 3 h | All traversal; valid permutations pass and duplicates reject (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S14, CS-X04 |
+| [x] | CS-X14 | 3 h | Key/unique state; tuple/index budgets and failure tests pass (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S16, CS-X04 |
+| [x] | CS-X15 | 3 h | Keyref completion; forward/missing/wrong-scope references are checked before publication (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S17, CS-X14 |
+| [x] | CS-X16 | 4 h | XML extension slots; reject/skip/preserve and namespace-context round-trips pass (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S07, CS-X04 |
+| [x] | CS-X17 | 3 h | Concrete generic XML instances; generated instance fixtures pass (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S27, CS-X04 |
+| [x] | CS-X18 | 3 h | Inherited mappings; field collisions and ordering tests pass (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S28, CS-X04 |
+| [x] | CS-X19 | 4 h | Revision/magic mappings; historical/current/invalid layouts pass their expected checks (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S29, CS-X04 |
+| [x] | CS-X20 | 3 h | Digest/data-projection adapters; exact values and genuine language-specific restrictions are tested (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S30, CS-X04 |
+| [x] | CS-X21 | 3 h | Qualify a real prepared XSD provider; limits, concurrency, no-fetch and declared-root checks pass (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | Provider prerequisites |
+| [x] | CS-X22 | 4 h | Approved HTML adapter subset; ordinary HTML is checked independently of XML parsing (2.12 selected C# XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S34 |
+
+#### Go XML
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | GO-X01 | 4 h | Direct scalar token output; escaping/namespace traces pass without a retained tree (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | GO-X02 | 4 h | Direct generated record/attribute/nested output; contract and output bounds pass (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | GO-X01 |
+| [x] | GO-X03 | 4 h | Scalar token input; split-token lexical/resource failures pass (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | GO-X04 | 4 h | Record/optional/repeated token input; exact-message transactional tests pass without a retained tree (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | GO-X03 |
+| [x] | GO-X05 | 3 h | Explicit nil mapping; absent, empty and nil remain distinguishable (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S03, GO-X04 |
+| [x] | GO-X06 | 4 h | Ordered mixed content; ordering, escaping and resource tests pass (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S04, GO-X02, GO-X04 |
+| [x] | GO-X07 | 3 h | Map mapping; key, duplicate and cardinality fixtures pass (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S05, GO-X04 |
+| [x] | GO-X08 | 3 h | Variant mapping; wrong tag/type combinations reject (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S06, GO-X04 |
+| [x] | GO-X09 | 3 h | Generated numeric facets; inclusive/exclusive boundary corpus passes (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S08, GO-X04 |
+| [x] | GO-X10 | 3 h | Text/enumeration/approved-pattern facets; Unicode and independent-oracle tests pass (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S09, S11, GO-X04 |
+| [x] | GO-X11 | 3 h | XSD-derived simpleContent/wrappers; generated authoritative contracts round-trip (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S12, GO-X04 |
+| [x] | GO-X12 | 3 h | Choice traversal; exactly one allowed alternative is accepted (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S13, GO-X04 |
+| [x] | GO-X13 | 3 h | All traversal; valid permutations pass and duplicates reject (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S14, GO-X04 |
+| [x] | GO-X14 | 3 h | Key/unique state; tuple/index budgets and failure tests pass (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S16, GO-X04 |
+| [x] | GO-X15 | 3 h | Keyref completion; forward/missing/wrong-scope references are checked before publication (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S17, GO-X14 |
+| [x] | GO-X16 | 4 h | XML extension slots; reject/skip/preserve and namespace-context round-trips pass (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S07, GO-X04 |
+| [x] | GO-X17 | 3 h | Concrete generic XML instances; generated instance fixtures pass (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S27, GO-X04 |
+| [x] | GO-X18 | 3 h | Inherited mappings; field collisions and ordering tests pass (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S28, GO-X04 |
+| [x] | GO-X19 | 4 h | Revision/magic mappings; historical/current/invalid layouts pass their expected checks (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S29, GO-X04 |
+| [x] | GO-X20 | 3 h | Digest/data-projection adapters; exact values and genuine language-specific restrictions are tested (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S30, GO-X04 |
+| [x] | GO-X21 | 3 h | Qualify a real prepared XSD provider; limits, concurrency, no-fetch and declared-root checks pass (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | Provider prerequisites |
+| [x] | GO-X22 | 4 h | Approved HTML adapter subset; ordinary HTML is checked independently of XML parsing (2.12 selected Go XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S34 |
+
+#### JavaScript XML
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | JS-X01 | 4 h | Direct scalar token output; escaping/namespace traces pass without a retained tree (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | JS-X02 | 4 h | Direct generated record/attribute/nested output; contract and output bounds pass (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | JS-X01 |
+| [x] | JS-X03 | 4 h | Scalar token input; split-token lexical/resource failures pass (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | JS-X04 | 4 h | Record/optional/repeated token input; exact-message transactional tests pass without a retained tree (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | JS-X03 |
+| [x] | JS-X05 | 3 h | Explicit nil mapping; absent, empty and nil remain distinguishable (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S03, JS-X04 |
+| [x] | JS-X06 | 4 h | Ordered mixed content; ordering, escaping and resource tests pass (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S04, JS-X02, JS-X04 |
+| [x] | JS-X07 | 3 h | Map mapping; key, duplicate and cardinality fixtures pass (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S05, JS-X04 |
+| [x] | JS-X08 | 3 h | Variant mapping; wrong tag/type combinations reject (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S06, JS-X04 |
+| [x] | JS-X09 | 3 h | Generated numeric facets; inclusive/exclusive boundary corpus passes (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S08, JS-X04 |
+| [x] | JS-X10 | 3 h | Text/enumeration/approved-pattern facets; Unicode and independent-oracle tests pass (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S09, S11, JS-X04 |
+| [x] | JS-X11 | 3 h | XSD-derived simpleContent/wrappers; generated authoritative contracts round-trip (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S12, JS-X04 |
+| [x] | JS-X12 | 3 h | Choice traversal; exactly one allowed alternative is accepted (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S13, JS-X04 |
+| [x] | JS-X13 | 3 h | All traversal; valid permutations pass and duplicates reject (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S14, JS-X04 |
+| [x] | JS-X14 | 3 h | Key/unique state; tuple/index budgets and failure tests pass (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S16, JS-X04 |
+| [x] | JS-X15 | 3 h | Keyref completion; forward/missing/wrong-scope references are checked before publication (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S17, JS-X14 |
+| [x] | JS-X16 | 4 h | XML extension slots; reject/skip/preserve and namespace-context round-trips pass (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S07, JS-X04 |
+| [x] | JS-X17 | 3 h | Concrete generic XML instances; generated instance fixtures pass (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S27, JS-X04 |
+| [x] | JS-X18 | 3 h | Inherited mappings; field collisions and ordering tests pass (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S28, JS-X04 |
+| [x] | JS-X19 | 4 h | Revision/magic mappings; historical/current/invalid layouts pass their expected checks (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S29, JS-X04 |
+| [x] | JS-X20 | 3 h | Digest/data-projection adapters; exact values and genuine language-specific restrictions are tested (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S30, JS-X04 |
+| [x] | JS-X21 | 3 h | Qualify a real prepared XSD provider; limits, concurrency, no-fetch and declared-root checks pass (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | Provider prerequisites |
+| [x] | JS-X22 | 4 h | Approved HTML adapter subset; ordinary HTML is checked independently of XML parsing (2.12 selected JavaScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S34 |
+
+#### TypeScript XML
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | TS-X01 | 4 h | Direct scalar token output; escaping/namespace traces pass without a retained tree (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | TS-X02 | 4 h | Direct generated record/attribute/nested output; contract and output bounds pass (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | TS-X01 |
+| [x] | TS-X03 | 4 h | Scalar token input; split-token lexical/resource failures pass (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | TS-X04 | 4 h | Record/optional/repeated token input; exact-message transactional tests pass without a retained tree (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | TS-X03 |
+| [x] | TS-X05 | 3 h | Explicit nil mapping; absent, empty and nil remain distinguishable (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S03, TS-X04 |
+| [x] | TS-X06 | 4 h | Ordered mixed content; ordering, escaping and resource tests pass (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S04, TS-X02, TS-X04 |
+| [x] | TS-X07 | 3 h | Map mapping; key, duplicate and cardinality fixtures pass (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S05, TS-X04 |
+| [x] | TS-X08 | 3 h | Variant mapping; wrong tag/type combinations reject (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S06, TS-X04 |
+| [x] | TS-X09 | 3 h | Generated numeric facets; inclusive/exclusive boundary corpus passes (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S08, TS-X04 |
+| [x] | TS-X10 | 3 h | Text/enumeration/approved-pattern facets; Unicode and independent-oracle tests pass (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S09, S11, TS-X04 |
+| [x] | TS-X11 | 3 h | XSD-derived simpleContent/wrappers; generated authoritative contracts round-trip (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S12, TS-X04 |
+| [x] | TS-X12 | 3 h | Choice traversal; exactly one allowed alternative is accepted (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S13, TS-X04 |
+| [x] | TS-X13 | 3 h | All traversal; valid permutations pass and duplicates reject (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S14, TS-X04 |
+| [x] | TS-X14 | 3 h | Key/unique state; tuple/index budgets and failure tests pass (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S16, TS-X04 |
+| [x] | TS-X15 | 3 h | Keyref completion; forward/missing/wrong-scope references are checked before publication (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S17, TS-X14 |
+| [x] | TS-X16 | 4 h | XML extension slots; reject/skip/preserve and namespace-context round-trips pass (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S07, TS-X04 |
+| [x] | TS-X17 | 3 h | Concrete generic XML instances; generated instance fixtures pass (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S27, TS-X04 |
+| [x] | TS-X18 | 3 h | Inherited mappings; field collisions and ordering tests pass (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S28, TS-X04 |
+| [x] | TS-X19 | 4 h | Revision/magic mappings; historical/current/invalid layouts pass their expected checks (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S29, TS-X04 |
+| [x] | TS-X20 | 3 h | Digest/data-projection adapters; exact values and genuine language-specific restrictions are tested (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S30, TS-X04 |
+| [x] | TS-X21 | 3 h | Qualify a real prepared XSD provider; limits, concurrency, no-fetch and declared-root checks pass (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | Provider prerequisites |
+| [x] | TS-X22 | 4 h | Approved HTML adapter subset; ordinary HTML is checked independently of XML parsing (2.12 selected TypeScript XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S34 |
+
+#### Rust XML
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | RS-X01 | 4 h | Direct scalar token output; escaping/namespace traces pass without a retained tree (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | RS-X02 | 4 h | Direct generated record/attribute/nested output; contract and output bounds pass (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | RS-X01 |
+| [x] | RS-X03 | 4 h | Scalar token input; split-token lexical/resource failures pass (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | RS-X04 | 4 h | Record/optional/repeated token input; exact-message transactional tests pass without a retained tree (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | RS-X03 |
+| [x] | RS-X05 | 3 h | Explicit nil mapping; absent, empty and nil remain distinguishable (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S03, RS-X04 |
+| [x] | RS-X06 | 4 h | Ordered mixed content; ordering, escaping and resource tests pass (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S04, RS-X02, RS-X04 |
+| [x] | RS-X07 | 3 h | Map mapping; key, duplicate and cardinality fixtures pass (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S05, RS-X04 |
+| [x] | RS-X08 | 3 h | Variant mapping; wrong tag/type combinations reject (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S06, RS-X04 |
+| [x] | RS-X09 | 3 h | Generated numeric facets; inclusive/exclusive boundary corpus passes (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S08, RS-X04 |
+| [x] | RS-X10 | 3 h | Text/enumeration/approved-pattern facets; Unicode and independent-oracle tests pass (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S09, S11, RS-X04 |
+| [x] | RS-X11 | 3 h | XSD-derived simpleContent/wrappers; generated authoritative contracts round-trip (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S12, RS-X04 |
+| [x] | RS-X12 | 3 h | Choice traversal; exactly one allowed alternative is accepted (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S13, RS-X04 |
+| [x] | RS-X13 | 3 h | All traversal; valid permutations pass and duplicates reject (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S14, RS-X04 |
+| [x] | RS-X14 | 3 h | Key/unique state; tuple/index budgets and failure tests pass (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S16, RS-X04 |
+| [x] | RS-X15 | 3 h | Keyref completion; forward/missing/wrong-scope references are checked before publication (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S17, RS-X14 |
+| [x] | RS-X16 | 4 h | XML extension slots; reject/skip/preserve and namespace-context round-trips pass (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S07, RS-X04 |
+| [x] | RS-X17 | 3 h | Concrete generic XML instances; generated instance fixtures pass (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S27, RS-X04 |
+| [x] | RS-X18 | 3 h | Inherited mappings; field collisions and ordering tests pass (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S28, RS-X04 |
+| [x] | RS-X19 | 4 h | Revision/magic mappings; historical/current/invalid layouts pass their expected checks (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S29, RS-X04 |
+| [x] | RS-X20 | 3 h | Digest/data-projection adapters; exact values and genuine language-specific restrictions are tested (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S30, RS-X04 |
+| [x] | RS-X21 | 3 h | Qualify a real prepared XSD provider; limits, concurrency, no-fetch and declared-root checks pass (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | Provider prerequisites |
+| [x] | RS-X22 | 4 h | Approved HTML adapter subset; ordinary HTML is checked independently of XML parsing (2.12 selected Rust XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S34 |
+
+#### Swift XML
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | SW-X01 | 4 h | Direct scalar token output; escaping/namespace traces pass without a retained tree (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | SW-X02 | 4 h | Direct generated record/attribute/nested output; contract and output bounds pass (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | SW-X01 |
+| [x] | SW-X03 | 4 h | Scalar token input; split-token lexical/resource failures pass (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | SW-X04 | 4 h | Record/optional/repeated token input; exact-message transactional tests pass without a retained tree (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | SW-X03 |
+| [x] | SW-X05 | 3 h | Explicit nil mapping; absent, empty and nil remain distinguishable (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S03, SW-X04 |
+| [x] | SW-X06 | 4 h | Ordered mixed content; ordering, escaping and resource tests pass (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S04, SW-X02, SW-X04 |
+| [x] | SW-X07 | 3 h | Map mapping; key, duplicate and cardinality fixtures pass (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S05, SW-X04 |
+| [x] | SW-X08 | 3 h | Variant mapping; wrong tag/type combinations reject (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S06, SW-X04 |
+| [x] | SW-X09 | 3 h | Generated numeric facets; inclusive/exclusive boundary corpus passes (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S08, SW-X04 |
+| [x] | SW-X10 | 3 h | Text/enumeration/approved-pattern facets; Unicode and independent-oracle tests pass (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S09, S11, SW-X04 |
+| [x] | SW-X11 | 3 h | XSD-derived simpleContent/wrappers; generated authoritative contracts round-trip (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S12, SW-X04 |
+| [x] | SW-X12 | 3 h | Choice traversal; exactly one allowed alternative is accepted (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S13, SW-X04 |
+| [x] | SW-X13 | 3 h | All traversal; valid permutations pass and duplicates reject (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S14, SW-X04 |
+| [x] | SW-X14 | 3 h | Key/unique state; tuple/index budgets and failure tests pass (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S16, SW-X04 |
+| [x] | SW-X15 | 3 h | Keyref completion; forward/missing/wrong-scope references are checked before publication (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S17, SW-X14 |
+| [x] | SW-X16 | 4 h | XML extension slots; reject/skip/preserve and namespace-context round-trips pass (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S07, SW-X04 |
+| [x] | SW-X17 | 3 h | Concrete generic XML instances; generated instance fixtures pass (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S27, SW-X04 |
+| [x] | SW-X18 | 3 h | Inherited mappings; field collisions and ordering tests pass (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S28, SW-X04 |
+| [x] | SW-X19 | 4 h | Revision/magic mappings; historical/current/invalid layouts pass their expected checks (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S29, SW-X04 |
+| [x] | SW-X20 | 3 h | Digest/data-projection adapters; exact values and genuine language-specific restrictions are tested (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S30, SW-X04 |
+| [x] | SW-X21 | 3 h | Qualify a real prepared XSD provider; limits, concurrency, no-fetch and declared-root checks pass (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | Provider prerequisites |
+| [x] | SW-X22 | 4 h | Approved HTML adapter subset; ordinary HTML is checked independently of XML parsing (2.12 selected Swift XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S34 |
+
+#### C XML
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | C-X01 | 4 h | Direct scalar token output; escaping/namespace traces pass without a retained tree (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | C-X02 | 4 h | Direct generated record/attribute/nested output; contract and output bounds pass (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | C-X01 |
+| [x] | C-X03 | 4 h | Scalar token input; split-token lexical/resource failures pass (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S01, S02 |
+| [x] | C-X04 | 4 h | Record/optional/repeated token input; exact-message transactional tests pass without a retained tree (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | C-X03 |
+| [x] | C-X05 | 3 h | Explicit nil mapping; absent, empty and nil remain distinguishable (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S03, C-X04 |
+| [x] | C-X06 | 4 h | Ordered mixed content; ordering, escaping and resource tests pass (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S04, C-X02, C-X04 |
+| [x] | C-X07 | 3 h | Map mapping; key, duplicate and cardinality fixtures pass (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S05, C-X04 |
+| [x] | C-X08 | 3 h | Variant mapping; wrong tag/type combinations reject (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S06, C-X04 |
+| [x] | C-X09 | 3 h | Generated numeric facets; inclusive/exclusive boundary corpus passes (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S08, C-X04 |
+| [x] | C-X10 | 3 h | Text/enumeration/approved-pattern facets; Unicode and independent-oracle tests pass (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S09, S11, C-X04 |
+| [x] | C-X11 | 3 h | XSD-derived simpleContent/wrappers; generated authoritative contracts round-trip (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S12, C-X04 |
+| [x] | C-X12 | 3 h | Choice traversal; exactly one allowed alternative is accepted (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S13, C-X04 |
+| [x] | C-X13 | 3 h | All traversal; valid permutations pass and duplicates reject (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S14, C-X04 |
+| [x] | C-X14 | 3 h | Key/unique state; tuple/index budgets and failure tests pass (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S16, C-X04 |
+| [x] | C-X15 | 3 h | Keyref completion; forward/missing/wrong-scope references are checked before publication (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S17, C-X14 |
+| [x] | C-X16 | 4 h | XML extension slots; reject/skip/preserve and namespace-context round-trips pass (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S07, C-X04 |
+| [x] | C-X17 | 3 h | Concrete generic XML instances; generated instance fixtures pass (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S27, C-X04 |
+| [x] | C-X18 | 3 h | Inherited mappings; field collisions and ordering tests pass (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S28, C-X04 |
+| [x] | C-X19 | 4 h | Revision/magic mappings; historical/current/invalid layouts pass their expected checks (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S29, C-X04 |
+| [x] | C-X20 | 3 h | Digest/data-projection adapters; exact values and genuine language-specific restrictions are tested (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S30, C-X04 |
+| [x] | C-X21 | 3 h | Qualify a real prepared XSD provider; limits, concurrency, no-fetch and declared-root checks pass (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | Provider prerequisites |
+| [x] | C-X22 | 4 h | Approved HTML adapter subset; ordinary HTML is checked independently of XML parsing (2.12 selected C XML reference profile; [evidence](verification/verification-xml-tokens-2026-10-19.md)). | S34 |
 
 ### Compression tasks for each language
 
-These wrap one complete serialized object. Incremental record/object callbacks
-remain outside this work's requirements.
+#### C++ compression
 
-| Suffix | Cap | Depends on | Deliverable and completion check |
-| --- | --- | --- | --- |
-| Z01 | 2 h | S31 | Provider/API and dependency-absence behavior; unavailable providers fail clearly. |
-| Z02 | 3 h | Z01 | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass. |
-| Z03 | 3 h | Z02 | Gzip output; an independent decompressor accepts it. |
-| Z04 | 3 h | Z02 | Gzip input; malformed, concatenated and expansion-boundary fixtures pass. |
-| Z05 | 3 h | Z02 | Zlib output; an independent decompressor accepts it. |
-| Z06 | 3 h | Z02 | Zlib input; framing/checksum boundary fixtures pass. |
-| Z07 | 3 h | Z02 | Raw-DEFLATE output; independent decompression agrees. |
-| Z08 | 3 h | Z02 | Raw-DEFLATE input; truncation and trailing-input cases reject. |
-| Z09 | 4 h | Z02 | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. |
-| Z10 | 4 h | Z02 | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. |
-| Z11 | 4 h | Z03–Z10 | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. |
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | CP-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly (2.14 selected Windows C++/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | S31 |
+| [x] | CP-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass (2.14 selected Windows C++/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | CP-Z01 |
+| [x] | CP-Z03 | 3 h | Gzip output; an independent decompressor accepts it (2.14 selected Windows C++/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | CP-Z02 |
+| [x] | CP-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass (2.14 selected Windows C++/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | CP-Z02 |
+| [x] | CP-Z05 | 3 h | Zlib output; an independent decompressor accepts it (2.14 selected Windows C++/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | CP-Z02 |
+| [x] | CP-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass (2.14 selected Windows C++/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | CP-Z02 |
+| [x] | CP-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees (2.14 selected Windows C++/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | CP-Z02 |
+| [x] | CP-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject (2.14 selected Windows C++/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | CP-Z02 |
+| [x] | CP-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass (2.14 selected Windows C++/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | CP-Z02 |
+| [x] | CP-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass (2.14 selected Windows C++/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | CP-Z02 |
+| [ ] | CP-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | CP-Z03, CP-Z04, CP-Z05, CP-Z06, CP-Z07, CP-Z08, CP-Z09, CP-Z10 |
+
+#### Python compression
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | PY-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly (2.14 selected Windows Python/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | S31 |
+| [x] | PY-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass (2.14 selected Windows Python/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | PY-Z01 |
+| [x] | PY-Z03 | 3 h | Gzip output; an independent decompressor accepts it (2.14 selected Windows Python/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | PY-Z02 |
+| [x] | PY-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass (2.14 selected Windows Python/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | PY-Z02 |
+| [x] | PY-Z05 | 3 h | Zlib output; an independent decompressor accepts it (2.14 selected Windows Python/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | PY-Z02 |
+| [x] | PY-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass (2.14 selected Windows Python/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | PY-Z02 |
+| [x] | PY-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees (2.14 selected Windows Python/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | PY-Z02 |
+| [x] | PY-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject (2.14 selected Windows Python/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | PY-Z02 |
+| [x] | PY-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass (2.14 selected Windows Python/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | PY-Z02 |
+| [x] | PY-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass (2.14 selected Windows Python/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | PY-Z02 |
+| [ ] | PY-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | PY-Z03, PY-Z04, PY-Z05, PY-Z06, PY-Z07, PY-Z08, PY-Z09, PY-Z10 |
+
+#### Java compression
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | JV-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly (2.14 selected Windows Java/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | S31 |
+| [x] | JV-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass (2.14 selected Windows Java/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | JV-Z01 |
+| [x] | JV-Z03 | 3 h | Gzip output; an independent decompressor accepts it (2.14 selected Windows Java/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | JV-Z02 |
+| [x] | JV-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass (2.14 selected Windows Java/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | JV-Z02 |
+| [x] | JV-Z05 | 3 h | Zlib output; an independent decompressor accepts it (2.14 selected Windows Java/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | JV-Z02 |
+| [x] | JV-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass (2.14 selected Windows Java/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | JV-Z02 |
+| [x] | JV-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees (2.14 selected Windows Java/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | JV-Z02 |
+| [x] | JV-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject (2.14 selected Windows Java/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | JV-Z02 |
+| [x] | JV-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass (2.14 Windows JDK 26 optional-provider profiles; [evidence](verification/verification-java-compression-providers-2026-10-20.md)). | JV-Z02 |
+| [x] | JV-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass (2.14 Windows JDK 26 optional-provider profiles; [evidence](verification/verification-java-compression-providers-2026-10-20.md)). | JV-Z02 |
+| [ ] | JV-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | JV-Z03, JV-Z04, JV-Z05, JV-Z06, JV-Z07, JV-Z08, JV-Z09, JV-Z10 |
+
+#### Kotlin compression
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | KT-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly. | S31 |
+| [ ] | KT-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass. | KT-Z01 |
+| [ ] | KT-Z03 | 3 h | Gzip output; an independent decompressor accepts it. | KT-Z02 |
+| [ ] | KT-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass. | KT-Z02 |
+| [ ] | KT-Z05 | 3 h | Zlib output; an independent decompressor accepts it. | KT-Z02 |
+| [ ] | KT-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass. | KT-Z02 |
+| [ ] | KT-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees. | KT-Z02 |
+| [ ] | KT-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject. | KT-Z02 |
+| [ ] | KT-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. | KT-Z02 |
+| [ ] | KT-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. | KT-Z02 |
+| [ ] | KT-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | KT-Z03, KT-Z04, KT-Z05, KT-Z06, KT-Z07, KT-Z08, KT-Z09, KT-Z10 |
+
+#### C# compression
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | CS-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly (2.14 generated .NET 8 profile; [evidence](verification/verification-csharp-compression-2026-10-20.md)). | S31 |
+| [x] | CS-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass (2.14 generated .NET 8 profile; [evidence](verification/verification-csharp-compression-2026-10-20.md)). | CS-Z01 |
+| [x] | CS-Z03 | 3 h | Gzip output; an independent decompressor accepts it (2.14 generated .NET 8 profile; [evidence](verification/verification-csharp-compression-2026-10-20.md)). | CS-Z02 |
+| [x] | CS-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass (2.14 generated .NET 8 profile; [evidence](verification/verification-csharp-compression-2026-10-20.md)). | CS-Z02 |
+| [x] | CS-Z05 | 3 h | Zlib output; an independent decompressor accepts it (2.14 generated .NET 8 profile; [evidence](verification/verification-csharp-compression-2026-10-20.md)). | CS-Z02 |
+| [x] | CS-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass (2.14 generated .NET 8 profile; [evidence](verification/verification-csharp-compression-2026-10-20.md)). | CS-Z02 |
+| [x] | CS-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees (2.14 generated .NET 8 profile; [evidence](verification/verification-csharp-compression-2026-10-20.md)). | CS-Z02 |
+| [x] | CS-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject (2.14 generated .NET 8 profile; [evidence](verification/verification-csharp-compression-2026-10-20.md)). | CS-Z02 |
+| [ ] | CS-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. | CS-Z02 |
+| [ ] | CS-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. | CS-Z02 |
+| [ ] | CS-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | CS-Z03, CS-Z04, CS-Z05, CS-Z06, CS-Z07, CS-Z08, CS-Z09, CS-Z10 |
+
+#### Go compression
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | GO-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly (2.14 Windows Go 1.26.4/Linux Go 1.26.0 profiles; [evidence](verification/verification-go-compression-2026-10-20.md)). | S31 |
+| [x] | GO-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass (2.14 Windows Go 1.26.4/Linux Go 1.26.0 profiles; [evidence](verification/verification-go-compression-2026-10-20.md)). | GO-Z01 |
+| [x] | GO-Z03 | 3 h | Gzip output; an independent decompressor accepts it (2.14 Windows Go 1.26.4/Linux Go 1.26.0 profiles; [evidence](verification/verification-go-compression-2026-10-20.md)). | GO-Z02 |
+| [x] | GO-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass (2.14 Windows Go 1.26.4/Linux Go 1.26.0 profiles; [evidence](verification/verification-go-compression-2026-10-20.md)). | GO-Z02 |
+| [x] | GO-Z05 | 3 h | Zlib output; an independent decompressor accepts it (2.14 Windows Go 1.26.4/Linux Go 1.26.0 profiles; [evidence](verification/verification-go-compression-2026-10-20.md)). | GO-Z02 |
+| [x] | GO-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass (2.14 Windows Go 1.26.4/Linux Go 1.26.0 profiles; [evidence](verification/verification-go-compression-2026-10-20.md)). | GO-Z02 |
+| [x] | GO-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees (2.14 Windows Go 1.26.4/Linux Go 1.26.0 profiles; [evidence](verification/verification-go-compression-2026-10-20.md)). | GO-Z02 |
+| [x] | GO-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject (2.14 Windows Go 1.26.4/Linux Go 1.26.0 profiles; [evidence](verification/verification-go-compression-2026-10-20.md)). | GO-Z02 |
+| [ ] | GO-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. | GO-Z02 |
+| [ ] | GO-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. | GO-Z02 |
+| [ ] | GO-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | GO-Z03, GO-Z04, GO-Z05, GO-Z06, GO-Z07, GO-Z08, GO-Z09, GO-Z10 |
+
+#### JavaScript compression
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | JS-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly. | S31 |
+| [ ] | JS-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass. | JS-Z01 |
+| [ ] | JS-Z03 | 3 h | Gzip output; an independent decompressor accepts it. | JS-Z02 |
+| [ ] | JS-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass. | JS-Z02 |
+| [ ] | JS-Z05 | 3 h | Zlib output; an independent decompressor accepts it. | JS-Z02 |
+| [ ] | JS-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass. | JS-Z02 |
+| [ ] | JS-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees. | JS-Z02 |
+| [ ] | JS-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject. | JS-Z02 |
+| [ ] | JS-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. | JS-Z02 |
+| [ ] | JS-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. | JS-Z02 |
+| [ ] | JS-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | JS-Z03, JS-Z04, JS-Z05, JS-Z06, JS-Z07, JS-Z08, JS-Z09, JS-Z10 |
+
+#### TypeScript compression
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | TS-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly. | S31 |
+| [ ] | TS-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass. | TS-Z01 |
+| [ ] | TS-Z03 | 3 h | Gzip output; an independent decompressor accepts it. | TS-Z02 |
+| [ ] | TS-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass. | TS-Z02 |
+| [ ] | TS-Z05 | 3 h | Zlib output; an independent decompressor accepts it. | TS-Z02 |
+| [ ] | TS-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass. | TS-Z02 |
+| [ ] | TS-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees. | TS-Z02 |
+| [ ] | TS-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject. | TS-Z02 |
+| [ ] | TS-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. | TS-Z02 |
+| [ ] | TS-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. | TS-Z02 |
+| [ ] | TS-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | TS-Z03, TS-Z04, TS-Z05, TS-Z06, TS-Z07, TS-Z08, TS-Z09, TS-Z10 |
+
+#### Rust compression
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | RS-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly. | S31 |
+| [ ] | RS-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass. | RS-Z01 |
+| [ ] | RS-Z03 | 3 h | Gzip output; an independent decompressor accepts it. | RS-Z02 |
+| [ ] | RS-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass. | RS-Z02 |
+| [ ] | RS-Z05 | 3 h | Zlib output; an independent decompressor accepts it. | RS-Z02 |
+| [ ] | RS-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass. | RS-Z02 |
+| [ ] | RS-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees. | RS-Z02 |
+| [ ] | RS-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject. | RS-Z02 |
+| [ ] | RS-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. | RS-Z02 |
+| [ ] | RS-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. | RS-Z02 |
+| [ ] | RS-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | RS-Z03, RS-Z04, RS-Z05, RS-Z06, RS-Z07, RS-Z08, RS-Z09, RS-Z10 |
+
+#### Swift compression
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | SW-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly. | S31 |
+| [ ] | SW-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass. | SW-Z01 |
+| [ ] | SW-Z03 | 3 h | Gzip output; an independent decompressor accepts it. | SW-Z02 |
+| [ ] | SW-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass. | SW-Z02 |
+| [ ] | SW-Z05 | 3 h | Zlib output; an independent decompressor accepts it. | SW-Z02 |
+| [ ] | SW-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass. | SW-Z02 |
+| [ ] | SW-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees. | SW-Z02 |
+| [ ] | SW-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject. | SW-Z02 |
+| [ ] | SW-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. | SW-Z02 |
+| [ ] | SW-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. | SW-Z02 |
+| [ ] | SW-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | SW-Z03, SW-Z04, SW-Z05, SW-Z06, SW-Z07, SW-Z08, SW-Z09, SW-Z10 |
+
+#### C compression
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | C-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly. | S31 |
+| [ ] | C-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass. | C-Z01 |
+| [ ] | C-Z03 | 3 h | Gzip output; an independent decompressor accepts it. | C-Z02 |
+| [ ] | C-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass. | C-Z02 |
+| [ ] | C-Z05 | 3 h | Zlib output; an independent decompressor accepts it. | C-Z02 |
+| [ ] | C-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass. | C-Z02 |
+| [ ] | C-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees. | C-Z02 |
+| [ ] | C-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject. | C-Z02 |
+| [ ] | C-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. | C-Z02 |
+| [ ] | C-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. | C-Z02 |
+| [ ] | C-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | C-Z03, C-Z04, C-Z05, C-Z06, C-Z07, C-Z08, C-Z09, C-Z10 |
 
 ### Package tasks for each language
 
-| Suffix | Cap | Depends on | Deliverable and completion check |
-| --- | --- | --- | --- |
-| P01 | 3 h | S31 | Source/sink/metadata/shared-budget foundation; source boundaries have tests. |
-| P02 | 3 h | P01 | Stored ZIP writer; an independent ZIP reader opens its output. |
-| P03 | 4 h | P01 | ZIP32 directory reader; independent and malformed-offset fixtures pass. |
-| P04 | 3 h | P02, Z07 | DEFLATE entry output; independent inflation agrees. |
-| P05 | 3 h | P03, Z08 | DEFLATE entry input; CRC/size/trailing-data failures reject. |
-| P06 | 3 h | P02 | ZIP64 entry writer; a forced-small independent fixture passes. |
-| P07 | 3 h | P03 | ZIP64 entry reader; Python-produced fixtures pass. |
-| P08 | 3 h | P06 | ZIP64 directory/locator output; an independent directory inspector agrees. |
-| P09 | 3 h | P07 | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. |
-| P10 | 3 h | P05, P07 | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. |
-| P11 | 3 h | P03 | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. |
-| P12 | 3 h | P02 | Staged full-Save replacement; injected faults leave an old or complete new file. |
-| P13 | 3 h | P03 | OPC names/content types; normalization, duplicate and conflict fixtures pass. |
-| P14 | 3 h | P13 | Scoped relationships/targets; dangling and escaping targets reject. |
-| P15 | 3 h | P14, S32 | Transactional typed aggregate loading; a middle-part failure publishes nothing. |
-| P16 | 3 h | P15 | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. |
-| P17 | 3 h | P15 | Opaque part policies; optional/required reject/skip/preserve fixtures pass. |
-| P18 | 3 h | P17 | Preserved relationship/namespace context; edited-package references are revalidated. |
-| P19 | 3 h | P02, P14 | Canonical ordering/metadata; independent byte equality survives input permutations. |
-| P20 | 3 h | S31–S32, P15 | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. |
-| P21 | 3 h | P16, P20 | Generated application reference checks; duplicate/missing/wrong-type keys reject. |
+#### C++ packages
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | CP-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | S31 |
+| [x] | CP-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P01 |
+| [x] | CP-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P01 |
+| [x] | CP-P04 | 3 h | DEFLATE entry output; independent inflation agrees (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P02, CP-Z07 |
+| [x] | CP-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P03, CP-Z08 |
+| [x] | CP-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P02 |
+| [x] | CP-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P03 |
+| [x] | CP-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P06 |
+| [ ] | CP-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | CP-P07 |
+| [x] | CP-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass (2.14 native Linux reference profile, independent signature-CRC controls; [evidence](verification/verification-package-lifecycle-2026-10-20.md)). | CP-P05, CP-P07 |
+| [ ] | CP-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | CP-P03 |
+| [ ] | CP-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | CP-P02 |
+| [x] | CP-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P03 |
+| [x] | CP-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P13 |
+| [ ] | CP-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | CP-P14, S32 |
+| [ ] | CP-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | CP-P15 |
+| [ ] | CP-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | CP-P15 |
+| [ ] | CP-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | CP-P17 |
+| [x] | CP-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P02, CP-P14 |
+| [ ] | CP-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, CP-P15 |
+| [ ] | CP-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | CP-P16, CP-P20 |
+
+#### Python packages
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | PY-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests (2.14 Windows/Linux generated reference profile; [evidence](verification/verification-package-lifecycle-2026-10-20.md)). | S31 |
+| [x] | PY-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output (2.14 Windows/Linux generated reference profile; [evidence](verification/verification-package-lifecycle-2026-10-20.md)). | PY-P01 |
+| [x] | PY-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass (2.14 selected Python reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | PY-P01 |
+| [x] | PY-P04 | 3 h | DEFLATE entry output; independent inflation agrees (2.14 selected Python reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | PY-P02, PY-Z07 |
+| [x] | PY-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject (2.14 selected Python reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | PY-P03, PY-Z08 |
+| [x] | PY-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes (2.14 selected Python reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | PY-P02 |
+| [x] | PY-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass (2.14 selected Python reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | PY-P03 |
+| [x] | PY-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees (2.14 selected Python reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | PY-P06 |
+| [ ] | PY-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | PY-P07 |
+| [x] | PY-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass (2.14 selected Python reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | PY-P05, PY-P07 |
+| [x] | PY-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass (2.14 Windows/Linux generated reference profile; [evidence](verification/verification-package-lifecycle-2026-10-20.md)). | PY-P03 |
+| [x] | PY-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file (2.14 Windows/Linux generated reference profile; [evidence](verification/verification-package-lifecycle-2026-10-20.md)). | PY-P02 |
+| [x] | PY-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass (2.14 selected Python reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | PY-P03 |
+| [x] | PY-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject (2.14 selected Python reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | PY-P13 |
+| [ ] | PY-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | PY-P14, S32 |
+| [ ] | PY-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | PY-P15 |
+| [ ] | PY-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | PY-P15 |
+| [ ] | PY-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | PY-P17 |
+| [x] | PY-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations (2.14 Windows/Linux unordered part/link sets with stable identities; [evidence](verification/verification-package-lifecycle-2026-10-20.md)). | PY-P02, PY-P14 |
+| [ ] | PY-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, PY-P15 |
+| [ ] | PY-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | PY-P16, PY-P20 |
+
+#### Java packages
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | JV-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. | S31 |
+| [ ] | JV-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. | JV-P01 |
+| [ ] | JV-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. | JV-P01 |
+| [ ] | JV-P04 | 3 h | DEFLATE entry output; independent inflation agrees. | JV-P02, JV-Z07 |
+| [ ] | JV-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. | JV-P03, JV-Z08 |
+| [ ] | JV-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. | JV-P02 |
+| [ ] | JV-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. | JV-P03 |
+| [ ] | JV-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. | JV-P06 |
+| [ ] | JV-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | JV-P07 |
+| [ ] | JV-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. | JV-P05, JV-P07 |
+| [ ] | JV-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | JV-P03 |
+| [ ] | JV-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | JV-P02 |
+| [ ] | JV-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. | JV-P03 |
+| [ ] | JV-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. | JV-P13 |
+| [ ] | JV-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | JV-P14, S32 |
+| [ ] | JV-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | JV-P15 |
+| [ ] | JV-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | JV-P15 |
+| [ ] | JV-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | JV-P17 |
+| [ ] | JV-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. | JV-P02, JV-P14 |
+| [ ] | JV-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, JV-P15 |
+| [ ] | JV-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | JV-P16, JV-P20 |
+
+#### Kotlin packages
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | KT-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. | S31 |
+| [ ] | KT-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. | KT-P01 |
+| [ ] | KT-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. | KT-P01 |
+| [ ] | KT-P04 | 3 h | DEFLATE entry output; independent inflation agrees. | KT-P02, KT-Z07 |
+| [ ] | KT-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. | KT-P03, KT-Z08 |
+| [ ] | KT-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. | KT-P02 |
+| [ ] | KT-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. | KT-P03 |
+| [ ] | KT-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. | KT-P06 |
+| [ ] | KT-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | KT-P07 |
+| [ ] | KT-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. | KT-P05, KT-P07 |
+| [ ] | KT-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | KT-P03 |
+| [ ] | KT-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | KT-P02 |
+| [ ] | KT-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. | KT-P03 |
+| [ ] | KT-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. | KT-P13 |
+| [ ] | KT-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | KT-P14, S32 |
+| [ ] | KT-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | KT-P15 |
+| [ ] | KT-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | KT-P15 |
+| [ ] | KT-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | KT-P17 |
+| [ ] | KT-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. | KT-P02, KT-P14 |
+| [ ] | KT-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, KT-P15 |
+| [ ] | KT-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | KT-P16, KT-P20 |
+
+#### C# packages
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | CS-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. | S31 |
+| [ ] | CS-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. | CS-P01 |
+| [ ] | CS-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. | CS-P01 |
+| [ ] | CS-P04 | 3 h | DEFLATE entry output; independent inflation agrees. | CS-P02, CS-Z07 |
+| [ ] | CS-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. | CS-P03, CS-Z08 |
+| [ ] | CS-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. | CS-P02 |
+| [ ] | CS-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. | CS-P03 |
+| [ ] | CS-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. | CS-P06 |
+| [ ] | CS-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | CS-P07 |
+| [ ] | CS-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. | CS-P05, CS-P07 |
+| [ ] | CS-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | CS-P03 |
+| [ ] | CS-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | CS-P02 |
+| [ ] | CS-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. | CS-P03 |
+| [ ] | CS-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. | CS-P13 |
+| [ ] | CS-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | CS-P14, S32 |
+| [ ] | CS-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | CS-P15 |
+| [ ] | CS-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | CS-P15 |
+| [ ] | CS-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | CS-P17 |
+| [ ] | CS-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. | CS-P02, CS-P14 |
+| [ ] | CS-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, CS-P15 |
+| [ ] | CS-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | CS-P16, CS-P20 |
+
+#### Go packages
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | GO-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. | S31 |
+| [ ] | GO-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. | GO-P01 |
+| [ ] | GO-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. | GO-P01 |
+| [ ] | GO-P04 | 3 h | DEFLATE entry output; independent inflation agrees. | GO-P02, GO-Z07 |
+| [ ] | GO-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. | GO-P03, GO-Z08 |
+| [ ] | GO-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. | GO-P02 |
+| [ ] | GO-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. | GO-P03 |
+| [ ] | GO-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. | GO-P06 |
+| [ ] | GO-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | GO-P07 |
+| [ ] | GO-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. | GO-P05, GO-P07 |
+| [ ] | GO-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | GO-P03 |
+| [ ] | GO-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | GO-P02 |
+| [ ] | GO-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. | GO-P03 |
+| [ ] | GO-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. | GO-P13 |
+| [ ] | GO-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | GO-P14, S32 |
+| [ ] | GO-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | GO-P15 |
+| [ ] | GO-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | GO-P15 |
+| [ ] | GO-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | GO-P17 |
+| [ ] | GO-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. | GO-P02, GO-P14 |
+| [ ] | GO-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, GO-P15 |
+| [ ] | GO-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | GO-P16, GO-P20 |
+
+#### JavaScript packages
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | JS-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. | S31 |
+| [ ] | JS-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. | JS-P01 |
+| [ ] | JS-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. | JS-P01 |
+| [ ] | JS-P04 | 3 h | DEFLATE entry output; independent inflation agrees. | JS-P02, JS-Z07 |
+| [ ] | JS-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. | JS-P03, JS-Z08 |
+| [ ] | JS-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. | JS-P02 |
+| [ ] | JS-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. | JS-P03 |
+| [ ] | JS-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. | JS-P06 |
+| [ ] | JS-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | JS-P07 |
+| [ ] | JS-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. | JS-P05, JS-P07 |
+| [ ] | JS-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | JS-P03 |
+| [ ] | JS-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | JS-P02 |
+| [ ] | JS-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. | JS-P03 |
+| [ ] | JS-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. | JS-P13 |
+| [ ] | JS-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | JS-P14, S32 |
+| [ ] | JS-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | JS-P15 |
+| [ ] | JS-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | JS-P15 |
+| [ ] | JS-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | JS-P17 |
+| [ ] | JS-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. | JS-P02, JS-P14 |
+| [ ] | JS-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, JS-P15 |
+| [ ] | JS-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | JS-P16, JS-P20 |
+
+#### TypeScript packages
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | TS-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. | S31 |
+| [ ] | TS-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. | TS-P01 |
+| [ ] | TS-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. | TS-P01 |
+| [ ] | TS-P04 | 3 h | DEFLATE entry output; independent inflation agrees. | TS-P02, TS-Z07 |
+| [ ] | TS-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. | TS-P03, TS-Z08 |
+| [ ] | TS-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. | TS-P02 |
+| [ ] | TS-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. | TS-P03 |
+| [ ] | TS-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. | TS-P06 |
+| [ ] | TS-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | TS-P07 |
+| [ ] | TS-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. | TS-P05, TS-P07 |
+| [ ] | TS-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | TS-P03 |
+| [ ] | TS-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | TS-P02 |
+| [ ] | TS-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. | TS-P03 |
+| [ ] | TS-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. | TS-P13 |
+| [ ] | TS-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | TS-P14, S32 |
+| [ ] | TS-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | TS-P15 |
+| [ ] | TS-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | TS-P15 |
+| [ ] | TS-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | TS-P17 |
+| [ ] | TS-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. | TS-P02, TS-P14 |
+| [ ] | TS-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, TS-P15 |
+| [ ] | TS-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | TS-P16, TS-P20 |
+
+#### Rust packages
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | RS-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. | S31 |
+| [ ] | RS-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. | RS-P01 |
+| [ ] | RS-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. | RS-P01 |
+| [ ] | RS-P04 | 3 h | DEFLATE entry output; independent inflation agrees. | RS-P02, RS-Z07 |
+| [ ] | RS-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. | RS-P03, RS-Z08 |
+| [ ] | RS-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. | RS-P02 |
+| [ ] | RS-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. | RS-P03 |
+| [ ] | RS-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. | RS-P06 |
+| [ ] | RS-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | RS-P07 |
+| [ ] | RS-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. | RS-P05, RS-P07 |
+| [ ] | RS-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | RS-P03 |
+| [ ] | RS-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | RS-P02 |
+| [ ] | RS-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. | RS-P03 |
+| [ ] | RS-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. | RS-P13 |
+| [ ] | RS-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | RS-P14, S32 |
+| [ ] | RS-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | RS-P15 |
+| [ ] | RS-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | RS-P15 |
+| [ ] | RS-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | RS-P17 |
+| [ ] | RS-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. | RS-P02, RS-P14 |
+| [ ] | RS-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, RS-P15 |
+| [ ] | RS-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | RS-P16, RS-P20 |
+
+#### Swift packages
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | SW-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. | S31 |
+| [ ] | SW-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. | SW-P01 |
+| [ ] | SW-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. | SW-P01 |
+| [ ] | SW-P04 | 3 h | DEFLATE entry output; independent inflation agrees. | SW-P02, SW-Z07 |
+| [ ] | SW-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. | SW-P03, SW-Z08 |
+| [ ] | SW-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. | SW-P02 |
+| [ ] | SW-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. | SW-P03 |
+| [ ] | SW-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. | SW-P06 |
+| [ ] | SW-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | SW-P07 |
+| [ ] | SW-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. | SW-P05, SW-P07 |
+| [ ] | SW-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | SW-P03 |
+| [ ] | SW-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | SW-P02 |
+| [ ] | SW-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. | SW-P03 |
+| [ ] | SW-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. | SW-P13 |
+| [ ] | SW-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | SW-P14, S32 |
+| [ ] | SW-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | SW-P15 |
+| [ ] | SW-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | SW-P15 |
+| [ ] | SW-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | SW-P17 |
+| [ ] | SW-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. | SW-P02, SW-P14 |
+| [ ] | SW-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, SW-P15 |
+| [ ] | SW-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | SW-P16, SW-P20 |
+
+#### C packages
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | C-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. | S31 |
+| [ ] | C-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. | C-P01 |
+| [ ] | C-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. | C-P01 |
+| [ ] | C-P04 | 3 h | DEFLATE entry output; independent inflation agrees. | C-P02, C-Z07 |
+| [ ] | C-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. | C-P03, C-Z08 |
+| [ ] | C-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. | C-P02 |
+| [ ] | C-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. | C-P03 |
+| [ ] | C-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. | C-P06 |
+| [ ] | C-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | C-P07 |
+| [ ] | C-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. | C-P05, C-P07 |
+| [ ] | C-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | C-P03 |
+| [ ] | C-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | C-P02 |
+| [ ] | C-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. | C-P03 |
+| [ ] | C-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. | C-P13 |
+| [ ] | C-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | C-P14, S32 |
+| [ ] | C-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | C-P15 |
+| [ ] | C-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | C-P15 |
+| [ ] | C-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | C-P17 |
+| [ ] | C-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. | C-P02, C-P14 |
+| [ ] | C-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, C-P15 |
+| [ ] | C-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | C-P16, C-P20 |
 
 ### Qualification tasks for each language
 
-Run these for the affected implemented slice, not only after every feature is
-written. A failing case creates a bounded repair task and leaves its feature open.
+#### C++ qualification
 
-| Suffix | Cap | Completion check |
-| --- | --- | --- |
-| Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. |
-| Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. |
-| Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. |
-| Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. |
-| Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. |
-| Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. |
-| Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. |
-| Q08 | 3 h | Supported-platform and reproducibility replay passes; unavailable platforms remain open. |
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | CP-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [ ] | CP-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
+| [ ] | CP-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
+| [ ] | CP-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [ ] | CP-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
+| [ ] | CP-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
+| [ ] | CP-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [ ] | CP-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
+
+#### Python qualification
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | PY-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [ ] | PY-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
+| [ ] | PY-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
+| [ ] | PY-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [ ] | PY-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
+| [ ] | PY-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
+| [ ] | PY-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [ ] | PY-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
+
+#### Java qualification
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | JV-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [ ] | JV-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
+| [ ] | JV-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
+| [ ] | JV-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [ ] | JV-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
+| [ ] | JV-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
+| [ ] | JV-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [ ] | JV-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
+
+#### Kotlin qualification
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | KT-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [ ] | KT-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
+| [ ] | KT-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
+| [ ] | KT-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [ ] | KT-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
+| [ ] | KT-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
+| [ ] | KT-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [ ] | KT-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
+
+#### C# qualification
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | CS-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [ ] | CS-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
+| [ ] | CS-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
+| [ ] | CS-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [ ] | CS-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
+| [ ] | CS-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
+| [ ] | CS-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [ ] | CS-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
+
+#### Go qualification
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | GO-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [ ] | GO-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
+| [ ] | GO-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
+| [ ] | GO-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [ ] | GO-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
+| [ ] | GO-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
+| [ ] | GO-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [ ] | GO-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
+
+#### JavaScript qualification
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | JS-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [ ] | JS-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
+| [ ] | JS-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
+| [ ] | JS-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [ ] | JS-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
+| [ ] | JS-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
+| [ ] | JS-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [ ] | JS-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
+
+#### TypeScript qualification
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | TS-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [ ] | TS-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
+| [ ] | TS-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
+| [ ] | TS-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [ ] | TS-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
+| [ ] | TS-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
+| [ ] | TS-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [ ] | TS-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
+
+#### Rust qualification
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | RS-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [ ] | RS-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
+| [ ] | RS-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
+| [ ] | RS-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [ ] | RS-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
+| [ ] | RS-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
+| [ ] | RS-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [ ] | RS-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
+
+#### Swift qualification
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | SW-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [ ] | SW-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
+| [ ] | SW-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
+| [ ] | SW-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [ ] | SW-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
+| [ ] | SW-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
+| [ ] | SW-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [ ] | SW-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
+
+#### C qualification
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | C-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [ ] | C-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
+| [ ] | C-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
+| [ ] | C-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [ ] | C-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
+| [ ] | C-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
+| [ ] | C-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
+| [ ] | C-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
 
 ### C++ document-state bridge tasks
 
-These native managed-engine tasks are additional to general backend parity.
-The 2.13 generic caller-adapter implementation supplies shared mechanisms for
-several rows, but their complete format/provider/platform evidence remains open.
-Do not mark D01-D21 complete solely because generic callbacks exist. Every external
-document must remain free of history, journals and session/outbox state; native
-logical records retain their existing codecs inside the differential side channel.
-
-| ID | Cap | Depends on | Deliverable and completion check |
-| --- | --- | --- | --- |
-| D01 | 3 h | S31 | Saved-baseline identity/layout/digest format; altered-identity byte fixtures reject. |
-| D02 | 3 h | D01 | Sidecar generation manifest; stale/foreign documents fail before payload decoding. |
-| D03 | 3 h | D01 | Object-ID snapshot restoration; IDs survive Save/reopen unchanged. |
-| D04 | 3 h | D03 | Allocation high-water restoration; issued IDs are never reused. |
-| D05 | 4 h | D03 | Retained-history checkpoint transfer; undo/redo survives reopen. |
-| D06 | 3 h | D05 | Branch/cursor transfer; forked-history/current-cursor fixtures pass. |
-| D07 | 3 h | D01, CP-P12 | Data-only document encoder; independent inspection finds no side-channel records. |
-| D08 | 3 h | D02, D04–D07 | Stage document/sidecars under a new generation; staging failure preserves publication. |
-| D09 | 3 h | D08 | Publication state machine/commit marker; every transition has a fixture. |
-| D10 | 3 h | D09 | Windows durable replacement; injected faults preserve one coherent generation. |
-| D11 | 3 h | D09 | Linux durable replacement; matching fault/synchronization tests pass. |
-| D12 | 3 h | D10–D11 | Precommit recovery; each interruption reopens the old baseline/history. |
-| D13 | 3 h | D10–D11 | Postcommit recovery; each interruption reopens the new baseline/history. |
-| D14 | 3 h | D02, D12–D13 | Journal baseline fence/replay; mismatches reject before decoding/replay. |
-| D15 | 3 h | D02, D12–D13 | Collaboration/session/outbox fences; pending state cannot cross saved baselines. |
-| D16 | 3 h | D04–D06, D12–D15 | Full Save/reopen integration; IDs/history/cursors/journal/session remain coherent. |
-| D17 | 3 h | D16 | Legacy native compatibility replay; existing bytes/APIs retain their contract. |
-| D18 | 2 h | D16 | Final-file isolation audit; independent inspection finds no side channels. |
-| D19 | 3 h | D16 | Bounded pre-publication crash matrix; old-generation recovery passes. |
-| D20 | 3 h | D16 | Bounded post-publication crash matrix; new-generation recovery passes. |
-| D21 | 2 h | D17–D20 | Executable usage/migration example; Save/load instructions and limitations match results. |
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | D01 | 3 h | Saved-baseline identity/layout/digest format; altered-identity byte fixtures reject. | S31 |
+| [ ] | D02 | 3 h | Sidecar generation manifest; stale/foreign documents fail before payload decoding. | D01 |
+| [ ] | D03 | 3 h | Object-ID snapshot restoration; IDs survive Save/reopen unchanged. | D01 |
+| [ ] | D04 | 3 h | Allocation high-water restoration; issued IDs are never reused. | D03 |
+| [ ] | D05 | 4 h | Retained-history checkpoint transfer; undo/redo survives reopen. | D03 |
+| [ ] | D06 | 3 h | Branch/cursor transfer; forked-history/current-cursor fixtures pass. | D05 |
+| [ ] | D07 | 3 h | Data-only document encoder; independent inspection finds no side-channel records. | D01, CP-P12 |
+| [ ] | D08 | 3 h | Stage document/sidecars under a new generation; staging failure preserves publication. | D02, D04, D05, D06, D07 |
+| [ ] | D09 | 3 h | Publication state machine/commit marker; every transition has a fixture. | D08 |
+| [ ] | D10 | 3 h | Windows durable replacement; injected faults preserve one coherent generation. | D09 |
+| [ ] | D11 | 3 h | Linux durable replacement; matching fault/synchronization tests pass. | D09 |
+| [ ] | D12 | 3 h | Precommit recovery; each interruption reopens the old baseline/history. | D10, D11 |
+| [ ] | D13 | 3 h | Postcommit recovery; each interruption reopens the new baseline/history. | D10, D11 |
+| [ ] | D14 | 3 h | Journal baseline fence/replay; mismatches reject before decoding/replay. | D02, D12, D13 |
+| [ ] | D15 | 3 h | Collaboration/session/outbox fences; pending state cannot cross saved baselines. | D02, D12, D13 |
+| [ ] | D16 | 3 h | Full Save/reopen integration; IDs/history/cursors/journal/session remain coherent. | D04, D05, D06, D12, D13, D14, D15 |
+| [ ] | D17 | 3 h | Legacy native compatibility replay; existing bytes/APIs retain their contract. | D16 |
+| [ ] | D18 | 2 h | Final-file isolation audit; independent inspection finds no side channels. | D16 |
+| [ ] | D19 | 3 h | Bounded pre-publication crash matrix; old-generation recovery passes. | D16 |
+| [ ] | D20 | 3 h | Bounded post-publication crash matrix; new-generation recovery passes. | D16 |
+| [ ] | D21 | 2 h | Executable usage/migration example; Save/load instructions and limitations match results. | D17, D18, D19, D20 |
+| [x] | D22 | 4 h | Checked first-time identified typed storage, stored document namespace and native allocation watermark; preserve IDs/references/burned gaps and one history baseline; validate before publication/scoped resource hooks, then qualify native Save/recovery (2.14 eight Windows C++ profiles; [evidence](verification/verification-managed-identified-baseline-2026-10-20.md)). | MR04, MR05 |
+| [x] | D23 | — | Bounded caller-supplied external-document codecs and exact untouched-baseline attachment; identity/layout/digest binding rejects stale, foreign and lossy candidates (2.13 C++ JSON and selected binary callback profiles; [evidence](verification/verification-sidecar-journal-2026-10-20.md)). | Existing C++ managed runtime |
+| [x] | D24 | — | Native v3 differential copy/literal sidecars retain identities, allocation marks, history and session state through selected Save/recovery and v2 upgrade; main files contain document data only (2.13 selected native document/journal profiles; [evidence](verification/verification-sidecar-journal-2026-10-20.md)). | D23 |
 
 ### Shared release gates
 
-| ID | Cap | Completion check |
-| --- | --- | --- |
-| G01 | 2 h | Independent XML/XSD oracle corpus passes for the landed subset. |
-| G02 | 2 h | Independent ZIP/OPC corpus passes for the landed subset. |
-| G03 | 3 h | Run the full Windows test wrapper against the selected source/configuration; record that slice's results and repair failures separately. |
-| G04 | 3 h | Linux native regression passes; failures receive separate repair tasks. |
-| G05 | 2 h | XML-disabled build and explicit unavailability behavior pass. |
-| G06 | 2 h | Every bundled provider disabled: build/link and supported identity/stored paths pass. |
-| G07 | 2 h | CLI version, release metadata and same-major CMake discovery compatibility pass. |
-| G08 | 3 h | Editor impact is reviewed; if touched, both versions/changelogs/listings/packages are synchronized and validated. |
-| G09 | 2 h | Coverage, README, skill, migration, links, ignore rules and task-artifact cleanup match actual results. |
-
-Recommended execution starts with the relevant shared contract, a C++ reference
-slice and its checks, then the matching Python tasks. Port the accepted slice to
-the remaining language prefixes before calling that general feature complete.
-Java/Kotlin and JavaScript/TypeScript work may share prerequisites while retaining
-their separate completion checks. The document-state bridge follows its own D01–D21
-chain; it must not block independent backend parity tasks.
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [ ] | G01 | 2 h | Independent XML/XSD oracle corpus passes for the landed subset. | — |
+| [ ] | G02 | 2 h | Independent ZIP/OPC corpus passes for the landed subset. | — |
+| [ ] | G03 | 3 h | Current selected Windows source/configuration passes the native regression wrapper; failures are resolved. | — |
+| [ ] | G04 | 3 h | Current selected Linux source/configuration passes native regression with failures resolved. | — |
+| [ ] | G05 | 2 h | XML-disabled build and explicit unavailability behavior pass. | — |
+| [ ] | G06 | 2 h | Every bundled provider disabled: build/link and supported identity/stored paths pass. | — |
+| [ ] | G07 | 2 h | CLI version, release metadata and same-major CMake discovery compatibility pass. | — |
+| [ ] | G08 | 3 h | Editor impact is reviewed; if touched, both versions/changelogs/listings/packages are synchronized and validated. | — |
+| [ ] | G09 | 2 h | Coverage, README, skill, migration, links, ignore rules and task-artifact cleanup match executed results. | — |
