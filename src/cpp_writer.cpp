@@ -2753,7 +2753,7 @@ public:
       output.write("      ", value, ".with_value([&](const auto& srl_xml_projected) {\n");
       value = "srl_xml_projected";
     }
-    if (input && string && !field.list && !facets.whitespace.empty()) {
+    if (input && string && !field.list && facets.union_members.empty() && !facets.whitespace.empty()) {
       output.write("      if (", context, ") { ", context,
           "->consume(::rohit::serializer::xml::operation_resource::allocation_bytes, (", value, ").size()); }\n");
       output.write("      ", value, " = ::rohit::serializer::xml::normalize_whitespace(", value,
@@ -3657,11 +3657,16 @@ public:
           }
           write_xml_active_field(output, contract, *field.source, [&] {
           const bool namespace_child = !field.attribute && !field.text &&
-              (field.qname || field.prefix_list || field.facets.list_item_kind == "QName");
+              (field.qname || field.prefix_list || xml_facet_uses_namespace(field.facets));
+          const auto projection_contract = namespace_child && !field.facets.union_members.empty() ?
+              write_xml_lexical_contract(output, field.facets, "_projection_" + std::to_string(token_index)) :
+              std::string{};
           const auto write_namespace_projection = [&] {
             output.write(", {&srl_token_scope, ", std::string_view{field.facets.list_item_kind == "QName" ? "true" : "false"},
                 ", ", std::string_view{field.prefix_list ? "true" : "false"}, ", ",
-                std::string_view{field.default_value || field.fixed_value ? "true" : "false"}, "}");
+                std::string_view{field.default_value || field.fixed_value ? "true" : "false"});
+            if (!projection_contract.empty()) { output.write(", &", projection_contract); }
+            output.write("}");
           };
           if (field.map_binding) {
             const auto& map = *field.map_binding;
@@ -4091,8 +4096,17 @@ public:
         output.write(");\n");
       }
       if (!field.attribute && !field.text &&
-          (field.qname || field.prefix_list || field.facets.list_item_kind == "QName")) {
+          (field.qname || field.prefix_list || xml_facet_uses_namespace(field.facets))) {
+        const auto projection_contract = !field.facets.union_members.empty() ?
+            write_xml_lexical_contract(output, field.facets, "_projection_" + std::to_string(raw_field_index)) :
+            std::string{};
         const auto write_projection_check = [&](const std::string& children) {
+          if (!projection_contract.empty()) {
+            output.write("    ::rohit::serializer::xml::validate_child_lexical_projection(", children,
+                ", ", qualified(field.qualified_name), ", ", value_scope, ", ", projection_contract,
+                ", ", context, ");\n");
+            return;
+          }
           output.write("    ::rohit::serializer::xml::validate_child_namespace_projection(", children,
               ", ", qualified(field.qualified_name), ", ", value_scope, ", ",
               std::string_view{field.facets.list_item_kind == "QName" ? "true" : "false"}, ", ",

@@ -424,9 +424,10 @@ TEST(xsd_import, inherited_and_grouped_wildcards_keep_their_defining_target_name
   EXPECT_EQ(contract.wildcards[1].target_namespace, "urn:base");
 }
 
-TEST(xsd_import, outer_union_value_constraints_reject_without_selected_member_identity) {
+// Python retains selected primitive identities; other backends keep explicit capability gates.
+TEST(xsd_import, outer_union_value_constraints_require_selected_member_identity) {
   import_directory files;
-  for (const auto members : {"xs:int xs:string", "xs:string xs:int"}) {
+  for (const auto members : {"xs:int xs:string", "xs:string xs:int", "xs:QName xs:int", "xs:int xs:QName"}) {
     const auto prefix = std::string{"<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"><xs:simpleType name=\"Value\"><xs:union memberTypes=\""} +
         members + "\"/></xs:simpleType>";
     const auto enumeration_path = files.write("enumeration.xsd", prefix +
@@ -447,8 +448,13 @@ TEST(xsd_import, outer_union_value_constraints_reject_without_selected_member_id
     const auto plain_parsed = rohit::serializer::parser::parse_file(files.write("plain.serializer", plain.schema_text));
     const auto plain_options = binding::effective_options(plain_parsed.statements, {});
     for (const auto language : {"cpp", "python"}) {
-      EXPECT_THROW(binding::validate_backend(enumeration_contract, language), std::invalid_argument) << members;
-      EXPECT_THROW(binding::validate_backend(fixed_contract, language), std::invalid_argument) << members;
+      if (std::string_view{language} == "python" && std::string_view{members}.find("QName") == std::string_view::npos) {
+        EXPECT_NO_THROW(binding::validate_backend(enumeration_contract, language)) << members;
+        EXPECT_NO_THROW(binding::validate_backend(fixed_contract, language)) << members;
+      } else {
+        EXPECT_THROW(binding::validate_backend(enumeration_contract, language), std::invalid_argument) << members;
+        EXPECT_THROW(binding::validate_backend(fixed_contract, language), std::invalid_argument) << members;
+      }
       EXPECT_NO_THROW(binding::validate_options(plain_parsed.statements, plain_options, language)) << members;
     }
   }
@@ -467,8 +473,8 @@ TEST(xsd_import, nested_qname_list_enumeration_rejects_without_expanded_item_ide
   }
 }
 
-// Retain legacy QName child generation while rejecting newly added union-child scope loss.
-TEST(xsd_import, cpp_union_qname_children_reject_without_changing_legacy_qname_generation) {
+// Both QName and union-QName children generate with runtime namespace projection checks.
+TEST(xsd_import, cpp_union_qname_children_generate_with_legacy_qname_support) {
   import_directory files;
   for (const auto type : {"xs:QName", "Value"}) {
     const auto schema = std::string{
@@ -479,11 +485,7 @@ TEST(xsd_import, cpp_union_qname_children_reject_without_changing_legacy_qname_g
     const auto parsed = rohit::serializer::parser::parse_file(files.write("child.serializer", imported.schema_text));
     const auto options = binding::effective_options(parsed.statements, {});
     const auto contract = binding::schema{options}.bind(*model_classes(parsed).front());
-    if (std::string_view{type} == "xs:QName") {
-      EXPECT_NO_THROW(binding::validate_backend(contract, "cpp"));
-    } else {
-      EXPECT_THROW(binding::validate_backend(contract, "cpp"), std::invalid_argument);
-    }
+    EXPECT_NO_THROW(binding::validate_backend(contract, "cpp"));
   }
   const auto path = files.write("attribute.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="model"><xs:complexType><xs:attribute name="value" type="xs:QName"/></xs:complexType></xs:element></xs:schema>)");
   const auto imported = binding::import_xsd(path, {"models", {}, "attribute.xsd"});

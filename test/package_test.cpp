@@ -1470,6 +1470,58 @@ TEST(package_profile, aggregate_rollback_preservation_and_shared_callback_budget
   EXPECT_EQ(destination.extensions.parts.front().bytes, opaque);
 }
 
+// Fixed roles may exchange names; every preserved link resolves once in its original source scope.
+TEST(package_profile, simultaneous_part_relocations_preserve_scopes_selectors_and_external_targets) {
+  if (!rohit::serializer::xml::available()) { GTEST_SKIP(); }
+  package::preserved_extensions extensions;
+  extensions.relocations = {{"/left/A.xml", "/right/B.xml"}, {"/right/B.xml", "/left/A.xml"}};
+  constexpr std::string_view external_target = "https://example.invalid/left/A.xml?q=1#external";
+  extensions.relationships = {
+      {"/", "first", "urn:test:first", "left/A.xml?layout=1#first"},
+      {"/", "second", "urn:test:second", "/RIGHT/b.XML#second"},
+      {"/LEFT/a.XML", "asset", "urn:test:asset", "../assets/blob.bin?keep=%2f#asset"},
+      {"/right/B.xml", "peer", "urn:test:peer", "../left/A.xml?swap=1#peer"},
+      {"/left/A.xml", "self", "urn:test:self", "#self"},
+      {"/left/A.xml", "external", "urn:test:external", std::string{external_target},
+          package::target_mode::external},
+      {"/assets/blob.bin", "owner", "urn:test:owner", "../left/A.xml#owner"}};
+  std::ostringstream output;
+  package::opc_writer writer{output};
+  writer.add_part("/left/A.xml", "application/xml", as_bytes("<from_b/>"));
+  writer.add_part("/right/B.xml", "application/xml", as_bytes("<from_a/>"));
+  writer.add_part("/assets/blob.bin", "application/octet-stream", as_bytes("opaque"));
+  package::write_preserved(writer, extensions);
+  writer.finish();
+  std::istringstream input{output.str()};
+  package::opc_reader reader{input};
+  ASSERT_EQ(reader.relationships().size(), extensions.relationships.size());
+  // Inspect authored link spelling as well as the whole-part identity returned by resolution.
+  const auto check = [&](std::string_view source, std::string_view type, std::string_view target,
+      std::string_view resolved, package::target_mode mode = package::target_mode::internal) {
+    const auto links = reader.find_relationships(source, type);
+    ASSERT_EQ(links.size(), 1U);
+    EXPECT_EQ(links.front()->source, source);
+    EXPECT_EQ(links.front()->target, target);
+    EXPECT_EQ(links.front()->mode, mode);
+    if (mode == package::target_mode::internal) {
+      EXPECT_EQ(package::resolve_target(links.front()->source, links.front()->target), resolved);
+    }
+  };
+  check("/", "urn:test:first", "/right/B.xml?layout=1#first", "/right/B.xml");
+  check("/", "urn:test:second", "/left/A.xml#second", "/left/A.xml");
+  check("/right/B.xml", "urn:test:asset", "/assets/blob.bin?keep=%2f#asset", "/assets/blob.bin");
+  check("/left/A.xml", "urn:test:peer", "/right/B.xml?swap=1#peer", "/right/B.xml");
+  check("/right/B.xml", "urn:test:self", "/right/B.xml#self", "/right/B.xml");
+  check("/right/B.xml", "urn:test:external", external_target, {}, package::target_mode::external);
+  check("/assets/blob.bin", "urn:test:owner", "/right/B.xml#owner", "/right/B.xml");
+  EXPECT_EQ(as_text(reader.read("/left/A.xml")), "<from_b/>");
+  EXPECT_EQ(as_text(reader.read("/right/B.xml")), "<from_a/>");
+  EXPECT_EQ(as_text(reader.read("/assets/blob.bin")), "opaque");
+  // Writing the rebound links must leave the loaded preservation record reusable and unchanged.
+  EXPECT_EQ(extensions.relationships[2].source, "/LEFT/a.XML");
+  EXPECT_EQ(extensions.relationships[3].target, "../left/A.xml?swap=1#peer");
+}
+
 // Every unknown part/relationship policy combination retains only explicitly selected optional data.
 TEST(package_profile, optional_and_required_extension_policy_matrix) {
   if (!rohit::serializer::xml::available()) {

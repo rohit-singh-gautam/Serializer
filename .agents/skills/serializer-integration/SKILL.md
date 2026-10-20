@@ -46,7 +46,32 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-Compiler/runtime **2.14.0** adds compiler-only installed CMake discovery. For
+Compiler/runtime **2.15.0** extends selected C++/Python XML and OPC contracts.
+Regenerate affected outputs and rebuild C++ consumers with matching headers/runtime.
+C++ QName/QName-list child unions require the first successful member and expanded
+names to agree in child and owning-record scopes; child-local/shadowed identity loss
+still rejects. Python permits outer enumeration/fixed values on namespace-independent
+unions and compares their selected primitive/list value identities. Namespace-dependent
+outer union restrictions and QName-list enumeration/fixed values remain gated.
+
+Pass loaded C++/Python package extensions into generated Save. Their additive
+`relocations` metadata binds discovered fixed singleton typed roles to declared
+canonical paths. Preserved sources and internal targets rebind simultaneously after
+resolving old relative scopes, retaining query/fragment suffixes. External URI text
+and opaque bytes stay intact; conflicts, missing targets and duplicate source-local
+IDs reject before replacement. Other package backends and dynamic role renames
+still require explicit application rebinding. Logical budgets do not measure hard
+process peaks. See the [package contract](../../../docs/serialization/xml_packages.md#caller-authored-aggregate-profiles)
+and [executed scope](../../../docs/verification/verification-pending-xml-2026-10-20.md).
+
+Explicit language 1.14+ canonical decimal/hex integer literal defaults receive
+member-located overflow diagnostics, including original included/generic source.
+Native expressions, suffixed/octal literals, numeric Boolean defaults and legacy
+headers retain their behavior. Aggregate/generic default failures also name their
+original declaration. Schema language **1.20.0** and native wire identities stay
+unchanged; the wider backlog remains pending.
+
+Release **2.14.0** added compiler-only installed CMake discovery. For
 generation without C++ runtime linkage, require
 `find_package(Serializer 2.14 CONFIG REQUIRED COMPONENTS compiler)` and use
 `serializer_generate_source` or `serializer_generate_java`. It imports only the

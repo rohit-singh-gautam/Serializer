@@ -10,9 +10,11 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -106,6 +108,73 @@ TEST(opc_profile, complete_package_with_dynamic_attachments_round_trips) {
   EXPECT_EQ(decoded.value.attachments.front().metadata.name, "/Textures/a.bin");
   EXPECT_EQ(decoded.value.attachments.front().bytes,
       (std::vector<std::uint8_t>{pixels.begin(), pixels.end()}));
+}
+
+// Fixed roles remember discovered names so preserved links can follow the canonical writer path.
+TEST(opc_profile, preserved_links_follow_fixed_role_relocation) {
+  const auto model = fixture_model();
+  constexpr std::array<std::uint8_t, 3> payload{1U, 2U, 3U};
+  std::ostringstream original;
+  package::opc_writer writer{original};
+  package::write_xml_part(writer, "/Alternate/root.xml", "application/vnd.serializer.test-model+xml", model);
+  writer.add_part("/Extensions/vendor.bin", "application/octet-stream", payload);
+  writer.add_relationship({"/", "main", "urn:serializer:main-model", "Alternate/root.xml"});
+  writer.add_relationship({"/", "alias", "urn:vendor:alias", "alternate/ROOT.xml?view=1#selected"});
+  writer.add_relationship({"/Alternate/root.xml", "outbound", "urn:vendor:outbound", "../Extensions/vendor.bin#payload"});
+  writer.add_relationship({"/Alternate/root.xml", "self", "urn:vendor:self", "?view=2#self"});
+  writer.add_relationship({"/Alternate/root.xml", "external", "urn:vendor:external",
+      "../Alternate/root.xml?view=3#external", package::target_mode::external});
+  writer.add_relationship({"/Extensions/vendor.bin", "back", "urn:vendor:back", "../Alternate/root.xml#back"});
+  writer.finish();
+  const package::extension_policy policy{package::unknown_policy::preserve, package::unknown_policy::preserve};
+  std::istringstream source{original.str()};
+  const auto loaded = profile::archive::load(source, {}, policy);
+  ASSERT_EQ(loaded.extensions.relocations.size(), 1U);
+  EXPECT_EQ(loaded.extensions.relocations.front().original, "/Alternate/root.xml");
+  EXPECT_EQ(loaded.extensions.relocations.front().canonical, "/3D/model.xml");
+  std::ostringstream rewritten;
+  profile::archive::write(rewritten, {&loaded.value.main, {}, &loaded.extensions});
+  std::istringstream verification{rewritten.str()};
+  package::opc_reader reader{verification};
+  EXPECT_EQ(reader.find("/Alternate/root.xml"), nullptr);
+  ASSERT_NE(reader.find("/3D/model.xml"), nullptr);
+  EXPECT_EQ(reader.read("/Extensions/vendor.bin"), (std::vector<std::uint8_t>{payload.begin(), payload.end()}));
+  const auto check = [&](std::string_view source_name, std::string_view role, std::string_view target) {
+    const auto links = reader.find_relationships(source_name, role);
+    ASSERT_EQ(links.size(), 1U);
+    EXPECT_EQ(links.front()->target, target);
+  };
+  check("/", "urn:vendor:alias", "/3D/model.xml?view=1#selected");
+  check("/3D/model.xml", "urn:vendor:outbound", "/Extensions/vendor.bin#payload");
+  check("/3D/model.xml", "urn:vendor:self", "/3D/model.xml?view=2#self");
+  check("/3D/model.xml", "urn:vendor:external", "../Alternate/root.xml?view=3#external");
+  check("/Extensions/vendor.bin", "urn:vendor:back", "/3D/model.xml#back");
+  std::istringstream reopened_source{rewritten.str()};
+  const auto reopened = profile::archive::load(reopened_source, {}, policy);
+  EXPECT_EQ(reopened.value.main.name, loaded.value.main.name);
+  EXPECT_EQ(reopened.extensions.relationships.size(), loaded.extensions.relationships.size());
+  EXPECT_EQ(loaded.extensions.relocations.front().original, "/Alternate/root.xml");
+}
+
+// Simultaneous relocation rejects ambiguous origins and honors the shared scratch/work policies.
+TEST(opc_profile, relocation_conflicts_and_resource_exhaustion_reject) {
+  package::preserved_extensions extensions;
+  extensions.relocations = {{"/old.xml", "/first.xml"}, {"/OLD.xml", "/second.xml"}};
+  std::ostringstream output;
+  package::opc_writer writer{output};
+  EXPECT_THROW(package::write_preserved(writer, extensions), package::error);
+  EXPECT_TRUE(output.str().empty());
+  extensions.relocations.resize(1);
+  package::limits limits;
+  limits.max_buffer_bytes = 0;
+  auto shared = std::make_shared<package::budget>(limits);
+  package::opc_writer bounded{output, shared};
+  EXPECT_THROW(package::write_preserved(bounded, extensions), package::error);
+  limits.max_buffer_bytes = package::mebibyte;
+  limits.max_work_units = 0;
+  shared = std::make_shared<package::budget>(limits);
+  package::opc_writer no_work{output, shared};
+  EXPECT_THROW(package::write_preserved(no_work, extensions), package::error);
 }
 
 // Invalid role cardinality and unbound parents reject before a complete output is exposed.

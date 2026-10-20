@@ -486,6 +486,12 @@ struct member {
   std::optional<xml_field_options> xml{};
   // Compiler-owned native identity payload; explicit migration codecs may override its encoding.
   bool persistent_identity{false};
+  // Original declaration coordinates survive generic binding without borrowing source bytes.
+  std::size_t source_offset{};
+  std::size_t source_end{};
+  std::size_t source_line{};
+  std::size_t source_column{};
+  std::string source_path{};
 
   // Select a computed fixed-width size without storing per-instance codec policy.
   bool auto_sizes(std::string_view format) const {

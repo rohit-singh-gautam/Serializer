@@ -100,6 +100,14 @@ Headerless fragments passed to the public parser retain legacy C++ member
 initializer spelling, including opaque expressions. Include an explicit language
 `1.14.0` header when requesting portable typed member defaults through that API.
 
+Compiler 2.15 diagnoses out-of-range unsuffixed canonical decimal/hex integer
+defaults at the declaring member's original path, line and column, including
+included declarations and generic specializations. It preserves native scalar
+expressions, numeric Boolean defaults, suffixed/octal literals and legacy/headerless
+spelling. Existing portable aggregate/generic initializer failures also identify
+their original member declaration. Bit-field defaults and broader expression
+validation remain separate [pending work](../pending.md).
+
 See [construction](construction.md) for authoring validation and initialization,
 and run [construction defaults](../../example/cpp/construction_defaults/README.md).
 

@@ -38,11 +38,20 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.14.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.15.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.20.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.15.0** adds selected C++ child QName unions and Python namespace-independent
+union enumeration/fixed values. Generated C++/Python OPC facades retain discovered
+fixed-role names and automatically rebind preserved links to their declared output
+paths, including original relative scopes and query/fragment selectors. Regenerate
+affected outputs and retain the loaded extensions when saving. Integer-default
+overflow diagnostics now identify the declaring member and its source location.
+See the [scope and verification](docs/verification/verification-pending-xml-2026-10-20.md);
+broader QName storage, other package backends and the remaining backlog stay open.
 
 Release **2.14.0** adds [compiler-only installed CMake discovery](docs/guides/cmake_integration.md#compiler-only-source-generation).
 Use `find_package(Serializer 2.14 CONFIG REQUIRED COMPONENTS compiler)` to load

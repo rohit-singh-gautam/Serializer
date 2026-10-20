@@ -302,12 +302,19 @@ struct opaque_part {
   entry_options storage{};
 };
 
+// Bind a discovered typed role to its declared output name without changing opaque payloads.
+struct part_relocation {
+  std::string original;
+  std::string canonical;
+};
+
 // Own optional unknown payloads verbatim with their authored relationship context.
 // XML bytes retain their own namespace declarations; no lexical/signature guarantee is made
 // for known rewritten parts or for the enclosing archive.
 struct preserved_extensions {
   std::vector<opaque_part> parts{};
   std::vector<relationship> relationships{};
+  std::vector<part_relocation> relocations{};
 };
 
 struct extension_policy {

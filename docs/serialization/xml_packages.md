@@ -1,6 +1,6 @@
 # XML, compression streams and packages
 
-Compiler/runtime **2.14.0**, schema language **1.20.0**. Baseline XML generation
+Compiler/runtime **2.15.0**, schema language **1.20.0**. Baseline XML generation
 covers all output languages; the stream and package API examples below use C++20.
 Supported XML feature combinations are qualified per backend. Generated OPC
 profiles are available in C++, Python, Java, JavaScript/TypeScript and Go;
@@ -434,6 +434,19 @@ preserved-byte and metadata budgets. Profile predicates identify required
 capabilities, which fail under every unknown policy. `write_preserved` appends
 retained data to an OPC writer after known-field edits; finalization rechecks
 source/target existence, so edits cannot silently publish dangling preserved links.
+Generated C++/Python facades also retain loaded fixed singleton typed-role names in
+`preserved_extensions::relocations` / `PreservedExtensions.relocations`. Passing
+the loaded extensions to generated Save automatically rebinds preserved source
+and internal target names to the role's declared canonical output path. Rebinding
+is simultaneous, compares OPC ASCII identities, and resolves relative targets in
+their original source scope before changing either endpoint. Query/fragment
+suffixes remain verbatim; external targets are inert and unchanged even when their
+source moves. Unknown part bytes and caller-owned extension records are unchanged.
+Conflicting origins, removed targets and source-local ID collisions still reject
+before file replacement. Empty relocation lists retain the caller-authored API's
+existing behavior. Dynamic role renames and other generated package backends need
+explicit application rebinding. Scratch/work/metadata use the operation budget;
+these logical counters do not establish hard process-allocation bounds.
 Opaque XML bytes carry their original namespace declarations. Rewritten known XML
 does not retain unknown attributes/elements through this part-level API; semantic
 XML-extension preservation, exact lexical preservation and signatures are separate

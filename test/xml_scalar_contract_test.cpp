@@ -2,14 +2,70 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../src/xml_scalar_contract.hpp"
 #include "../src/xml_schema.hpp"
+#include <rohit/xml_lexical_contract.hpp>
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 namespace binding = rohit::serializer::writer::xml_binding;
 namespace xml = rohit::serializer::xml;
+
+// Schema-scope QName identities replace their lexical aliases without weakening string enumerations.
+TEST(xml_scalar_contract, generated_qname_enumeration_uses_expanded_schema_identity) {
+  const std::array<std::string_view, 1U> lexical{{"schema:item"}};
+  const std::array<xml::name, 1U> expanded{{{"item", "urn:allowed"}}};
+  xml::lexical_contract rule{};
+  rule.kind = "QName";
+  rule.enumeration = lexical;
+  rule.qname_enumeration = expanded;
+  xml::element scope{};
+  scope.namespace_bindings.emplace("p", "urn:allowed");
+  scope.namespace_bindings.emplace("wrong", "urn:other");
+  EXPECT_NO_THROW(xml::validate_lexical_contract("p:item", rule, scope));
+  EXPECT_THROW(xml::validate_lexical_contract("p:other", rule, scope), std::invalid_argument);
+  EXPECT_THROW(xml::validate_lexical_contract("wrong:item", rule, scope), std::invalid_argument);
+  EXPECT_THROW(xml::validate_lexical_contract("missing:item", rule, scope), std::invalid_argument);
+  rule.kind = "string";
+  rule.qname_enumeration = {};
+  EXPECT_NO_THROW(xml::validate_lexical_contract("schema:item", rule, scope));
+  EXPECT_THROW(xml::validate_lexical_contract("p:item", rule, scope), std::invalid_argument);
+}
+
+// First-member selection sees raw text; outer facets inspect that member's normalized value.
+TEST(xml_scalar_contract, generated_union_whitespace_belongs_to_the_selected_member) {
+  const std::array<xml::lexical_pattern_matcher, 1U> patterns{{
+      +[](std::string_view value, xml::operation_context* context) {
+        static const auto pattern = xml::compile_portable_pattern("p:item");
+        return pattern.matches(value, {}, context);
+      }}};
+  const std::array<xml::lexical_pattern_group, 1U> groups{{{patterns}}};
+  std::array<xml::lexical_contract, 2U> members{};
+  members[0].kind = "string";
+  members[0].pattern_groups = groups;
+  members[1].kind = "QName";
+  members[1].constraints.whitespace = xml::whitespace_policy::collapse;
+  xml::lexical_contract rule{};
+  rule.kind = "string";
+  rule.constraints.whitespace = xml::whitespace_policy::collapse;
+  rule.pattern_groups = groups;
+  rule.union_members = members;
+  xml::element scope{};
+  scope.namespace_bindings.emplace("p", "urn:child");
+  const xml::lexical_contract* selected{};
+  EXPECT_NO_THROW(xml::validate_lexical_contract_member(" p:item ", rule, scope, nullptr, &selected));
+  EXPECT_EQ(selected, &members[1]);
+  EXPECT_NO_THROW(xml::validate_lexical_contract_member("p:item", rule, scope, nullptr, &selected));
+  EXPECT_EQ(selected, &members[0]);
+  if (xml::available()) {
+    const xml::prepared_schema oracle{R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:q="urn:child"><xs:simpleType name="Choice"><xs:union><xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="p:item"/></xs:restriction></xs:simpleType><xs:simpleType><xs:restriction base="xs:QName"/></xs:simpleType></xs:union></xs:simpleType><xs:element name="probe"><xs:simpleType><xs:restriction base="Choice"><xs:enumeration value="q:item"/></xs:restriction></xs:simpleType></xs:element></xs:schema>)"};
+    EXPECT_NO_THROW(oracle.validate("<probe xmlns:p='urn:child'> p:item </probe>"));
+    EXPECT_THROW(oracle.validate("<probe xmlns:p='urn:child'>p:item</probe>"), std::invalid_argument);
+  }
+}
 
 // Exact decimal IR retains integers beyond binary64 precision and every inclusive/exclusive boundary.
 TEST(xml_scalar_contract, numeric_boundaries_remain_exact) {

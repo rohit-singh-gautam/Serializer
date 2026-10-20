@@ -121,6 +121,7 @@ class PreservedExtensions:
     """Retain unknown whole parts verbatim and their original scoped relationships."""
     parts: tuple = ()
     relationships: tuple = ()
+    relocations: tuple = ()
 
 @_pkg_dataclasses.dataclass(frozen=True)
 class ExtensionPolicy:
@@ -904,6 +905,34 @@ def _pkg_occurs(count, role):
     if count < role['minimum'] or role['maximum'] is not None and count > role['maximum']:
         raise PackageError('semantic', 'Package role occurrence constraint failed', field_path=role['field'])
 
+def _pkg_relocated_links(extensions, budget):
+    """Resolve old link scopes before applying simultaneous fixed-role relocations; retain inert external URIs."""
+    destinations = {}
+    for original, canonical in extensions.relocations:
+        budget.consume('work_units', len(original) + len(canonical))
+        _pkg_name(original)
+        _pkg_name(canonical)
+        key = original.lower()
+        budget.consume('metadata_bytes', len(key) + len(canonical))
+        if key in destinations and destinations[key] != canonical:
+            raise PackageError('invalid_relationship', 'Conflicting typed part relocations', original)
+        destinations[key] = canonical
+    for link in extensions.relationships:
+        budget.check()
+        if not destinations:
+            yield link
+            continue
+        budget.consume('work_units', len(link.source) + len(link.target))
+        source = destinations.get(link.source.lower(), link.source)
+        target = link.target
+        if link.mode == 'internal':
+            original_target = _pkg_target(link.source, link.target)
+            destination = destinations.get(original_target.lower(), original_target)
+            if source != link.source or destination != original_target:
+                selector = min((index for index in (target.find('?'), target.find('#')) if index >= 0), default=len(target))
+                target = destination + target[selector:]
+        yield PackageRelationship(source, link.id, link.type, target, link.mode)
+
 def _pkg_profile_encode(value, roles, budget):
     """Compose declarative typed and binary roles; neither standard metadata nor runtime side channels are application-owned."""
     sources, parts, links = {}, [], []
@@ -943,7 +972,7 @@ def _pkg_profile_encode(value, roles, budget):
         sources[role['field']] = discovered
     extensions = value.extensions or PreservedExtensions()
     parts.extend(extensions.parts)
-    links.extend(extensions.relationships)
+    links.extend(_pkg_relocated_links(extensions, budget))
     return _pkg_opc_write(parts, links, budget)
 
 )packagepython"
@@ -957,6 +986,7 @@ R"packagepython(def _pkg_profile_load(source, roles, value_type, budget, policy=
         archive = _PackageZip(owned, budget)
         parts, links = _pkg_opc_read(archive, budget)
         candidate, sources, decoded, selected = value_type(), {}, set(), set()
+        relocations = []
         for role in roles:
             values, discovered = [], []
             parents = ('/',) if role['source'] == '/' else sources[role['source']]
@@ -990,6 +1020,9 @@ R"packagepython(def _pkg_profile_load(source, roles, value_type, budget, policy=
             _pkg_occurs(len(values), role)
             setattr(candidate, role['field'], (values[0] if values else None) if role['singleton'] else values)
             sources[role['field']] = discovered
+            if role['singleton'] and discovered:
+                budget.consume('metadata_bytes', len(discovered[0]) + len(role['name']))
+                relocations.append((discovered[0], role['name']))
         if validate is not None:
             budget.check()
             validate(candidate, budget)
@@ -1013,7 +1046,7 @@ R"packagepython(def _pkg_profile_load(source, roles, value_type, budget, policy=
                 budget.consume('preserved_bytes', sum(len(value.encode('utf-8')) for value in (link.source, link.id, link.type, link.target)))
                 preserved_links.append(link)
         budget.check()
-        return PackageResult(candidate, PreservedExtensions(tuple(opaque), tuple(preserved_links)))
+        return PackageResult(candidate, PreservedExtensions(tuple(opaque), tuple(preserved_links), tuple(relocations)))
     finally:
         owned.close()
 

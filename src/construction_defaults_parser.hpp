@@ -145,7 +145,38 @@ value_initializer bind_value_initializer(const rohit::type_check::schema_input_b
   return result;
 }
 
-// Retain scalar defaults while declaration flags select aggregate and fresh owner-parameter contracts.
+// Reject known integer narrowing while leaving opaque native scalar expressions unchanged.
+void validate_integer_default(const member& field) {
+  const auto& type = field.type_name_list.front();
+  if (field.modifier != member::modifier_type::none || type.type != object_type::primitive ||
+      (!type.name.starts_with("int") && !type.name.starts_with("uint"))) { return; }
+  const auto text = schema_version::trim(field.default_value);
+  static const std::regex integer_literal{R"(-?(0|[1-9][0-9]*|0[xX][0-9a-fA-F]+))"};
+  if (!std::regex_match(text, integer_literal)) { return; }
+  const bool negative = text.front() == '-';
+  std::string_view magnitude{text};
+  if (negative) { magnitude.remove_prefix(1); }
+  int radix = 10;
+  if (magnitude.starts_with("0x") || magnitude.starts_with("0X")) {
+    magnitude.remove_prefix(2);
+    radix = 16;
+  }
+  std::uint64_t value{};
+  const auto parsed = std::from_chars(magnitude.data(), magnitude.data() + magnitude.size(), value, radix);
+  const auto bits = static_cast<unsigned>(writer::native::width(type)) *
+      std::numeric_limits<std::uint8_t>::digits;
+  constexpr auto maximum_unsigned = std::numeric_limits<std::uint64_t>::max();
+  constexpr auto maximum_bits = std::numeric_limits<std::uint64_t>::digits;
+  const bool unsigned_type = type.name.starts_with("uint");
+  const auto maximum = unsigned_type ? maximum_unsigned >> (maximum_bits - bits)
+      : negative ? std::uint64_t{1} << (bits - 1u)
+                 : maximum_unsigned >> (maximum_bits + 1u - bits);
+  if (parsed.ec != std::errc{} || value > maximum || (negative && unsigned_type && value != 0)) {
+    throw std::invalid_argument{"Numeric default exceeds the declared " + type.name + " range"};
+  }
+}
+
+// Retain native scalar expressions while checking known integer bounds and portable aggregates.
 void validate_portable_default(const rohit::type_check::schema_input_buffer auto& input,
                               member& field, const class_node& owner,
                               bool empty_record_default_enabled = false,
@@ -162,10 +193,19 @@ void validate_portable_default(const rohit::type_check::schema_input_buffer auto
       std::find(owner.type_parameters.begin(), owner.type_parameters.end(), type.name) != owner.type_parameters.end();
   const bool owner_default = owner_parameter_default_enabled &&
       field.modifier == member::modifier_type::none && empty_construction_default(field.default_value);
-  if (!aggregate && !parameter && !owner_default) { return; }
   const auto text = field.modifier == member::modifier_type::array ? "{" + field.default_value + "}" : field.default_value;
-  field.initializer = bind_value_initializer(input, field, owner, text, 0, nullptr,
-      empty_record_default_enabled, owner_default);
+  try {
+    if (!aggregate && !parameter && !owner_default) {
+      validate_integer_default(field);
+      return;
+    }
+    field.initializer = bind_value_initializer(input, field, owner, text, 0, nullptr,
+        empty_record_default_enabled, owner_default);
+  } catch (const std::invalid_argument& error) {
+    throw exception::bad_member_spec{input, member_diagnostic(field, error.what())};
+  } catch (const exception::bad_member_spec& error) {
+    throw exception::bad_member_spec{input, member_diagnostic(field, error.what())};
+  }
 }
 
 // Supply a compiler-owned positional factory only for record types used by typed aggregate defaults.

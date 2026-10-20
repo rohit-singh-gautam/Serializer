@@ -1,5 +1,16 @@
 # Generated XML token codecs
 
+Compiler/runtime **2.15.0** additionally accepts selected C++ child unions with
+QName or QName-list members. The first successful member and its expanded names
+must agree in the child and owning record namespace scopes. Optional, repeated
+and nested-union fields use that same check; child-local/shadowed bindings
+that would lose identity reject explicitly. Python supports outer enumeration and
+fixed restrictions on namespace-independent unions, comparing through the first
+successful member's primitive value space. Numeric, Boolean and string values
+remain distinct; ordered list values compare item by item. QName-dependent outer
+restrictions and QName-list enumeration/fixed values remain unavailable. See the
+[selected qualification](../verification/verification-pending-xml-2026-10-20.md).
+
 Compiler/runtime **2.12.0** adds direct XML codec paths without changing schema
 language **1.20.0** or native JSON/binary wire contracts. The
 [verification record](../verification/verification-xml-tokens-2026-10-19.md)

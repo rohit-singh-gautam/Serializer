@@ -6,6 +6,8 @@ import decimal as _xml_decimal
 
 _XML_PATTERN_SCHEMAS = {}
 _XML_TYPES = {}
+_XML_UNION_LIST_ITEM_ALLOCATION_BYTES = 16
+_XML_NAME_LIST_ITEM_KINDS = {'NMTOKENS': 'NMTOKEN', 'IDREFS': 'IDREF', 'ENTITIES': 'ENTITY'}
 
 
 class _XmlLexicalError(ValueError):
@@ -205,10 +207,51 @@ def _xml_pattern(value, patterns, context):
     if context is not None: context.check()
     return matched
 
+def _xml_union_member(value, rule, bindings, context=None):
+    """Return normalized text and the first matching leaf, preserving provider/resource/callback failures."""
+    for alternative in rule['union']:
+        try:
+            return _xml_checked(value, alternative, bindings, context, _selected=True)
+        except _XmlLexicalError:
+            pass
+    raise _XmlLexicalError('XML value matches no XSD union member')
+
+
+def _xml_value_identity(value, rule, bindings, context=None):
+    """Retain the selected XSD primitive space so boolean, numeric and string values stay distinct."""
+    if rule['union']:
+        value, rule = _xml_union_member(value, rule, bindings, context)
+        return _xml_value_identity(value, rule, bindings, context)
+    list_item = rule['list_item'] or _XML_NAME_LIST_ITEM_KINDS.get(rule['kind'], '')
+    if list_item:
+        tokens = _xml_tokens(value)
+        if context is not None:
+            context.consume('decoder_allocation_bytes', len(tokens) * _XML_UNION_LIST_ITEM_ALLOCATION_BYTES)
+            context.consume('work_units', len(tokens))
+        item = dict(rule, kind=list_item, list_item='', qname=False)
+        return ('list', tuple(_xml_value_identity(token, item, bindings, context) for token in tokens))
+    kind = rule['kind']
+    if rule['qname'] or kind == 'QName':
+        return ('QName', _xml_resolve_qname(value, bindings))
+    if kind == 'boolean':
+        return ('boolean', _xml_builtin_scalar(value, 'bool'))
+    if kind in ('float', 'double'):
+        number = _xml_facet_number(value, kind, context)
+        return (kind, 'NaN' if _xml_is_nan(number) else number)
+    if kind in ('decimal', 'integer', 'positiveInteger', 'negativeInteger', 'nonPositiveInteger',
+                'nonNegativeInteger', 'byte', 'unsignedByte', 'short', 'unsignedShort', 'int',
+                'unsignedInt', 'long', 'unsignedLong'):
+        return ('decimal', _xml_facet_number(value, kind, context))
+    return ('anyURI' if kind == 'anyURI' else 'string', _xml_normalize(value, rule['whitespace']))
+
+
 def _xml_value_equal(left, right, rule, bindings, context=None):
     """Compare enums/fixed values in their generated XSD value space, not presentation spelling."""
     kind = rule['kind']
     if context is not None: context.consume('work_units', len(left) + len(right) + 1)
+    if rule['union']:
+        return (_xml_value_identity(left, rule, bindings, context) ==
+                _xml_value_identity(right, rule, bindings, context))
     if rule['qname'] or kind == 'QName':
         return _xml_resolve_qname(left, bindings) == _xml_resolve_qname(right, bindings)
     if rule['list_item']:
@@ -223,23 +266,22 @@ def _xml_value_equal(left, right, rule, bindings, context=None):
     return _xml_normalize(left, rule['whitespace']) == _xml_normalize(right, rule['whitespace'])
 
 )richpython"
-R"richpython(def _xml_checked(value, rule, bindings, context=None):
-    """Validate an exact immutable scalar/list/union contract and return its normalized lexical value."""
+R"richpython(def _xml_checked(value, rule, bindings, context=None, _selected=False):
+    """Validate complete facets; normalize ordinary scalars and preserve union member-selecting spelling."""
     if context is not None:
         context.consume('work_units', len(value) + 1)
         context.consume('decoder_allocation_bytes', len(value) * 4)
-    value = _xml_normalize(value, rule['whitespace'])
+    original = value
     if rule['union']:
-        for alternative in rule['union']:
-            try:
-                _xml_checked(value, alternative, bindings, context)
-                break
-            except _XmlLexicalError:
-                pass
-        else: raise _XmlLexicalError('XML value matches no XSD union member')
-    elif rule['list_item']:
-        for item in _xml_tokens(value): _xml_lexical_kind(item, rule['list_item'], bindings)
+        # Union whitespace follows its selected member. Retain the source spelling
+        # in ordinary lexical strings so re-encoding cannot select a different type.
+        value, selected = _xml_union_member(value, rule, bindings, context)
     else:
+        selected = rule
+        value = _xml_normalize(value, rule['whitespace'])
+    if not rule['union'] and rule['list_item']:
+        for item in _xml_tokens(value): _xml_lexical_kind(item, rule['list_item'], bindings)
+    elif not rule['union']:
         _xml_lexical_kind(value, rule['kind'], bindings)
     if rule['prefix_list']:
         for prefix in _xml_tokens(value):
@@ -260,7 +302,8 @@ R"richpython(def _xml_checked(value, rule, bindings, context=None):
                 else:
                     accepted = compare(number, boundary)
                 if not accepted: raise _XmlLexicalError('XML numeric facet failed')
-    if rule['enumeration'] and not rule['qnames'] and not any(_xml_value_equal(value, allowed, rule, bindings, context) for allowed in rule['enumeration']):
+    compared = original if rule['union'] else value
+    if rule['enumeration'] and not rule['qnames'] and not any(_xml_value_equal(compared, allowed, rule, bindings, context) for allowed in rule['enumeration']):
         raise _XmlLexicalError('XML enumeration facet failed')
     if rule['qnames'] and _xml_resolve_qname(value, bindings) not in rule['qnames']:
         raise _XmlLexicalError('XML QName enumeration facet failed')
@@ -271,9 +314,11 @@ R"richpython(def _xml_checked(value, rule, bindings, context=None):
         if not matched: raise _XmlLexicalError('XML pattern facet failed')
     if rule['fixed_qname'] is not None:
         if _xml_resolve_qname(value, bindings) != rule['fixed_qname']: raise _XmlLexicalError('XML fixed QName failed')
-    elif rule['fixed'] is not None and not _xml_value_equal(value, rule['fixed'], rule, bindings, context):
+    elif rule['fixed'] is not None and not _xml_value_equal(compared, rule['fixed'], rule, bindings, context):
         raise _XmlLexicalError('XML fixed value failed')
-    return value
+    if _selected:
+        return value, selected
+    return original if rule['union'] else value
 
 def _xml_namespace(name):
     """Inspect an expanded element/attribute identity without interpreting a lexical prefix."""

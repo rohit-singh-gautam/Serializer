@@ -28,6 +28,48 @@ PATTERNS = (
 )
 
 
+UNION_TYPES = '''
+<xs:simpleType name="IntegerFirst"><xs:union memberTypes="xs:int xs:token"/></xs:simpleType>
+<xs:simpleType name="StringFirst"><xs:union memberTypes="xs:token xs:int"/></xs:simpleType>
+<xs:simpleType name="RawStringFirst"><xs:union memberTypes="xs:string xs:int"/></xs:simpleType>
+<xs:simpleType name="SpacedString"><xs:restriction base="xs:string"><xs:pattern value="a b"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="UriFirst"><xs:union memberTypes="t:SpacedString xs:anyURI"/></xs:simpleType>
+<xs:simpleType name="BooleanFirst"><xs:union memberTypes="xs:boolean xs:int xs:token"/></xs:simpleType>
+<xs:simpleType name="DecimalFirst"><xs:union memberTypes="xs:int xs:decimal xs:token"/></xs:simpleType>
+<xs:simpleType name="FractionalFloat"><xs:restriction base="xs:float"><xs:pattern value="NaN|[0-9]+[.][0-9]+"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="FloatingFirst"><xs:union memberTypes="xs:int t:FractionalFloat xs:double xs:token"/></xs:simpleType>
+<xs:simpleType name="IntegerPairs"><xs:restriction><xs:simpleType><xs:list itemType="xs:int"/></xs:simpleType><xs:length value="2"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="BooleanPairs"><xs:restriction><xs:simpleType><xs:list itemType="xs:boolean"/></xs:simpleType><xs:length value="2"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="ListFirst"><xs:union memberTypes="t:IntegerPairs t:BooleanPairs xs:token"/></xs:simpleType>
+<xs:simpleType name="IntegerEnum"><xs:restriction base="t:IntegerFirst"><xs:enumeration value="01"/><xs:enumeration value="ready"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="StringEnum"><xs:restriction base="t:StringFirst"><xs:enumeration value="01"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="RawStringEnum"><xs:restriction base="t:RawStringFirst"><xs:enumeration value=" 01 "/></xs:restriction></xs:simpleType>
+<xs:simpleType name="UriEnum"><xs:restriction base="t:UriFirst"><xs:enumeration value="a  b"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="BooleanEnum"><xs:restriction base="t:BooleanFirst"><xs:enumeration value="true"/><xs:enumeration value="02"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="DecimalEnum"><xs:restriction base="t:DecimalFirst"><xs:enumeration value="1.0"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="FloatingEnum"><xs:restriction base="t:FloatingFirst"><xs:enumeration value="1.0"/><xs:enumeration value="NaN"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="ListEnum"><xs:restriction base="t:ListFirst"><xs:enumeration value="1 2"/><xs:enumeration value="true false"/><xs:enumeration value="ready"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="Nested"><xs:union memberTypes="t:IntegerEnum xs:token"/></xs:simpleType>
+<xs:simpleType name="NestedEnum"><xs:restriction base="t:Nested"><xs:enumeration value="1.0"/></xs:restriction></xs:simpleType>
+'''
+
+UNION_FIXTURES = (
+    ('integer_enum', 'IntegerEnum', None),
+    ('string_enum', 'StringEnum', None),
+    ('raw_string_enum', 'RawStringEnum', None),
+    ('uri_enum', 'UriEnum', None),
+    ('boolean_enum', 'BooleanEnum', None),
+    ('decimal_enum', 'DecimalEnum', None),
+    ('floating_enum', 'FloatingEnum', None),
+    ('list_enum', 'ListEnum', None),
+    ('nested_enum', 'NestedEnum', None),
+    ('integer_fixed', 'IntegerFirst', '01'),
+    ('string_fixed', 'StringFirst', '01'),
+    ('raw_string_fixed', 'RawStringFirst', ' 01 '),
+    ('list_fixed', 'ListFirst', 'true false'),
+)
+
+
 def document(root, attributes):
     """Construct exact attribute character values without XML whitespace normalization losses."""
     encoded = ' '.join(key + '=' + quoteattr(value, {'\n': '&#10;', '\r': '&#13;', '\t': '&#9;'})
@@ -115,6 +157,111 @@ class python_xml_scalar_test(unittest.TestCase):
             values = list(pool.map(lambda unused: self.module.ScalarsP2.decode_xml(
                 document('p2', {'value': 'abé😀'})).value, range(24)))
         self.assertEqual(values, ['abé😀'] * 24)
+
+    def test_outer_union_value_constraints(self):
+        """Compare ordered member identities on input/output, including booleans and list values."""
+        cases = {
+            'integer_enum': (('01', '1', '+001', ' ready '), ('2', '1.0', 'READY', '')),
+            'string_enum': (('01', ' 01 '), ('1', '+001', '1.0', '')),
+            'raw_string_enum': ((' 01 ',), ('01', '  01  ', '1', '')),
+            'uri_enum': (('a  b', ' a  b '), ('a b', 'ab', '')),
+            'boolean_enum': (('true', '1', '2', '+02'), ('false', '0', '+1', '01', 'ready')),
+            'decimal_enum': (('1', '+001', '1.0', '01.000'), ('1e0', '2', 'ready', '')),
+            'floating_enum': (('1.0', '01.000', 'NaN'), ('1', '1e0', '2.0', 'ready', '')),
+            'list_enum': (('1 2', '+01 002', 'true false', 'ready'),
+                          ('1 3', 'false true', '1 0', '1', '')),
+            'nested_enum': (('1.0', ' 1.0 '), ('1', '01', 'ready', '2')),
+            'integer_fixed': (('01', '1', '+001'), ('2', '1.0', 'ready', '')),
+            'string_fixed': (('01', ' 01 '), ('1', '+001', 'ready', '')),
+            'raw_string_fixed': ((' 01 ',), ('01', '  01  ', '1', '')),
+            'list_fixed': (('true false', ' true  false '), ('false true', '1 0', '1 2', 'true', '')),
+        }
+        oracle_probes = 0
+        for name, (accepted, rejected) in cases.items():
+            class_name = 'Scalars' + ''.join(piece.title() for piece in name.split('_'))
+            model_type = getattr(self.module, class_name)
+            for expected, values in ((True, accepted), (False, rejected)):
+                for value in values:
+                    oracle_probes += 1
+                    data = document(name, {'value': value})
+                    with self.subTest(name=name, value=value, expected=expected):
+                        self.assertEqual(self.oracle.validate(self.provider.fromstring(data)), expected)
+                        if expected:
+                            with mock.patch.dict(sys.modules, {'lxml': None}):
+                                model = model_type.decode_xml_chunks(data[i:i+1] for i in range(len(data)))
+                                encoded = model.encode_xml()
+                            self.assertTrue(self.oracle.validate(self.provider.fromstring(encoded)))
+                            self.assertEqual(model_type.decode_xml(encoded).value, model.value)
+                        else:
+                            with self.assertRaises(ValueError):
+                                model_type.decode_xml(data)
+                        candidate = model_type()
+                        candidate.value = value
+                        if expected:
+                            self.assertTrue(self.oracle.validate(self.provider.fromstring(candidate.encode_xml())))
+                        else:
+                            with self.assertRaises(ValueError):
+                                candidate.encode_xml()
+            if name.endswith('_fixed'):
+                data = document(name, {})
+                self.assertTrue(self.oracle.validate(self.provider.fromstring(data)))
+                candidate = model_type.decode_xml(data)
+                self.assertTrue(self.oracle.validate(self.provider.fromstring(candidate.encode_xml())))
+        print('PASS:', oracle_probes, 'ordered union lexical decisions match the independent XSD oracle')
+
+    def test_outer_union_comparison_preserves_callback_failures(self):
+        """Keep application failures visible while selecting an enumeration or fixed-value member."""
+        rule = self.module.ScalarsIntegerEnum._xml_rules[0]
+        marker = ValueError('union comparison callback marker')
+        class rejecting_context:
+            """Reject a comparison inside selected-member validation."""
+            def __init__(self):
+                """Permit the comparison's initial charge before rejecting member validation."""
+                self.calls = 0
+            def consume(self, resource, count):
+                """Raise the caller's original exception unchanged."""
+                self.calls += 1
+                if self.calls == 2:
+                    raise marker
+        with self.assertRaises(ValueError) as failure:
+            self.module._xml_value_equal('1', '01', rule, {}, rejecting_context())
+        self.assertIs(failure.exception, marker)
+        limits = self.module.Limits(xml_pattern=self.module.XmlPatternLimits(max_work_units=0))
+        data = document('floating_enum', {'value': '1.0'})
+        with self.assertRaisesRegex(ValueError, 'pattern'):
+            self.module.ScalarsFloatingEnum.decode_xml(data, limits)
+        candidate = self.module.ScalarsFloatingEnum()
+        candidate.value = '1.0'
+        with self.assertRaisesRegex(ValueError, 'pattern'):
+            candidate.encode_xml(limits)
+
+    def test_outer_union_child_fixed_and_default_values(self):
+        """Apply child constraints before publishing candidates and retain empty-element fallbacks."""
+        model_type = self.module.ScalarsUnionChildren
+        def child_document(value='1', fixed='01', default=''):
+            """Build a qualified sequence whose fixed/default values select different member spaces."""
+            return ('<union_children xmlns="' + NS + '"><value>' + value +
+                    '</value><fixed_value>' + fixed + '</fixed_value><default_value>' + default +
+                    '</default_value></union_children>').encode()
+        for data in (child_document(), child_document('+001', '', '2'),
+                     child_document('ready', '01', 'ready')):
+            self.assertTrue(self.oracle.validate(self.provider.fromstring(data)))
+            candidate = model_type.decode_xml(data)
+            self.assertEqual(candidate.fixed_value, '01')
+            self.assertTrue(self.oracle.validate(self.provider.fromstring(candidate.encode_xml())))
+            if b'<default_value></default_value>' in data:
+                self.assertEqual(candidate.default_value, '01')
+        for data in (child_document('2'), child_document('1', '1')):
+            self.assertFalse(self.oracle.validate(self.provider.fromstring(data)))
+            with self.assertRaises(ValueError):
+                model_type.decode_xml(data)
+        candidate = model_type.decode_xml(child_document())
+        for member, value in (('value', '2'), ('fixed_value', '1')):
+            previous = getattr(candidate, member)
+            setattr(candidate, member, value)
+            with self.assertRaises(ValueError):
+                candidate.encode_xml()
+            setattr(candidate, member, previous)
 
     def test_legacy_patterns_retain_explicit_provider_requirement(self):
         """Keep category escapes and class subtraction on the existing genuine XSD provider path."""
@@ -212,6 +359,23 @@ def main():
         for index, (expression, unused) in enumerate(PATTERNS):
             native += 'class p' + str(index) + ' { public string value(1); }\n'
             xsd += '<xs:element name="p' + str(index) + '"><xs:complexType><xs:attribute name="value" use="required"><xs:simpleType><xs:restriction base="xs:string"><xs:pattern value=' + quoteattr(expression) + '/></xs:restriction></xs:simpleType></xs:attribute></xs:complexType></xs:element>'
+        xsd += UNION_TYPES
+        for name, selected_type, fixed in UNION_FIXTURES:
+            native += 'class ' + name + ' {\n  public string value(1);\n}\n'
+            xsd += '<xs:element name="' + name + '"><xs:complexType><xs:attribute name="value" type="t:' + selected_type + '"'
+            xsd += ' use="required"' if fixed is None else ' fixed=' + quoteattr(fixed)
+            xsd += '/></xs:complexType></xs:element>'
+        native += '''class union_children {
+  public string value;
+  public string fixed_value;
+  public string default_value;
+}
+'''
+        xsd += '''<xs:element name="union_children"><xs:complexType><xs:sequence>
+          <xs:element name="value" form="qualified" type="t:IntegerEnum"/>
+          <xs:element name="fixed_value" form="qualified" type="t:StringFirst" fixed="01"/>
+          <xs:element name="default_value" form="qualified" type="t:IntegerFirst" default="01"/>
+          </xs:sequence></xs:complexType></xs:element>'''
         source.write_text(native + '}', encoding='utf-8')
         schema.write_text(xsd + '</xs:schema>', encoding='utf-8')
         oracle = provider.XMLSchema(provider.parse(str(schema)))

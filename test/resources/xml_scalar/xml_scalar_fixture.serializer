@@ -47,3 +47,17 @@ class list_all { public uint32 id; public array[2] uint16 values xml(list); }
 class plain_default { public string value; }
 class guard { public string value; }
 }
+
+namespace qname_union {
+  using schema "qname_union.xsd";
+  class sample {
+    public string value;
+    public optional<string> optional;
+    public array string entries xml(name("entry"));
+  }
+  class lists { public string value; }
+  class nested { public string value; }
+  class fallback { public string value; }
+  class string_first { public string value; }
+  class whitespace { public string value; }
+}

@@ -1,5 +1,36 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.15.0
+
+Regenerate C++/Python XML/package output and rebuild C++ consumers with matching
+runtime headers and libraries. The schema language stays **1.20.0**; native
+payloads, managed saves and protocol IDs require no migration.
+
+C++ child unions can select QName/QName-list branches when the child and owning
+record scopes retain the same selected member and expanded names. Child-local
+or shadowed bindings that would lose identity still reject. Python accepts outer
+enumeration/fixed restrictions on namespace-independent unions, comparing values
+through the first matching member's primitive value space. Namespace-dependent
+outer union restrictions and QName-list enumeration/fixed contracts remain gated.
+
+Generated C++/Python package loads retain discovered fixed singleton role names in
+`preserved_extensions::relocations` / `PreservedExtensions.relocations`. Pass the
+loaded extensions to the generated input for Save; incoming and outgoing retained
+relationships follow the authored canonical names automatically. Internal relative
+targets resolve in their original source scope before rebinding, preserving query
+and fragment suffixes. External URI strings and opaque payload bytes remain intact.
+Manually created extension objects retain their existing behavior with an empty
+relocation list. Other package backends retain their documented explicit rebinding
+requirement; dynamic role renames are separate application edits.
+
+For explicitly versioned language 1.14+ defaults, out-of-range unsuffixed decimal
+and hexadecimal integer literals fail during compilation with the member's original
+path/line/column. Such literals previously bypassed early portable-range validation.
+Valid native expressions, suffixed/octal literals, Boolean numeric defaults and
+legacy/headerless defaults retain their handling. Aggregate/generic default errors
+also include their declaration location. See the
+[verification record](docs/verification/verification-pending-xml-2026-10-20.md).
+
 ## Compiler/runtime 2.14.0
 
 External-document journal recovery now rejects a foreign companion generation or

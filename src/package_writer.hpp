@@ -173,7 +173,8 @@ inline std::string cpp(const package_node& package,
   line("      const ::std::function<void(const value&, ::rohit::serializer::package::budget&)>& srl_validate = {}) {");
   line("    auto srl_budget = ::std::make_shared<::rohit::serializer::package::budget>(::std::move(srl_limits));");
   line("    ::rohit::serializer::package::opc_reader srl_reader{srl_source, srl_budget};");
-  line("    return ::rohit::serializer::package::load_opc<value>(srl_reader,");
+  line("    ::std::vector<::rohit::serializer::package::part_relocation> srl_relocations;");
+  line("    auto srl_result = ::rohit::serializer::package::load_opc<value>(srl_reader,");
   line("        [&](value& srl_value, auto& srl_loader) {");
   for (const auto* part : parts) {
     line("      ::std::vector<::std::string> " + local(*part) + "_sources;");
@@ -192,6 +193,11 @@ inline std::string cpp(const package_node& package,
     if (part->value_type) {
       const auto type = render_type(*part->value_type);
       if (singleton(*part)) {
+        line("          srl_shared.consume(::rohit::serializer::package::resource::metadata_bytes,");
+        line("              sizeof(::rohit::serializer::package::part_relocation), srl_part.name);");
+        line("          srl_shared.consume(::rohit::serializer::package::resource::metadata_bytes, srl_part.name.size(), srl_part.name);");
+        line("          srl_shared.consume(::rohit::serializer::package::resource::metadata_bytes, " + std::to_string(part->part_name->size()) + "U, srl_part.name);");
+        line("          srl_relocations.push_back({srl_part.name, " + quote(*part->part_name) + "});");
         line("          srl_value." + member(*part) + " = ::rohit::serializer::package::read_xml_part<" + type + ">(srl_bytes, srl_shared);");
       } else {
         line("          srl_value." + member(*part) + ".push_back({srl_part.name, srl_part.content_type,");
@@ -209,6 +215,8 @@ inline std::string cpp(const package_node& package,
   }
   line("      if (srl_validate) { srl_validate(srl_value, srl_loader.shared_budget()); }");
   line("    }, ::std::move(srl_policy));");
+  line("    srl_result.extensions.relocations = ::std::move(srl_relocations);");
+  line("    return srl_result;");
   line("  }");
   line("private:");
   line("  // Assemble declared roles; standard manifests and relationships remain runtime-owned.");

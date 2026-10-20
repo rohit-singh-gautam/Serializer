@@ -1073,6 +1073,74 @@ class python_package_test(unittest.TestCase):
         with zipfile.ZipFile(destination) as archive:
             self.assertEqual(archive.read('Extensions/vendor.xml'), accepted.extensions.parts[0].data)
 
+    def test_fixed_role_relocation_rebinds_preserved_link_scopes(self):
+        """Discover an alternate typed path and keep inbound, outbound, self and external links on Save."""
+        parts = independent_parts(True)
+        root = etree.fromstring(parts['_rels/.rels'])
+        etree.SubElement(root, '{' + RELS + '}Relationship', {
+            'Id': 'alias', 'Type': 'urn:vendor:alias',
+            'Target': 'alternate/ROOT.xml?view=1#selected'})
+        parts['_rels/.rels'] = etree.tostring(root)
+        root = etree.fromstring(parts['Alternate/_rels/root.xml.rels'])
+        for identifier, target, mode in (
+                ('outbound', '../Extensions/vendor.xml#payload', 'Internal'),
+                ('self', '?view=2#self', 'Internal'),
+                ('external', '../Alternate/root.xml?view=3#external', 'External')):
+            etree.SubElement(root, '{' + RELS + '}Relationship', {
+                'Id': identifier, 'Type': 'urn:vendor:' + identifier,
+                'Target': target, 'TargetMode': mode})
+        parts['Alternate/_rels/root.xml.rels'] = etree.tostring(root)
+        root = etree.Element('{' + RELS + '}Relationships')
+        etree.SubElement(root, '{' + RELS + '}Relationship', {
+            'Id': 'back', 'Type': 'urn:vendor:back', 'Target': '../Alternate/root.xml#back'})
+        parts['Extensions/_rels/vendor.xml.rels'] = etree.tostring(root)
+        manifest = etree.fromstring(parts['[Content_Types].xml'])
+        etree.SubElement(manifest, '{' + CT + '}Override', {
+            'PartName': '/Extensions/_rels/vendor.xml.rels',
+            'ContentType': 'application/vnd.openxmlformats-package.relationships+xml'})
+        parts['[Content_Types].xml'] = etree.tostring(manifest)
+        policy = self.module.ExtensionPolicy('preserve', 'preserve')
+        accepted = self.module.ProfileArchive.load(independent_zip(parts), policy=policy)
+        self.assertEqual(accepted.extensions.relocations, (('/Alternate/root.xml', '/3D/model.xml'),))
+        candidate = self.module.ProfileArchive.Input(accepted.value.main,
+            accepted.value.attachments, accepted.extensions)
+        destination = self.directory / 'relocated.opc'
+        self.module.ProfileArchive.save(destination, candidate)
+        with zipfile.ZipFile(destination) as archive:
+            self.assertNotIn('Alternate/root.xml', archive.namelist())
+            self.assertNotIn('Alternate/_rels/root.xml.rels', archive.namelist())
+            self.assertEqual(archive.read('Extensions/vendor.xml'), parts['Extensions/vendor.xml'])
+            links = {element.attrib['Id']: element.attrib for name in (
+                '_rels/.rels', '3D/_rels/model.xml.rels', 'Extensions/_rels/vendor.xml.rels')
+                for element in etree.fromstring(archive.read(name))}
+            self.assertEqual(links['alias']['Target'], '/3D/model.xml?view=1#selected')
+            self.assertEqual(links['outbound']['Target'], '/Extensions/vendor.xml#payload')
+            self.assertEqual(links['self']['Target'], '/3D/model.xml?view=2#self')
+            self.assertEqual(links['back']['Target'], '/3D/model.xml#back')
+            self.assertEqual(links['external']['Target'], '../Alternate/root.xml?view=3#external')
+            self.assertEqual(links['external']['TargetMode'], 'External')
+        reopened = self.module.ProfileArchive.load(destination, policy=policy)
+        self.assertEqual(reopened.value.main.name, accepted.value.main.name)
+        self.assertEqual(len(reopened.extensions.relationships), len(accepted.extensions.relationships))
+        original_links = {link.id: link for link in accepted.extensions.relationships}
+        self.assertEqual(original_links['outbound'].source, '/Alternate/root.xml')
+        self.assertEqual(original_links['alias'].target, 'alternate/ROOT.xml?view=1#selected')
+
+    def test_conflicting_fixed_role_relocations_preserve_the_previous_file(self):
+        """Reject ambiguous rebinding before replacement, retaining the old generation and no staging files."""
+        accepted = self.module.ProfileArchive.load(independent_zip(independent_parts(True)),
+            policy=self.module.ExtensionPolicy('preserve', 'preserve'))
+        conflicting = dataclasses.replace(accepted.extensions, relocations=(
+            ('/Alternate/root.xml', '/3D/model.xml'), ('/alternate/ROOT.xml', '/Wrong/model.xml')))
+        destination = self.directory / 'relocation-conflict.opc'
+        destination.write_bytes(b'previous generation')
+        with self.assertRaises(self.module.PackageError) as caught:
+            self.module.ProfileArchive.save(destination, self.module.ProfileArchive.Input(
+                accepted.value.main, accepted.value.attachments, conflicting))
+        self.assertEqual(caught.exception.code, 'invalid_relationship')
+        self.assertEqual(destination.read_bytes(), b'previous generation')
+        self.assertFalse(list(self.directory.glob('.serializer-opc-*')))
+
     def test_shared_limits_cancellation_and_atomic_save(self):
         """A middle-stage failure preserves old final bytes and one budget spans ZIP, OPC and generated XML."""
         for limits in (self.module.PackageLimits(max_entries=1), self.module.PackageLimits(max_decoder_allocation_bytes=1),

@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace rohit::serializer::xml {
 // A generated matcher shares its bounded portable program or explicit legacy provider across instances.
@@ -66,8 +67,9 @@ inline void validate_child_namespace_projection(std::span<const element> childre
 
 // Validate one complete branch, propagating resource/provider failures instead of hiding them as mismatches.
 // The caller keeps scope and all static metadata alive throughout this synchronous operation.
-inline void validate_lexical_contract(std::string_view text, const lexical_contract& contract,
-    const element& scope, operation_context* context = nullptr) {
+inline void validate_lexical_contract_member(std::string_view text, const lexical_contract& contract,
+    const element& scope, operation_context* context, const lexical_contract** selected_member,
+    std::optional<std::string>* selected_lexical = nullptr) {
   if (!contract.union_members.empty() &&
       (!contract.enumeration.empty() || !contract.qname_enumeration.empty())) {
     throw std::logic_error{"XSD union enumeration requires selected-member value identities"};
@@ -79,13 +81,14 @@ inline void validate_lexical_contract(std::string_view text, const lexical_contr
     context->consume(operation_resource::work_units, text.size());
     context->consume(operation_resource::work_units, 1U);
   }
-  std::string normalized;
-  if (contract.constraints.whitespace != whitespace_policy::preserve) {
+  std::optional<std::string> normalized;
+  if (contract.union_members.empty() &&
+      contract.constraints.whitespace != whitespace_policy::preserve) {
     if (context) { context->consume(operation_resource::allocation_bytes, text.size()); }
     normalized = normalize_whitespace(text, contract.constraints.whitespace);
-    text = normalized;
+    text = *normalized;
   }
-  const auto lexical = text;
+  const lexical_contract* member = &contract;
   if (!contract.union_members.empty()) {
     std::exception_ptr callback_failure;
     std::optional<operation_context> guarded;
@@ -110,7 +113,8 @@ inline void validate_lexical_contract(std::string_view text, const lexical_contr
     bool matched{};
     for (const auto& alternative : contract.union_members) {
       try {
-        validate_lexical_contract(lexical, alternative, scope, selected);
+        // A union does not normalize before selection; each member sees the original lexical value.
+        validate_lexical_contract_member(text, alternative, scope, selected, &member, &normalized);
         matched = true;
         break;
       } catch (const std::invalid_argument&) {
@@ -119,17 +123,22 @@ inline void validate_lexical_contract(std::string_view text, const lexical_contr
       }
     }
     if (!matched) { throw std::invalid_argument{"XML value matches no XSD union member"}; }
+    if (normalized) { text = *normalized; }
   } else if (!contract.list_item_kind.empty()) {
-    validate_lexical_list(lexical, contract.list_item_kind, scope, context);
+    validate_lexical_list(text, contract.list_item_kind, scope, context);
   } else {
-    validate_lexical_value(lexical, contract.kind, scope, context);
+    validate_lexical_value(text, contract.kind, scope, context);
   }
+  const auto lexical = text;
   if (contract.constraints.lexical_kind.empty() && (contract.kind == "float" || contract.kind == "double")) {
     auto constraints = contract.constraints;
     constraints.lexical_kind = contract.kind;
     validate_scalar_constraints(lexical, constraints, context);
   } else {
-    validate_scalar_constraints(lexical, contract.constraints, context);
+    auto constraints = contract.constraints;
+    // Union facets inspect the successful member's normalized value without selecting it again.
+    if (!contract.union_members.empty()) { constraints.whitespace = whitespace_policy::preserve; }
+    validate_scalar_constraints(lexical, constraints, context);
   }
   for (const auto& group : contract.pattern_groups) {
     const auto matches = [&](const auto match) { return match && match(lexical, context); };
@@ -145,7 +154,9 @@ inline void validate_lexical_contract(std::string_view text, const lexical_contr
       throw std::invalid_argument{"XML QName enumeration facet failed"};
     }
   }
-  if (!contract.enumeration.empty()) {
+  // Expanded QName restrictions already retain their schema scope; lexical prefixes belong to it.
+  if (!contract.enumeration.empty() &&
+      !(contract.kind == "QName" && !contract.qname_enumeration.empty())) {
     const auto matches = [&](std::string_view allowed) {
       if (context) {
         context->consume(operation_resource::work_units, lexical.size());
@@ -165,6 +176,36 @@ inline void validate_lexical_contract(std::string_view text, const lexical_contr
     if (std::find_if(contract.enumeration.begin(), contract.enumeration.end(), matches) ==
         contract.enumeration.end()) {
       throw std::invalid_argument{"XML enumeration facet failed"};
+    }
+  }
+  if (selected_member) { *selected_member = member; }
+  if (selected_lexical) { *selected_lexical = std::move(normalized); }
+}
+
+// Validate the complete restriction without retaining the selected branch beyond this operation.
+inline void validate_lexical_contract(std::string_view text, const lexical_contract& contract,
+    const element& scope, operation_context* context = nullptr) {
+  validate_lexical_contract_member(text, contract, scope, context, nullptr);
+}
+
+// Keep the first successful union member and its QName identities unchanged in record-wide storage.
+// Local/shadowed bindings that would change either selection or expanded names reject explicitly.
+inline void validate_child_lexical_projection(std::span<const element> children,
+    const name& child_name, const element& target_scope, const lexical_contract& contract,
+    operation_context* context = nullptr) {
+  for (const auto& child : children) {
+    if (context) { context->consume(operation_resource::work_units, 1U); }
+    if (child.qualified_name != child_name) { continue; }
+    const lexical_contract* source_member{};
+    const lexical_contract* target_member{};
+    validate_lexical_contract_member(child.text, contract, child, context, &source_member);
+    validate_lexical_contract_member(child.text, contract, target_scope, context, &target_member);
+    if (source_member != target_member) {
+      throw std::invalid_argument{"C++ child union selection requires per-field namespace identities"};
+    }
+    if (source_member->kind == "QName" || source_member->list_item_kind == "QName") {
+      validate_child_namespace_projection(std::span{&child, 1U}, child_name, target_scope,
+          source_member->list_item_kind == "QName", false, false, context);
     }
   }
 }

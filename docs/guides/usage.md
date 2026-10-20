@@ -1,5 +1,14 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.15.0** extends selected C++/Python XML unions and automatic
+fixed-role OPC link rebinding. Regenerate affected output, rebuild C++ consumers
+against matching headers/runtime, and pass loaded extensions into package Save.
+The [package contract](../serialization/xml_packages.md#caller-authored-aggregate-profiles)
+explains rebinding scope; the [token guide](../serialization/xml_tokens.md)
+records the remaining QName boundaries. Integer literal default overflow now
+reports the original member declaration, including included/generic source.
+Schema language **1.20.0**, native wire values and editor versions are unchanged.
+
 Compiler/runtime **2.14.0** adds
 [compiler-only installed CMake discovery](cmake_integration.md#compiler-only-source-generation).
 Use `find_package(Serializer 2.14 CONFIG REQUIRED COMPONENTS compiler)` for

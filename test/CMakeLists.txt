@@ -1651,6 +1651,7 @@ if(SERIALIZER_WITH_XML)
       "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_scalar/large.xsd"
       "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_scalar/scalars.xsd"
       "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_scalar/defaults.xsd"
+      "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_scalar/qname_union.xsd"
       "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_xsd_fixture.xsd"
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_scalar")
   target_link_libraries(xml_scalar_test PRIVATE Serializer::runtime)

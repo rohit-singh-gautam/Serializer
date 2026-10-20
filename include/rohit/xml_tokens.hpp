@@ -152,6 +152,7 @@ namespace detail {
 struct token_namespace_projection {
   const element* owner{};
   bool list{}, prefixes{}, allow_empty{};
+  const lexical_contract* contract{};
 };
 // Keep digest byte storage scalar even though its native representation is a standard collection.
 template <typename T> inline constexpr bool digest_byte_storage = [] {
@@ -475,8 +476,13 @@ template <typename T> void read_token_value(token_reader& reader, T& value,
     }
     if (projection.owner) {
       scalar_scope.text = std::move(lexical);
-      validate_child_namespace_projection(std::span{&scalar_scope, 1U}, scalar_scope.qualified_name,
-          *projection.owner, projection.list, projection.prefixes, projection.allow_empty, reader.context());
+      if (projection.contract) {
+        validate_child_lexical_projection(std::span{&scalar_scope, 1U}, scalar_scope.qualified_name,
+            *projection.owner, *projection.contract, reader.context());
+      } else {
+        validate_child_namespace_projection(std::span{&scalar_scope, 1U}, scalar_scope.qualified_name,
+            *projection.owner, projection.list, projection.prefixes, projection.allow_empty, reader.context());
+      }
     }
     const auto text = projection.owner ? std::string_view{scalar_scope.text} : std::string_view{lexical};
     const auto selected = text.empty() && empty_default ? *empty_default : text;

@@ -42,6 +42,16 @@ bool equal_identity(std::string_view left, std::string_view right) {
       });
 }
 
+// Order ASCII OPC identities without allocating normalized copies in the relocation index.
+bool less_identity(std::string_view left, std::string_view right) {
+  return std::lexicographical_compare(left.begin(), left.end(), right.begin(), right.end(),
+      [](unsigned char first, unsigned char second) {
+        if (first >= 'A' && first <= 'Z') { first += 'a' - 'A'; }
+        if (second >= 'A' && second <= 'Z') { second += 'a' - 'A'; }
+        return first < second;
+      });
+}
+
 // Apply OPC's ASCII case-insensitive comparison without locale or Unicode folding.
 std::string identity(std::string_view text) {
   std::string result{text};
@@ -1576,12 +1586,67 @@ preserved_extensions profile_loader::finish() {
 // Return the single budget used by archive, metadata, typed callbacks and references.
 budget& profile_loader::shared_budget() const noexcept { return *reader_.shared_budget(); }
 
-// Retain opaque bytes and authored links without introducing a second XML representation.
+// Rebind preserved links simultaneously; relative targets resolve in their original source scope.
 void write_preserved(opc_writer& writer, const preserved_extensions& extensions) {
+  auto& shared = *writer.shared_budget();
+  using relocation_pointer = const part_relocation*;
+  if (extensions.relocations.size() > shared.available_buffer_bytes() / sizeof(relocation_pointer)) {
+    throw error{error_code::resource_limit, "Part relocation index exceeds scratch limit"};
+  }
+  const auto index_bytes = extensions.relocations.size() * sizeof(relocation_pointer);
+  shared.consume(resource::metadata_bytes, index_bytes);
+  buffer_reservation scratch{shared, index_bytes};
+  std::vector<relocation_pointer> ordered;
+  ordered.reserve(extensions.relocations.size());
+  for (const auto& relocation : extensions.relocations) {
+    shared.consume(resource::work_units, relocation.original.size());
+    shared.consume(resource::work_units, relocation.canonical.size());
+    validate_payload_name(relocation.original);
+    validate_payload_name(relocation.canonical);
+    ordered.push_back(&relocation);
+  }
+  const auto compare = [&](std::string_view left, std::string_view right) {
+    shared.consume(resource::work_units, left.size());
+    shared.consume(resource::work_units, right.size());
+    return less_identity(left, right);
+  };
+  std::sort(ordered.begin(), ordered.end(), [&](const auto* left, const auto* right) {
+    return compare(left->original, right->original);
+  });
+  for (std::size_t index = 1; index < ordered.size(); ++index) {
+    if (equal_identity(ordered[index - 1]->original, ordered[index]->original) &&
+        ordered[index - 1]->canonical != ordered[index]->canonical) {
+      throw error{error_code::invalid_relationship, "Conflicting typed part relocations",
+          ordered[index]->original};
+    }
+  }
+  const auto relocated = [&](std::string_view name) -> std::string_view {
+    const auto found = std::lower_bound(ordered.begin(), ordered.end(), name,
+        [&](const auto* item, auto key) { return compare(item->original, key); });
+    return found != ordered.end() && equal_identity((*found)->original, name) ?
+        std::string_view{(*found)->canonical} : name;
+  };
   for (const auto& item : extensions.parts) {
     writer.add_part(item.metadata.name, item.metadata.content_type, item.bytes, item.storage);
   }
-  for (const auto& link : extensions.relationships) { writer.add_relationship(link); }
+  for (const auto& link : extensions.relationships) {
+    if (ordered.empty()) { writer.add_relationship(link); continue; }
+    shared.consume(resource::work_units, link.source.size());
+    shared.consume(resource::work_units, link.target.size());
+    auto rebound = link;
+    rebound.source = relocated(link.source);
+    if (link.mode == target_mode::internal) {
+      const auto original_target = resolve_target(link.source, link.target);
+      const auto destination = relocated(original_target);
+      if (rebound.source != link.source || destination != original_target) {
+        // Absolute part references retain the selector verbatim and avoid a changed relative base.
+        const auto selector = link.target.find_first_of("?#");
+        rebound.target = destination;
+        if (selector != std::string::npos) { rebound.target += link.target.substr(selector); }
+      }
+    }
+    writer.add_relationship(std::move(rebound));
+  }
 }
 
 // Sort borrowed part pointers, bounding auxiliary storage independently of caller-owned payloads.

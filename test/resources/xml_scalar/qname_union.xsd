@@ -1,0 +1,23 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:q="urn:allowed">
+  <xs:simpleType name="Value"><xs:union memberTypes="xs:QName xs:unsignedShort"/></xs:simpleType>
+  <xs:simpleType name="Names"><xs:list itemType="xs:QName"/></xs:simpleType>
+  <xs:simpleType name="ListValue"><xs:union memberTypes="Names xs:unsignedShort"/></xs:simpleType>
+  <xs:simpleType name="Nested"><xs:union memberTypes="xs:boolean Value"/></xs:simpleType>
+  <xs:simpleType name="Allowed"><xs:restriction base="xs:QName"><xs:enumeration value="q:item"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="Fallback"><xs:union memberTypes="Allowed xs:string"/></xs:simpleType>
+  <xs:simpleType name="StringFirst"><xs:union memberTypes="xs:string xs:QName"/></xs:simpleType>
+  <xs:simpleType name="Whitespace"><xs:union>
+    <xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="p:item"/></xs:restriction></xs:simpleType>
+    <xs:simpleType><xs:restriction base="xs:QName"/></xs:simpleType>
+  </xs:union></xs:simpleType>
+  <xs:element name="sample"><xs:complexType><xs:sequence>
+    <xs:element name="value" type="Value"/>
+    <xs:element name="optional" type="Value" minOccurs="0"/>
+    <xs:element name="entry" type="Value" minOccurs="0" maxOccurs="unbounded"/>
+  </xs:sequence></xs:complexType></xs:element>
+  <xs:element name="lists"><xs:complexType><xs:sequence><xs:element name="value" type="ListValue"/></xs:sequence></xs:complexType></xs:element>
+  <xs:element name="nested"><xs:complexType><xs:sequence><xs:element name="value" type="Nested"/></xs:sequence></xs:complexType></xs:element>
+  <xs:element name="fallback"><xs:complexType><xs:sequence><xs:element name="value" type="Fallback"/></xs:sequence></xs:complexType></xs:element>
+  <xs:element name="string_first"><xs:complexType><xs:sequence><xs:element name="value" type="StringFirst"/></xs:sequence></xs:complexType></xs:element>
+  <xs:element name="whitespace"><xs:complexType><xs:sequence><xs:element name="value" type="Whitespace"/></xs:sequence></xs:complexType></xs:element>
+</xs:schema>

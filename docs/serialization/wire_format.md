@@ -1,5 +1,15 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.15.0** leaves native protocol identities, scalar encodings and
+managed side-channel layouts unchanged. Its selected XML union mappings validate
+the first successful member before preserving QName identity or comparing outer
+facets. Generated C++/Python OPC output can rewrite preserved relationship source
+and internal target paths when a loaded fixed singleton role moves to its declared
+canonical name. It preserves target query/fragment suffixes, external target strings
+and opaque bytes. This is graph rebinding within the existing OPC representation;
+no Serializer side channel is inserted into the main archive. See
+[package preservation](xml_packages.md#caller-authored-aggregate-profiles).
+
 Compiler/runtime **2.13.0** adds
 [version-three differential sidecars](../managed/journal.md#version-three-differential-sidecars).
 Native base envelopes and logical model/history/collaboration records keep their

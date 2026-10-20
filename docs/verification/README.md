@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [Selected pending XML/package work](verification-pending-xml-2026-10-20.md) | 2.15 C++ child QName unions, Python namespace-independent union facets, C++/Python fixed-role preserved-link rebinding and compiler member-default diagnostics; exact executed checks and remaining gates. |
 | [Backlog implementation](verification-backlog-2026-10-20.md) | Compiler-only CMake discovery, generated compression backends and callback lifecycle follow-ups, identified managed admission, package proofs and explicitly dated native snapshots. |
 | [Current combined native regression](verification-current-regression-2026-10-20.md) | G01 through G08 selected evidence: final Windows213/213, Linux210/210, provider-free13/13 plus12/12, ten native regressions, independent XML/ZIP oracles, version/package compatibility and synchronized validated editor 2.0.8 payloads; earlier snapshots and failures remain documented. |
 | [Compact scalar design](verification-compact-scalar-contract-2026-10-20.md) | SC01 prerequisite only: 76 vectors, exhaustive binary16/bfloat16 patterns, independent IEEE conversion/overflow checks, scaled arithmetic and five still-rejected schema keywords. |

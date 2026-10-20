@@ -1,15 +1,21 @@
 # Pending requirements across Serializer
 
+The 2.15 implementation slices below are recorded separately from their broader
+requirements. Checked slices do not close an entire backend/corpus/platform gate;
+see the [current scope and verification](verification/verification-pending-xml-2026-10-20.md).
+
 ## OPC and 3MF requirements
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
 | [ ] | OPC-R01 | — | Complete qualified attributes, QName values and prefix lists in every backend; child-local/shadowed QName storage, equivalent prefixes, Unicode names and regenerated declarations preserve expanded identity. | — |
 | [ ] | OPC-R02 | — | Broaden namespace-aware reject/skip/preserve slots, exact wildcard positions/counts and required-capability handling beyond the selected generated graphs; unknown core names must still reject. | — |
-| [ ] | OPC-R03 | — | Complete lexical lists, exact facets, patterns and unions without duplicate INI inventories; cover outer union enumeration/fixed values, namespace-dependent union defaults, QName-list enumeration/fixed values, C++ union-QName children and broader numeric/provider boundaries; canonical numeric output satisfies its pattern. | — |
+| [ ] | OPC-R03 | — | Complete lexical lists, exact facets, patterns and unions without duplicate INI inventories; broaden outer union enumeration/fixed values beyond the selected Python subset, namespace-dependent union defaults, QName-list enumeration/fixed values, child-local QName storage and broader numeric/provider boundaries; canonical numeric output satisfies its pattern. | — |
+| [x] | OPC-R03a | — | C++ inherited/equivalent-scope QName/QName-list child unions preserve the first successful member and expanded identities; Python namespace-independent outer union enumeration/fixed values compare primitive/list value identities. Child-local identity loss and unimplemented backend combinations remain explicit rejections; [2.15 scope](verification/verification-pending-xml-2026-10-20.md). | — |
 | [ ] | OPC-R04 | — | Complete multiple-typed-branch and grouped repeated choices plus ordered heterogeneous content; interleaving and occurrence semantics survive round trips. | — |
 | [ ] | OPC-R05 | — | Qualify the selected official Core 1.4 and XML XSD bundle against independent official 3MF corpus/conformance checks; required scalar/content constructs bind and unsupported external schemas reject precisely. | — |
 | [ ] | OPC-R06 | — | Complete generated profile/reference checks, target modes, vocabulary/type dispatch and fixed/default/runtime selection; automatically retarget preserved links when a loaded typed role changes to its declared canonical path; failures publish no aggregate/file. | — |
+| [x] | OPC-R06a | — | Generated C++/Python fixed singleton role loads retain discovered paths; preserved sources/internal targets rebind simultaneously on write/Save with original relative scopes, selectors and external URI strings retained; conflicts and dangling references reject. Other backend/dynamic-role work remains pending; [2.15 scope](verification/verification-pending-xml-2026-10-20.md). | — |
 | [ ] | OPC-R07 | — | Implement ZIP/OPC metadata, reader/writer, shared limits, preservation and full-Save APIs for every generated language, with independent producer/consumer tests; [2.14 checkpoint](verification/verification-backlog-2026-10-20.md). | — |
 | [ ] | OPC-R08 | — | Qualify ECMA-376 Part 2 fifth-edition URI/content-type/relationship contracts and full Annex B/pass-through corpus; cover escaped/equivalent names, relative targets, collisions, physical metadata names, target modes, UTF-16 and Relationships markup compatibility. | — |
 | [ ] | OPC-R09 | — | Measure large-model CPU, peak memory, encoded/generated-code size and cancellation/provider behavior. Qualify supported platforms with the actual XML/compression providers enabled. | — |
@@ -60,6 +66,7 @@
 | --- | --- | --- | --- | --- |
 | [x] | SC01 | — | Define proposed signed/floating payload contracts, rounding, overflow, NaN/infinity, zero and scaled arithmetic before keywords or wire values; current syntax remains unavailable (76 vectors, exhaustive16-bit and independent conversion checks; [contract](design/compact_scalar_contract.md), [evidence](verification/verification-compact-scalar-contract-2026-10-20.md)). | — |
 | [ ] | SC02 | — | Broaden default-value validation, preserve useful input/member positions in diagnostics and define bit-field support with wire/compatibility tests; [Feature roadmap](project/feature_status.md#other-roadmap-items). | — |
+| [x] | SC02a | — | Diagnose out-of-range canonical decimal/hex integer literals in explicit language 1.14+ defaults and retain original member paths/positions through includes and generic binding. Preserve native expressions and legacy defaults; broader validation and bit fields remain pending; [2.15 scope](verification/verification-pending-xml-2026-10-20.md). | — |
 | [ ] | SC03 | — | Extend currently unsupported generic-function calls/defaults and fixed-array initializer/Protobuf combinations with explicit portable contracts and actual SDK checks; [Generics](schema/generics.md). | — |
 | [ ] | BE01 | — | Implement native-backend separate-file layout where currently unavailable; preserve naming, dependency includes/modules and editor navigation; [Native languages](languages/native_languages.md). | — |
 | [ ] | BE02 | — | Define and implement Java packed output and the proposed stream/channel, native-acceleration and output-buffer-reuse APIs, with ownership/resource tests; [Java output](languages/java.md#defaults-and-unsupported-schema-features). | — |

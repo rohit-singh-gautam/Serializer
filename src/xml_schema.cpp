@@ -2120,14 +2120,16 @@ void validate_backend(const record& contract, std::string_view language) {
       throw std::invalid_argument{"XSD QName list enumeration requires expanded item identities"};
     }
     if (!facets.union_members.empty() &&
-        (!facets.enumeration.empty() || !facets.qname_enumeration.empty())) {
+        (!facets.enumeration.empty() || !facets.qname_enumeration.empty()) &&
+        (language != "python" || namespace_value(namespace_value, facets))) {
       throw std::invalid_argument{"XSD union enumeration requires selected-member value identities"};
     }
     for (const auto& alternative : facets.union_members) { self(self, alternative); }
   };
   for (const auto& field : contract.fields) {
     check_unions(check_unions, field.facets);
-    if (!field.facets.union_members.empty() && field.fixed_value) {
+    if (!field.facets.union_members.empty() && field.fixed_value &&
+        (language != "python" || namespace_value(namespace_value, field.facets))) {
       throw std::invalid_argument{"XSD union fixed values require selected-member value identities"};
     }
     if (!field.facets.union_members.empty() && field.default_value &&
@@ -2136,12 +2138,6 @@ void validate_backend(const record& contract, std::string_view language) {
     }
   }
   if (language == "cpp") {
-    for (const auto& field : contract.fields) {
-      if (!field.attribute && !field.text && !field.facets.union_members.empty() &&
-          namespace_value(namespace_value, field.facets)) {
-        throw std::invalid_argument{"C++ QName child values require per-field expanded namespace identities"};
-      }
-    }
     return;
   }
   if (language == "python") {

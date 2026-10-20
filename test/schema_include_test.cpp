@@ -64,6 +64,29 @@ protected:
   }
 };
 
+// Delayed default checks retain the included declaration's path, line and member after loading.
+TEST_F(schema_include_test, portable_default_diagnostics_retain_included_member_positions) {
+  write("common.serializer", "serializer version 1.14.0;\n"
+      "class item {\n"
+      "  public uint8 code { 256 };\n"
+      "}\n");
+  write("root.serializer", "serializer version 1.14.0;\ninclude common;\n"
+      "class root { public item value; }\n");
+  reject("common.serializer:3:3: member code:");
+
+  write("common.serializer", "serializer version 1.14.0;\n"
+      "class item {\n"
+      "  public uint8 code { 255 };\n"
+      "}\n");
+  const auto parsed = schema::parser::parse_file(directory / "root.serializer");
+  const auto& item = static_cast<const schema::class_node&>(*parsed.statements.front());
+  ASSERT_EQ(item.member_list.size(), 1u);
+  EXPECT_EQ(item.member_list.front().source_line, 3u);
+  EXPECT_EQ(item.member_list.front().source_column, 3u);
+  EXPECT_EQ(item.member_list.front().source_path,
+      std::filesystem::canonical(directory / "common.serializer").generic_string());
+}
+
 // A dependency's own language header controls variant syntax independently of its includer.
 TEST_F(schema_include_test, variant_language_contract_is_per_file) {
   write("common.serializer", "serializer version 1.3.0; class item { public variant(uint32 = code, string = text) payload; }");

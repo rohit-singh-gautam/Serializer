@@ -146,6 +146,31 @@ struct simplicity_warning_scope {
   }
 };
 
+// Retain declaration coordinates for delayed checks after the source buffer has been released.
+void locate_member(member& field, const std::uint8_t* begin, const std::uint8_t* end) {
+  if (!active_behavior_source) { return; }
+  const auto& context = *active_behavior_source;
+  const auto* origin = reinterpret_cast<const std::uint8_t*>(context.source.data());
+  field.source_offset = static_cast<std::size_t>(begin - origin);
+  field.source_end = static_cast<std::size_t>(end - origin);
+  const auto line = std::upper_bound(context.line_starts.begin(), context.line_starts.end(),
+      field.source_offset);
+  const auto index = static_cast<std::size_t>(line - context.line_starts.begin() - 1);
+  field.source_line = index + 1;
+  field.source_column = field.source_offset - context.line_starts[index] + 1;
+  field.source_path = context.path.empty() ? "<schema>" : std::string{context.path};
+}
+
+// Describe a delayed field failure using its original declaration rather than the final cursor.
+std::string member_diagnostic(const member& field, std::string_view message) {
+  std::string result;
+  if (!field.source_path.empty()) {
+    result = field.source_path + ":" + std::to_string(field.source_line) + ":" +
+        std::to_string(field.source_column) + ": ";
+  }
+  return result + "member " + field.name + ": " + std::string{message};
+}
+
 // Store a located advisory until the complete compilation unit has passed validation.
 void record_simplicity_warning(const std::uint8_t* position, std::string_view rule,
                                std::string message) {
@@ -1973,6 +1998,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   if (!transient) {
     check_member_simplicity(result, explicit_version_name, ignored, declaration_start);
   }
+  locate_member(result, declaration_start, in_stream.curr());
   return result;
 } // parse_member_impl
 

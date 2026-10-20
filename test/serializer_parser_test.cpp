@@ -23,6 +23,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 // New modifier spellings never steal ordinary types or generic operands from older schemas.
@@ -246,6 +247,127 @@ TEST(serialize_parser, malformed_quoted_defaults) {
     const auto input = rohit::make_constant_stream(source.data(), source.size());
     EXPECT_THROW(rohit::serializer::parser::parse_member(input, 1, nullptr),
                  rohit::serializer::exception::bad_member_spec);
+  }
+}
+
+// Integer boundaries and existing scalar contracts keep their original spelling and lowering.
+TEST(serialize_parser, portable_scalar_defaults_keep_checked_spelling) {
+  for (const auto& [type, literal] : std::vector<std::pair<std::string, std::string>>{
+           {"int8", "-128"}, {"int8", "127"}, {"uint8", "255"}, {"uint8", "-0"},
+           {"uint8", "-0x0"}, {"uint8", "0xff"}, {"int8", "-0x80"},
+           {"int16", "-32768"}, {"int16", "32767"}, {"uint16", "65535"},
+           {"int32", "-2147483648"}, {"int32", "2147483647"}, {"uint32", "4294967295"},
+           {"int64", "-9223372036854775808"}, {"int64", "9223372036854775807"},
+           {"uint64", "18446744073709551615"}, {"float", "3.4028234e38"},
+           {"double", "1.7976931348623157e308"}, {"double", "-0.0"},
+           {"bool", "true"}, {"bool", "false"}, {"char", "'a'"}, {"char", R"('\0')"},
+           {"string", R"("spaces, {braces} and \"quotes\"")"}, {"kind", "first"},
+           {"kind", "kind::second"}}) {
+    SCOPED_TRACE(type + " " + literal);
+    const auto source = "serializer version 1.14.0; enum kind { first, second } "
+        "class record { public " + type + " value { " + literal + " }; }";
+    const auto input = rohit::make_constant_stream(source.data(), source.size());
+    const auto statements = rohit::serializer::parser::parse(input, true);
+    const auto& record = static_cast<const rohit::serializer::class_node&>(*statements.back());
+    ASSERT_EQ(record.member_list.size(), 1u);
+    EXPECT_EQ(record.member_list.front().default_value, literal);
+    EXPECT_FALSE(record.member_list.front().initializer);
+  }
+}
+
+// Known integer narrowing fails at the declaration before C++ brace initialization would reject it.
+TEST(serialize_parser, portable_scalar_default_failures_locate_the_member) {
+  for (const auto& [type, literal] : std::vector<std::pair<std::string, std::string>>{
+           {"int8", "-129"}, {"int8", "128"}, {"uint8", "256"}, {"uint8", "-1"},
+           {"int16", "-32769"}, {"int16", "32768"}, {"uint16", "65536"},
+           {"int32", "-2147483649"}, {"int32", "2147483648"}, {"uint32", "4294967296"},
+           {"int64", "-9223372036854775809"}, {"int64", "9223372036854775808"},
+           {"uint64", "18446744073709551616"}, {"uint8", "0x100"},
+           {"int8", "0x80"}, {"int8", "-0x81"}}) {
+    SCOPED_TRACE(type + " " + literal);
+    const auto source = "serializer version 1.14.0;\n"
+        "enum kind { first, second }\n"
+        "class record {\n"
+        "  public " + type + " value { " + literal + " };\n"
+        "  public uint32 later;\n"
+        "}\n";
+    const auto input = rohit::make_constant_stream(source.data(), source.size());
+    try {
+      static_cast<void>(rohit::serializer::parser::parse(input, true));
+      FAIL() << "Narrowing integer default was accepted";
+    } catch (const rohit::serializer::exception::bad_member_spec& error) {
+      const std::string message{error.what()};
+      EXPECT_NE(message.find("<schema>:4:3: member value:"), std::string::npos) << message;
+      EXPECT_NE(message.find("Numeric default exceeds the declared " + type + " range"),
+          std::string::npos) << message;
+    }
+  }
+}
+
+// Existing aggregate shape and element failures also report their containing source declaration.
+TEST(serialize_parser, portable_aggregate_default_failures_locate_the_member) {
+  for (const std::string_view declaration : {
+           "public array[2] uint8 values {1};",
+           "public array[2] uint8 values {1, 256};",
+           "public array[2] uint8 values {1+2, 3};",
+           "public point values {{1}};"}) {
+    const auto source = "serializer version 1.14.0;\n"
+        "class point { public uint8 x; public uint8 y; }\n"
+        "class record {\n  " + std::string{declaration} + "\n}\n";
+    const auto input = rohit::make_constant_stream(source.data(), source.size());
+    try {
+      static_cast<void>(rohit::serializer::parser::parse(input, true));
+      FAIL() << "Invalid aggregate default was accepted: " << declaration;
+    } catch (const rohit::serializer::exception::bad_member_spec& error) {
+      EXPECT_NE(std::string{error.what()}.find("<schema>:4:3: member values:"), std::string::npos);
+    }
+  }
+}
+
+// Field source spans do not depend on warnings and remain attached to generic declaration copies.
+TEST(serialize_parser, portable_default_source_positions_survive_specialization) {
+  const std::string declaration = "public T value { 255 };";
+  const auto source = "serializer version 1.14.0;\n"
+      "class box<T> {\n  " + declaration + "\n}\n"
+      "instantiate byte_box = box<uint8>;\n";
+  const auto input = rohit::make_constant_stream(source.data(), source.size());
+  const auto statements = rohit::serializer::parser::parse(input, true);
+  const auto& record = static_cast<const rohit::serializer::class_node&>(*statements.back());
+  ASSERT_EQ(record.member_list.size(), 1u);
+  const auto& field = record.member_list.front();
+  EXPECT_EQ(field.source_path, "<schema>");
+  EXPECT_EQ(field.source_line, 3u);
+  EXPECT_EQ(field.source_column, 3u);
+  EXPECT_EQ(source.substr(field.source_offset, field.source_end - field.source_offset), declaration);
+
+  const std::string invalid = "serializer version 1.14.0;\n"
+      "class box<T> {\n  public T value { 256 };\n}\n"
+      "instantiate byte_box = box<uint8>;\n";
+  const auto invalid_input = rohit::make_constant_stream(invalid.data(), invalid.size());
+  try {
+    static_cast<void>(rohit::serializer::parser::parse(invalid_input, true));
+    FAIL() << "The substituted uint8 default must be range checked";
+  } catch (const rohit::serializer::exception::bad_member_spec& error) {
+    EXPECT_NE(std::string{error.what()}.find("<schema>:3:3: member value:"), std::string::npos);
+  }
+}
+
+// Native scalar expressions and bool{1} remain valid in earlier and current declared contracts.
+TEST(serialize_parser, portable_scalar_validation_preserves_legacy_default_contracts) {
+  for (const std::string_view prefix : {"", "serializer version 1; ",
+           "serializer version 1.13.0; ", "serializer version 1.14.0; ",
+           "serializer version 1.20.0; "}) {
+    const auto source = std::string{prefix} +
+        "enum kind { first } class record { public uint32 value { 1+2 }; "
+        "public uint8 octal { 010 }; public uint32 suffixed { 42U }; "
+        "public bool enabled { 1 }; public string text { native_text() }; "
+        "public kind selection { native_kind() }; }";
+    const auto input = rohit::make_constant_stream(source.data(), source.size());
+    const auto statements = rohit::serializer::parser::parse(input);
+    rohit::serializer::writer::cpp_options options;
+    options.format = false;
+    options.rename_identifiers = false;
+    EXPECT_NO_THROW(rohit::serializer::writer::cpp::generate(statements, options));
   }
 }
 
