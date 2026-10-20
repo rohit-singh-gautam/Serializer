@@ -5,6 +5,8 @@
 #include "xml_csharp_writer.hpp"
 #include "xml_native_writer.hpp"
 #include "xml_portable_writer.hpp"
+#include "javascript_package_writer.hpp"
+#include "go_package_writer.hpp"
 #include "generated_notices.hpp"
 #include "version_writer.hpp"
 #include "behavior_writer.hpp"
@@ -21,6 +23,7 @@
 #include <cctype>
 #include <charconv>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <regex>
@@ -36,13 +39,226 @@ namespace {
 constexpr std::string_view js_runtime =
 #include "js_runtime.inc"
     ;
+constexpr std::string_view js_compression_runtime =
+#include "js_compression_runtime.inc"
+    ;
+constexpr std::string_view js_compression_declarations =
+#include "js_compression_declarations.inc"
+    ;
+constexpr std::string_view javascript_package_runtime =
+#include "javascript_package_runtime.inc"
+#include "javascript_package_writer_runtime.inc"
+#include "javascript_package_host_runtime.inc"
+#include "javascript_package_opc_runtime.inc"
+#include "javascript_package_mce_runtime.inc"
+#include "javascript_package_profile_runtime.inc"
+    ;
+constexpr std::string_view javascript_package_declarations =
+#include "javascript_package_declarations.inc"
+    ;
 constexpr std::string_view go_runtime =
 #include "go_runtime.inc"
+    ;
+constexpr std::string_view go_compression_runtime =
+#include "go_compression_runtime.inc"
+    ;
+constexpr std::string_view go_compression_provider_runtime =
+#include "go_compression_provider_runtime.inc"
+    ;
+constexpr std::string_view go_package_runtime =
+#include "go_package_runtime.inc"
+#include "go_package_zip_reader_runtime.inc"
+#include "go_package_zip_writer_runtime.inc"
+#include "go_package_file_runtime.inc"
+    ;
+constexpr std::string_view go_package_opc_runtime =
+#include "go_package_opc_runtime.inc"
+#include "go_package_metadata_runtime.inc"
+#include "go_package_mce_runtime.inc"
+#include "go_package_catalog_runtime.inc"
+#include "go_package_opc_writer_runtime.inc"
+#include "go_package_loader_runtime.inc"
+#include "go_package_composer_runtime.inc"
+#include "go_package_native_runtime.inc"
     ;
 constexpr std::string_view csharp_runtime =
 #include "csharp_runtime.inc"
     ;
+constexpr std::string_view csharp_compression_runtime =
+#include "csharp_compression_runtime.inc"
+    ;
+constexpr std::string_view csharp_optional_compression_runtime =
+#include "csharp_optional_compression_runtime.inc"
+#include "csharp_zstd_compression_runtime.inc"
+#include "csharp_lz4_compression_runtime.inc"
+    ;
 enum class target { js, go, csharp, typescript };
+
+// Select one collision-free public helper family without changing existing schema or native helper names.
+std::string go_compression_support(const std::set<std::string>& schema_names,
+                                   bool binary_none_only, std::string& selected_prefix) {
+  constexpr std::string_view suffixes[]{
+      "", "Format", "None", "Zstd", "Lz4", "Gzip", "Zlib", "Deflate", "Code",
+      "Unavailable", "InvalidOptions", "InvalidData", "ResourceLimit", "Error",
+      "EncodeOptions", "DecodeOptions", "DefaultEncodeOptions", "DefaultDecodeOptions",
+      "Available", "Compress", "Decompress", "Encode", "Decode", "Output", "NewOutput",
+      "Input", "NewInput", "DecodeFrom", "Provider", "AvailableWithProvider"};
+  const std::string base{"SerializerCompression"};
+  auto prefix = base;
+  std::size_t suffix_index{1};
+  while (std::any_of(std::begin(suffixes), std::end(suffixes), [&](const auto suffix) {
+    return schema_names.contains(prefix + std::string{suffix});
+  })) {
+    if (suffix_index == std::numeric_limits<std::size_t>::max()) {
+      throw std::length_error{"Go compression helper names exhausted"};
+    }
+    prefix = base + '_' + std::to_string(++suffix_index);
+  }
+  std::string result{go_compression_runtime};
+  result += go_compression_provider_runtime;
+  // Replace template markers once; a chosen prefix can itself contain the original prefix.
+  const auto substitute = [&](std::string_view marker, std::string_view replacement) {
+    std::size_t position{};
+    while ((position = result.find(marker, position)) != std::string::npos) {
+      result.replace(position, marker.size(), replacement);
+      position += replacement.size();
+    }
+  };
+  substitute("SerializerCompression", prefix);
+  substitute("__srl_compression_binary_none_only__", binary_none_only ? "true" : "false");
+  selected_prefix = prefix;
+  return "// Generated compression helper prefix: " + prefix + "\n" + result;
+}
+
+// Derive every public ZIP helper identifier from its template before selecting a collision-free family.
+// Existing model/free-function names and the separately selected compression family stay unchanged.
+std::string go_package_support(const std::set<std::string>& schema_names,
+                               std::string_view compression_prefix, bool with_opc,
+                               std::string& selected_prefix) {
+  std::string runtime{go_package_runtime};
+  if (with_opc) { runtime += go_package_opc_runtime; }
+  constexpr std::string_view marker{"SerializerPackage"};
+  std::set<std::string> suffixes{""};
+  std::size_t position{};
+  while ((position = runtime.find(marker, position)) != std::string::npos) {
+    auto end = position + marker.size();
+    while (end < runtime.size() &&
+        (std::isalnum(static_cast<unsigned char>(runtime[end])) || runtime[end] == '_')) {
+      ++end;
+    }
+    suffixes.emplace(runtime.substr(position + marker.size(), end - position - marker.size()));
+    position = end;
+  }
+  const std::string base{marker};
+  auto prefix = base;
+  std::size_t suffix_index{1};
+  while (std::any_of(suffixes.begin(), suffixes.end(), [&](const auto& suffix) {
+    return schema_names.contains(prefix + suffix);
+  })) {
+    if (suffix_index == std::numeric_limits<std::size_t>::max()) {
+      throw std::length_error{"Go package helper names exhausted"};
+    }
+    prefix = base + '_' + std::to_string(++suffix_index);
+  }
+  std::string result{std::move(runtime)};
+  // Advance past each replacement so a chosen suffix is substituted exactly once.
+  const auto substitute = [&](std::string_view original, std::string_view replacement) {
+    std::size_t offset{};
+    while ((offset = result.find(original, offset)) != std::string::npos) {
+      result.replace(offset, original.size(), replacement);
+      offset += replacement.size();
+    }
+  };
+  substitute(marker, prefix);
+  substitute("SerializerCompression", compression_prefix);
+  selected_prefix = prefix;
+  return "// Generated package helper prefix: " + prefix + "\n" + result;
+}
+
+// Add one C# helper container without reserving a previously valid model or output-unit name.
+std::string csharp_compression_support(const std::set<std::string>& schema_names) {
+  const std::string base{"SerializerCompression"};
+  auto name = base;
+  std::size_t suffix{1};
+  while (schema_names.contains(name)) {
+    if (suffix == std::numeric_limits<std::size_t>::max()) {
+      throw std::length_error{"C# compression helper names exhausted"};
+    }
+    name = base + '_' + std::to_string(++suffix);
+  }
+  std::string result{csharp_compression_runtime};
+  const auto closing = result.rfind("\n  }");
+  if (closing == std::string::npos) {
+    throw std::logic_error{"C# compression helper closing declaration is missing"};
+  }
+  result.insert(closing, csharp_optional_compression_runtime);
+  std::size_t position{};
+  while ((position = result.find(base, position)) != std::string::npos) {
+    result.replace(position, base.size(), name);
+    position += name.size();
+  }
+  return "// Generated C# compression helper name: " + name + "\n" + result;
+}
+
+// Keep one matching JS implementation/declaration container without reserving a schema name.
+std::string js_compression_name(const std::set<std::string>& schema_names) {
+  const std::string base{"SerializerCompression"};
+  auto name = base;
+  std::size_t suffix{1};
+  while (schema_names.contains(name) || schema_names.contains(name + "ErrorBase")) {
+    if (suffix == std::numeric_limits<std::size_t>::max()) {
+      throw std::length_error{"JavaScript compression helper names exhausted"};
+    }
+    name = base + '_' + std::to_string(++suffix);
+  }
+  return name;
+}
+
+// Keep one matching JS implementation/declaration container without reserving a schema name.
+std::string js_compression_support(const std::set<std::string>& schema_names, bool declarations) {
+  const std::string base{"SerializerCompression"};
+  const auto name = js_compression_name(schema_names);
+  std::string result{declarations ? js_compression_declarations : js_compression_runtime};
+  std::size_t position{};
+  while ((position = result.find(base, position)) != std::string::npos) {
+    result.replace(position, base.size(), name);
+    position += name.size();
+  }
+  return "// Generated JS/TS compression helper name: " + name + "\n" + result;
+}
+
+// Select the whole package helper family without displacing previously valid schema names.
+std::string javascript_package_name(const std::set<std::string>& schema_names) {
+  const std::string base{"SerializerPackage"};
+  auto name = base;
+  std::size_t suffix{1};
+  while (schema_names.contains(name) || schema_names.contains(name + "ErrorBase") || schema_names.contains(name + "Saxes")) {
+    if (suffix == std::numeric_limits<std::size_t>::max()) {
+      throw std::length_error{"JavaScript package helper names exhausted"};
+    }
+    name = base + '_' + std::to_string(++suffix);
+  }
+  return name;
+}
+
+// Bind the package implementation to independently selected package and compression helpers.
+std::string javascript_package_support(const std::set<std::string>& schema_names, bool declarations) {
+  const auto helper = javascript_package_name(schema_names);
+  std::string result{declarations ? javascript_package_declarations : javascript_package_runtime};
+  const auto replace = [&](const std::string& from, const std::string& to) {
+    std::size_t position{};
+    while ((position = result.find(from, position)) != std::string::npos) {
+      result.replace(position, from.size(), to);
+      position += to.size();
+    }
+  };
+  replace("SerializerPackage", helper);
+  replace("SerializerCompression", js_compression_name(schema_names));
+  if (!declarations) {
+    result = "import {SaxesParser as " + helper + "Saxes} from 'saxes';\n" + result;
+  }
+  return "// Generated JS/TS package helper name: " + helper + "\n" + result;
+}
 
 // C# nested model members must not shadow unqualified runtime XML helper lookups.
 constexpr std::string_view csharp_xml_identifiers[]{
@@ -156,6 +372,8 @@ class emitter {
   std::string source{};
   std::size_t level{};
   std::vector<const syntax_node*> nodes{};
+  std::vector<const package_node*> packages{};
+  std::string go_package_prefix{};
   std::map<const syntax_node*, std::string> names{};
   std::map<std::string, std::size_t> wire_names{};
   std::set<std::string> globals{"ReadPolicy",   "STRICT",   "COMPATIBLE",    "FLEXIBLE",
@@ -437,6 +655,11 @@ class emitter {
         throw std::invalid_argument{"Generated type name collision: " + generated};
       }
       names.emplace(value.get(), generated);
+      if (value->type == object_type::package_type &&
+          (language == target::js || language == target::typescript || language == target::go)) {
+        packages.push_back(static_cast<const package_node*>(value.get()));
+        continue;
+      }
       nodes.push_back(value.get());
     }
   }
@@ -2854,6 +3077,15 @@ public:
       collect_mixed(collect_mixed, values);
     }
     register_nodes(values);
+    if (language == target::go) {
+      for (const auto* package : packages) {
+        for (const auto suffix : {"Input", "Value", "LoadOptions", "SaveOptions", "Encode", "Write", "Load", "Save"}) {
+          if (!globals.insert(names.at(package) + suffix).second) {
+            throw std::invalid_argument{"Go package companion name collision: " + names.at(package) + suffix};
+          }
+        }
+      }
+    }
     if ((language == target::js || language == target::typescript) &&
         std::any_of(nodes.begin(), nodes.end(), [](const auto* node) {
           return node->type == object_type::class_type && static_cast<const class_node&>(*node).reference &&
@@ -2883,7 +3115,22 @@ public:
       line("package " + options.package_name);
       if (options.xml.enabled) { source += xml_portable::imports("go"); }
       source += behavior::preambles(values, "go");
+      source += "import (srlCompressionBytes \"bytes\";srlCompressionFlate \"compress/flate\";"
+          "srlCompressionGzip \"compress/gzip\";srlCompressionZlib \"compress/zlib\";"
+          "srlCompressionCRC32 \"hash/crc32\";srlCompressionIO \"io\")\n";
+      source += "import (srlPackageTime \"time\";srlPackageOS \"os\";srlPackageIO \"io\";"
+          "srlPackageErrors \"errors\";srlPackageBytes \"bytes\";srlPackageStrings \"strings\";"
+          "srlPackageUTF8 \"unicode/utf8\";srlPackageBinary \"encoding/binary\";srlPackageSort \"sort\";"
+          "srlPackageCRC32 \"hash/crc32\";srlPackageFilepath \"path/filepath\";srlPackageRuntime \"runtime\")\n";
+      if (!packages.empty()) {
+        source += "import (srlPackageIP \"net/netip\";srlPackageXML \"encoding/xml\";"
+            "srlPackageRegexp \"regexp\";srlPackageStrconv \"strconv\")\n";
+      }
       source += go_runtime;
+      std::string compression_prefix;
+      source += go_compression_support(globals, options.protocols == output_protocols::binary_none,
+                                       compression_prefix);
+      source += go_package_support(globals, compression_prefix, !packages.empty(), go_package_prefix);
       if (options.xml.enabled) { source += xml_portable::runtime("go"); }
       source += behavior::helpers("go", arithmetic_helpers);
     } else if (language == target::csharp) {
@@ -2905,11 +3152,14 @@ public:
       }
       open("public static partial class " + unit);
       source += csharp_runtime;
+      source += csharp_compression_support(globals);
       if (options.xml.enabled) { source += xml_csharp::runtime(); }
       source += behavior::helpers("csharp", arithmetic_helpers);
     } else if (language == target::js) {
       source += behavior::preambles(values, "js");
       source += js_runtime;
+      source += js_compression_support(globals, false);
+      if (!packages.empty()) { source += javascript_package_support(globals, false); }
       if (options.xml.enabled) { source += xml_binding::js_runtime(); }
       source += behavior::helpers("js", arithmetic_helpers);
       source += behavior::helpers_typed("js", arithmetic_helpers);
@@ -2926,6 +3176,8 @@ public:
       line("  constructor(maxBytes?: number, maxStringBytes?: number, maxElements?: number, "
            "maxDepth?: number, readPolicy?: number);");
       line("}");
+      source += js_compression_support(globals, true);
+      if (!packages.empty()) { source += javascript_package_support(globals, true); }
       if (options.xml.enabled) { source += xml_binding::js_declarations(); }
     }
     if (language != target::typescript) {
@@ -2938,6 +3190,17 @@ public:
         free_function(static_cast<const function_node&>(*node));
       } else {
         object(static_cast<const class_node&>(*node));
+      }
+    }
+    for (const auto* package : packages) {
+      if (language == target::go) {
+        source += package_codegen::go(*package, names.at(package), go_package_prefix,
+            [&](const auto& value) { return type(value); },
+            [&](const auto value) { return field(value); }, [&](const auto value) { return quote(value); });
+      } else {
+        source += package_codegen::javascript(*package, names.at(package), javascript_package_name(globals),
+            language == target::typescript, [&](const auto& value) { return type(value); },
+            [&](const auto value) { return field(value); }, [&](const auto value) { return quote(value); });
       }
     }
     if (language == target::csharp) {

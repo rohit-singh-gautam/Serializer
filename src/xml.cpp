@@ -1386,6 +1386,14 @@ struct token_writer::implementation {
 
   // Bind one output pass without retaining caller model data.
   implementation(limits selected, operation_context* context) : bounds{selected}, operation{context} {}
+  // Keep staged output and observer ownership within one output pass.
+  implementation(const implementation&) = delete;
+  // Prevent copying another pass over active output state.
+  implementation& operator=(const implementation&) = delete;
+  // Retain stable state addresses throughout output validation.
+  implementation(implementation&&) = delete;
+  // Prevent transferring observers into an existing output pass.
+  implementation& operator=(implementation&&) = delete;
   // Admit escaped output before copying bytes into the publication candidate.
   void append(std::string_view value) {
     if (value.size() > bounds.max_output_bytes - std::min(bytes.size(), bounds.max_output_bytes)) {
@@ -1749,6 +1757,14 @@ struct token_reader::implementation {
     }
     queue.pop_front(); fill();
   }
+  // Keep the provider and its queued events within one input pass.
+  implementation(const implementation&) = delete;
+  // Prevent copying another provider over active input state.
+  implementation& operator=(const implementation&) = delete;
+  // Preserve the state address captured by the provider callback.
+  implementation(implementation&&) = delete;
+  // Prevent invalidating the callback's original state address.
+  implementation& operator=(implementation&&) = delete;
   // Produce another bounded group only after the previous group has been consumed.
   void fill() {
     while (queue.empty() && !producer.complete()) {

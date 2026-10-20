@@ -62,7 +62,7 @@ with `[output] language = cpp,java`. Schema paths use `.serializer`, and every
 schema starts with a supported language header; use `serializer version 1.3.0;`
 for inferred arrays and typed magic. The original `1` header remains an exact
 alias for `1.0.0`. The installed package supports
-`find_package(Serializer 2.8.0 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
+`find_package(Serializer 2.14.0 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
 newer compatible release within the same major version. See
 [compiler and schema versioning](command_line.md).
 The package uses `SameMajorVersion` discovery and rejects 1.x requests.
@@ -77,6 +77,17 @@ its installable CMake package. Use CMake 4.0+, a C++20 compiler and standard
 library, and clang-format 19+ for the default output formatting. The integration
 has no editor dependency and requires no `.vscode` files.
 
+## Preserve unchanged generated files
+
+Release 2.14.0 preserves existing generated files and depfiles when their prepared
+bytes are identical, including separate C++ dependency headers. Generation still
+runs when a tracked schema, configuration or compiler dependency changes. With
+Ninja's existing `restat` rules, unchanged output timestamps let the build skip
+dependent compilation; changed or missing files are still written. The normal
+helpers need no additional option. Source/alias checks and formatter preparation
+still run before publication, and changed-file I/O retains the existing write
+contract. See the [executed publication checks](../verification/verification-generated-output-publication-2026-10-20.md).
+
 ## Build individual examples
 
 Each maintained example can be configured directly, for example
@@ -88,15 +99,12 @@ For languages other than Go, the default builds the compiler from this checkout.
 See [all-language example builds](../../example/README.md#build-an-individual-example-with-cmake)
 for SDK requirements and selected-language options.
 
-Installed package discovery currently resolves the enabled runtime providers even
-when a project uses `LANGUAGES NONE` solely for source generation. On multiarch
-Linux, such a project may need explicit provider search prefixes or the selected
-toolchain's `CMAKE_LIBRARY_ARCHITECTURE`; CMake normally detects that suffix while
-enabling a compiled language. The installed-example test forwards the parent
-toolchain's detected value rather than enabling C++ in the Python consumer.
-A compiler-only package discovery interface remains **BE04** in the
-[central backlog](../xml_pending.md); the current package does not expose that
-component.
+For installed generation-only consumers, release **2.14.0** adds
+`find_package(Serializer 2.14 CONFIG REQUIRED COMPONENTS compiler)`. It skips
+runtime-provider discovery, including in `LANGUAGES NONE` projects on multiarch
+Linux. See [compiler-only source generation](#compiler-only-source-generation).
+Normal discovery and `COMPONENTS runtime` retain the full runtime exports and
+enabled provider lookup.
 
 Go examples are native modules and can be built without CMake. With the
 installed `serializer` CLI on `PATH`, run `go generate .`, `go build -o build/ .`,
@@ -539,7 +547,7 @@ Use a writable prefix appropriate for the platform, such as `C:/deps/Serializer`
 on Windows. This installs the library, generator executable, public headers,
 licensing files, exported CMake targets, and generation helper. `SERIALIZER_INSTALL`
 defaults to enabled for a top-level Serializer build and disabled when embedded.
-It does not install a compiler, editor extension, or clang-format.
+It does not install a C++ compiler, editor extension, or clang-format.
 
 The consumer then uses:
 
@@ -570,6 +578,65 @@ target remains available for compiler/parser/generator API compatibility and
 continues under GPL-3.0-or-later; generated-model applications should use the
 runtime target. Running the GPL generator at build time does not license its output
 under GPL. See [licensing](../project/licensing.md) for schema notices and dependency terms.
+
+### Compiler-only source generation
+
+For generation without C++ runtime linkage, select the `compiler` component:
+
+```cmake
+cmake_minimum_required(VERSION 4.0)
+project(generate_models LANGUAGES NONE)
+
+find_package(Serializer 2.14 CONFIG REQUIRED COMPONENTS compiler)
+serializer_generate_source(
+  TARGET generate_python
+  SCHEMA schemas/account.serializer
+  OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/account.py"
+  LANGUAGE python)
+```
+
+Build `generate_python` or the aggregate `serializer_generated_sources` target.
+Compiler-only discovery imports `Serializer::serializer` and loads the source,
+Java and C++ generation helper functions. It does not import `Serializer::runtime`,
+`Serializer::managed` or `Serializer::serializer_lib`, and does not look up the
+installed runtime's XML/compression providers. There is no need to enable C or
+C++ solely to obtain multiarch library search paths for these unused providers.
+
+Use `serializer_generate_source` for supported language outputs, or
+`serializer_generate_java` for Java. The source helper also accepts `LANGUAGE cpp`
+when only generated C++ files are needed; arrange their eventual runtime linkage
+in the consuming build. The C++ `serializer_generate` and
+`serializer_generate_variants` helpers require `Serializer::runtime` because they
+attach its linkage and C++20 requirements to consumer targets.
+
+Omitting components preserves the full installed package behavior. Explicit
+`COMPONENTS runtime` also loads all installed runtime, managed, compiler-library
+and executable targets and resolves their enabled provider dependencies. Request
+both components when desired, or call `find_package(Serializer 2.14 CONFIG REQUIRED
+COMPONENTS runtime)` after compiler-only discovery to add runtime targets in the
+same scope. Unsupported required components fail discovery.
+
+The component changes CMake discovery, not the compiler binary's dependencies.
+An installed compiler linked to shared provider libraries still needs those
+libraries deployed and discoverable by the host operating system. Keep the
+installation layout intact when relocating its prefix; the imported executable
+uses a path relative to that prefix. Normal runtime discovery retains its provider
+requirements for the selected target toolchain.
+
+For cross-compilation, choose an installation containing a host-runnable compiler.
+For example, set the host prefix in `CMAKE_PREFIX_PATH` and use:
+
+```cmake
+find_package(Serializer 2.14 CONFIG REQUIRED COMPONENTS compiler
+  NO_CMAKE_FIND_ROOT_PATH)
+```
+
+An explicit `Serializer_DIR` can select the host installation's package directory
+instead. The generation helpers also accept a host executable path or imported
+executable target through `GENERATOR`. They reject a source-built target as the
+default generator in a cross build. Selecting a package through the target sysroot
+does not make its executable runnable on the host. Keep host compiler selection
+separate from any target-runtime package selection and ABI requirements.
 
 ## Helper options
 

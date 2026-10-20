@@ -1,0 +1,14 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1;
+
+namespace legacy_migration {
+  class entry managed stable_ids {
+    public uint64 amount (1);
+  }
+
+  class document managed stable_ids {
+    public managed array entry entries (1);
+    public uint64 ordinary (2);
+  }
+}

@@ -1005,7 +1005,8 @@ void validate_options(const std::vector<std::unique_ptr<syntax_node>>& statement
             }
             if (language != "xsd") { validate_backend(contract, language); }
           }
-        } else if (node->type == object_type::package_type && language != "cpp" && language != "python") {
+        } else if (node->type == object_type::package_type && language != "cpp" && language != "python" &&
+                   language != "js" && language != "typescript" && language != "java" && language != "go") {
           throw std::invalid_argument{"Generated OPC package profiles are not implemented for " +
                                       std::string{language}};
         }
@@ -1543,7 +1544,8 @@ record schema::bind(const class_node& source) const {
       // An optional XSD attribute may fill required native storage through its default/fixed value.
       const auto expected_minimum = field.presence.explicit_policy ?
           (field.presence.allows_absent ? 0U : 1U) :
-          (optional || is_attribute && (field.default_value || field.fixed_value) && field.min_occurs == 0U ? 0U : 1U);
+          (optional || (is_attribute && (field.default_value || field.fixed_value) &&
+              field.min_occurs == 0U) ? 0U : 1U);
       if (!field.repeated && (field.max_occurs != std::optional<std::size_t>{1U} ||
           field.min_occurs != expected_minimum)) {
         throw std::invalid_argument{"XSD presence/cardinality differs from Serializer member: " + field.source->name};

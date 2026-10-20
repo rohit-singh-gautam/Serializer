@@ -58,7 +58,7 @@
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | SC01 | — | Define proposed `compact_zigzag`, `compact_float16`, `compact_bfloat16`, `compact_float32` and `compact_scaled`, including rounding, overflow, NaN/infinity and signed zero, before adding schema keywords or wire values; [Compact encodings](schema/compact_integers.md#proposed-signed-and-floating-encodings). | — |
+| [x] | SC01 | — | Define proposed signed/floating payload contracts, rounding, overflow, NaN/infinity, zero and scaled arithmetic before keywords or wire values; current syntax remains unavailable (76 vectors, exhaustive16-bit and independent conversion checks; [contract](design/compact_scalar_contract.md), [evidence](verification/verification-compact-scalar-contract-2026-10-20.md)). | — |
 | [ ] | SC02 | — | Broaden default-value validation, preserve useful input/member positions in diagnostics and define bit-field support with wire/compatibility tests; [Feature roadmap](project/feature_status.md#other-roadmap-items). | — |
 | [ ] | SC03 | — | Extend currently unsupported generic-function calls/defaults and fixed-array initializer/Protobuf combinations with explicit portable contracts and actual SDK checks; [Generics](schema/generics.md). | — |
 | [ ] | BE01 | — | Implement native-backend separate-file layout where currently unavailable; preserve naming, dependency includes/modules and editor navigation; [Native languages](languages/native_languages.md). | — |
@@ -98,7 +98,7 @@
 | [ ] | XML-B01 | — | Broaden schema-first XML vocabulary and ambiguous-association tooling. | — |
 | [ ] | XML-B02 | — | Extend declaration import to additional XSD content-model, identity, chameleon and pattern combinations; qualify schema migration automation beyond the supported subset. | — |
 | [ ] | XML-B03 | — | Implement equivalent rich XSD/XML emitters beyond C++/Python and qualify broader numeric, QName, content-model and provider combinations. | — |
-| [ ] | XML-B04 | — | Implement generated package facades for the other nine outputs; add declarative payload references, target-mode/profile selection and broad corpus/performance qualification. | — |
+| [ ] | XML-B04 | — | Implement generated package facades for remaining outputs; add declarative payload references, target-mode/profile selection and broad corpus/performance qualification. | — |
 | [ ] | XML-B05 | — | Propagate the shared XML/package operation context through remaining backends and qualify large-model/provider boundaries. | — |
 | [ ] | XML-B06 | — | Measure repeatable ordinary-native throughput and peak memory against reproducible baselines. | — |
 | [ ] | XML-B07 | — | Qualify additional platforms/provider combinations, broad performance and complete selected OPC/3MF profiles. | — |
@@ -110,7 +110,7 @@
 | [ ] | XML-B13 | — | Runtime XSD: Qualify prepared providers, limits and concurrency in every backend; align input/output namespace-declaration accounting, qualify caller-prepared validator interfaces and prohibit automatic remote schema loading. | — |
 | [ ] | XML-B14 | — | Model coverage: Broaden concrete generic, owning inheritance, revision/magic and digest combinations; define supported managed/view and recursive/combined graph contracts. | — |
 | [ ] | XML-B15 | — | Referenced XML output: Broaden stress/resource and ownership qualification without duplicate owning payloads; define any durable field-address XML contract before enabling it. | — |
-| [ ] | XML-B16 | — | Compression parity: Complete whole-object source/sink wrappers and identical framing/error/limit contracts across every output; qualify optional Zstandard/LZ4 adapters. | — |
+| [x] | XML-B16 | — | Compression parity: Complete whole-object source/sink wrappers and identical framing/error/limit contracts across every output; qualify optional Zstandard/LZ4 adapters; [qualification](verification/verification-compression-parity-2026-10-20.md). | — |
 | [ ] | XML-B17 | — | Package parity: Complete ZIP/OPC source/sink, metadata, shared budgets and full-Save guarantees across every output. | — |
 | [ ] | XML-B18 | — | ZIP extensions: Broaden large-archive, stress and provider coverage; qualify ZIP64/spooling, peak-memory and cancellation boundaries in every backend; unsupported features reject explicitly. | — |
 | [ ] | XML-B19 | — | Typed profiles: Extend C++/Python declarations with pipeline/runtime selection, vocabulary profiles and generated payload reference checks before publication; implement equivalent contracts in other backends. | — |
@@ -478,7 +478,7 @@
 | [x] | CP-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject (2.14 selected Windows C++/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | CP-Z02 |
 | [x] | CP-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass (2.14 selected Windows C++/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | CP-Z02 |
 | [x] | CP-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass (2.14 selected Windows C++/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | CP-Z02 |
-| [ ] | CP-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | CP-Z03, CP-Z04, CP-Z05, CP-Z06, CP-Z07, CP-Z08, CP-Z09, CP-Z10 |
+| [x] | CP-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures; [qualification](verification/verification-compression-parity-2026-10-20.md). | CP-Z03, CP-Z04, CP-Z05, CP-Z06, CP-Z07, CP-Z08, CP-Z09, CP-Z10 |
 
 #### Python compression
 
@@ -494,7 +494,7 @@
 | [x] | PY-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject (2.14 selected Windows Python/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | PY-Z02 |
 | [x] | PY-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass (2.14 selected Windows Python/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | PY-Z02 |
 | [x] | PY-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass (2.14 selected Windows Python/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | PY-Z02 |
-| [ ] | PY-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | PY-Z03, PY-Z04, PY-Z05, PY-Z06, PY-Z07, PY-Z08, PY-Z09, PY-Z10 |
+| [x] | PY-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. Selected Windows SDK/provider profiles; [evidence](verification/verification-compression-parity-2026-10-20.md). | PY-Z03, PY-Z04, PY-Z05, PY-Z06, PY-Z07, PY-Z08, PY-Z09, PY-Z10 |
 
 #### Java compression
 
@@ -510,23 +510,23 @@
 | [x] | JV-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject (2.14 selected Windows Java/provider profile; [evidence](verification/verification-backlog-2026-10-20.md)). | JV-Z02 |
 | [x] | JV-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass (2.14 Windows JDK 26 optional-provider profiles; [evidence](verification/verification-java-compression-providers-2026-10-20.md)). | JV-Z02 |
 | [x] | JV-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass (2.14 Windows JDK 26 optional-provider profiles; [evidence](verification/verification-java-compression-providers-2026-10-20.md)). | JV-Z02 |
-| [ ] | JV-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | JV-Z03, JV-Z04, JV-Z05, JV-Z06, JV-Z07, JV-Z08, JV-Z09, JV-Z10 |
+| [x] | JV-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. Selected Windows SDK/provider profiles; [evidence](verification/verification-compression-parity-2026-10-20.md). | JV-Z03, JV-Z04, JV-Z05, JV-Z06, JV-Z07, JV-Z08, JV-Z09, JV-Z10 |
 
 #### Kotlin compression
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | KT-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly. | S31 |
-| [ ] | KT-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass. | KT-Z01 |
-| [ ] | KT-Z03 | 3 h | Gzip output; an independent decompressor accepts it. | KT-Z02 |
-| [ ] | KT-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass. | KT-Z02 |
-| [ ] | KT-Z05 | 3 h | Zlib output; an independent decompressor accepts it. | KT-Z02 |
-| [ ] | KT-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass. | KT-Z02 |
-| [ ] | KT-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees. | KT-Z02 |
-| [ ] | KT-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject. | KT-Z02 |
-| [ ] | KT-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. | KT-Z02 |
-| [ ] | KT-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. | KT-Z02 |
-| [ ] | KT-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | KT-Z03, KT-Z04, KT-Z05, KT-Z06, KT-Z07, KT-Z08, KT-Z09, KT-Z10 |
+| [x] | KT-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly (2.14 Windows Kotlin/JVM 17 profile; [evidence](verification/verification-kotlin-compression-2026-10-20.md)). | S31 |
+| [x] | KT-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass (2.14 Windows Kotlin/JVM 17 profile; [evidence](verification/verification-kotlin-compression-2026-10-20.md)). | KT-Z01 |
+| [x] | KT-Z03 | 3 h | Gzip output; an independent decompressor accepts it (2.14 Windows Kotlin/JVM 17 profile; [evidence](verification/verification-kotlin-compression-2026-10-20.md)). | KT-Z02 |
+| [x] | KT-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass (2.14 Windows Kotlin/JVM 17 profile; [evidence](verification/verification-kotlin-compression-2026-10-20.md)). | KT-Z02 |
+| [x] | KT-Z05 | 3 h | Zlib output; an independent decompressor accepts it (2.14 Windows Kotlin/JVM 17 profile; [evidence](verification/verification-kotlin-compression-2026-10-20.md)). | KT-Z02 |
+| [x] | KT-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass (2.14 Windows Kotlin/JVM 17 profile; [evidence](verification/verification-kotlin-compression-2026-10-20.md)). | KT-Z02 |
+| [x] | KT-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees (2.14 Windows Kotlin/JVM 17 profile; [evidence](verification/verification-kotlin-compression-2026-10-20.md)). | KT-Z02 |
+| [x] | KT-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject (2.14 Windows Kotlin/JVM 17 profile; [evidence](verification/verification-kotlin-compression-2026-10-20.md)). | KT-Z02 |
+| [x] | KT-Z09 | 4 h | Optional Zstandard adapter; lazy runtime jar, present/absent/failed-native admission, independent frames and actual Windows JVM17/Linux JRE replay pass; [evidence](verification/verification-kotlin-compression-providers-2026-10-20.md). | KT-Z02 |
+| [x] | KT-Z10 | 4 h | Optional safe-Java LZ4-frame adapter; linked history, checksums, present/absent deployment, independent frames and actual Windows JVM17/Linux JRE replay pass; [evidence](verification/verification-kotlin-compression-providers-2026-10-20.md). | KT-Z02 |
+| [x] | KT-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. Selected Windows SDK/provider profiles; [evidence](verification/verification-compression-parity-2026-10-20.md). | KT-Z03, KT-Z04, KT-Z05, KT-Z06, KT-Z07, KT-Z08, KT-Z09, KT-Z10 |
 
 #### C# compression
 
@@ -540,9 +540,9 @@
 | [x] | CS-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass (2.14 generated .NET 8 profile; [evidence](verification/verification-csharp-compression-2026-10-20.md)). | CS-Z02 |
 | [x] | CS-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees (2.14 generated .NET 8 profile; [evidence](verification/verification-csharp-compression-2026-10-20.md)). | CS-Z02 |
 | [x] | CS-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject (2.14 generated .NET 8 profile; [evidence](verification/verification-csharp-compression-2026-10-20.md)). | CS-Z02 |
-| [ ] | CS-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. | CS-Z02 |
-| [ ] | CS-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. | CS-Z02 |
-| [ ] | CS-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | CS-Z03, CS-Z04, CS-Z05, CS-Z06, CS-Z07, CS-Z08, CS-Z09, CS-Z10 |
+| [x] | CS-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. Selected 2.14 SDK profile; [evidence](verification/verification-csharp-compression-providers-2026-10-20.md). | CS-Z02 |
+| [x] | CS-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. Selected 2.14 SDK profile; [evidence](verification/verification-csharp-compression-providers-2026-10-20.md). | CS-Z02 |
+| [x] | CS-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. Selected Windows SDK/provider profiles; [evidence](verification/verification-compression-parity-2026-10-20.md). | CS-Z03, CS-Z04, CS-Z05, CS-Z06, CS-Z07, CS-Z08, CS-Z09, CS-Z10 |
 
 #### Go compression
 
@@ -556,89 +556,89 @@
 | [x] | GO-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass (2.14 Windows Go 1.26.4/Linux Go 1.26.0 profiles; [evidence](verification/verification-go-compression-2026-10-20.md)). | GO-Z02 |
 | [x] | GO-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees (2.14 Windows Go 1.26.4/Linux Go 1.26.0 profiles; [evidence](verification/verification-go-compression-2026-10-20.md)). | GO-Z02 |
 | [x] | GO-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject (2.14 Windows Go 1.26.4/Linux Go 1.26.0 profiles; [evidence](verification/verification-go-compression-2026-10-20.md)). | GO-Z02 |
-| [ ] | GO-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. | GO-Z02 |
-| [ ] | GO-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. | GO-Z02 |
-| [ ] | GO-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | GO-Z03, GO-Z04, GO-Z05, GO-Z06, GO-Z07, GO-Z08, GO-Z09, GO-Z10 |
+| [x] | GO-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass (2.14 actual Go 1.26/pinned module profile; [evidence](verification/verification-go-compression-providers-2026-10-20.md)). | GO-Z02 |
+| [x] | GO-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass (2.14 actual Go 1.26/pinned module profile; [evidence](verification/verification-go-compression-providers-2026-10-20.md)). | GO-Z02 |
+| [x] | GO-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. Selected Windows SDK/provider profiles; [evidence](verification/verification-compression-parity-2026-10-20.md). | GO-Z03, GO-Z04, GO-Z05, GO-Z06, GO-Z07, GO-Z08, GO-Z09, GO-Z10 |
 
 #### JavaScript compression
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | JS-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly. | S31 |
-| [ ] | JS-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass. | JS-Z01 |
-| [ ] | JS-Z03 | 3 h | Gzip output; an independent decompressor accepts it. | JS-Z02 |
-| [ ] | JS-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass. | JS-Z02 |
-| [ ] | JS-Z05 | 3 h | Zlib output; an independent decompressor accepts it. | JS-Z02 |
-| [ ] | JS-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass. | JS-Z02 |
-| [ ] | JS-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees. | JS-Z02 |
-| [ ] | JS-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject. | JS-Z02 |
-| [ ] | JS-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. | JS-Z02 |
-| [ ] | JS-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. | JS-Z02 |
-| [ ] | JS-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | JS-Z03, JS-Z04, JS-Z05, JS-Z06, JS-Z07, JS-Z08, JS-Z09, JS-Z10 |
+| [x] | JS-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly (2.14 Node 22/strict TypeScript profile; [evidence](verification/verification-javascript-compression-2026-10-20.md)). | S31 |
+| [x] | JS-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass (2.14 Node 22/strict TypeScript profile; [evidence](verification/verification-javascript-compression-2026-10-20.md)). | JS-Z01 |
+| [x] | JS-Z03 | 3 h | Gzip output; an independent decompressor accepts it (2.14 Node 22/strict TypeScript profile; [evidence](verification/verification-javascript-compression-2026-10-20.md)). | JS-Z02 |
+| [x] | JS-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass (2.14 Node 22/strict TypeScript profile; [evidence](verification/verification-javascript-compression-2026-10-20.md)). | JS-Z02 |
+| [x] | JS-Z05 | 3 h | Zlib output; an independent decompressor accepts it (2.14 Node 22/strict TypeScript profile; [evidence](verification/verification-javascript-compression-2026-10-20.md)). | JS-Z02 |
+| [x] | JS-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass (2.14 Node 22/strict TypeScript profile; [evidence](verification/verification-javascript-compression-2026-10-20.md)). | JS-Z02 |
+| [x] | JS-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees (2.14 Node 22/strict TypeScript profile; [evidence](verification/verification-javascript-compression-2026-10-20.md)). | JS-Z02 |
+| [x] | JS-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject (2.14 Node 22/strict TypeScript profile; [evidence](verification/verification-javascript-compression-2026-10-20.md)). | JS-Z02 |
+| [x] | JS-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. Selected 2.14 SDK profile; [evidence](verification/verification-javascript-compression-providers-2026-10-20.md). | JS-Z02 |
+| [x] | JS-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. Selected 2.14 SDK profile; [evidence](verification/verification-javascript-compression-providers-2026-10-20.md). | JS-Z02 |
+| [x] | JS-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. Selected Windows SDK/provider profiles; [evidence](verification/verification-compression-parity-2026-10-20.md). | JS-Z03, JS-Z04, JS-Z05, JS-Z06, JS-Z07, JS-Z08, JS-Z09, JS-Z10 |
 
 #### TypeScript compression
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | TS-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly. | S31 |
-| [ ] | TS-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass. | TS-Z01 |
-| [ ] | TS-Z03 | 3 h | Gzip output; an independent decompressor accepts it. | TS-Z02 |
-| [ ] | TS-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass. | TS-Z02 |
-| [ ] | TS-Z05 | 3 h | Zlib output; an independent decompressor accepts it. | TS-Z02 |
-| [ ] | TS-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass. | TS-Z02 |
-| [ ] | TS-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees. | TS-Z02 |
-| [ ] | TS-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject. | TS-Z02 |
-| [ ] | TS-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. | TS-Z02 |
-| [ ] | TS-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. | TS-Z02 |
-| [ ] | TS-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | TS-Z03, TS-Z04, TS-Z05, TS-Z06, TS-Z07, TS-Z08, TS-Z09, TS-Z10 |
+| [x] | TS-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly (2.14 Node 22/strict TypeScript profile; [evidence](verification/verification-javascript-compression-2026-10-20.md)). | S31 |
+| [x] | TS-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass (2.14 Node 22/strict TypeScript profile; [evidence](verification/verification-javascript-compression-2026-10-20.md)). | TS-Z01 |
+| [x] | TS-Z03 | 3 h | Gzip output; an independent decompressor accepts it (2.14 Node 22/strict TypeScript profile; [evidence](verification/verification-javascript-compression-2026-10-20.md)). | TS-Z02 |
+| [x] | TS-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass (2.14 Node 22/strict TypeScript profile; [evidence](verification/verification-javascript-compression-2026-10-20.md)). | TS-Z02 |
+| [x] | TS-Z05 | 3 h | Zlib output; an independent decompressor accepts it (2.14 Node 22/strict TypeScript profile; [evidence](verification/verification-javascript-compression-2026-10-20.md)). | TS-Z02 |
+| [x] | TS-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass (2.14 Node 22/strict TypeScript profile; [evidence](verification/verification-javascript-compression-2026-10-20.md)). | TS-Z02 |
+| [x] | TS-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees (2.14 Node 22/strict TypeScript profile; [evidence](verification/verification-javascript-compression-2026-10-20.md)). | TS-Z02 |
+| [x] | TS-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject (2.14 Node 22/strict TypeScript profile; [evidence](verification/verification-javascript-compression-2026-10-20.md)). | TS-Z02 |
+| [x] | TS-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. Selected 2.14 SDK profile; [evidence](verification/verification-javascript-compression-providers-2026-10-20.md). | TS-Z02 |
+| [x] | TS-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. Selected 2.14 SDK profile; [evidence](verification/verification-javascript-compression-providers-2026-10-20.md). | TS-Z02 |
+| [x] | TS-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. Selected Windows SDK/provider profiles; [evidence](verification/verification-compression-parity-2026-10-20.md). | TS-Z03, TS-Z04, TS-Z05, TS-Z06, TS-Z07, TS-Z08, TS-Z09, TS-Z10 |
 
 #### Rust compression
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | RS-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly. | S31 |
-| [ ] | RS-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass. | RS-Z01 |
-| [ ] | RS-Z03 | 3 h | Gzip output; an independent decompressor accepts it. | RS-Z02 |
-| [ ] | RS-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass. | RS-Z02 |
-| [ ] | RS-Z05 | 3 h | Zlib output; an independent decompressor accepts it. | RS-Z02 |
-| [ ] | RS-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass. | RS-Z02 |
-| [ ] | RS-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees. | RS-Z02 |
-| [ ] | RS-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject. | RS-Z02 |
-| [ ] | RS-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. | RS-Z02 |
-| [ ] | RS-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. | RS-Z02 |
-| [ ] | RS-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | RS-Z03, RS-Z04, RS-Z05, RS-Z06, RS-Z07, RS-Z08, RS-Z09, RS-Z10 |
+| [x] | RS-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly (2.14 actual Windows/native Linux Rust SDK profiles; [evidence](verification/verification-rust-compression-2026-10-20.md)). | S31 |
+| [x] | RS-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass (2.14 actual Windows/native Linux Rust SDK profiles; [evidence](verification/verification-rust-compression-2026-10-20.md)). | RS-Z01 |
+| [x] | RS-Z03 | 3 h | Gzip output; an independent decompressor accepts it (2.14 actual Windows/native Linux Rust SDK profiles; [evidence](verification/verification-rust-compression-2026-10-20.md)). | RS-Z02 |
+| [x] | RS-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass (2.14 actual Windows/native Linux Rust SDK profiles; [evidence](verification/verification-rust-compression-2026-10-20.md)). | RS-Z02 |
+| [x] | RS-Z05 | 3 h | Zlib output; an independent decompressor accepts it (2.14 actual Windows/native Linux Rust SDK profiles; [evidence](verification/verification-rust-compression-2026-10-20.md)). | RS-Z02 |
+| [x] | RS-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass (2.14 actual Windows/native Linux Rust SDK profiles; [evidence](verification/verification-rust-compression-2026-10-20.md)). | RS-Z02 |
+| [x] | RS-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees (2.14 actual Windows/native Linux Rust SDK profiles; [evidence](verification/verification-rust-compression-2026-10-20.md)). | RS-Z02 |
+| [x] | RS-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject (2.14 actual Windows/native Linux Rust SDK profiles; [evidence](verification/verification-rust-compression-2026-10-20.md)). | RS-Z02 |
+| [x] | RS-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. Selected Windows/Linux2.14 SDK profiles; [evidence](verification/verification-rust-compression-providers-2026-10-20.md). | RS-Z02 |
+| [x] | RS-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. Selected Windows/Linux2.14 SDK profiles; [evidence](verification/verification-rust-compression-providers-2026-10-20.md). | RS-Z02 |
+| [x] | RS-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. Selected Windows SDK/provider profiles; [evidence](verification/verification-compression-parity-2026-10-20.md). | RS-Z03, RS-Z04, RS-Z05, RS-Z06, RS-Z07, RS-Z08, RS-Z09, RS-Z10 |
 
 #### Swift compression
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | SW-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly. | S31 |
-| [ ] | SW-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass. | SW-Z01 |
-| [ ] | SW-Z03 | 3 h | Gzip output; an independent decompressor accepts it. | SW-Z02 |
-| [ ] | SW-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass. | SW-Z02 |
-| [ ] | SW-Z05 | 3 h | Zlib output; an independent decompressor accepts it. | SW-Z02 |
-| [ ] | SW-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass. | SW-Z02 |
-| [ ] | SW-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees. | SW-Z02 |
-| [ ] | SW-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject. | SW-Z02 |
-| [ ] | SW-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. | SW-Z02 |
-| [ ] | SW-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. | SW-Z02 |
-| [ ] | SW-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | SW-Z03, SW-Z04, SW-Z05, SW-Z06, SW-Z07, SW-Z08, SW-Z09, SW-Z10 |
+| [x] | SW-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly (2.14 native Linux Swift 6.1.3 profile; [evidence](verification/verification-swift-compression-2026-10-20.md)). | S31 |
+| [x] | SW-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass (2.14 native Linux Swift 6.1.3 profile; [evidence](verification/verification-swift-compression-2026-10-20.md)). | SW-Z01 |
+| [x] | SW-Z03 | 3 h | Gzip output; an independent decompressor accepts it (2.14 native Linux Swift 6.1.3 profile; [evidence](verification/verification-swift-compression-2026-10-20.md)). | SW-Z02 |
+| [x] | SW-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass (2.14 native Linux Swift 6.1.3 profile; [evidence](verification/verification-swift-compression-2026-10-20.md)). | SW-Z02 |
+| [x] | SW-Z05 | 3 h | Zlib output; an independent decompressor accepts it (2.14 native Linux Swift 6.1.3 profile; [evidence](verification/verification-swift-compression-2026-10-20.md)). | SW-Z02 |
+| [x] | SW-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass (2.14 native Linux Swift 6.1.3 profile; [evidence](verification/verification-swift-compression-2026-10-20.md)). | SW-Z02 |
+| [x] | SW-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees (2.14 native Linux Swift 6.1.3 profile; [evidence](verification/verification-swift-compression-2026-10-20.md)). | SW-Z02 |
+| [x] | SW-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject (2.14 native Linux Swift 6.1.3 profile; [evidence](verification/verification-swift-compression-2026-10-20.md)). | SW-Z02 |
+| [x] | SW-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. Selected Windows/Linux 2.14 SDK profiles; [evidence](verification/verification-swift-compression-providers-2026-10-20.md). | SW-Z02 |
+| [x] | SW-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. Selected Windows/Linux 2.14 SDK profiles; [evidence](verification/verification-swift-compression-providers-2026-10-20.md). | SW-Z02 |
+| [x] | SW-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. Selected Windows SDK/provider profiles; [evidence](verification/verification-compression-parity-2026-10-20.md). | SW-Z03, SW-Z04, SW-Z05, SW-Z06, SW-Z07, SW-Z08, SW-Z09, SW-Z10 |
 
 #### C compression
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | C-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly. | S31 |
-| [ ] | C-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass. | C-Z01 |
-| [ ] | C-Z03 | 3 h | Gzip output; an independent decompressor accepts it. | C-Z02 |
-| [ ] | C-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass. | C-Z02 |
-| [ ] | C-Z05 | 3 h | Zlib output; an independent decompressor accepts it. | C-Z02 |
-| [ ] | C-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass. | C-Z02 |
-| [ ] | C-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees. | C-Z02 |
-| [ ] | C-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject. | C-Z02 |
-| [ ] | C-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass. | C-Z02 |
-| [ ] | C-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass. | C-Z02 |
-| [ ] | C-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. | C-Z03, C-Z04, C-Z05, C-Z06, C-Z07, C-Z08, C-Z09, C-Z10 |
+| [x] | C-Z01 | 2 h | Provider/API and dependency-absence behavior; unavailable providers fail clearly (2.14 native Windows/Linux C11 SDK profiles; [evidence](verification/verification-c-compression-2026-10-20.md)). | S31 |
+| [x] | C-Z02 | 3 h | Identity source/sink wrappers; exact finish/trailing-input/failure tests pass (2.14 native Windows/Linux C11 SDK profiles; [evidence](verification/verification-c-compression-2026-10-20.md)). | C-Z01 |
+| [x] | C-Z03 | 3 h | Gzip output; an independent decompressor accepts it (2.14 native Windows/Linux C11 SDK profiles; [evidence](verification/verification-c-compression-2026-10-20.md)). | C-Z02 |
+| [x] | C-Z04 | 3 h | Gzip input; malformed, concatenated and expansion-boundary fixtures pass (2.14 native Windows/Linux C11 SDK profiles; [evidence](verification/verification-c-compression-2026-10-20.md)). | C-Z02 |
+| [x] | C-Z05 | 3 h | Zlib output; an independent decompressor accepts it (2.14 native Windows/Linux C11 SDK profiles; [evidence](verification/verification-c-compression-2026-10-20.md)). | C-Z02 |
+| [x] | C-Z06 | 3 h | Zlib input; framing/checksum boundary fixtures pass (2.14 native Windows/Linux C11 SDK profiles; [evidence](verification/verification-c-compression-2026-10-20.md)). | C-Z02 |
+| [x] | C-Z07 | 3 h | Raw-DEFLATE output; independent decompression agrees (2.14 native Windows/Linux C11 SDK profiles; [evidence](verification/verification-c-compression-2026-10-20.md)). | C-Z02 |
+| [x] | C-Z08 | 3 h | Raw-DEFLATE input; truncation and trailing-input cases reject (2.14 native Windows/Linux C11 SDK profiles; [evidence](verification/verification-c-compression-2026-10-20.md)). | C-Z02 |
+| [x] | C-Z09 | 4 h | Optional Zstandard adapter; present/absent-provider and independent-frame checks pass (2.14 actual Windows/Linux C11 optional-provider profiles; [evidence](verification/verification-c-compression-providers-2026-10-20.md)). | C-Z02 |
+| [x] | C-Z10 | 4 h | Optional LZ4-frame adapter; present/absent-provider and independent-frame checks pass (2.14 actual Windows/Linux C11 optional-provider profiles; [evidence](verification/verification-c-compression-providers-2026-10-20.md)). | C-Z02 |
+| [x] | C-Z11 | 4 h | Shared limits, cancellation and failure fencing; every framing/error/limit contract matches S35 fixtures. Selected Windows SDK/provider profiles; [evidence](verification/verification-compression-parity-2026-10-20.md). | C-Z03, C-Z04, C-Z05, C-Z06, C-Z07, C-Z08, C-Z09, C-Z10 |
 
 ### Package tasks for each language
 
@@ -654,16 +654,16 @@
 | [x] | CP-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P02 |
 | [x] | CP-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P03 |
 | [x] | CP-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P06 |
-| [ ] | CP-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | CP-P07 |
-| [x] | CP-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass (2.14 native Linux reference profile, independent signature-CRC controls; [evidence](verification/verification-package-lifecycle-2026-10-20.md)). | CP-P05, CP-P07 |
-| [ ] | CP-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | CP-P03 |
-| [ ] | CP-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | CP-P02 |
+| [x] | CP-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass (2.14 Windows/Linux reference profiles, sparse offsets above 4 GiB and real 65K counts; [evidence](verification/verification-package-zip64-input-2026-10-20.md)). | CP-P07 |
+| [x] | CP-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass (2.14 native Windows/Linux reference profiles, independent signature-CRC controls; [evidence](verification/verification-package-lifecycle-2026-10-20.md)). | CP-P05, CP-P07 |
+| [x] | CP-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass (2.14 native Windows/Linux profiles; [evidence](verification/verification-package-lifecycle-2026-10-20.md)). | CP-P03 |
+| [x] | CP-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file (2.14 native Windows/Linux static profiles; [evidence](verification/verification-package-save-faults-2026-10-20.md)). | CP-P02 |
 | [x] | CP-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P03 |
 | [x] | CP-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P13 |
-| [ ] | CP-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | CP-P14, S32 |
+| [x] | CP-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing (2.14 generated C++ Windows/Linux reference profiles; [evidence](verification/verification-package-profiles-2026-10-20.md)). | CP-P14, S32 |
 | [ ] | CP-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | CP-P15 |
-| [ ] | CP-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | CP-P15 |
-| [ ] | CP-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | CP-P17 |
+| [x] | CP-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass (2.14 native Windows/Linux reference profiles; [evidence](verification/verification-package-profiles-2026-10-20.md)). | CP-P15 |
+| [x] | CP-P18 | 3 h | Preserved whole-part namespace/link context; edited-package references are revalidated (2.14 native Windows/Linux reference profiles; [evidence](verification/verification-package-profiles-2026-10-20.md)). | CP-P17 |
 | [x] | CP-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations (2.14 selected C++ reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | CP-P02, CP-P14 |
 | [ ] | CP-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, CP-P15 |
 | [ ] | CP-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | CP-P16, CP-P20 |
@@ -680,16 +680,16 @@
 | [x] | PY-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes (2.14 selected Python reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | PY-P02 |
 | [x] | PY-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass (2.14 selected Python reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | PY-P03 |
 | [x] | PY-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees (2.14 selected Python reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | PY-P06 |
-| [ ] | PY-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | PY-P07 |
+| [x] | PY-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass (2.14 Windows/Linux reference profiles, sparse offsets above 4 GiB and real 65K counts; [evidence](verification/verification-package-zip64-input-2026-10-20.md)). | PY-P07 |
 | [x] | PY-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass (2.14 selected Python reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | PY-P05, PY-P07 |
 | [x] | PY-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass (2.14 Windows/Linux generated reference profile; [evidence](verification/verification-package-lifecycle-2026-10-20.md)). | PY-P03 |
 | [x] | PY-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file (2.14 Windows/Linux generated reference profile; [evidence](verification/verification-package-lifecycle-2026-10-20.md)). | PY-P02 |
 | [x] | PY-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass (2.14 selected Python reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | PY-P03 |
 | [x] | PY-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject (2.14 selected Python reference profile; [evidence](verification/verification-package-reference-2026-10-20.md)). | PY-P13 |
-| [ ] | PY-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | PY-P14, S32 |
+| [x] | PY-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing (2.14 Windows/Linux generated reference profile; [evidence](verification/verification-package-profiles-2026-10-20.md)). | PY-P14, S32 |
 | [ ] | PY-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | PY-P15 |
-| [ ] | PY-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | PY-P15 |
-| [ ] | PY-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | PY-P17 |
+| [x] | PY-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass (2.14 Windows/Linux generated reference profile; [evidence](verification/verification-package-profiles-2026-10-20.md)). | PY-P15 |
+| [x] | PY-P18 | 3 h | Preserved whole-part namespace/link context; edited-package references are revalidated (2.14 Windows/Linux generated reference profile; [evidence](verification/verification-package-profiles-2026-10-20.md)). | PY-P17 |
 | [x] | PY-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations (2.14 Windows/Linux unordered part/link sets with stable identities; [evidence](verification/verification-package-lifecycle-2026-10-20.md)). | PY-P02, PY-P14 |
 | [ ] | PY-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, PY-P15 |
 | [ ] | PY-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | PY-P16, PY-P20 |
@@ -698,25 +698,25 @@
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | JV-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. | S31 |
-| [ ] | JV-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. | JV-P01 |
-| [ ] | JV-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. | JV-P01 |
-| [ ] | JV-P04 | 3 h | DEFLATE entry output; independent inflation agrees. | JV-P02, JV-Z07 |
-| [ ] | JV-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. | JV-P03, JV-Z08 |
-| [ ] | JV-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. | JV-P02 |
-| [ ] | JV-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. | JV-P03 |
-| [ ] | JV-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. | JV-P06 |
-| [ ] | JV-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | JV-P07 |
-| [ ] | JV-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. | JV-P05, JV-P07 |
-| [ ] | JV-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | JV-P03 |
-| [ ] | JV-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | JV-P02 |
-| [ ] | JV-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. | JV-P03 |
-| [ ] | JV-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. | JV-P13 |
-| [ ] | JV-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | JV-P14, S32 |
+| [x] | JV-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | S31 |
+| [x] | JV-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P01 |
+| [x] | JV-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P01 |
+| [x] | JV-P04 | 3 h | DEFLATE entry output; independent inflation agrees (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P02, JV-Z07 |
+| [x] | JV-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P03, JV-Z08 |
+| [x] | JV-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P02 |
+| [x] | JV-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P03 |
+| [x] | JV-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P06 |
+| [x] | JV-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P07 |
+| [x] | JV-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P05, JV-P07 |
+| [x] | JV-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P03 |
+| [x] | JV-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P02 |
+| [x] | JV-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P03 |
+| [x] | JV-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P13 |
+| [x] | JV-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P14, S32 |
 | [ ] | JV-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | JV-P15 |
-| [ ] | JV-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | JV-P15 |
-| [ ] | JV-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | JV-P17 |
-| [ ] | JV-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. | JV-P02, JV-P14 |
+| [x] | JV-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P15 |
+| [x] | JV-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P17 |
+| [x] | JV-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations (2.14 actual Java17 SDK and selected LinuxJRE runtime profile; [evidence](verification/verification-java-packages-2026-10-20.md)). | JV-P02, JV-P14 |
 | [ ] | JV-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, JV-P15 |
 | [ ] | JV-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | JV-P16, JV-P20 |
 
@@ -776,25 +776,25 @@
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | GO-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. | S31 |
-| [ ] | GO-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. | GO-P01 |
-| [ ] | GO-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. | GO-P01 |
-| [ ] | GO-P04 | 3 h | DEFLATE entry output; independent inflation agrees. | GO-P02, GO-Z07 |
-| [ ] | GO-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. | GO-P03, GO-Z08 |
-| [ ] | GO-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. | GO-P02 |
-| [ ] | GO-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. | GO-P03 |
-| [ ] | GO-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. | GO-P06 |
-| [ ] | GO-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | GO-P07 |
-| [ ] | GO-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. | GO-P05, GO-P07 |
-| [ ] | GO-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | GO-P03 |
-| [ ] | GO-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | GO-P02 |
-| [ ] | GO-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. | GO-P03 |
-| [ ] | GO-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. | GO-P13 |
-| [ ] | GO-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | GO-P14, S32 |
+| [x] | GO-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. Selected 2.14 SDK profile; [evidence](verification/verification-go-packages-2026-10-20.md). | S31 |
+| [x] | GO-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. Selected 2.14 SDK profile; [evidence](verification/verification-go-packages-2026-10-20.md). | GO-P01 |
+| [x] | GO-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. Selected 2.14 SDK profile; [evidence](verification/verification-go-packages-2026-10-20.md). | GO-P01 |
+| [x] | GO-P04 | 3 h | DEFLATE entry output; independent inflation agrees. Selected 2.14 SDK profile; [evidence](verification/verification-go-packages-2026-10-20.md). | GO-P02, GO-Z07 |
+| [x] | GO-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. Selected 2.14 SDK profile; [evidence](verification/verification-go-packages-2026-10-20.md). | GO-P03, GO-Z08 |
+| [x] | GO-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. Selected 2.14 SDK profile; [evidence](verification/verification-go-packages-2026-10-20.md). | GO-P02 |
+| [x] | GO-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. Selected 2.14 SDK profile; [evidence](verification/verification-go-packages-2026-10-20.md). | GO-P03 |
+| [x] | GO-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. Selected 2.14 SDK profile; [evidence](verification/verification-go-packages-2026-10-20.md). | GO-P06 |
+| [x] | GO-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. Selected 2.14 SDK profile; [evidence](verification/verification-go-packages-2026-10-20.md). | GO-P07 |
+| [x] | GO-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. Selected 2.14 SDK profile; [evidence](verification/verification-go-packages-2026-10-20.md). | GO-P05, GO-P07 |
+| [x] | GO-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. Selected 2.14 SDK profile; [evidence](verification/verification-go-packages-2026-10-20.md). | GO-P03 |
+| [x] | GO-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. Selected 2.14 SDK profile; [evidence](verification/verification-go-packages-2026-10-20.md). | GO-P02 |
+| [x] | GO-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. Selected Windows/Linux Go 1.22-compatible OPC profile; [evidence](verification/verification-go-opc-packages-2026-10-20.md). | GO-P03 |
+| [x] | GO-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. Selected Windows/Linux Go 1.22-compatible OPC profile; [evidence](verification/verification-go-opc-packages-2026-10-20.md). | GO-P13 |
+| [x] | GO-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. Selected Windows/Linux Go 1.22-compatible OPC profile; [evidence](verification/verification-go-opc-packages-2026-10-20.md). | GO-P14, S32 |
 | [ ] | GO-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | GO-P15 |
-| [ ] | GO-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | GO-P15 |
-| [ ] | GO-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | GO-P17 |
-| [ ] | GO-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. | GO-P02, GO-P14 |
+| [x] | GO-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. Selected Windows/Linux Go 1.22-compatible OPC profile; [evidence](verification/verification-go-opc-packages-2026-10-20.md). | GO-P15 |
+| [x] | GO-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. Selected Windows/Linux Go 1.22-compatible OPC profile; [evidence](verification/verification-go-opc-packages-2026-10-20.md). | GO-P17 |
+| [x] | GO-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. Selected Windows/Linux Go 1.22-compatible OPC profile; [evidence](verification/verification-go-opc-packages-2026-10-20.md). | GO-P02, GO-P14 |
 | [ ] | GO-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, GO-P15 |
 | [ ] | GO-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | GO-P16, GO-P20 |
 
@@ -802,25 +802,25 @@
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | JS-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. | S31 |
-| [ ] | JS-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. | JS-P01 |
-| [ ] | JS-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. | JS-P01 |
-| [ ] | JS-P04 | 3 h | DEFLATE entry output; independent inflation agrees. | JS-P02, JS-Z07 |
-| [ ] | JS-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. | JS-P03, JS-Z08 |
-| [ ] | JS-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. | JS-P02 |
-| [ ] | JS-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. | JS-P03 |
-| [ ] | JS-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. | JS-P06 |
-| [ ] | JS-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | JS-P07 |
-| [ ] | JS-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. | JS-P05, JS-P07 |
-| [ ] | JS-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | JS-P03 |
-| [ ] | JS-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | JS-P02 |
-| [ ] | JS-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. | JS-P03 |
-| [ ] | JS-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. | JS-P13 |
-| [ ] | JS-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | JS-P14, S32 |
+| [x] | JS-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | S31 |
+| [x] | JS-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P01 |
+| [x] | JS-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P01 |
+| [x] | JS-P04 | 3 h | DEFLATE entry output; independent inflation agrees (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P02, JS-Z07 |
+| [x] | JS-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P03, JS-Z08 |
+| [x] | JS-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P02 |
+| [x] | JS-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P03 |
+| [x] | JS-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P06 |
+| [x] | JS-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P07 |
+| [x] | JS-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P05, JS-P07 |
+| [x] | JS-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P03 |
+| [x] | JS-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P02 |
+| [x] | JS-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P03 |
+| [x] | JS-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P13 |
+| [x] | JS-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P14, S32 |
 | [ ] | JS-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | JS-P15 |
-| [ ] | JS-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | JS-P15 |
-| [ ] | JS-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | JS-P17 |
-| [ ] | JS-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. | JS-P02, JS-P14 |
+| [x] | JS-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P15 |
+| [x] | JS-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P17 |
+| [x] | JS-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | JS-P02, JS-P14 |
 | [ ] | JS-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, JS-P15 |
 | [ ] | JS-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | JS-P16, JS-P20 |
 
@@ -828,25 +828,25 @@
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | TS-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests. | S31 |
-| [ ] | TS-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output. | TS-P01 |
-| [ ] | TS-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass. | TS-P01 |
-| [ ] | TS-P04 | 3 h | DEFLATE entry output; independent inflation agrees. | TS-P02, TS-Z07 |
-| [ ] | TS-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject. | TS-P03, TS-Z08 |
-| [ ] | TS-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes. | TS-P02 |
-| [ ] | TS-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass. | TS-P03 |
-| [ ] | TS-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees. | TS-P06 |
-| [ ] | TS-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass. | TS-P07 |
-| [ ] | TS-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass. | TS-P05, TS-P07 |
-| [ ] | TS-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass. | TS-P03 |
-| [ ] | TS-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file. | TS-P02 |
-| [ ] | TS-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass. | TS-P03 |
-| [ ] | TS-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject. | TS-P13 |
-| [ ] | TS-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing. | TS-P14, S32 |
+| [x] | TS-P01 | 3 h | Source/sink/metadata/shared-budget foundation; source boundaries have tests (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | S31 |
+| [x] | TS-P02 | 3 h | Stored ZIP writer; an independent ZIP reader opens its output (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P01 |
+| [x] | TS-P03 | 4 h | ZIP32 directory reader; independent and malformed-offset fixtures pass (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P01 |
+| [x] | TS-P04 | 3 h | DEFLATE entry output; independent inflation agrees (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P02, TS-Z07 |
+| [x] | TS-P05 | 3 h | DEFLATE entry input; CRC/size/trailing-data failures reject (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P03, TS-Z08 |
+| [x] | TS-P06 | 3 h | ZIP64 entry writer; a forced-small independent fixture passes (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P02 |
+| [x] | TS-P07 | 3 h | ZIP64 entry reader; Python-produced fixtures pass (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P03 |
+| [x] | TS-P08 | 3 h | ZIP64 directory/locator output; an independent directory inspector agrees (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P06 |
+| [x] | TS-P09 | 3 h | ZIP64 directory/locator input; large-offset/count boundary fixtures pass (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P07 |
+| [x] | TS-P10 | 3 h | Descriptor forms; signed/unsigned 32/64-bit fixtures pass (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P05, TS-P07 |
+| [x] | TS-P11 | 3 h | Bounded nonseekable spooling; cancellation, cleanup and private-temp tests pass (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P03 |
+| [x] | TS-P12 | 3 h | Staged full-Save replacement; injected faults leave an old or complete new file (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P02 |
+| [x] | TS-P13 | 3 h | OPC names/content types; normalization, duplicate and conflict fixtures pass (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P03 |
+| [x] | TS-P14 | 3 h | Scoped relationships/targets; dangling and escaping targets reject (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P13 |
+| [x] | TS-P15 | 3 h | Transactional typed aggregate loading; a middle-part failure publishes nothing (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P14, S32 |
 | [ ] | TS-P16 | 3 h | Automatic shared codec/reference budgets and diagnostics; exhaustion identifies part/field/link. | TS-P15 |
-| [ ] | TS-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass. | TS-P15 |
-| [ ] | TS-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated. | TS-P17 |
-| [ ] | TS-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations. | TS-P02, TS-P14 |
+| [x] | TS-P17 | 3 h | Opaque part policies; optional/required reject/skip/preserve fixtures pass (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P15 |
+| [x] | TS-P18 | 3 h | Preserved relationship/namespace context; edited-package references are revalidated (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P17 |
+| [x] | TS-P19 | 3 h | Canonical ordering/metadata; independent byte equality survives input permutations (2.14 selected Node/strict TypeScript and Windows filesystem profile; [evidence](verification/verification-javascript-packages-2026-10-20.md)). | TS-P02, TS-P14 |
 | [ ] | TS-P20 | 3 h | Generated fixed/default/runtime profiles; expected type is checked before decoding/publication. | S31, S32, TS-P15 |
 | [ ] | TS-P21 | 3 h | Generated application reference checks; duplicate/missing/wrong-type keys reject. | TS-P16, TS-P20 |
 
@@ -934,36 +934,36 @@
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | CP-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [x] | CP-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | CP-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
-| [ ] | CP-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
-| [ ] | CP-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
-| [ ] | CP-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
-| [ ] | CP-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
-| [ ] | CP-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
-| [ ] | CP-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
+| [x] | CP-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
+| [x] | CP-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
+| [x] | CP-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. Selected MSVC Windows owning workloads; [evidence](verification/verification-cpp-xml-performance-2026-10-20.md). | — |
+| [x] | CP-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. Selected MSVC Windows process high-water residency; [evidence](verification/verification-cpp-xml-performance-2026-10-20.md). | — |
+| [x] | CP-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. Selected MSVC Windows owning workloads; [evidence](verification/verification-cpp-xml-performance-2026-10-20.md). | — |
+| [x] | CP-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. Selected Windows/Linux owning profiles; [evidence](verification/verification-cpp-xml-performance-2026-10-20.md). | — |
 
 #### Python qualification
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | PY-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [x] | PY-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | PY-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
-| [ ] | PY-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
-| [ ] | PY-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
-| [ ] | PY-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
-| [ ] | PY-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
-| [ ] | PY-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
-| [ ] | PY-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. | — |
+| [x] | PY-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
+| [x] | PY-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
+| [x] | PY-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. Selected Python 3.14 Windows owning workloads; [evidence](verification/verification-python-xml-performance-2026-10-20.md). | — |
+| [x] | PY-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. Selected Python 3.14 Windows owning workloads; [evidence](verification/verification-python-xml-performance-2026-10-20.md). | — |
+| [x] | PY-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. Selected Python 3.14 Windows owning workloads; [evidence](verification/verification-python-xml-performance-2026-10-20.md). | — |
+| [x] | PY-Q08 | 3 h | Supported-platform and reproducibility replay passes for every claimed platform. Selected Windows/Linux owning profiles; [evidence](verification/verification-python-xml-performance-2026-10-20.md). | — |
 
 #### Java qualification
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | JV-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [x] | JV-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | JV-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
-| [ ] | JV-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
-| [ ] | JV-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [x] | JV-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
+| [x] | JV-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | JV-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
 | [ ] | JV-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
 | [ ] | JV-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
@@ -973,10 +973,10 @@
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | KT-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [x] | KT-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | KT-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
-| [ ] | KT-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
-| [ ] | KT-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [x] | KT-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
+| [x] | KT-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | KT-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
 | [ ] | KT-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
 | [ ] | KT-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
@@ -986,10 +986,10 @@
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | CS-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [x] | CS-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | CS-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
-| [ ] | CS-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
-| [ ] | CS-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [x] | CS-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
+| [x] | CS-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | CS-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
 | [ ] | CS-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
 | [ ] | CS-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
@@ -999,10 +999,10 @@
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | GO-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [x] | GO-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | GO-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
-| [ ] | GO-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
-| [ ] | GO-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [x] | GO-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
+| [x] | GO-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | GO-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
 | [ ] | GO-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
 | [ ] | GO-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
@@ -1012,10 +1012,10 @@
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | JS-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [x] | JS-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | JS-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
-| [ ] | JS-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
-| [ ] | JS-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [x] | JS-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
+| [x] | JS-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | JS-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
 | [ ] | JS-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
 | [ ] | JS-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
@@ -1025,10 +1025,10 @@
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | TS-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [x] | TS-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | TS-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
-| [ ] | TS-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
-| [ ] | TS-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [x] | TS-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
+| [x] | TS-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | TS-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
 | [ ] | TS-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
 | [ ] | TS-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
@@ -1038,10 +1038,10 @@
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | RS-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [x] | RS-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | RS-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
-| [ ] | RS-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
-| [ ] | RS-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [x] | RS-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
+| [x] | RS-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | RS-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
 | [ ] | RS-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
 | [ ] | RS-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
@@ -1051,10 +1051,10 @@
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | SW-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [x] | SW-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | SW-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
-| [ ] | SW-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
-| [ ] | SW-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [x] | SW-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
+| [x] | SW-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | SW-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
 | [ ] | SW-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
 | [ ] | SW-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
@@ -1064,10 +1064,10 @@
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | C-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. | — |
+| [x] | C-Q01 | 2 h | Actual SDK compilation/run and native format-selection/XML independence pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | C-Q02 | 3 h | Malformed-input/resource/cancellation corpus passes with explicit providers. | — |
-| [ ] | C-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. | — |
-| [ ] | C-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. | — |
+| [x] | C-Q03 | 2 h | This language produces fixtures consumed by every selected backend; no silent skips. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
+| [x] | C-Q04 | 2 h | XML-disabled and minimal-provider generation/build/link checks pass. Selected Windows eleven-language profiles; [evidence](verification/verification-xml-exchange-2026-10-20.md). | — |
 | [ ] | C-Q05 | 2 h | Reproducible XML CPU/throughput measurements record workloads and baselines. | — |
 | [ ] | C-Q06 | 3 h | Peak-memory/allocation measurements record workload, SDK and measurement limits. | — |
 | [ ] | C-Q07 | 2 h | XML encoded-size and generated-code-size measurements are retained. | — |
@@ -1077,28 +1077,28 @@
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | D01 | 3 h | Saved-baseline identity/layout/digest format; altered-identity byte fixtures reject. | S31 |
-| [ ] | D02 | 3 h | Sidecar generation manifest; stale/foreign documents fail before payload decoding. | D01 |
-| [ ] | D03 | 3 h | Object-ID snapshot restoration; IDs survive Save/reopen unchanged. | D01 |
-| [ ] | D04 | 3 h | Allocation high-water restoration; issued IDs are never reused. | D03 |
-| [ ] | D05 | 4 h | Retained-history checkpoint transfer; undo/redo survives reopen. | D03 |
-| [ ] | D06 | 3 h | Branch/cursor transfer; forked-history/current-cursor fixtures pass. | D05 |
-| [ ] | D07 | 3 h | Data-only document encoder; independent inspection finds no side-channel records. | D01, CP-P12 |
-| [ ] | D08 | 3 h | Stage document/sidecars under a new generation; staging failure preserves publication. | D02, D04, D05, D06, D07 |
-| [ ] | D09 | 3 h | Publication state machine/commit marker; every transition has a fixture. | D08 |
-| [ ] | D10 | 3 h | Windows durable replacement; injected faults preserve one coherent generation. | D09 |
-| [ ] | D11 | 3 h | Linux durable replacement; matching fault/synchronization tests pass. | D09 |
-| [ ] | D12 | 3 h | Precommit recovery; each interruption reopens the old baseline/history. | D10, D11 |
-| [ ] | D13 | 3 h | Postcommit recovery; each interruption reopens the new baseline/history. | D10, D11 |
-| [ ] | D14 | 3 h | Journal baseline fence/replay; mismatches reject before decoding/replay. | D02, D12, D13 |
-| [ ] | D15 | 3 h | Collaboration/session/outbox fences; pending state cannot cross saved baselines. | D02, D12, D13 |
-| [ ] | D16 | 3 h | Full Save/reopen integration; IDs/history/cursors/journal/session remain coherent. | D04, D05, D06, D12, D13, D14, D15 |
-| [ ] | D17 | 3 h | Legacy native compatibility replay; existing bytes/APIs retain their contract. | D16 |
-| [ ] | D18 | 2 h | Final-file isolation audit; independent inspection finds no side channels. | D16 |
-| [ ] | D19 | 3 h | Bounded pre-publication crash matrix; old-generation recovery passes. | D16 |
-| [ ] | D20 | 3 h | Bounded post-publication crash matrix; new-generation recovery passes. | D16 |
-| [ ] | D21 | 2 h | Executable usage/migration example; Save/load instructions and limitations match results. | D17, D18, D19, D20 |
-| [x] | D22 | 4 h | Checked first-time identified typed storage, stored document namespace and native allocation watermark; preserve IDs/references/burned gaps and one history baseline; validate before publication/scoped resource hooks, then qualify native Save/recovery (2.14 eight Windows C++ profiles; [evidence](verification/verification-managed-identified-baseline-2026-10-20.md)). | MR04, MR05 |
+| [x] | D01 | 3 h | Saved-baseline identity/layout/digest format; altered-identity byte fixtures reject. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | S31 |
+| [x] | D02 | 3 h | Sidecar generation manifest; stale/foreign documents fail before payload decoding. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D01 |
+| [x] | D03 | 3 h | Object-ID snapshot restoration; IDs survive Save/reopen unchanged. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D01 |
+| [x] | D04 | 3 h | Allocation high-water restoration; issued IDs are never reused. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D03 |
+| [x] | D05 | 4 h | Retained-history checkpoint transfer; undo/redo survives reopen. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D03 |
+| [x] | D06 | 3 h | Branch/cursor transfer; forked-history/current-cursor fixtures pass. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D05 |
+| [x] | D07 | 3 h | Data-only document encoder; independent inspection finds no side-channel records. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D01, CP-P12 |
+| [x] | D08 | 3 h | Stage document/sidecars under a new generation; staging failure preserves publication. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D02, D04, D05, D06, D07 |
+| [x] | D09 | 3 h | Publication state machine/commit marker; every transition has a fixture. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D08 |
+| [x] | D10 | 3 h | Windows durable replacement; injected faults preserve one coherent generation. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D09 |
+| [x] | D11 | 3 h | Linux durable replacement; matching fault/synchronization tests pass. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D09 |
+| [x] | D12 | 3 h | Precommit recovery; each interruption reopens the old baseline/history. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D10, D11 |
+| [x] | D13 | 3 h | Postcommit recovery; each interruption reopens the new baseline/history. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D10, D11 |
+| [x] | D14 | 3 h | Journal baseline fence/replay; mismatches reject before decoding/replay. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D02, D12, D13 |
+| [x] | D15 | 3 h | Collaboration/session/outbox fences; pending state cannot cross saved baselines. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D02, D12, D13 |
+| [x] | D16 | 3 h | Full Save/reopen integration; IDs/history/cursors/journal/session remain coherent. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D04, D05, D06, D12, D13, D14, D15 |
+| [x] | D17 | 3 h | Legacy native compatibility replay; existing bytes/APIs retain their contract. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D16 |
+| [x] | D18 | 2 h | Final-file isolation audit; independent inspection finds no side channels. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D16 |
+| [x] | D19 | 3 h | Bounded pre-publication crash matrix; old-generation recovery passes. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D16 |
+| [x] | D20 | 3 h | Bounded post-publication crash matrix; new-generation recovery passes. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D16 |
+| [x] | D21 | 2 h | Executable usage/migration example; Save/load instructions and limitations match results. Selected C++ native/external-JSON Windows/Linux profile; [evidence](verification/verification-managed-document-bridge-2026-10-20.md). | D17, D18, D19, D20 |
+| [x] | D22 | 4 h | Checked first-time identified typed storage, stored document namespace and native allocation watermark; preserve IDs/references/burned gaps and one history baseline; validate before publication/scoped resource hooks, then qualify native Save/recovery (2.14 eight Windows/Linux C++ profiles; [evidence](verification/verification-managed-identified-baseline-2026-10-20.md)). | MR04, MR05 |
 | [x] | D23 | — | Bounded caller-supplied external-document codecs and exact untouched-baseline attachment; identity/layout/digest binding rejects stale, foreign and lossy candidates (2.13 C++ JSON and selected binary callback profiles; [evidence](verification/verification-sidecar-journal-2026-10-20.md)). | Existing C++ managed runtime |
 | [x] | D24 | — | Native v3 differential copy/literal sidecars retain identities, allocation marks, history and session state through selected Save/recovery and v2 upgrade; main files contain document data only (2.13 selected native document/journal profiles; [evidence](verification/verification-sidecar-journal-2026-10-20.md)). | D23 |
 
@@ -1106,12 +1106,12 @@
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | G01 | 2 h | Independent XML/XSD oracle corpus passes for the landed subset. | — |
-| [ ] | G02 | 2 h | Independent ZIP/OPC corpus passes for the landed subset. | — |
-| [ ] | G03 | 3 h | Current selected Windows source/configuration passes the native regression wrapper; failures are resolved. | — |
-| [ ] | G04 | 3 h | Current selected Linux source/configuration passes native regression with failures resolved. | — |
-| [ ] | G05 | 2 h | XML-disabled build and explicit unavailability behavior pass. | — |
-| [ ] | G06 | 2 h | Every bundled provider disabled: build/link and supported identity/stored paths pass. | — |
-| [ ] | G07 | 2 h | CLI version, release metadata and same-major CMake discovery compatibility pass. | — |
-| [ ] | G08 | 3 h | Editor impact is reviewed; if touched, both versions/changelogs/listings/packages are synchronized and validated. | — |
-| [ ] | G09 | 2 h | Coverage, README, skill, migration, links, ignore rules and task-artifact cleanup match executed results. | — |
+| [x] | G01 | 2 h | Independent XML/XSD oracle corpus passes for the landed subset. Selected 2.14 combined Windows/Linux profiles; [evidence](verification/verification-current-regression-2026-10-20.md). | — |
+| [x] | G02 | 2 h | Independent ZIP/OPC corpus passes for the landed subset. Selected 2.14 combined Windows/Linux profiles; [evidence](verification/verification-current-regression-2026-10-20.md). | — |
+| [x] | G03 | 3 h | Current selected Windows source/configuration passes the native regression wrapper; failures are resolved. Selected 2.14 combined Windows/Linux profiles; [evidence](verification/verification-current-regression-2026-10-20.md). | — |
+| [x] | G04 | 3 h | Current selected Linux source/configuration passes native regression with failures resolved. Selected 2.14 combined Windows/Linux profiles; [evidence](verification/verification-current-regression-2026-10-20.md). | — |
+| [x] | G05 | 2 h | XML-disabled build and explicit unavailability behavior pass. Selected 2.14 combined Windows/Linux profiles; [evidence](verification/verification-current-regression-2026-10-20.md). | — |
+| [x] | G06 | 2 h | Every bundled provider disabled: build/link and supported identity/stored paths pass. Selected 2.14 combined Windows/Linux profiles; [evidence](verification/verification-current-regression-2026-10-20.md). | — |
+| [x] | G07 | 2 h | CLI version, release metadata and same-major CMake discovery compatibility pass. Selected 2.14 combined Windows/Linux profiles; [evidence](verification/verification-current-regression-2026-10-20.md). | — |
+| [x] | G08 | 3 h | Editor impact is reviewed; if touched, both versions/changelogs/listings/packages are synchronized and validated; [packaged resolver verification](verification/verification-editor-field-navigation-2026-10-20.md). | — |
+| [x] | G09 | 2 h | Coverage, README, skill, migration, links, ignore rules and task-artifact cleanup match executed results; [verified checkpoint](verification/verification-current-regression-2026-10-20.md). | — |

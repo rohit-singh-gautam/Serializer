@@ -64,6 +64,21 @@ runtime names, so combining overlapping schemas in one module is unsupported.
 | Kotlin | Kotlin/JVM 2.0+, standard library and JDK | `InteropMessage`, `bigUnsigned` | Primitive numeric arrays, `MutableList`, `MutableMap` |
 | C | C11, standard library, IEEE binary32/binary64 | `interop_message`, `big_unsigned` | Typed owning arrays and map-entry arrays |
 
+Regenerated Kotlin modules also provide a bounded
+[whole-message compression helper](kotlin_compression.md) for identity, gzip,
+zlib and raw DEFLATE, with owning bytes and borrowed JDK stream wrappers.
+Optional Zstandard/LZ4 runtime jars are resolved lazily; generation and default
+compilation need neither jar. The API links the Windows/Linux provider proof.
+Regenerated Swift modules provide a standalone
+[compression helper](swift_compression.md) for the same four formats, with
+owning callbacks and borrowed closure-based sources/sinks.
+Regenerated C11 headers add [typed and byte compression helpers](c_compression.md)
+with standalone identity, optional zlib/Zstandard/LZ4 linkage and borrowed callback
+wrappers. Explicit compile definitions enable each provider independently.
+Regenerated Rust adds [standalone compression](rust_compression.md) for
+identity/gzip/zlib/raw DEFLATE with typed errors and explicit finish. Wrappers
+take adapters by value; pass mutable references to retain transport ownership.
+
 The tested versions and platforms are in the [verification record](../verification/verification-native-2026-09-18.md).
 Native Windows x64 Rust **1.99.0** with compiler/runtime **2.0.2** also passed
 [strict SDK and codec qualification](../verification/verification-rust-windows-2026-10-15.md).

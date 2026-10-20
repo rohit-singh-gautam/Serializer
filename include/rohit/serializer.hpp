@@ -6,6 +6,7 @@
 #include <rohit/binary_count_stream.hpp>
 #include <rohit/binary_output_support.hpp>
 #include <rohit/compression.hpp>
+#include <rohit/compression_io.hpp>
 #include <rohit/decode.hpp>
 #include <rohit/json_text.hpp>
 #include <rohit/runtime_simd.hpp>
@@ -2795,7 +2796,8 @@ std::vector<std::uint8_t> decompress_message(Stream&& input, compression::decode
     const auto view = borrow_stream_bytes(input, options.max_compressed_bytes);
     return compression::decompress({view.curr(), view.remaining_buffer()}, options);
   } else {
-    const auto buffer = read_stream_bytes(input, options.max_compressed_bytes);
+    const auto buffer = compression::detail::read_bounded_source(
+        input, options.max_compressed_bytes, options.check_cancelled);
     return compression::decompress({buffer.begin(), buffer.current_offset()}, options);
   }
 }
@@ -2808,6 +2810,9 @@ template <template <serialize_type> class Protocol, rohit::type_check::output_st
 void serialize_to(Stream& output, const Value& value, const compression::encode_options& options,
                   compression::encode_limits limits = {}) {
   compression::validate(options);
+  if (limits.check_cancelled) {
+    limits.check_cancelled();
+  }
   const stream_limits staging_limits{0, limits.max_input_bytes};
   full_stream_auto_alloc_limits staging{&staging_limits};
   serialize_to<Protocol>(staging, value);
@@ -2816,6 +2821,9 @@ void serialize_to(Stream& output, const Value& value, const compression::encode_
     output.append(bytes.data(), bytes.size());
   } else {
     write_stream_bytes(output, bytes.data(), bytes.size());
+  }
+  if (limits.check_cancelled) {
+    limits.check_cancelled();
   }
 }
 
@@ -2830,6 +2838,9 @@ void serialize_from(Stream&& input, Value& value, decode_limits limits,
   Protocol<serialize_type::in> decoder{view, limits};
   decoder.serialize_in(value);
   decoder.finish();
+  if (options.check_cancelled) {
+    options.check_cancelled();
+  }
 }
 
 // Return a fresh value only after both decompression and exact object decoding succeed.
@@ -2840,7 +2851,11 @@ template <typename Value, template <serialize_type> class Protocol,
                                       const compression::decode_options& options) {
   const auto bytes = detail::decompress_message(input, options, limits);
   const auto view = make_constant_full_stream(bytes.data(), bytes.size());
-  return deserialize_exact<Value, Protocol>(view, limits);
+  auto value = deserialize_exact<Value, Protocol>(view, limits);
+  if (options.check_cancelled) {
+    options.check_cancelled();
+  }
+  return value;
 }
 
 } // namespace rohit::serializer

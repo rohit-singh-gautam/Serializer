@@ -91,6 +91,18 @@ serialized; inactive fields remain in memory.
 
 ## JavaScript and TypeScript
 
+Regenerated modules also provide an owning asynchronous
+[compression helper](javascript_compression.md) for identity, gzip, zlib and raw
+DEFLATE. Node compression is an explicit optional provider; ordinary browser
+imports and native codecs load no Node modules. TypeScript declarations describe
+the same runtime and borrowed callback contracts.
+
+Schema 1.20 package declarations also generate asynchronous
+[JS/TS ZIP/OPC facades](javascript_packages.md), including strict matching types,
+explicit Node compression/filesystem admission, typed XML roles, opaque resources
+and preserved extension policies. Shared nested XML budgets and declarative
+runtime-profile/application-reference checks remain pending.
+
 Fixed arrays without explicit initializers start with exactly `N` independent
 element defaults. Their generated JS codecs reject wrong lengths on write,
 validate binary counts before reading elements, and bound JSON iteration by `N`.
@@ -182,6 +194,10 @@ argument overrides `DefaultLimits()`. Input must not change concurrently with
 decoding. Maps are sorted explicitly during encoding, independently of insertion
 and iteration order. Generated code can be formatted with `gofmt` in the consumer.
 
+Generated Go also provides [whole-message compression](go_compression.md) for
+identity, gzip, zlib and raw DEFLATE, with owned results, explicit borrowed-stream
+finish, bounds and cancellation. Existing native codec calls stay direct.
+
 ## C#
 
 Generated sources target **.NET 8+** with nullable reference types enabled. They
@@ -202,6 +218,11 @@ fields or replace them with valid values. Validation failures throw exceptions;
 decoding never returns the partially built object. Generated owning types are
 sealed; private/protected schema access becomes private because parents are
 composed rather than inherited.
+
+Generated C# also provides [whole-message compression](csharp_compression.md) for
+identity, gzip, zlib and raw DEFLATE, with owning results, exact frame validation,
+bounded borrowed streams and explicit finish. It uses .NET's `CompressionLevel`
+enum and preserves ordinary model codec calls.
 
 ## Compatibility and limits
 

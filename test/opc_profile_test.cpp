@@ -8,6 +8,7 @@
 
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <sstream>
@@ -27,6 +28,25 @@ profile::model fixture_model() {
   point.z = 3.0;
   value.points.push_back(point);
   return value;
+}
+
+// Author complete typed-part inputs independently of the generated package composition logic.
+std::string collection_input(std::size_t invalid_index) {
+  std::ostringstream output;
+  package::opc_writer writer{output};
+  const std::array labels{"item0", "item1", "item2"};
+  for (std::size_t index{}; index < labels.size(); ++index) {
+    const auto path = std::string{"/Models/model"} + std::to_string(index) + ".xml";
+    const auto scalar = index == invalid_index ? "invalid-double" : "1";
+    const auto xml = std::string{"<model xmlns='urn:serializer:package-test' name='"} +
+                     labels[index] + "'><point x='" + scalar + "' y='2' z='3'/></model>";
+    writer.add_part(path, "application/vnd.serializer.test-model+xml",
+                    {reinterpret_cast<const std::uint8_t*>(xml.data()), xml.size()});
+    writer.add_relationship(
+        {"/", "record" + std::to_string(index), "urn:serializer:collection-model", path});
+  }
+  writer.finish();
+  return output.str();
 }
 } // namespace
 
@@ -111,4 +131,32 @@ TEST(opc_profile, shared_budget_and_deadline_propagate_to_generated_xml) {
   limits.deadline = std::chrono::steady_clock::now();
   shared = std::make_shared<package::budget>(limits);
   EXPECT_THROW(profile::archive::write(output, {&model, {}}, shared), package::error);
+}
+
+// First/middle/last typed decoding failures preserve the prior aggregate and skip domain publication.
+TEST(opc_profile, multi_part_codec_failure_preserves_complete_destination) {
+  const auto metadata = profile::collection_archive::document_profiles();
+  const auto model_count = metadata.front().max_occurs.value();
+  std::istringstream valid{collection_input(model_count)};
+  auto destination = profile::collection_archive::load(valid);
+  ASSERT_EQ(destination.value.models.size(), model_count);
+  EXPECT_EQ(destination.value.models.front().value.name, "item0");
+  for (std::size_t invalid_index{}; invalid_index < model_count; ++invalid_index) {
+    SCOPED_TRACE(invalid_index);
+    std::istringstream invalid{collection_input(invalid_index)};
+    std::size_t validations{};
+    try {
+      destination = profile::collection_archive::load(invalid, {}, {},
+                                                      [&](const auto&, auto&) { ++validations; });
+      FAIL() << "Expected generated typed-part decoding failure";
+    } catch (const package::error& error) {
+      EXPECT_EQ(error.code, package::error_code::codec);
+      EXPECT_EQ(error.part, "/Models/model" + std::to_string(invalid_index) + ".xml");
+      EXPECT_EQ(error.relationship_id, "record" + std::to_string(invalid_index));
+    }
+    EXPECT_EQ(validations, 0U);
+    ASSERT_EQ(destination.value.models.size(), model_count);
+    EXPECT_EQ(destination.value.models.front().value.name, "item0");
+    EXPECT_EQ(destination.value.models.back().value.name, "item2");
+  }
 }

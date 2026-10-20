@@ -14,6 +14,7 @@
 #include "xml_native_model_writer.hpp"
 #include "xml_portable_projection_writer.hpp"
 #include "xml_portable_extension_writer.hpp"
+#include "java_package_writer.hpp"
 #include <rohit/serializer_creator.hpp>
 
 #include <algorithm>
@@ -40,6 +41,26 @@ constexpr std::string_view runtime_source =
 constexpr std::string_view xml_runtime_source =
 #include "java_xml_runtime.inc"
     ;
+constexpr std::string_view compression_runtime_source =
+#include "java_compression_runtime.inc"
+    ;
+constexpr std::string_view deflate_validation_runtime_source =
+#include "java_deflate_validation_runtime.inc"
+    ;
+// Optional Java support stays a runtime-discovered dependency of the emitted helper.
+constexpr std::string_view zstd_compression_runtime_source =
+#include "java_zstd_compression_runtime.inc"
+;
+constexpr std::string_view lz4_compression_runtime_source =
+#include "java_lz4_compression_runtime.inc"
+;
+constexpr std::string_view package_runtime_source =
+#include "java_package_runtime.inc"
+#include "java_package_writer_runtime.inc"
+#include "java_package_opc_runtime.inc"
+#include "java_package_xml_runtime.inc"
+#include "java_package_profile_runtime.inc"
+;
 
 // Escape schema text as a Java string literal without changing wire spelling.
 std::string quote(std::string_view value) {
@@ -198,6 +219,7 @@ std::string width(std::string_view name) {
 class emitter {
   const java_options& options;
   std::string outer;
+  std::string package_name{};
   behavior::checked_helpers arithmetic_helpers{};
   std::string source{};
   std::size_t level{1};
@@ -2290,6 +2312,13 @@ class emitter {
         object(static_cast<const class_node&>(*value));
       } else if (value->type == object_type::function_type) {
         free_function(static_cast<const function_node&>(*value));
+      } else if (value->type == object_type::package_type) {
+        source += package_codegen::java(static_cast<const package_node&>(*value),
+            type_name(value->name), names.at(value), outer + "." + package_name,
+            [&](std::string_view name) { return name == outer ? std::string{name} + "_2" : std::string{name}; },
+            [&](const auto& item) { return type(item); },
+            [&](std::string_view name) { return field(name); },
+            [&](std::string_view text) { return quote(text); });
       }
     }
   }
@@ -2323,6 +2352,21 @@ public:
       throw std::invalid_argument{"Java XML output filename conflicts with a runtime helper"};
     }
     register_nodes(values, outer, reserved);
+    // Add the compression container without reserving previously valid schema type names.
+    std::set<std::string> compression_names{outer};
+    for (const auto& [node, qualified] : names) {
+      (void)node;
+      compression_names.insert(qualified.substr(qualified.find_last_of('.') + 1));
+    }
+    std::string compression_name{"SerializerCompression"};
+    for (std::size_t suffix = 2; compression_names.contains(compression_name); ++suffix) {
+      compression_name = "SerializerCompression_" + std::to_string(suffix);
+    }
+    compression_names.insert(compression_name);
+    package_name = "SerializerPackage";
+    for (std::size_t suffix = 2; compression_names.contains(package_name); ++suffix) {
+      package_name = "SerializerPackage_" + std::to_string(suffix);
+    }
     if (options.xml.enabled) {
       // Implicit fragment classes are native storage for their configured mixed parent, not XML roots.
       for (const auto& [node, identifier] : names) {
@@ -2363,6 +2407,7 @@ public:
     line("/** Static schema container. */");
     line("private " + outer + "() {}");
     source += behavior::helpers("java", arithmetic_helpers);
+    line("// Serializer runtime support begins.");
     // Runtime source uses two-space nesting; reindent for the selected profile.
     std::size_t start{};
     while (start < runtime_source.size()) {
@@ -2380,7 +2425,58 @@ public:
       start = end + 1;
     }
     level = 1;
+    std::string compression_runtime{compression_runtime_source};
+    compression_runtime.insert(compression_runtime.rfind("\n}"), deflate_validation_runtime_source);
+    compression_runtime.insert(compression_runtime.rfind("\n}"), zstd_compression_runtime_source);
+    compression_runtime.insert(compression_runtime.rfind("\n}"), lz4_compression_runtime_source);
+    constexpr std::string_view compression_placeholder{"@compression_name@"};
+    std::size_t compression_position{};
+    while ((compression_position = compression_runtime.find(compression_placeholder, compression_position)) != std::string::npos) {
+      compression_runtime.replace(compression_position, compression_placeholder.size(), compression_name);
+      compression_position += compression_name.size();
+    }
+    // Java also forbids nested types that repeat any enclosing output class name.
+    for (const auto* helper : {"Format", "Code", "Failure", "EncodeOptions", "DecodeOptions",
+                              "Buffer", "Output", "Input", "ZstdProvider", "ZstdSource", "Lz4Provider"}) {
+      if (outer == helper) {
+        const auto replacement = std::string{helper} + "_2";
+        compression_runtime = std::regex_replace(compression_runtime,
+            std::regex{"\\b" + std::string{helper} + "\\b"}, replacement);
+        compression_runtime.insert(0, "// Compression nested helper type: " + replacement + ".\n");
+      }
+    }
+    // Apply the selected Java indentation profile to the additive helper container.
+    start = 0;
+    while (start < compression_runtime.size()) {
+      const auto end = compression_runtime.find('\n', start);
+      const auto current = std::string_view{compression_runtime}.substr(start,
+          end == std::string::npos ? end : end - start);
+      const auto leading = current.find_first_not_of(' ');
+      const auto indentation = leading == std::string_view::npos ? 0 : leading;
+      level = 1 + indentation / 2;
+      line(std::string{current.substr(indentation)});
+      if (end == std::string::npos) { break; }
+      start = end + 1;
+    }
+    level = 1;
     if (options.xml.enabled) { source += xml_runtime_source; source += xml_portable::scalar_runtime("java"); source += xml_portable::map_runtime("java"); source += xml_portable::mixed_runtime("java"); source += xml_portable::identity_runtime("java"); source += xml_portable::html_runtime("java"); source += xml_portable::model_runtime("java"); source += xml_portable::extension_runtime("java"); }
+    if (package_codegen::contains(values)) {
+      std::string package_runtime{package_runtime_source};
+      // Java forbids a nested helper repeating any enclosing output-class name.
+      for (const auto* helper : {"Code", "PackageError", "Limits", "Resource", "Budget", "State", "RandomSource", "Entry", "ZipReader", "FileSource", "Bytes", "ZipWriter", "Part", "BinaryPart", "ModelPart", "Relationship", "Extensions", "Unknown", "ExtensionPolicy", "Result", "PartMetadata", "Mime", "Uri", "QName", "Node", "Handler", "Scope", "Compatibility", "Opc", "Role", "Encoder", "Decoder", "Validator", "Composer", "Loader", "Occurrence", "SaveFault", "Format", "Failure", "EncodeOptions", "DecodeOptions"}) {
+        if (outer == helper) { package_runtime = std::regex_replace(package_runtime, std::regex{"\\b" + std::string{helper} + "\\b"}, std::string{helper} + "_2"); }
+      }
+      for (const auto& [placeholder, replacement] : std::array<std::pair<std::string_view, std::string>, 3>{
+          std::pair{"@package_name@", package_name}, {"@compression_name@", compression_name}, {"@outer_name@", outer}}) {
+        std::size_t position{};
+        while ((position = package_runtime.find(placeholder, position)) != std::string::npos) {
+          package_runtime.replace(position, placeholder.size(), replacement); position += replacement.size();
+        }
+      }
+      source += package_runtime + "\n}\n";
+    }
+    level = 1;
+    line("// Serializer schema declarations begin.");
     std::vector<const syntax_node*> roots{};
     roots.reserve(values.size());
     for (const auto& value : values) {

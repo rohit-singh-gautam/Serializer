@@ -1,0 +1,10 @@
+index directory_offset_outside.zip
+index directory_size_crosses_end.zip
+index local_header_in_directory.zip
+index local_name_length_overflow.zip
+index central_extra_length_overflow.zip
+index directory_entry_count_mismatch.zip
+integrity crc_mismatch.zip
+integrity expanded_size_mismatch.zip
+integrity deflate_trailing_data.zip
+integrity deflate_truncated.zip

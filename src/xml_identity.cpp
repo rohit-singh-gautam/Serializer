@@ -504,6 +504,15 @@ struct identity_validator::implementation {
     }
   }
 
+  // Keep tuple indexes and their borrowed budget within one validation pass.
+  implementation(const implementation&) = delete;
+  // Prevent copying another pass over active identity state.
+  implementation& operator=(const implementation&) = delete;
+  // Preserve the budget address retained by each tuple comparator.
+  implementation(implementation&&) = delete;
+  // Prevent invalidating comparators already bound to this validation pass.
+  implementation& operator=(implementation&&) = delete;
+
   // Compare borrowed expanded names without an uncharged temporary string allocation.
   bool equal(event_name actual, const name& expected) {
     budget.work(1U + std::min(actual.local.size(), expected.local.size()) +

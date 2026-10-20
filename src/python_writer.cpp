@@ -32,6 +32,9 @@ namespace {
 constexpr std::string_view runtime =
 #include "python_runtime.inc"
     ;
+constexpr std::string_view compression_runtime =
+#include "python_compression_runtime.inc"
+    ;
 constexpr std::string_view xml_runtime =
 #include "python_xml_runtime.inc"
     ;
@@ -1618,6 +1621,15 @@ public:
   // Generate a complete module with pre-encoded field keys and typed models.
   std::string generate() {
     behavior::require_unique_free_names(model.nodes, "python", [&](const auto& node) { return snake(model.names.at(&node)); });
+    output += compression_runtime;
+    if (model.protocols == output_protocols::binary_none) {
+      line("_Compression._protocols = (1,)");
+    }
+    if (std::none_of(model.names.begin(), model.names.end(), [](const auto& entry) {
+          return entry.second == "Compression";
+        })) {
+      line("Compression = _Compression");
+    }
     line("from abc import ABC as _ABC, abstractmethod as _abstractmethod");
     if (!model.packages.empty()) {
       for (const auto& [node, selected] : model.names) {

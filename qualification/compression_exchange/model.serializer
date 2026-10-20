@@ -1,0 +1,6 @@
+serializer version 1;
+
+class exchange_record stable_ids {
+  public uint32 code (1);
+  public string text (2);
+}

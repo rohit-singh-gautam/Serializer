@@ -177,8 +177,18 @@ workflow: **3/3 CTests**. Checks cover all five supported history/label shapes,
 authority lease preservation, all nine raw binary codec pairs, ID boundaries,
 typed token policy overrides, an ordinary unmanaged root and stale managed-header
 rejection. The fixed-wire
-fixtures are independent expected-byte checks; no separately built 2.6 compiler
-artifact or arbitrary historical format compatibility is claimed. The standalone
+fixtures are independent expected-byte checks. The standalone
 consumer also builds with `/W4 /WX /EHsc` against an installed 2.7 package and
 converts both managed and raw fixture files to the exact expected output. See the
 [qualification record](../verification/verification-opc-xsd-2026-10-19.md).
+
+The [20 October historical qualification](../verification/verification-managed-legacy-migration-2026-10-20.md)
+separately rebuilds compiler/runtime **2.6.0** from pinned Git source and uses its
+own generated headers/runtime to produce fixed-ID artifacts. Both direct uint32
+and separated uint64 profiles pass **92 actual current-CLI migrations**, covering
+all nine raw codec pairs, boundary IDs and all five supported native history/label
+shapes. Reverse conversion reproduces every old input byte-for-byte; current
+native consumers verify exact identities, labels, cursors, tree ancestry, redo,
+allocation watermarks and nonreuse. This closes the selected older-artifact
+qualification, without claiming arbitrary historical containers, journals or
+collaboration checkpoint conversion.

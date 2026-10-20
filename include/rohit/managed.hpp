@@ -51,6 +51,9 @@ enum class runtime_copy_policy { preserve, reset_to_defaults };
 struct clone_options {
   runtime_copy_policy runtime_fields{runtime_copy_policy::preserve};
 };
+// Select checked first admission of durable storage whose native identities are already assigned.
+struct identified_baseline_t {};
+inline constexpr identified_baseline_t identified_baseline{};
 // A view stamp advances on every publication; durable generation excludes runtime-only updates.
 struct state_stamp {
   std::uint64_t view_generation{};
@@ -1267,22 +1270,28 @@ private:
   }
 
   // Prepare a fresh baseline in the compile-time history mode without modifying retained state.
-  detail::history_storage<Mode, Labels> make_history() const {
+  detail::history_storage<Mode, Labels>
+  make_history(const std::vector<std::uint8_t>& snapshot) const {
     detail::history_storage<Mode, Labels> result;
     if constexpr (Mode == history_mode::linear) {
       entry_type entry;
-      entry.snapshot = snapshot_;
+      entry.snapshot = snapshot;
       result.append(std::move(entry), options_);
     } else if constexpr (Mode == history_mode::tree) {
       result.current_revision = history_.current_revision;
       result.revision_high_water = history_.revision_high_water;
       auto node = std::make_shared<revision_type>();
       node->number = history_.current_revision;
-      node->snapshot = snapshot_;
+      node->snapshot = snapshot;
       result.bytes = tree_append_bytes(result, *node);
       result.revisions.emplace(history_.current_revision, std::move(node));
     }
     return result;
+  }
+
+  // Preserve the retained-snapshot entry point used by existing constructors and collaboration.
+  detail::history_storage<Mode, Labels> make_history() const {
+    return make_history(snapshot_);
   }
 
   // Decode and validate a retained state before publishing; failure leaves the cursor unchanged.
@@ -1915,6 +1924,48 @@ public:
       history_.swap(history);
     }
     resident_auxiliary_.resize(estimate_auxiliary(snapshot_, identities_, history_));
+  }
+
+  // Admit one durable identified baseline without allocating or remapping object IDs. The caller
+  // supplies its nonzero document namespace and stored native allocation watermark, including gaps.
+  // Native decoding resets runtime-only fields as load does; all model/reference, history and
+  // resident checks precede the allocation-resource hook. No journal or live service is attached.
+  model_store(identified_baseline_t, storage_type value, document_id document,
+              std::uint64_t allocated_id, store_options options = {},
+              std::function<void(const storage_type&)> validate = {})
+      : options_{options}, validate_{std::move(validate)} {
+    if ((document.high == 0 && document.low == 0) || Traits::schema_id.empty() ||
+        allocated_id == 0 || allocated_id > std::numeric_limits<id_type>::max()) {
+      throw std::invalid_argument{"Invalid identified managed baseline metadata"};
+    }
+    auto snapshot = detail::encode(value,
+        std::min(options_.max_snapshot_bytes, options_.decode.max_input_bytes));
+    check_snapshot(snapshot);
+    auto storage = detail::decode<storage_type>(snapshot, options_.decode);
+    detail::reset_runtime_fields<Traits>(storage);
+    // Admission uses the actual native storage codec; it must preserve every durable wire value.
+    if (detail::encode(storage, options_.max_snapshot_bytes) != snapshot) {
+      throw std::invalid_argument{"Native validation changes the identified managed baseline"};
+    }
+    auto identities = inspect(storage, allocated_id);
+    this->validate(storage, true, &document);
+    auto history = make_history(snapshot);
+    const auto storage_estimate = estimate_storage(storage);
+    resident_auxiliary_.resize(estimate_auxiliary(snapshot, identities, history));
+    {
+      // Reject the complete accepted estimate before a caller-owned resource observes allocation.
+      const detail::resident_charge admission{resident_ledger_, storage_estimate};
+    }
+    auto published = detail::make_resident_storage(std::move(storage), resident_ledger_,
+        options_.allocation_resource, storage_estimate).first;
+    document_ = document;
+    allocated_id_ = allocated_id;
+    identities_.swap(identities);
+    snapshot_.swap(snapshot);
+    if constexpr (has_history) {
+      history_.swap(history);
+    }
+    current_ = std::move(published);
   }
 
   model_store(const model_store&) = delete;

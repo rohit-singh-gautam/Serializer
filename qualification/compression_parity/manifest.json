@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "id": "compression_selected_s35_parity",
+  "languages": ["cpp", "c", "python", "java", "kotlin", "csharp", "go", "javascript", "typescript", "rust", "swift"],
+  "runtime_implementations": 10,
+  "protocols": ["JSON", "BINARY_NONE", "BINARY_INTEGER", "BINARY_STRING"],
+  "formats": ["NONE", "GZIP", "ZLIB", "DEFLATE", "ZSTD", "LZ4"],
+  "model": "account_record stable_ids { uint32 account_id (1); string label (2); }",
+  "exchange": "all_producers_to_all_consumers",
+  "expected_model_exchanges": 2904,
+  "expected_encode_bound_decisions": 792,
+  "expected_cpp_lifecycle_controls": 25,
+  "expected_maintained_lifecycle_runners": 17,
+  "core_fixture_producer": "test/java_compression_test.py:fixtures + test/csharp_compression_test.py:extra_fixtures",
+  "optional_fixture_producer": "test/java_compression_optional_test.py:fixtures + test/go_compression_optional_test.py:native_fixtures",
+  "required_core_inputs": 974,
+  "required_optional_inputs": 317,
+  "required_advertised_history_frames": 44,
+  "required_advertised_history_decisions": 64,
+  "required_core_window_policy_decisions": 6,
+  "scope": "One complete owning native model; selected explicit providers and SDKs. Separate from the XML S35 inventory, nested XML/OPC operation contexts, performance and physical heap guarantees."
+}

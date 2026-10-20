@@ -59,13 +59,17 @@ export function generatedIncludes(text: string): string[] {
 
 /** Mask language-specific comments and literals without shifting source offsets. */
 function generatedCode(text: string, language: string): string {
-  const hide = (match: string): string => match.replace(/[^\r\n]/g, ' ');
+  const hide = (match: string): string => match.replace(/[^\r\n]+/g, line => ' '.repeat(line.length));
   if (language === 'python') {
     return text.replace(/#[^\r\n]*|"""[\s\S]*?(?:"""|$)|'''[\s\S]*?(?:'''|$)|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/g, hide);
   }
   if (language === 'rust') {
     // Lifetimes such as 'a are not character literals and must not swallow declarations.
     return text.replace(/\/\*[\s\S]*?(?:\*\/|$)|\/\/[^\r\n]*|r(#+)?"[\s\S]*?"\1|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[^\r\n]|[^'\\\r\n])'/g, hide);
+  }
+  if (language === 'javascript' || language === 'typescript') {
+    // Mask in lexical order: backticks inside quoted MIME/HTML strings are ordinary characters.
+    return text.replace(/\/\*[\s\S]*?(?:\*\/|$)|\/\/[^\r\n]*|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`/g, hide);
   }
   return codeOnly(text.replace(/`(?:\\[\s\S]|[^`\\])*`/g, hide));
 }
@@ -74,7 +78,19 @@ function generatedCode(text: string, language: string): string {
 export function indexGeneratedSource(text: string, file: string): SourceIndex {
   const language = generatedLanguage(file, text);
   if (language === 'cpp' || language === 'java' || language === 'csharp' || language === 'c') {
-    const result = indexSource(text, false, language === 'java');
+    let declarations = text;
+    if (language === 'java' && generatedBanner(text)) {
+      const begin = /^[ \t]*\/\/ Serializer runtime support begins\.\r?$/m.exec(text);
+      const suffix = begin && text.slice(begin.index + begin[0].length);
+      const end = suffix && /^[ \t]*\/\/ Serializer schema declarations begin\.\r?$/m.exec(suffix);
+      if (begin && end) {
+        const finish = begin.index + begin[0].length + end.index;
+        // Runtime tokens have no schema destination; retain UTF-16 offsets and all line boundaries.
+        declarations = text.slice(0, begin.index) + text.slice(begin.index, finish)
+          .replace(/[^\r\n]+/g, line => ' '.repeat(line.length)) + text.slice(finish);
+      }
+    }
+    const result = indexSource(declarations, false, language === 'java');
     if (language === 'csharp') {
       // Schema namespaces are flattened; the configurable C# namespace is only a wrapper.
       for (const symbol of result.symbols) { symbol.qualified = symbol.name; }
@@ -116,13 +132,16 @@ export function indexGeneratedSource(text: string, file: string): SourceIndex {
     swift: /^public\s+(struct|enum|class)\s+([A-Za-z_]\w*)\b/gm,
     kotlin: /^(enum\s+class|class)\s+([A-Za-z_]\w*)\b/gm,
     javascript: /^export\s+(class|const)\s+([A-Za-z_]\w*)\b/gm,
-    typescript: /^export\s+(?:declare\s+)?(class|const)\s+([A-Za-z_]\w*)\b/gm
+    typescript: /^export\s+(?:declare\s+)?(class|const|namespace)\s+([A-Za-z_]\w*)\b/gm
   };
   const symbols: TypeSymbol[] = [];
   for (const match of code.matchAll(patterns[language ?? ''] ?? /$^/g)) {
     const name = language === 'python' || language === 'go' ? match[1] : match[2];
+    // A generated package factory is a schema class-like declaration; frozen enum constants stay enums.
+    const packageFacade = language === 'javascript' && match[1] === 'const' &&
+      /^\s*=\s*[A-Za-z_]\w*\.profile\s*\(/.test(code.slice(match.index! + match[0].length));
     const enumType = language === 'python' ? match[2]?.includes('_IntEnum')
-      : language === 'go' ? match[2] === 'int32' : /enum|const/.test(match[1]);
+      : language === 'go' ? match[2] === 'int32' : /enum|const/.test(match[1]) && !packageFacade;
     const start = match.index! + match[0].indexOf(name);
     symbols.push({ name, qualified: name, kind: enumType ? 'enum' : 'class', start,
       end: start + name.length, declaration: match.index!, body: start, definition: true });
@@ -164,8 +183,20 @@ export function outputNames(qualified: string, file: string, text: string): stri
 /** Locate a generated field declaration without treating method locals as schema members. */
 export function generatedMember(text: string, file: string, index: SourceIndex,
   offset: number): (Span & { name: string; owner: TypeSymbol; getter?: boolean }) | undefined {
+  return generatedMemberReader(text, file, index)(offset);
+}
+
+/** Reuse one offset-preserving lexical mask for multiple field candidates in an immutable output. */
+export function generatedMemberReader(text: string, file: string,
+  index: SourceIndex): (offset: number) => ReturnType<typeof generatedMember> {
   const language = generatedLanguage(file, text);
   const code = generatedCode(text, language ?? '');
+  return offset => generatedMemberAt(code, language, index, offset);
+}
+
+/** Check a candidate against its prepared code and owning declaration without allocating another mask. */
+function generatedMemberAt(code: string, language: string | undefined, index: SourceIndex,
+  offset: number): ReturnType<typeof generatedMember> {
   let start = offset;
   if (!/[A-Za-z_0-9]/.test(code[start] ?? '') && /[A-Za-z_0-9]/.test(code[start - 1] ?? '')) { --start; }
   if (!/[A-Za-z_0-9]/.test(code[start] ?? '')) { return undefined; }

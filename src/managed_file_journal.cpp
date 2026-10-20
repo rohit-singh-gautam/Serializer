@@ -490,6 +490,7 @@ file_journal::recover(const std::filesystem::path& path, journal_options options
   auto& state = *result->state_;
   auto input = read_file(state.path, state.options);
   const bool external = static_cast<bool>(state.options.document_codec);
+  bytes document{};
   if (external) {
     const auto& codec = *state.options.document_codec;
     if (codec.format.empty() || !codec.decode || !codec.encode) {
@@ -521,11 +522,8 @@ file_journal::recover(const std::filesystem::path& path, journal_options options
         state.header.version != differential_record_version) {
       throw std::invalid_argument{"Invalid managed document journal mode or version"};
     }
-    auto canonical = codec.decode(input);
-    if (canonical.empty() || canonical.size() > state.options.max_record_bytes) {
-      throw std::length_error{"Managed document canonical root budget exceeded"};
-    }
-    state.delta = std::make_unique<journal_delta_base>(std::move(canonical));
+    // Admit the complete selected companion before invoking application document decoding.
+    document = std::move(input);
     state.append_path = generation_path(state.path, state.header, ".journal-");
     input = read_file(state.append_path, state.options);
     auto companion = decode_header(input, sidecar_file_kind);
@@ -542,8 +540,15 @@ file_journal::recover(const std::filesystem::path& path, journal_options options
     throw std::invalid_argument{"Incomplete or mismatched managed journal base"};
   }
   if (external) {
-    const auto envelope = state.delta->decode(baseline->payload,
-        state.options.max_record_bytes, state.options.max_replay_bytes);
+    auto canonical = state.options.document_codec->decode(document);
+    if (canonical.empty() || canonical.size() > state.options.max_record_bytes) {
+      throw std::length_error{"Managed document canonical root budget exceeded"};
+    }
+    // The decoder's borrowed document span has expired; keep only canonical and companion bytes.
+    bytes{}.swap(document);
+    state.delta = std::make_unique<journal_delta_base>(std::move(canonical));
+    const auto envelope = state.delta->decode(baseline->payload, state.options.max_record_bytes,
+                                              state.options.max_replay_bytes);
     state.replay_bytes = envelope.size();
     consume(true, envelope);
   } else {

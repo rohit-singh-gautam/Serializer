@@ -55,7 +55,7 @@ export function codeOnly(text: string): string {
   // Numeric separators must not open literals and hide later declarations or namespace braces.
   // Include character prefixes so their contents remain masked with the same source offsets.
   return text.replace(/\/\*[\s\S]*?(?:\*\/|$)|\/\/[^\r\n]*|(?:u8|u|U|L)?R"([^ ()\\\t\r\n]{0,16})\([\s\S]*?\)\1"|"(?:\\[\s\S]|[^"\\])*"|(?<![A-Za-z_0-9])(?:u8|u|U|L)?'(?:\\[\s\S]|[^'\\])*'/g,
-    match => match.replace(/[^\r\n]/g, ' '));
+    match => match.replace(/[^\r\n]+/g, line => ' '.repeat(line.length)));
 }
 
 /** Read declarations and schema type positions, ignoring comments, literals and member names. */

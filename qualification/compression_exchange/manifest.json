@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "id": "compression_core_exchange",
+  "schema": "qualification/compression_exchange/model.serializer",
+  "input": "qualification/compression_exchange/input.json",
+  "protocols": ["JSON", "BINARY_NONE", "BINARY_INTEGER", "BINARY_STRING"],
+  "formats": ["NONE", "GZIP", "ZLIB", "DEFLATE"],
+  "languages": ["cpp", "python", "java"],
+  "exchange": "all_producers_to_all_consumers",
+  "expected_model_exchanges": 144,
+  "corpus": "independent_core_framing_and_byte_limits_v1"
+}

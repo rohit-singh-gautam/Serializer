@@ -100,6 +100,32 @@ std::string relationship_archive(std::string_view relationships) {
   return output.str();
 }
 
+// Author complete OPC metadata as literal XML through plain ZIP, independent of the OPC writer.
+std::string content_type_archive(std::string_view declarations, bool include_manifest = true) {
+  std::ostringstream output;
+  package::zip_writer archive{output};
+  if (include_manifest) {
+    const auto manifest = std::string{
+        "<Types xmlns='http://schemas.openxmlformats.org/package/2006/content-types'>"} +
+        std::string{declarations} + "</Types>";
+    archive.add("[Content_Types].xml", as_bytes(manifest));
+  }
+  archive.add("Alternate/root.xml", as_bytes(
+      "<model xmlns='urn:serializer:package-test' name='independent'/>"));
+  archive.add("Textures/raw.bin", as_bytes("attachment"));
+  archive.add("Extras/part%3Aname.bin", as_bytes("opaque"));
+  archive.add("_rels/.rels", as_bytes(
+      "<Relationships xmlns='http://schemas.openxmlformats.org/package/2006/relationships'>"
+      "<Relationship Id='main' Type='urn:serializer:main-model' Target='Alternate/root.xml'/>"
+      "</Relationships>"));
+  archive.add("Alternate/_rels/root.xml.rels", as_bytes(
+      "<Relationships xmlns='http://schemas.openxmlformats.org/package/2006/relationships'>"
+      "<Relationship Id='texture' Type='urn:serializer:attachment' Target='../Textures/raw.bin'/>"
+      "</Relationships>"));
+  archive.finish();
+  return output.str();
+}
+
 // Identify the central directory in small fixed test archives.
 std::size_t central_offset(const std::string& archive) {
   return archive.find(std::string{"PK\x01\x02", 4});
@@ -147,6 +173,24 @@ std::string physical_attributes(std::string archive, std::string_view name,
 std::ifstream independent_fixture(std::string_view name) {
   return std::ifstream{std::filesystem::path{__FILE__}.parent_path() / "resources" /
       std::string{name}, std::ios::binary};
+}
+
+// Load the shared independent mutation inventory, keeping index and payload checks separate.
+std::vector<std::string> malformed_package_fixtures(std::string_view stage) {
+  auto manifest = independent_fixture("package_malformed_fixtures/cases.txt");
+  if (!manifest) { throw std::runtime_error{"Missing malformed package fixture inventory"}; }
+  std::vector<std::string> result;
+  std::string selected, filename;
+  while (manifest >> selected >> filename) {
+    if (selected != "index" && selected != "integrity") {
+      throw std::runtime_error{"Unknown malformed package fixture stage"};
+    }
+    if (selected == stage) { result.push_back("package_malformed_fixtures/" + filename); }
+  }
+  if (!manifest.eof() || result.empty()) {
+    throw std::runtime_error{"Invalid or empty malformed package fixture inventory"};
+  }
+  return result;
 }
 
 // Verify stable package categories instead of backend-specific exception messages.
@@ -297,12 +341,47 @@ TEST(package_zip, independent_zip64_end_and_descriptor_fixtures) {
   }
 }
 
+// Literal ZIP framing covers every optional descriptor signature and size width, including CRC ambiguity.
+TEST(package_zip, independent_signed_unsigned_descriptor_forms_and_crc_signature) {
+  const std::array samples{
+      std::pair<std::string_view, std::string_view>{"empty", ""},
+      std::pair<std::string_view, std::string_view>{"model", "{\"count\":7}"},
+      std::pair<std::string_view, std::string_view>{"signature_crc", {"\xac\x0a\x7a\xd5", 4}}};
+  for (const auto wide : {false, true}) {
+    for (const auto signed_descriptor : {false, true}) {
+      const auto prefix = std::string{"package_descriptor_fixtures/"} +
+          (wide ? "zip64_" : "zip32_") + (signed_descriptor ? "signed_" : "unsigned_");
+      for (const auto& [name, payload] : samples) {
+        const auto filename = prefix + std::string{name} + ".zip";
+        SCOPED_TRACE(filename);
+        auto input = independent_fixture(filename);
+        ASSERT_TRUE(input.is_open());
+        package::zip_reader reader{input};
+        ASSERT_EQ(reader.entries().size(), 1U);
+        EXPECT_EQ(reader.entries().front().zip64_sizes, wide);
+        if (compression::available(compression::format::deflate)) {
+          EXPECT_EQ(as_text(reader.read("data/model.json")), payload);
+        } else {
+          expect_error(package::error_code::unavailable, [&] {
+            static_cast<void>(reader.read("data/model.json"));
+          });
+        }
+      }
+      auto corrupted = independent_fixture(prefix + "bad_crc.zip");
+      ASSERT_TRUE(corrupted.is_open());
+      expect_error(package::error_code::integrity, [&] { package::zip_reader reader{corrupted}; });
+    }
+  }
+}
+
 // Nonseekable input never triggers implicit memory buffering or filesystem extraction.
 TEST(package_zip, nonseekable_input_requires_bounded_explicit_disk_spooling) {
   struct nonseekable_buffer final : std::stringbuf {
     std::size_t requested_bytes{};
+    bool fail_after_first{};
     // Expose ordinary input bytes while refusing random-access positioning.
-    explicit nonseekable_buffer(const std::string& bytes) : std::stringbuf{bytes} {}
+    explicit nonseekable_buffer(const std::string& bytes, bool fail = false)
+        : std::stringbuf{bytes}, fail_after_first{fail} {}
     // Deliberately model a network/pipe source with no positioning capability.
     pos_type seekoff(off_type, std::ios_base::seekdir, std::ios_base::openmode) override {
       return pos_type{off_type{-1}};
@@ -313,6 +392,9 @@ TEST(package_zip, nonseekable_input_requires_bounded_explicit_disk_spooling) {
     }
     // Record physical read requests to verify staging never requests an unbounded excess suffix.
     std::streamsize xsgetn(char* output, std::streamsize count) override {
+      if (fail_after_first && requested_bytes != 0) {
+        throw std::ios_base::failure{"Injected nonseekable source failure"};
+      }
       requested_bytes += static_cast<std::size_t>(count);
       return std::stringbuf::xsgetn(output, count);
     }
@@ -322,7 +404,7 @@ TEST(package_zip, nonseekable_input_requires_bounded_explicit_disk_spooling) {
   nonseekable_buffer unsupported_buffer{encoded};
   std::istream unsupported{&unsupported_buffer};
   expect_error(package::error_code::unsupported_feature,
-      [&] { package::zip_reader rejected{unsupported}; });
+               [&] { package::zip_reader rejected{unsupported}; });
   {
     nonseekable_buffer buffer{encoded};
     std::istream source{&buffer};
@@ -349,10 +431,55 @@ TEST(package_zip, nonseekable_input_requires_bounded_explicit_disk_spooling) {
   EXPECT_TRUE(std::filesystem::is_empty(directory.path));
   nonseekable_buffer overflow_buffer{encoded};
   std::istream overflow_source{&overflow_buffer};
-  expect_error(package::error_code::resource_limit, [&] {
-    package::zip_reader rejected{overflow_source, {}, {directory.path, 16}};
-  });
+  expect_error(package::error_code::resource_limit,
+               [&] { package::zip_reader rejected{overflow_source, {}, {directory.path, 16}}; });
   EXPECT_EQ(overflow_buffer.requested_bytes, 17U);
+  EXPECT_TRUE(std::filesystem::is_empty(directory.path));
+
+  constexpr std::size_t spool_batch_bytes = 1024U;
+  const std::string payload(spool_batch_bytes * 4U, 'x');
+  std::ostringstream large;
+  package::zip_writer large_writer{large};
+  large_writer.add("payload", as_bytes(payload));
+  large_writer.finish();
+  nonseekable_buffer cancelled_buffer{large.str()};
+  std::istream cancelled_source{&cancelled_buffer};
+  bool saw_private_file{};
+  package::limits cancelled_limits;
+  cancelled_limits.max_buffer_bytes = spool_batch_bytes;
+  cancelled_limits.is_cancelled = [&] {
+    if (cancelled_buffer.requested_bytes == 0) {
+      return false;
+    }
+    for (const auto& entry : std::filesystem::directory_iterator{directory.path}) {
+      EXPECT_TRUE(entry.is_regular_file());
+      saw_private_file = true;
+#ifndef _WIN32
+      const auto public_permissions =
+          std::filesystem::perms::group_all | std::filesystem::perms::others_all;
+      EXPECT_EQ(entry.status().permissions() & public_permissions, std::filesystem::perms::none);
+#endif
+    }
+    return true;
+  };
+  expect_error(package::error_code::cancelled, [&] {
+    package::zip_reader rejected{cancelled_source,
+                                 std::make_shared<package::budget>(cancelled_limits),
+                                 {directory.path, large.str().size()}};
+  });
+  EXPECT_TRUE(saw_private_file);
+  EXPECT_EQ(cancelled_buffer.requested_bytes, spool_batch_bytes);
+  EXPECT_TRUE(std::filesystem::is_empty(directory.path));
+  nonseekable_buffer failed_buffer{large.str(), true};
+  std::istream failed_source{&failed_buffer};
+  package::limits failed_limits;
+  failed_limits.max_buffer_bytes = spool_batch_bytes;
+  expect_error(package::error_code::io, [&] {
+    package::zip_reader rejected{failed_source,
+                                 std::make_shared<package::budget>(failed_limits),
+                                 {directory.path, large.str().size()}};
+  });
+  EXPECT_EQ(failed_buffer.requested_bytes, spool_batch_bytes);
   EXPECT_TRUE(std::filesystem::is_empty(directory.path));
 }
 
@@ -432,6 +559,79 @@ TEST(package_zip, independent_stored_deflated_and_descriptor_fixtures) {
   std::istringstream own{make_archive({.method = package::zip_method::deflate})};
   package::zip_reader reader{own};
   EXPECT_EQ(as_text(reader.read("data/model.json")), "{\"count\":7}");
+}
+
+// ZIP32 directory offsets, record ranges and entry counts reject independently authored mutations.
+TEST(package_zip, independent_directory_offset_count_and_length_failures) {
+  auto control = independent_fixture("package_malformed_fixtures/valid.zip");
+  package::zip_reader reader{control};
+  EXPECT_NE(reader.find("Alternate/root.xml"), nullptr);
+  EXPECT_NE(reader.find("Textures/raw.bin"), nullptr);
+  const auto fixtures = malformed_package_fixtures("index");
+  ASSERT_EQ(fixtures.size(), 6U);
+  for (const auto& fixture : fixtures) {
+    SCOPED_TRACE(fixture);
+    auto input = independent_fixture(fixture);
+    ASSERT_TRUE(input.is_open());
+    expect_error(package::error_code::invalid_archive, [&] { package::zip_reader rejected{input}; });
+  }
+}
+
+// Coherent ZIP framing cannot hide bad CRC, declared expanded size or inexact DEFLATE EOF.
+TEST(package_zip, independent_deflate_crc_size_and_framing_failures) {
+  if (!compression::available(compression::format::deflate)) { GTEST_SKIP(); }
+  auto control = independent_fixture("package_malformed_fixtures/valid.zip");
+  package::zip_reader reader{control};
+  EXPECT_NE(as_text(reader.read("Alternate/root.xml")).find("name=\"independent\""), std::string::npos);
+  const auto fixtures = malformed_package_fixtures("integrity");
+  ASSERT_EQ(fixtures.size(), 4U);
+  for (const auto& fixture : fixtures) {
+    SCOPED_TRACE(fixture);
+    auto input = independent_fixture(fixture);
+    ASSERT_TRUE(input.is_open());
+    package::zip_reader indexed{input};
+    expect_error(package::error_code::integrity, [&] { (void)indexed.read("Alternate/root.xml"); });
+  }
+}
+
+// Malformed shared fixtures never publish a caller-authored aggregate or alter its prior destination.
+TEST(package_profile, independent_malformed_package_preserves_aggregate_destination) {
+  if (!rohit::serializer::xml::available() ||
+      !compression::available(compression::format::deflate)) { GTEST_SKIP(); }
+  bool decoded{};
+  const auto decode = [&](std::string& candidate, package::profile_loader& loader) {
+    loader.read_related("/", "urn:serializer:main-model", "application/vnd.serializer.test-model+xml",
+        [&](std::span<const std::uint8_t> data, const package::part&, package::budget&) {
+          decoded = true;
+          candidate.assign(data.begin(), data.end());
+        });
+    loader.read_related("/Alternate/root.xml", "urn:serializer:attachment", "application/octet-stream",
+        [](std::span<const std::uint8_t>, const package::part&, package::budget&) {});
+  };
+  auto control = independent_fixture("package_malformed_fixtures/valid.zip");
+  package::opc_reader control_reader{control};
+  const auto accepted = package::load_opc<std::string>(control_reader, decode);
+  EXPECT_TRUE(decoded);
+  EXPECT_NE(accepted.value.find("name=\"independent\""), std::string::npos);
+  for (const auto stage : {"index", "integrity"}) {
+    for (const auto& fixture : malformed_package_fixtures(stage)) {
+      SCOPED_TRACE(fixture);
+      decoded = false;
+      package::aggregate_result<std::string> destination{"old complete aggregate", {}};
+      auto input = independent_fixture(fixture);
+      ASSERT_TRUE(input.is_open());
+      const auto category = std::string_view{stage} == "index"
+          ? package::error_code::invalid_archive : package::error_code::integrity;
+      expect_error(category, [&] {
+        package::opc_reader reader{input};
+        package::load_opc_into(reader, destination, decode);
+      });
+      EXPECT_FALSE(decoded);
+      EXPECT_EQ(destination.value, "old complete aggregate");
+      EXPECT_TRUE(destination.extensions.parts.empty());
+      EXPECT_TRUE(destination.extensions.relationships.empty());
+    }
+  }
 }
 
 // Availability is explicit at the package boundary rather than a silent stored fallback.
@@ -599,6 +799,92 @@ TEST(package_opc, typed_media_roles_preserve_parameter_value_case) {
     else { expect_error(package::error_code::invalid_metadata, load); }
     EXPECT_EQ(decoded, matches);
   }
+}
+
+// Duplicate default/override identities reject before selection, including equivalent spellings.
+TEST(package_opc, independent_content_type_identities_and_override_precedence) {
+  if (!rohit::serializer::xml::available()) { GTEST_SKIP(); }
+  constexpr std::string_view defaults =
+      "<Default Extension='bin' ContentType='application/octet-stream'/>"
+      "<Default Extension='rels' ContentType='application/vnd.openxmlformats-package.relationships+xml'/>";
+  constexpr std::string_view main_override =
+      "<Override PartName='/Alternate/root.xml' ContentType='application/vnd.serializer.test-model+xml'/>";
+  const auto base = std::string{defaults} + std::string{main_override};
+  for (const auto& [label, duplicate] : std::array{
+      std::pair{"default identical", "<Default Extension='bin' ContentType='application/octet-stream'/>"},
+      std::pair{"default conflicting", "<Default Extension='bin' ContentType='text/plain'/>"},
+      std::pair{"default case", "<Default Extension='BIN' ContentType='text/plain'/>"},
+      std::pair{"default percent case", "<Default Extension='bi%3An' ContentType='text/plain'/>"
+          "<Default Extension='BI%3aN' ContentType='application/octet-stream'/>"},
+      std::pair{"override identical", "<Override PartName='/Alternate/root.xml' ContentType='application/vnd.serializer.test-model+xml'/>"},
+      std::pair{"override conflicting", "<Override PartName='/Alternate/root.xml' ContentType='text/plain'/>"},
+      std::pair{"override case", "<Override PartName='/ALTERNATE/ROOT.XML' ContentType='text/plain'/>"},
+      std::pair{"override whitespace", "<Override PartName=' /Alternate/root.xml &#x9;' ContentType='text/plain'/>"},
+      std::pair{"override percent case", "<Override PartName='/Extras/part%3Aname.bin' ContentType='text/plain'/>"
+          "<Override PartName='/EXTRAS/PART%3aname.BIN' ContentType='application/octet-stream'/>"}}) {
+    SCOPED_TRACE(label);
+    for (const bool prepend : {false, true}) {
+      SCOPED_TRACE(prepend);
+      std::istringstream input{content_type_archive(prepend ? duplicate + base : base + duplicate)};
+      expect_error(package::error_code::invalid_metadata, [&] { package::opc_reader reader{input}; });
+    }
+  }
+  // A distinct override legitimately takes precedence over a different extension default.
+  for (const auto& declarations : {base,
+      base + "<Override PartName='/Textures/raw.bin' ContentType='application/custom+binary'/>",
+      base + "<Override PartName=' /EXTRAS/PART%3aname.BIN &#x9;' ContentType='text/plain'/>"}) {
+    std::istringstream input{content_type_archive(declarations)};
+    package::opc_reader reader{input};
+    EXPECT_EQ(reader.parts().size(), 3U);
+    EXPECT_EQ(as_text(reader.read("/Alternate/root.xml")),
+        "<model xmlns='urn:serializer:package-test' name='independent'/>");
+    if (declarations.find("application/custom+binary") != std::string::npos) {
+      EXPECT_EQ(reader.find("/Textures/raw.bin")->content_type, "application/custom+binary");
+    }
+    if (declarations.find("text/plain") != std::string::npos) {
+      EXPECT_EQ(reader.find("/Extras/part%3Aname.bin")->content_type, "text/plain");
+    }
+  }
+}
+
+// Missing declarations and malformed/reserved media types fail independently of generated output.
+TEST(package_opc, independent_content_type_required_fields_and_media_types) {
+  if (!rohit::serializer::xml::available()) { GTEST_SKIP(); }
+  constexpr std::string_view binary_default =
+      "<Default Extension='bin' ContentType='application/octet-stream'/>";
+  constexpr std::string_view relationships_default =
+      "<Default Extension='rels' ContentType='application/vnd.openxmlformats-package.relationships+xml'/>";
+  constexpr std::string_view main_override =
+      "<Override PartName='/Alternate/root.xml' ContentType='application/vnd.serializer.test-model+xml'/>";
+  for (const auto& declarations : std::array{
+      std::string{}, std::string{relationships_default} + std::string{main_override},
+      std::string{binary_default} + std::string{relationships_default},
+      std::string{relationships_default} + std::string{main_override} + "<Default Extension='bin'/>",
+      std::string{relationships_default} + std::string{main_override} + "<Default ContentType='text/plain'/>",
+      std::string{binary_default} + std::string{relationships_default} + "<Override PartName='/Alternate/root.xml'/>",
+      std::string{binary_default} + std::string{relationships_default} + "<Override ContentType='text/plain'/>"}) {
+    SCOPED_TRACE(declarations);
+    std::istringstream input{content_type_archive(declarations)};
+    expect_error(package::error_code::invalid_metadata, [&] { package::opc_reader reader{input}; });
+  }
+  for (const auto type : {"", "text", "application/{invalid}",
+      "application/octet-stream; p=&quot;unterminated",
+      "APPLICATION/VND.OPENXMLFORMATS-PACKAGE.RELATIONSHIPS+XML",
+      "application/vnd.openxmlformats-package.core-properties+xml; charset=utf-8"}) {
+    SCOPED_TRACE(type);
+    for (const bool use_default : {false, true}) {
+      SCOPED_TRACE(use_default);
+      const auto declarations = use_default
+          ? std::string{relationships_default} + std::string{main_override} +
+              "<Default Extension='bin' ContentType='" + type + "'/>"
+          : std::string{binary_default} + std::string{relationships_default} +
+              "<Override PartName='/Alternate/root.xml' ContentType='" + type + "'/>";
+      std::istringstream input{content_type_archive(declarations)};
+      expect_error(package::error_code::invalid_metadata, [&] { package::opc_reader reader{input}; });
+    }
+  }
+  std::istringstream absent{content_type_archive({}, false)};
+  EXPECT_THROW(package::opc_reader reader{absent}, package::error);
 }
 
 // OPC infrastructure accepts exactly XML's UTF-8/UTF-16 encodings with original byte/tree bounds.
@@ -1184,9 +1470,105 @@ TEST(package_profile, aggregate_rollback_preservation_and_shared_callback_budget
   EXPECT_EQ(destination.extensions.parts.front().bytes, opaque);
 }
 
+// Every unknown part/relationship policy combination retains only explicitly selected optional data.
+TEST(package_profile, optional_and_required_extension_policy_matrix) {
+  if (!rohit::serializer::xml::available()) {
+    GTEST_SKIP();
+  }
+  std::ostringstream encoded;
+  package::opc_writer writer{encoded};
+  writer.add_part("/model", "application/json", as_bytes("7"));
+  writer.add_part("/optional", "application/octet-stream", as_bytes("opaque"));
+  writer.add_relationship({"/", "main", "urn:test:main", "model"});
+  writer.add_relationship({"/model", "optional", "urn:test:optional", "optional"});
+  writer.finish();
+  // Decode the known part through the ordinary unpublished aggregate callback.
+  const auto decode = [](int& value, package::profile_loader& loader) {
+    loader.read_related("/", "urn:test:main", "application/json",
+                        [&](auto bytes, const auto&, auto&) {
+                          value = std::stoi(as_text({bytes.begin(), bytes.end()}));
+                        });
+  };
+  constexpr std::array policies{package::unknown_policy::reject, package::unknown_policy::skip,
+                                package::unknown_policy::preserve};
+  for (const auto parts : policies) {
+    for (const auto relationships : policies) {
+      std::istringstream source{encoded.str()};
+      package::opc_reader reader{source};
+      package::aggregate_result<int> destination{42, {}};
+      const package::extension_policy policy{.parts = parts, .relationships = relationships};
+      if (parts == package::unknown_policy::reject ||
+          relationships == package::unknown_policy::reject) {
+        expect_error(package::error_code::unsupported_feature,
+                     [&] { package::load_opc_into(reader, destination, decode, policy); });
+        EXPECT_EQ(destination.value, 42);
+        continue;
+      }
+      package::load_opc_into(reader, destination, decode, policy);
+      EXPECT_EQ(destination.value, 7);
+      EXPECT_EQ(destination.extensions.parts.size(),
+                parts == package::unknown_policy::preserve ? 1U : 0U);
+      EXPECT_EQ(destination.extensions.relationships.size(),
+                relationships == package::unknown_policy::preserve ? 1U : 0U);
+      for (const auto required_parts : {false, true}) {
+        for (const auto required_links : {false, true}) {
+          if (!required_parts && !required_links) {
+            continue;
+          }
+          std::istringstream required_source{encoded.str()};
+          package::opc_reader required{required_source};
+          auto required_policy = policy;
+          required_policy.is_required_part = [=](const auto&) { return required_parts; };
+          required_policy.is_required_relationship = [=](const auto&) { return required_links; };
+          expect_error(package::error_code::unsupported_feature, [&] {
+            package::load_opc_into(required, destination, decode, required_policy);
+          });
+          EXPECT_EQ(destination.value, 7);
+        }
+      }
+    }
+  }
+}
+
+// Preserved links are revalidated after edits; missing sources/targets cannot replace a saved file.
+TEST(package_profile, edited_preserved_links_reject_before_file_publication) {
+  if (!rohit::serializer::xml::available()) {
+    GTEST_SKIP();
+  }
+  temporary_directory directory;
+  const auto destination = directory.path / "preserved.opc";
+  constexpr std::string_view old_generation = "previous complete generation";
+  const std::array invalid_links{
+      package::relationship{"/", "vendor", "urn:vendor:metadata", "Missing/target.xml"},
+      package::relationship{"/Missing/source.xml", "vendor", "urn:vendor:metadata", "../model"}};
+  for (const auto& link : invalid_links) {
+    {
+      std::ofstream original{destination};
+      original << old_generation;
+    }
+    package::preserved_extensions extensions;
+    extensions.relationships.push_back(link);
+    expect_error(package::error_code::missing_part, [&] {
+      package::save_opc_file(destination, [&](auto& output) {
+        output.add_part("/model", "application/json", as_bytes("8"));
+        output.add_relationship({"/", "main", "urn:test:main", "model"});
+        package::write_preserved(output, extensions);
+      });
+    });
+    std::ifstream original{destination};
+    const std::string retained{std::istreambuf_iterator<char>{original}, {}};
+    EXPECT_EQ(retained, old_generation);
+    EXPECT_EQ(std::distance(std::filesystem::directory_iterator{directory.path},
+                            std::filesystem::directory_iterator{}),
+              1);
+  }
+}
+
 // A required unknown capability cannot be silently skipped/preserved, and failures retain paths.
 TEST(package_profile, required_extensions_and_codec_diagnostics) {
-  if (!rohit::serializer::xml::available()) { GTEST_SKIP(); }
+  if (!rohit::serializer::xml::available()) {
+    GTEST_SKIP();
+  }
   std::ostringstream encoded;
   package::opc_writer writer{encoded};
   writer.add_part("/model", "application/json", as_bytes("7"));

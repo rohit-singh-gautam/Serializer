@@ -4,6 +4,59 @@ These tools separate regression tests, performance measurements, and fuzzing.
 The dated [verification record](../docs/verification/verification-2026-09-17.md) ties executed
 checks to a source revision and configurations, and lists outstanding work.
 
+## Shared compression exchange
+
+The [all-language selected parity inventory](compression_parity/README.md) extends
+the original core exchange below to all eleven SDK profiles, six formats, shared
+framing/history/byte-limit inputs, owning-model exchanges and maintained lifecycle
+controls. Its manifest and standalone driver require every declared SDK/provider;
+diagnostic subsets cannot produce a successful full qualification report.
+The [dated parity record](../docs/verification/verification-compression-parity-2026-10-20.md)
+separates the executed SDK baseline, discovered regressions and native runtime
+follow-up. Its complete selected framing/limit inventory is separate from nested
+XML/OPC context and performance work.
+
+The separate [compression manifest](compression_exchange/manifest.json) declares
+mandatory C++, Python and Java producers/consumers, four native protocols and
+identity/gzip/zlib/raw DEFLATE. The
+[standalone runner](compression_exchange_qualification.py) builds actual generated
+owning models, requires all 144 model exchanges and replays one independent
+framing/error/byte-limit corpus through every adapter. Requested SDK/provider
+absence or a missing job fails the run; it never narrows the declared inventory.
+This inventory is separate from the eleven-language XML exchange manifest.
+
+Run from a configured C++ compiler environment with CMake, Python and Java 17+
+available, using an installed Serializer runtime with zlib enabled:
+
+```sh
+python -B qualification/compression_exchange_qualification.py \
+  --compiler /path/to/serializer \
+  --build out/compression-exchange \
+  --prefix /path/to/serializer-install \
+  --dependency-prefix /path/to/provider-install \
+  --output out/compression-exchange.json
+```
+
+Repeat `--dependency-prefix` when needed, or omit it when discovery already finds
+the providers. `--javac`, `--java`, `--cmake`, `--generator` and `--make-program`
+select explicit tools. Windows requires a native developer shell. Generated
+sources, exchanges, fixtures and command logs stay under `--build`; the JSON
+records exact counts, tools and source/artifact hashes. See the
+[20 October executed proof](../docs/verification/verification-compression-exchange-2026-10-20.md)
+for its historical 144 exchanges, 249 corpus decisions and qualification limits.
+The later all-language inventory above adds optional providers and the other
+languages; complete shared XML/OPC contexts retain their separate gates.
+
+The [optional Java provider test](../test/java_compression_optional_test.py)
+compiles real emitted Java with no third-party compile classpath, then requires
+present/absent provider profiles from explicit `--provider-jar` arguments. Use
+`--cpp-helper` to require direct native whole-message/stream exchanges, and
+`--provider-path` for the independent Python LZ4 oracle. The
+[executed provider record](../docs/verification/verification-java-compression-providers-2026-10-20.md)
+pins tested artifacts and gives the complete invocation; it also records the
+separate LZ4-only classpath check. This standalone test does not install providers
+or silently skip explicitly requested dependencies.
+
 ## Regression tests
 
 The ordinary `core_serializer_test` target includes `decoder_qualification_test.cpp`
@@ -246,3 +299,60 @@ Keep these as experiments until the measured workloads justify a change:
 
 The current implementation keeps exact-length stack formatting, preserves ordered
 maps and stream reservation overrides, and introduces no new binary wire framing.
+
+## Python XML measurements
+
+The [Python XML benchmark](python_xml_benchmark.py) measures three owning XML
+workloads, all four native protocol baselines, independent ElementTree operations,
+traced Python allocation and generated/encoded sizes. Run with `--compiler` and
+an ignored `--build` directory. The
+[selected measurement record](../docs/verification/verification-python-xml-performance-2026-10-20.md)
+retains actual samples and limits; traced allocation is not process RSS and
+provider-tree timings do not represent typed-model work.
+
+## C++ XML measurements
+
+The [C++ XML benchmark](cpp_xml_benchmark.py) compiles the
+[measurement driver](cpp_xml_benchmark.cpp) against actual XML-enabled and
+native-only generated headers. It runs 54 isolated operations across three
+owning workloads and four native protocols, with one warmup and five wall/CPU
+samples per operation. Independent ElementTree checks XML values; both profiles
+must produce identical native bytes. On Windows, run from an MSVC developer environment with
+`--compiler`, `--runtime-library`, `--provider-prefix` and an ignored `--build`.
+On native Linux, select `--cxx`, the frozen `--headers`, `--runtime-library`
+and actual `--xml-library`; `--help` lists the portable options. Both selected
+hosts produced identical generated sources and all encoded outputs.
+The [selected record](../docs/verification/verification-cpp-xml-performance-2026-10-20.md)
+includes exact commands, sizes and OS process high-water residency. That absolute
+counter includes setup and libraries; its change does not measure exact codec
+allocation. The native-only executable links without an XML provider.
+
+## Eleven-language XML exchange
+
+The [exchange driver](xml_exchange_qualification.py) runs the maintained XML
+example with every selected actual SDK, both configured and fixed-XSD mapping,
+and an independent expanded-name/value oracle. Each profile requires the full
+11-by-11 producer/consumer matrix. Separate XML-disabled models must pass all
+four native protocols and future-version rejection. The
+[executed record](../docs/verification/verification-xml-exchange-2026-10-20.md)
+retains exact SDK/provider/cache paths and commands. Run the driver's `--help`;
+missing SDKs are explicit failures. Small-document exchange does not establish
+uniform malformed/resource qualification or broad vocabulary coverage.
+
+## Proposed compact scalar reference
+
+`compact_scalar_contract.py` checks the selected signed/floating payload design
+with exact rational arithmetic, exhaustive 16-bit patterns and independent Python
+IEEE conversions. It also invokes the actual compiler to require rejection of
+all five proposed modifiers while preserving preexisting output. Run:
+
+```powershell
+python -B qualification/compact_scalar_contract.py `
+  --compiler out/build/backlog-2026-10-20/compiler-current-combined-3533d50e/serializer.exe `
+  --build out/build/backlog-2026-10-20/compact-scalar-contract
+```
+
+See the [contract](../docs/design/compact_scalar_contract.md) and
+[executed reference proof](../docs/verification/verification-compact-scalar-contract-2026-10-20.md).
+This verifies a design prerequisite; it enables no schema keyword or generated
+codec and substitutes for no future backend qualification.

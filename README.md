@@ -34,13 +34,130 @@ wire records but do not have equivalent native managed engines.
 | Resolve typed entities and application keys | Opt-in C++ snapshot registries and field indexes | [State registries](docs/managed/state_registry.md) |
 | Explore mostly-disk indexes | Proposed paged backend and database comparison | [Paged indexing](docs/design/paged_indexing.md) |
 
+Selected compression framing, errors and byte/history admission now pass one shared corpus across all eleven outputs: 15,400 decisions, 2,904 owning exchanges and independent standard-frame checks. The [qualification record](docs/verification/verification-compression-parity-2026-10-20.md) identifies the actual compiler/runtime captures, provider deployments and scope.
+
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.13.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.14.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.20.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.14.0** adds [compiler-only installed CMake discovery](docs/guides/cmake_integration.md#compiler-only-source-generation).
+Use `find_package(Serializer 2.14 CONFIG REQUIRED COMPONENTS compiler)` to load
+the installed generator and generation helpers without discovering unused
+runtime-provider packages. This supports `LANGUAGES NONE` source-generation
+projects. Normal discovery and `COMPONENTS runtime` keep the full runtime exports
+and provider lookup. The host executable still needs its deployed shared-library
+dependencies. Generated Python modules also add
+[whole-message compression helpers](docs/serialization/compression.md#generated-python-api)
+for identity, gzip, zlib, raw DEFLATE and optional Zstandard/LZ4 providers, with
+bounded borrowed-stream wrappers and exact frame/inner-message validation. C++
+wrappers also check cancellation after final transport/native callbacks and during
+cached input finalization; keep borrowed policy callables alive through their last
+wrapper operation.
+Generated Java files add a [whole-message helper](docs/languages/java.md#whole-message-compression)
+for identity, gzip, zlib and raw DEFLATE, plus optional Zstandard and LZ4 runtime
+providers. Generated source compiles without the optional provider jars.
+Generated Go packages add [owning compression helpers](docs/languages/go_compression.md)
+for identity, gzip, zlib and raw DEFLATE, with borrowed streams, explicit finish,
+exact frame validation and fresh native decoding. The generated core stays
+self-contained on Go 1.22+; explicit per-operation Zstandard/LZ4 adapters use
+pinned optional modules on Go 1.25+.
+Generated C# files add [whole-message compression](docs/languages/csharp_compression.md)
+for .NET 8 identity/gzip/zlib/raw DEFLATE with explicit completion, bounded frame
+validation and borrowed streams. Caller-selected managed assemblies add optional
+Zstandard/LZ4 through compatibility-preserving option factories.
+Generated [JavaScript/TypeScript helpers](docs/languages/javascript_compression.md)
+provide asynchronous owning and borrowed-stream APIs. Load `nodeProvider()`
+explicitly for gzip/zlib/raw DEFLATE; browser imports and identity need no Node
+provider. Generated [Kotlin/JVM helpers](docs/languages/kotlin_compression.md)
+provide identity/gzip/zlib/raw DEFLATE with standard JDK providers and lazy
+optional Zstandard/LZ4 runtime jars. JS/TS explicitly select Node Zstandard
+transforms or a caller-supplied LZ4 block module; the default module adds no imports.
+These helpers check cancellation before
+fresh decoded publication; active wrappers fence callback-driven close/reentry
+and retain the first failure. See the [executed profiles](docs/verification/verification-backlog-2026-10-20.md).
+Selected [Python XML measurements](docs/verification/verification-python-xml-performance-2026-10-20.md)
+and [C++ XML measurements](docs/verification/verification-cpp-xml-performance-2026-10-20.md)
+record CPU, encoded/generated sizes and exact native-only baselines. Python
+records traced allocation; C++ records absolute process peak residency, including
+setup and native libraries. Logical bounds do not represent hard allocation limits.
+All eleven generated outputs also pass the selected
+[XML exchange and native independence checks](docs/verification/verification-xml-exchange-2026-10-20.md):
+121 configured and 121 fixed-XSD producer/consumer exchanges, plus actual
+XML-disabled builds with all four ordinary native protocols.
+Generated [Swift compression](docs/languages/swift_compression.md) is standalone
+for identity/gzip/zlib/raw DEFLATE, with bounded pure-Swift codecs and borrowed
+closure-based streams. Explicit caller-owned providers add Zstandard and LZ4
+through separate option initializers, preserving the original initializer API.
+The [core SDK proof](docs/verification/verification-swift-compression-2026-10-20.md)
+and [provider proof](docs/verification/verification-swift-compression-providers-2026-10-20.md)
+cover Windows Swift 6.4 and Linux Swift 6.1.3.
+Generated [C11 helpers](docs/languages/c_compression.md) supply standalone identity
+and optional zlib-backed gzip/zlib/raw DEFLATE, with transactional typed native
+codecs and bounded borrowed callbacks. Their
+[Windows/Linux SDK profiles](docs/verification/verification-c-compression-2026-10-20.md)
+include provider-free, model/enum collision and binary-only builds.
+Explicit C compile definitions and application linkage also enable
+[optional Zstandard/LZ4](docs/languages/c_compression.md#optional-zstandard-and-lz4),
+with independent history admission and
+[Windows/Linux provider qualification](docs/verification/verification-c-compression-providers-2026-10-20.md).
+Generated [Rust compression](docs/languages/rust_compression.md) supplies
+standalone identity/gzip/zlib/raw DEFLATE with typed errors and exact native
+callbacks. Pass mutable transport references to retain ownership, and finish
+explicitly. The [Windows/Linux SDK proof](docs/verification/verification-rust-compression-2026-10-20.md)
+also verifies native Linux generation and exclusive-borrow reentry rejection.
+Caller-owned Rust providers add Zstandard and fast level-0 LZ4 through additive
+`*_with_provider` APIs. The
+[provider proof](docs/verification/verification-rust-compression-providers-2026-10-20.md)
+covers actual Windows/Linux SDKs while original option literals remain compatible.
+C++ stores add [checked identified-baseline initialization](docs/managed/cpp_runtime.md#first-initialization-from-identified-storage)
+from typed storage, a stored document namespace and the native allocation watermark,
+preserving exact IDs, references and burned allocation gaps.
+External-document recovery now checks companion generation and baseline-frame
+integrity before invoking the application decoder. The
+[Windows/Linux document-bridge proof](docs/verification/verification-managed-document-bridge-2026-10-20.md)
+and [runnable JSON example](example/managed/external_document/README.md) cover
+Save/reopen, native history, collaboration metadata and crash recovery.
+The [identified-admission proof](docs/verification/verification-managed-identified-baseline-2026-10-20.md)
+passes 197 cases across nine CTests on each of Windows and Linux. Selected
+C++/Python package checks also qualify [descriptor/spool/Save lifecycle](docs/verification/verification-package-lifecycle-2026-10-20.md)
+and [typed rollback/preservation policies](docs/verification/verification-package-profiles-2026-10-20.md).
+Native and Python [ZIP64 input boundaries](docs/verification/verification-package-zip64-input-2026-10-20.md)
+include sparse offsets above 4 GiB, real 65K entry transitions and checked borrowed
+seekable Python sources. Native directory indexing reuses existing budgeted scratch.
+Generated [JavaScript/TypeScript packages](docs/languages/javascript_packages.md)
+add bounded ZIP/OPC readers, writers and typed XML facades with asynchronous
+load/write/Save. Stored ZIP works without Node imports; DEFLATE and private
+filesystem operations require explicitly selected Node providers. The
+[qualification](docs/verification/verification-javascript-packages-2026-10-20.md)
+covers independent frames, preservation policies, C++ exchanges and atomic Save
+faults in the selected Windows profile.
+Generated [Java ZIP/OPC facades](docs/languages/java_packages.md) use Java 17
+standard APIs for typed XML/opaque aggregates, bounded sources, preservation and
+staged Save. Their [qualification](docs/verification/verification-java-packages-2026-10-20.md)
+passes 224 decisions, independent outputs and native C++ exchange, with a separate
+Linux runtime replay of the Java 17 classfiles.
+Generated [Go physical ZIP helpers](docs/languages/go_packages.md) use Go 1.22
+standard APIs for bounded ZIP32/ZIP64, descriptors, spooling and staged Save.
+Their [Windows/Linux qualification](docs/verification/verification-go-packages-2026-10-20.md)
+covers independent archives, large boundaries and native interchange.
+[Go OPC facades](docs/languages/go_packages.md#typed-opc-facades) add bounded
+metadata/relationship validation, transactional typed XML loading, preservation
+and canonical output. Their [Windows/Linux proof](docs/verification/verification-go-opc-packages-2026-10-20.md)
+includes quota regressions and Save faults. Automatic nested contexts, runtime
+profile dispatch and declarative application references remain separate.
+Compiler output publication
+[preserves unchanged files](docs/guides/cmake_integration.md#preserve-unchanged-generated-files),
+so Ninja can skip dependent compilation when regeneration produces equal bytes.
+The [external JSON document example](example/managed/external_document/README.md)
+demonstrates bounded callbacks, native Save/reopen, retained redo and burned
+allocation gaps with the existing sidecar API.
+Schema language **1.20.0**, existing model APIs and wire formats are unchanged.
+Both editor source packages are **2.0.8**, with navigation to the new generated
+package facades and bounded indexing of marked generated runtime support.
 
 Release **2.13.0** adds differential C++ sidecar journals and an
 [external-document codec adapter](docs/guides/usage.md#external-documents-with-a-differential-sidecar).
@@ -205,6 +322,9 @@ Build a schema-specific offline converter with
 `serializer_add_migration_tool(TARGET migrate_model SCHEMA model.serializer ROOT app::document)`.
 It supports explicit fixed/compact ID policies for managed saves and raw models;
 raw input/output binary formats can also differ.
+Migration is [qualified against rebuilt 2.6.0 artifacts](docs/verification/verification-managed-legacy-migration-2026-10-20.md)
+for the recorded direct uint32 and separated uint64 profiles, preserving exact
+identity, retained history and allocation state.
 
 Compiler/runtime **2.3.1** preserves schema license notices without adding an
 output-license banner. Generated files retain the minimal Serializer provenance
@@ -322,7 +442,7 @@ arithmetic operator mappings with owning constructor calls in portable expressio
 Existing fields, wire formats and managed protocols retain their contracts.
 Run the [four focused examples](example/README.md#owning-record-apis) and consult
 [qualification](docs/verification/verification-owning-api-2026-10-12.md) for tested
-backends and limits. Both current editor packages are **2.0.5**, with separate
+backends and limits. Both current editor packages are **2.0.8**, with separate
 C++ generated-header navigation. See
 [editor verification](docs/editors/editor_extension.md#verification-performed)
 for package checks and navigation qualification.
@@ -431,6 +551,9 @@ Language `1.2.0` adds [compact unsigned scalar fields](docs/schema/compact_integ
 prefix encoding, while `compact_varint uint64 count;` uses full-width unsigned
 LEB128. Explicit `lenient` selects deterministic truncation. All output languages
 support these owning scalar annotations; JSON retains ordinary integer values.
+The [signed/floating design contract](docs/design/compact_scalar_contract.md)
+specifies future payload mathematics and reference vectors; its five proposed
+keywords remain unavailable in the current schema language.
 
 Language `1.3.0` adds [digest bytes and creation](docs/schema/digest.md): bare `digest`
 stores a variable-length application-supplied value, `digest[32]` fixes its byte
@@ -763,7 +886,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editors/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **2.0.5**, versioned independently from
+Both extensions use source release version **2.0.8**, versioned independently from
 the compiler/runtime. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
 available language grammars for syntax highlighting. Install the language's grammar
 provider where the editor does not bundle it; this does not add embedded IntelliSense.

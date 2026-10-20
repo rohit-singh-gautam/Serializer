@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -28,6 +29,35 @@ namespace {
 constexpr std::string_view runtime =
 #include "c_runtime.inc"
     ;
+constexpr std::string_view compression_runtime =
+#include "c_compression_runtime.inc"
+#include "c_compression_validation_runtime.inc"
+#include "c_zstd_compression_runtime.inc"
+#include "c_lz4_compression_runtime.inc"
+#include "c_compression_stream_runtime.inc"
+    ;
+
+// Choose a fresh global C prefix without replacing existing model or callable symbols.
+std::pair<std::string, std::string> compression_support(const std::set<std::string>& symbols) {
+  std::string prefix{"serializer_compression"};
+  std::size_t suffix{1};
+  while (std::any_of(symbols.begin(), symbols.end(), [&](const auto& symbol) {
+    return symbol.starts_with(prefix);
+  })) {
+    if (suffix == std::numeric_limits<std::size_t>::max()) {
+      throw std::length_error{"C compression helper names exhausted"};
+    }
+    prefix = "serializer_compression_" + std::to_string(++suffix);
+  }
+  std::string result{compression_runtime};
+  constexpr std::string_view marker{"@c@"};
+  for (std::size_t position{}; (position = result.find(marker, position)) != std::string::npos;) {
+    result.replace(position, marker.size(), prefix);
+    position += prefix.size();
+  }
+  return {prefix, "\n/* Generated C compression prefix: " + prefix + " */\n#ifndef " +
+      prefix + "_support_included\n#define " + prefix + "_support_included\n" + result + "\n#endif\n"};
+}
 constexpr std::string_view keywords =
     " auto break case char const continue default do double else enum extern float for goto if "
     "inline int long register restrict return short signed sizeof static struct switch typedef "
@@ -47,8 +77,9 @@ class c_emitter {
   std::set<const class_node*> defined_classes{};
   std::set<const class_node*> defining_classes{};
   std::size_t next_behavior_call{};
+  std::string compression_prefix_{};
   // Reserve generated global symbols before emitting C's shared typedef/function namespace.
-  void validate_symbols() const {
+  std::set<std::string> validate_symbols() const {
     behavior::require_unique_free_names(model.nodes, "c", [&](const auto& node) { return name(&node); });
     std::set<std::string> symbols{"size_t",   "ptrdiff_t", "int8_t",   "int16_t",    "int32_t",
                                   "int64_t",  "uint8_t",   "uint16_t", "uint32_t",   "uint64_t",
@@ -141,6 +172,7 @@ class c_emitter {
         }
       }
     }
+    return symbols;
   }
   // Append one indented C statement.
   void line(const std::string& text = {}) {
@@ -2031,6 +2063,43 @@ class c_emitter {
     close();
   }
 
+  // Compose existing native codecs transactionally without changing their APIs or bytes.
+  void compression_helpers(const class_node& value) {
+    const auto n = name(&value);
+    const auto& c = compression_prefix_;
+    line("/* Encode unchanged native bytes, then replace initialized output only on success. */");
+    open("static inline " + c + "_code " + c + "_" + n + "_encode(const " + n +
+        "* value, srl_protocol protocol, " + c + "_encode_options options, srl_buffer* result, srl_status* native_status)");
+    line("if (native_status) { *native_status = srl_ok; }");
+    line(c + "_code status = " + c + "_admit_encode(options);");
+    line("if (status != " + c + "_ok) { return status; }");
+    line("if (!value || !result) { return " + c + "_invalid_options; }");
+    line("status = " + c + "_poll(options.is_cancelled, options.context);");
+    line("if (status != " + c + "_ok) { return status; }");
+    line("srl_buffer plain = {0}; const srl_status native = " + n + "_encode(value, protocol, &plain);");
+    line("if (native_status) { *native_status = native; }");
+    line("if (native != srl_ok) { srl_buffer_free(&plain); return " + c + "_codec; }");
+    line("status = " + c + "_compress(plain.data, plain.size, options, result);");
+    line("srl_buffer_free(&plain); return status;");
+    close();
+    line("/* Decode into a fresh native candidate; cancellation or codec failure retains the destination. */");
+    open("static inline " + c + "_code " + c + "_" + n + "_decode(" + n +
+        "* value, const uint8_t* bytes, size_t size, srl_protocol protocol, const srl_limits* native_limits, " +
+        c + "_decode_options options, srl_status* native_status)");
+    line("if (native_status) { *native_status = srl_ok; }");
+    line("if (!value) { return " + c + "_invalid_options; }");
+    line("srl_buffer plain = {0}; " + c + "_code status = " + c + "_decompress(bytes, size, options, &plain);");
+    line("if (status != " + c + "_ok) { return status; }");
+    line(n + " candidate = {0}; srl_status native = " + n + "_init(&candidate);");
+    line("if (native == srl_ok) { native = " + n + "_decode(&candidate, plain.data, plain.size, protocol, native_limits); }");
+    line("if (native_status) { *native_status = native; }");
+    line("srl_buffer_free(&plain);");
+    line("status = native == srl_ok ? " + c + "_poll(options.is_cancelled, options.context) : " + c + "_codec;");
+    line("if (status == " + c + "_ok) { " + n + " previous = *value; *value = candidate; " + n + "_free(&previous); }");
+    line("else { " + n + "_free(&candidate); } return status;");
+    close();
+  }
+
 public:
   // Bind schema metadata and a private key table name for one generated header.
   explicit c_emitter(const schema& value)
@@ -2080,7 +2149,17 @@ public:
         for (const auto& argument : factory.parameters) { collect_generic_types(argument.type); }
       }
     }
-    validate_symbols();
+    auto symbols = validate_symbols();
+    for (const auto* node : model.nodes) {
+      if (node->type == object_type::class_type) {
+        for (const auto& method : static_cast<const class_node&>(*node).functions) {
+          symbols.insert(name(node) + "_" + field(method.name));
+        }
+      }
+    }
+    auto compression = compression_support(symbols);
+    compression_prefix_ = std::move(compression.first);
+    output += compression.second;
     for (std::size_t i = 0; i < model.ordered_keys.size(); ++i) {
       const auto& key = model.ordered_keys[i];
       std::string encoded;
@@ -2187,6 +2266,11 @@ public:
     for (const auto* node : model.nodes) {
       if (node->type == object_type::class_type) {
         object(static_cast<const class_node&>(*node));
+      }
+    }
+    for (const auto* node : model.nodes) {
+      if (node->type == object_type::class_type) {
+        compression_helpers(static_cast<const class_node&>(*node));
       }
     }
     return output;

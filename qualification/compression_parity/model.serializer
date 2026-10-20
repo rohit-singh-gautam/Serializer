@@ -1,0 +1,6 @@
+serializer version 1;
+
+class account_record stable_ids {
+  public uint32 account_id (1);
+  public string label (2);
+}

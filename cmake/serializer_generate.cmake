@@ -95,6 +95,9 @@ endfunction()
 
 # Share generation without re-expanding the parsed paths or reparsing scalar option values.
 function(_serializer_generate_impl)
+  if(NOT TARGET Serializer::runtime)
+    message(FATAL_ERROR "serializer_generate requires Serializer::runtime; find_package(Serializer CONFIG REQUIRED COMPONENTS runtime) or use serializer_generate_source for generation only")
+  endif()
   list(LENGTH arg_TARGETS target_count)
   list(LENGTH arg_CONFIGS config_count)
   list(LENGTH arg_OUTPUT_DIRECTORIES directory_count)

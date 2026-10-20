@@ -4,10 +4,10 @@
 R"packagepython(
 import dataclasses as _pkg_dataclasses
 import ipaddress as _pkg_ip
+import io as _pkg_io
 import os as _pkg_os
 import tempfile as _pkg_tempfile
 import time as _pkg_time
-import urllib.parse as _pkg_url
 import zlib as _pkg_zlib
 
 _PKG_CT = 'http://schemas.openxmlformats.org/package/2006/content-types'
@@ -310,54 +310,69 @@ R"packagepython(def _pkg_iri_component(value, extra='', query=False):
             raise PackageError('invalid_relationship', 'Invalid relationship IRI character')
         index += 1
 
+def _pkg_split_uri(value):
+    """Split only literal ASCII delimiters, preserving Unicode spelling and empty component presence."""
+    path, has_fragment, fragment = value.partition('#')
+    path, has_query, query = path.partition('?')
+    colon, slash = path.find(':'), path.find('/')
+    scheme, authority = None, None
+    if colon >= 0 and (slash < 0 or colon < slash):
+        scheme, path = path[:colon], path[colon + 1:]
+    if path.startswith('//'):
+        authority, separator, path = path[2:].partition('/')
+        path = '/' + path if separator else ''
+    return scheme, authority, path, query if has_query else None, fragment if has_fragment else None
+
+
 def _pkg_uri(value, absolute=False):
-    """Validate RFC3986/3987 references without DNS, filesystem or network resolution."""
+    """Validate inert RFC3986/3987 references without Unicode normalization or external resolution."""
     if type(value) is not str or any(ord(character) <= 0x20 for character in value):
         raise PackageError('invalid_relationship', 'Invalid relationship URI')
-    try:
-        split = _pkg_url.urlsplit(value)
-    except ValueError as error:
-        raise PackageError('invalid_relationship', 'Invalid relationship URI authority') from error
-    if absolute and (not split.scheme or '#' in value):
-        raise PackageError('invalid_relationship', 'Relationship type requires an absolute IRI without a fragment')
-    first = value.split('/', 1)[0].split('?', 1)[0].split('#', 1)[0]
-    if ':' in first and (not split.scheme or not _re.fullmatch('[A-Za-z][A-Za-z0-9+.-]*', split.scheme)):
+    scheme, authority, path, query, fragment = _pkg_split_uri(value)
+    if scheme is not None and not _re.fullmatch('[A-Za-z][A-Za-z0-9+.-]*', scheme):
         raise PackageError('invalid_relationship', 'Invalid relationship URI scheme')
-    authority = split.netloc
+    if absolute and (scheme is None or fragment is not None):
+        raise PackageError('invalid_relationship', 'Relationship type requires an absolute IRI without a fragment')
+    authority = authority if authority is not None else ''
     if '@' in authority:
-        user, authority = authority.rsplit('@', 1)
+        user, authority = authority.split('@', 1)
         _pkg_iri_component(user, ':')
     if authority.startswith('['):
         close = authority.find(']')
+        if close < 0:
+            raise PackageError('invalid_relationship', 'Invalid relationship URI authority')
         literal = authority[1:close]
         try:
             if literal[:1].lower() == 'v':
                 if not _re.fullmatch(r'[vV][0-9A-Fa-f]+\.[A-Za-z0-9._~!$&\x27()*+,;=:-]+', literal):
                     raise ValueError('Invalid IPvFuture')
             else:
+                # RFC3986 IP literals exclude scoped-address zone identifiers accepted by ipaddress.
+                if '%' in literal:
+                    raise ValueError('Invalid IPv6 zone identifier')
                 _pkg_ip.IPv6Address(literal)
         except ValueError as error:
             raise PackageError('invalid_relationship', 'Invalid relationship IP literal') from error
         suffix = authority[close + 1:]
-        if suffix and (not suffix.startswith(':') or suffix[1:] and not suffix[1:].isascii() or suffix[1:] and not suffix[1:].isdigit()):
+        if suffix and not _re.fullmatch(':[0-9]*', suffix):
             raise PackageError('invalid_relationship', 'Invalid relationship URI port')
     else:
         host, separator, port = authority.partition(':')
         _pkg_iri_component(host)
         if separator and port and not _re.fullmatch('[0-9]+', port):
             raise PackageError('invalid_relationship', 'Invalid relationship URI port')
-    _pkg_iri_component(split.path, ':@/')
-    _pkg_iri_component(split.query, ':@/?', True)
-    _pkg_iri_component(split.fragment, ':@/?')
+    _pkg_iri_component(path, ':@/')
+    _pkg_iri_component(query or '', ':@/?', True)
+    _pkg_iri_component(fragment or '', ':@/?')
     return value
 
 def _pkg_target(source, target):
     """Resolve RFC dot segments to a whole part while retaining authored query/fragment text in its link."""
     _pkg_uri(target)
-    split = _pkg_url.urlsplit(target)
-    if split.scheme or split.netloc or target.startswith('//'):
+    scheme, authority, path, _, _ = _pkg_split_uri(target)
+    if scheme is not None or authority is not None:
         raise PackageError('invalid_relationship', 'Invalid internal relationship target', source, reference=target)
-    target = split.path
+    target = path
     if not target:
         return _pkg_name(source)
     if target.endswith('/') or target.rsplit('/', 1)[-1] in ('.', '..'):
@@ -382,16 +397,25 @@ def _pkg_unique(names, name):
     names.add(key)
 
 class _PackageSource:
-    """Own bounded private spooling for borrowed streams; input files are never extracted or modified."""
+    """Borrow checked random access or own a bounded spool; caller streams are never closed."""
     def __init__(self, source, budget):
-        """Read even nonseekable short-reading sources with cancellation and deterministic cleanup."""
+        """Address seekable input from its current position; privately spool genuine nonseekable input."""
         self.budget, self.file, self.data, self.size = budget, None, None, 0
+        self.base, self.owned = 0, False
         if isinstance(source, (bytes, bytearray, memoryview)):
-            self.data, self.size = memoryview(source), len(source)
+            view = memoryview(source)
+            self.size = view.nbytes
             if self.size > budget.limits.max_archive_bytes:
                 raise PackageError('resource_limit', 'Archive byte limit exceeded')
+            if not view.c_contiguous:
+                budget.check_buffer(self.size)
+                view = memoryview(view.tobytes())
+            self.data = view.cast('B')
+            return
+        if self._borrow(source):
             return
         self.file = _pkg_tempfile.SpooledTemporaryFile(max_size=min(1024 * 1024, budget.limits.max_buffer_bytes), mode='w+b')
+        self.owned = True
         try:
             while True:
                 budget.check_buffer(_PKG_CHUNK)
@@ -410,24 +434,64 @@ class _PackageSource:
         except BaseException:
             self.close()
             raise
+    def _borrow(self, source):
+        """Probe positioning without reading; a failed unsupported seek must leave the original base intact."""
+        seek, tell = getattr(source, 'seek', None), getattr(source, 'tell', None)
+        if not callable(seek) or not callable(tell):
+            return False
+        seekable = getattr(source, 'seekable', None)
+        try:
+            if callable(seekable) and not seekable():
+                return False
+            base = tell()
+        except _pkg_io.UnsupportedOperation:
+            return False
+        if type(base) is not int or base < 0:
+            raise PackageError('io', 'Invalid package source position')
+        try:
+            seek(0, _pkg_os.SEEK_END)
+        except _pkg_io.UnsupportedOperation:
+            # Fall back only when the failed capability probe demonstrably consumed no input.
+            restored = tell()
+            if type(restored) is not int or restored != base:
+                raise PackageError('io', 'Unsupported package seek changed the source position')
+            return False
+        end = tell()
+        if type(end) is not int or end < base:
+            raise PackageError('io', 'Invalid package source extent')
+        size = end - base
+        if size > self.budget.limits.max_archive_bytes:
+            raise PackageError('resource_limit', 'Archive byte limit exceeded')
+        self.file, self.base, self.size = source, base, size
+        return True
     def read(self, offset, count):
-        """Check every archive range before seeking or slicing and require exact underlying reads."""
+        """Admit complete ranges before I/O, accumulate legal short reads, and leave borrowed input at EOF."""
         if offset < 0 or count < 0 or offset > self.size or count > self.size - offset:
             raise PackageError('invalid_archive', 'ZIP offset or length is outside the archive')
         self.budget.consume('io_bytes', count)
         self.budget.check_buffer(count)
         if self.data is not None:
             return bytes(self.data[offset:offset + count])
-        self.file.seek(offset)
-        data = self.file.read(count)
-        if len(data) != count:
-            raise PackageError('io', 'Truncated package source')
-        return data
+        self.file.seek(self.base + offset)
+        chunks, remaining = [], count
+        while remaining:
+            self.budget.check()
+            requested = min(_PKG_CHUNK, remaining)
+            data = self.file.read(requested)
+            self.budget.check()
+            if not isinstance(data, bytes) or not data or len(data) > requested:
+                raise PackageError('io', 'Invalid or truncated package source read')
+            chunks.append(data)
+            remaining -= len(data)
+        if not self.owned:
+            self.file.seek(self.base + self.size)
+            self.budget.check()
+        return b''.join(chunks)
     def close(self):
         """Release only the private spool owned by this operation."""
-        if self.file is not None:
+        if self.file is not None and self.owned:
             self.file.close()
-            self.file = None
+        self.file = None
 
 def _pkg_zip64(extra, required):
     """Read ordered ZIP64 values only when their 32-bit sentinel requires them."""
@@ -470,20 +534,27 @@ R"packagepython(class _PackageZip:
         if disk or central_disk or disk_count != count or end + 22 + comment != source.size:
             raise PackageError('invalid_archive', 'Multidisk or trailing ZIP data is unsupported')
         boundary = end
-        if count == 65535 or size == _PKG_U32 or offset == _PKG_U32:
+        if end >= 20:
             locator = source.read(end - 20, 20)
-            signature, disk, location, disks = _struct.unpack('<4sIQI', locator)
-            if signature != b'PK\x06\x07' or disk or disks != 1:
-                raise PackageError('invalid_archive', 'Invalid ZIP64 locator')
-            record = source.read(location, 56)
-            fields = _struct.unpack('<4sQ2H2I4Q', record)
-            if fields[0] != b'PK\x06\x06' or fields[1] < 44 or fields[4] or fields[5] or fields[6] != fields[7] or location + 12 + fields[1] != end - 20:
-                raise PackageError('invalid_archive', 'Invalid ZIP64 directory')
-            count, size, offset, boundary = fields[7], fields[8], fields[9], location
+            if locator.startswith(b'PK\x06\x07'):
+                signature, disk, location, disks = _struct.unpack('<4sIQI', locator)
+                if disk or disks != 1 or location > end - 20 or end - 20 - location < 56:
+                    raise PackageError('invalid_archive', 'Invalid ZIP64 locator')
+                record = source.read(location, 56)
+                fields = _struct.unpack('<4sQ2H2I4Q', record)
+                if fields[0] != b'PK\x06\x06' or fields[1] < 44 or fields[4] or fields[5] or fields[6] != fields[7] or fields[1] != end - 20 - location - 12:
+                    raise PackageError('invalid_archive', 'Invalid ZIP64 directory')
+                if fields[3] > 45:
+                    raise PackageError('unsupported_feature', 'Unsupported ZIP64 extraction version')
+                if (count != 65535 and count != fields[7] or size != _PKG_U32 and size != fields[8] or
+                        offset != _PKG_U32 and offset != fields[9]):
+                    raise PackageError('invalid_archive', 'ZIP32 and ZIP64 directory records disagree')
+                count, size, offset, boundary = fields[7], fields[8], fields[9], location
+        # Without a locator, ordinary fields retain their full unsigned range, including the maximum.
+        if offset > boundary or size != boundary - offset:
+            raise PackageError('invalid_archive', 'ZIP central directory boundary mismatch')
         budget.consume('entries', count)
         budget.consume('metadata_bytes', size)
-        if offset + size != boundary:
-            raise PackageError('invalid_archive', 'ZIP central directory boundary mismatch')
         central = source.read(offset, size)
         position, intervals, names = 0, [], set()
         for unused in range(count):
@@ -497,8 +568,10 @@ R"packagepython(class _PackageZip:
             name_size, extra_size, comment_size, disk = fields[10:14]
             local = fields[16]
             length = 46 + name_size + extra_size + comment_size
-            if length > len(central) - position or disk or flags & ~(0x800 | 8 | 6) or method not in (0, 8):
-                raise PackageError('unsupported_feature', 'Unsupported or truncated ZIP entry')
+            if length > len(central) - position:
+                raise PackageError('invalid_archive', 'Truncated ZIP central entry fields')
+            if disk or flags & ~(0x800 | 8 | 6) or method not in (0, 8):
+                raise PackageError('unsupported_feature', 'Unsupported ZIP entry')
             name_bytes = central[position + 46:position + 46 + name_size]
             try:
                 name = name_bytes.decode('utf-8' if flags & 0x800 else 'cp437', 'strict')
@@ -516,18 +589,22 @@ R"packagepython(class _PackageZip:
             if local == _PKG_U32: local = next(values)
             if expanded > budget.limits.max_part_bytes:
                 raise PackageError('resource_limit', 'ZIP expanded part limit exceeded', part_name)
+            if local > offset or offset - local < 30:
+                raise PackageError('invalid_archive', 'ZIP local header overlaps directory', part_name)
             header = source.read(local, 30)
             values = _struct.unpack('<4s5H3I2H', header)
             if values[0] != b'PK\x03\x04' or values[2] != flags or values[3] != method:
                 raise PackageError('invalid_archive', 'ZIP local and central headers disagree', part_name)
             local_name, local_extra = values[9], values[10]
+            data = local + 30 + local_name + local_extra
+            if data > offset or compressed > offset - data:
+                raise PackageError('invalid_archive', 'ZIP payload overlaps directory', part_name)
             if source.read(local + 30, local_name) != name_bytes:
                 raise PackageError('invalid_archive', 'ZIP local filename mismatch', part_name)
             extra = source.read(local + 30 + local_name, local_extra)
             local_sizes = _pkg_zip64(extra, (values[8] == _PKG_U32, values[7] == _PKG_U32))
             local_expanded = next(local_sizes) if values[8] == _PKG_U32 else values[8]
             local_compressed = next(local_sizes) if values[7] == _PKG_U32 else values[7]
-            data = local + 30 + local_name + local_extra
             finish = data + compressed
             if flags & 8:
                 wide = wide or values[7] == _PKG_U32 or values[8] == _PKG_U32
@@ -947,6 +1024,7 @@ def _pkg_write_stream(destination, data, budget):
         budget.consume('io_bytes', len(block))
         if destination.write(block) != len(block):
             raise PackageError('io', 'Package sink performed a short write')
+        budget.check()
 
 def _pkg_save(path, data, budget, fault=None):
     """Sync a private sibling file before atomic replacement; report post-publication uncertainty honestly."""
@@ -954,7 +1032,10 @@ def _pkg_save(path, data, budget, fault=None):
     descriptor, temporary = _pkg_tempfile.mkstemp(prefix='.serializer-opc-', dir=_pkg_os.path.dirname(path))
     published = False
     try:
-        with _pkg_os.fdopen(descriptor, 'wb') as stream:
+        stream = _pkg_os.fdopen(descriptor, 'wb')
+        # fdopen owns the descriptor only after it has returned successfully.
+        descriptor = None
+        with stream:
             _pkg_write_stream(stream, data, budget)
             stream.flush()
             _pkg_os.fsync(stream.fileno())
@@ -972,6 +1053,8 @@ def _pkg_save(path, data, budget, fault=None):
             raise PackageError('publication_uncertain', 'Package was published but durability confirmation failed') from error
         raise
     finally:
+        if descriptor is not None:
+            _pkg_os.close(descriptor)
         if not published:
             try: _pkg_os.unlink(temporary)
             except FileNotFoundError: pass

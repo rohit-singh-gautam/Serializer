@@ -785,11 +785,9 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
   }
   // End-record fields are copied above; release the tail before allocating the directory.
   std::vector<std::uint8_t>{}.swap(tail);
-  bool zip64_found{};
   if (directory_end >= zip64_locator_bytes) {
     const auto locator = read_at(directory_end - zip64_locator_bytes, zip64_locator_bytes);
     if (read_integer<std::uint32_t>(locator, 0) == zip64_locator_signature) {
-      zip64_found = true;
       if (read_integer<std::uint32_t>(locator, 4) != 0 ||
           read_integer<std::uint32_t>(locator, 16) != 1) {
         throw error{error_code::unsupported_feature, "Split ZIP64 archives are unsupported"};
@@ -826,10 +824,8 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
       directory_end = extended_offset;
     }
   }
-  if (!zip64_found && (count == zip16_limit || directory_bytes == zip32_limit ||
-                       directory_offset == zip32_limit)) {
-    throw error{error_code::invalid_archive, "ZIP64 directory record is missing"};
-  }
+  // Without a locator, classic fields retain their full unsigned range, including their maximum.
+  // Exact extents below reject missing ZIP64 data without excluding representable ZIP32 boundaries.
   if (directory_offset > directory_end || directory_bytes != directory_end - directory_offset) {
     throw error{error_code::invalid_archive, "Invalid ZIP central directory extent"};
   }
@@ -880,9 +876,6 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
     const std::string name{reinterpret_cast<const char*>(header.data() + central_header_bytes),
                            name_size};
     validate_zip_name(name, (flags & utf8_flag) != 0, opc_names);
-    if (find(name)) {
-      throw error{error_code::duplicate_name, "Duplicate ZIP entry", name};
-    }
     auto extra = zip64_extra(header.subspan(central_header_bytes + name_size, extra_size));
     const auto expanded = expanded_integer(extra, expanded_narrow);
     const auto compressed = expanded_integer(extra, compressed_narrow);
@@ -907,6 +900,22 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
   std::vector<std::uint8_t>{}.swap(directory);
   std::vector<std::pair<std::uint64_t, std::uint64_t>> extents;
   extents.reserve(entries_.size());
+  // Reuse the already admitted extent scratch as a name index, preserving directory order and
+  // avoiding quadratic duplicate scans or any extra retained names/allocation reservation.
+  for (std::size_t index = 0; index < entries_.size(); ++index) {
+    extents.emplace_back(index, 0);
+  }
+  std::sort(extents.begin(), extents.end(), [this](const auto& left, const auto& right) {
+    return entries_[left.first].name < entries_[right.first].name;
+  });
+  budget_->check_cancelled();
+  for (std::size_t index = 1; index < extents.size(); ++index) {
+    const auto& name = entries_[extents[index].first].name;
+    if (name == entries_[extents[index - 1].first].name) {
+      throw error{error_code::duplicate_name, "Duplicate ZIP entry", name};
+    }
+  }
+  extents.clear();
   for (auto& entry : entries_) {
     const auto header = read_at(entry.header_offset_bytes, local_header_bytes);
     if (read_integer<std::uint32_t>(header, 0) != local_signature ||

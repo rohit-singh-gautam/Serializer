@@ -1,3 +1,22 @@
+# 2.0.8
+
+- Reuse each generated output's offset-preserving lexical mask during inherited-field lookup so eleven-language results stay within the Visual Studio interpreter's existing resource limits.
+- Preserve generated owners, cursor endpoints, unsaved source locations, cancellation and reverse navigation.
+- Add a fresh-process inherited-field regression, keep both package releases synchronized and retain the actual third-party signing-tool versions in the lockfile.
+
+# 2.0.7
+
+- Exclude compiler-marked Java runtime support from declaration indexing to keep package navigation within the Visual Studio interpreter budget.
+- Preserve exact source offsets, Java namespace containers, model declarations and legacy generated-output fallback.
+- Mask comment and literal spans by line to reduce interpreter allocation while preserving navigation offsets.
+- Synchronize both editor packages and verify fresh Java, JavaScript and TypeScript package facade navigation.
+
+# 2.0.6
+
+- Navigate generated JavaScript package factory constants and TypeScript package namespaces in both directions.
+- Preserve enum identity and invalidate stale generated targets after live schema package renames.
+- Synchronize both extension versions, package filenames and listing documentation; local builds do not publish Marketplace listings.
+
 # 2.0.5
 
 - Support language 1.20.0 XML defaults/overrides, fixed-schema declarations and package roles.

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.13.0 LANGUAGES CXX)
+project(serializer VERSION 2.14.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.20.0)
@@ -60,7 +60,9 @@ add_library(serializer_runtime
   src/managed_journal.cpp
   include/rohit/managed_journal.hpp
   src/compression.cpp
+  src/compression_deflate.hpp
   include/rohit/compression.hpp
+  include/rohit/compression_io.hpp
   src/compression_stream.cpp
   include/rohit/compression_stream.hpp
   src/xml.cpp
@@ -297,20 +299,69 @@ add_library(serializer_lib
   src/managed_lowering.hpp
   src/native_schema.cpp
   src/c_writer.cpp
+  src/c_compression_runtime.inc
+  src/c_compression_validation_runtime.inc
+  src/c_zstd_compression_runtime.inc
+  src/c_lz4_compression_runtime.inc
+  src/c_compression_stream_runtime.inc
   src/c_runtime.inc
   src/mobile_writer.cpp
   src/swift_runtime.inc
+  src/swift_compression_runtime.inc
   src/kotlin_runtime.inc
+  src/kotlin_compression_runtime.inc
+  src/kotlin_zstd_compression_runtime.inc
+  src/kotlin_lz4_compression_runtime.inc
   src/rust_writer.cpp
   src/rust_runtime.inc
+  src/rust_compression_runtime.inc
+  src/rust_compression_provider_runtime.inc
   src/python_writer.cpp
   src/python_runtime.inc
+  src/python_compression_runtime.inc
   src/portable_writer.cpp
   src/js_runtime.inc
+  src/js_compression_runtime.inc
+  src/js_compression_declarations.inc
+  src/javascript_package_runtime.inc
+  src/javascript_package_writer_runtime.inc
+  src/javascript_package_host_runtime.inc
+  src/javascript_package_opc_runtime.inc
+  src/javascript_package_mce_runtime.inc
+  src/javascript_package_profile_runtime.inc
+  src/javascript_package_declarations.inc
+  src/javascript_package_writer.hpp
   src/go_runtime.inc
+  src/go_compression_runtime.inc
+  src/go_compression_provider_runtime.inc
+  src/go_package_runtime.inc
+  src/go_package_zip_reader_runtime.inc
+  src/go_package_zip_writer_runtime.inc
+  src/go_package_file_runtime.inc
+  src/go_package_opc_runtime.inc
+  src/go_package_metadata_runtime.inc
+  src/go_package_mce_runtime.inc
+  src/go_package_catalog_runtime.inc
+  src/go_package_opc_writer_runtime.inc
+  src/go_package_loader_runtime.inc
+  src/go_package_composer_runtime.inc
+  src/go_package_native_runtime.inc
+  src/go_package_writer.hpp
   src/csharp_runtime.inc
+  src/csharp_compression_runtime.inc
+  src/csharp_optional_compression_runtime.inc
+  src/csharp_zstd_compression_runtime.inc
+  src/csharp_lz4_compression_runtime.inc
   src/java_writer.cpp
   src/java_runtime.inc
+  src/java_package_writer.hpp
+  src/java_package_runtime.inc
+  src/java_package_writer_runtime.inc
+  src/java_package_opc_runtime.inc
+  src/java_package_xml_runtime.inc
+  src/java_package_profile_runtime.inc
+  src/java_compression_runtime.inc
+  src/java_deflate_validation_runtime.inc
   src/cpp_type_mapping.cpp
   src/cpp_naming.cpp
   src/cpp_naming.hpp
@@ -384,7 +435,7 @@ endif()
 set_target_properties(serializer_lib PROPERTIES EXPORT_NO_SYSTEM TRUE)
 add_library(Serializer::serializer_lib ALIAS serializer_lib)
 
-add_executable(serializer src/serializer.cpp src/command_line.hpp)
+add_executable(serializer src/serializer.cpp src/command_line.hpp src/compiler_artifact_output.hpp)
 if(WIN32)
   # Source-based example generation must find enabled shared compression runtimes.
   add_custom_command(TARGET serializer POST_BUILD
@@ -422,17 +473,30 @@ endif()
 if(SERIALIZER_INSTALL)
   include(CMakePackageConfigHelpers)
   set(serializer_package_directory "${CMAKE_INSTALL_LIBDIR}/cmake/Serializer")
+  # LANGUAGES NONE projects cannot infer multiarch or lib64 search suffixes.
+  set(serializer_neutral_package_directory "${CMAKE_INSTALL_DATADIR}/cmake/Serializer")
   configure_package_config_file(cmake/serializer_config.cmake.in
     "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfig.cmake"
     INSTALL_DESTINATION "${serializer_package_directory}"
   )
-  write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/SerializerConfigVersion.cmake"
+  configure_package_config_file(cmake/serializer_config.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/neutral/SerializerConfig.cmake"
+    INSTALL_DESTINATION "${serializer_neutral_package_directory}"
+  )
+  # Host-tool discovery must not compare the host executable's ABI with the target ABI.
+  configure_file(cmake/serializer_config_version.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfigVersion.cmake" @ONLY)
+  write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/SerializerRuntimeConfigVersion.cmake"
     VERSION "${PROJECT_VERSION}" COMPATIBILITY SameMajorVersion)
-  install(TARGETS serializer_runtime serializer_lib serializer EXPORT SerializerTargets
+  write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/SerializerCompilerConfigVersion.cmake"
+    VERSION "${PROJECT_VERSION}" COMPATIBILITY SameMajorVersion ARCH_INDEPENDENT)
+  install(TARGETS serializer_runtime serializer_lib EXPORT SerializerTargets
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
   )
+  install(TARGETS serializer EXPORT SerializerCompilerTargets
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
   if(SERIALIZER_BUILD_MANAGED)
     install(TARGETS serializer_managed EXPORT SerializerTargets)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/managed/include/rohit/managed_records.hpp"
@@ -453,15 +517,29 @@ if(SERIALIZER_INSTALL)
     FILES_MATCHING PATTERN "*.hpp" ${serializer_disabled_header_patterns})
   install(FILES "${CMAKE_CURRENT_BINARY_DIR}/generated/include/rohit/version.hpp"
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/rohit")
-  install(EXPORT SerializerTargets NAMESPACE Serializer::
-    DESTINATION "${serializer_package_directory}")
-  install(FILES "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfig.cmake"
-    "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfigVersion.cmake"
-    cmake/serializer_generate.cmake cmake/serializer_generate_java.cmake
-    cmake/serializer_generate_source.cmake
-    cmake/serializer_include_outputs.cmake
-    cmake/serializer_compression.cmake
-    DESTINATION "${serializer_package_directory}")
+  set(serializer_package_directories "${serializer_package_directory}"
+    "${serializer_neutral_package_directory}")
+  list(REMOVE_DUPLICATES serializer_package_directories)
+  foreach(package_directory IN LISTS serializer_package_directories)
+    if(package_directory STREQUAL serializer_package_directory)
+      set(package_config "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfig.cmake")
+    else()
+      set(package_config "${CMAKE_CURRENT_BINARY_DIR}/neutral/SerializerConfig.cmake")
+    endif()
+    install(EXPORT SerializerTargets NAMESPACE Serializer::
+      DESTINATION "${package_directory}")
+    install(EXPORT SerializerCompilerTargets NAMESPACE Serializer::
+      DESTINATION "${package_directory}")
+    install(FILES "${package_config}"
+      "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfigVersion.cmake"
+      "${CMAKE_CURRENT_BINARY_DIR}/SerializerRuntimeConfigVersion.cmake"
+      "${CMAKE_CURRENT_BINARY_DIR}/SerializerCompilerConfigVersion.cmake"
+      cmake/serializer_generate.cmake cmake/serializer_generate_java.cmake
+      cmake/serializer_generate_source.cmake
+      cmake/serializer_include_outputs.cmake
+      cmake/serializer_compression.cmake
+      DESTINATION "${package_directory}")
+  endforeach()
   install(FILES LICENSE LICENSE-RUNTIME LICENSE-GENERATED
     DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/Serializer")
 endif()

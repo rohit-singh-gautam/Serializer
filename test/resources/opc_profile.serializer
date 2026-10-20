@@ -39,4 +39,15 @@ namespace profile {
       relationship("urn:serializer:main-model");
     }
   }
+
+  // Multiple typed occurrences qualify failure before a complete aggregate can be returned.
+  package collection_archive {
+    part models : model {
+      name(dynamic);
+      content_type("application/vnd.serializer.test-model+xml");
+      relationship("urn:serializer:collection-model");
+      occurs(3, 3);
+      compression(deflate);
+    }
+  }
 }

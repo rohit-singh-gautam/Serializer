@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -82,8 +83,9 @@ TEST(managed_journal_document, rejects_all_truncations_and_trailing_bytes) {
         std::invalid_argument)
         << length;
   }
-  auto trailing = encoded;
-  trailing.insert(trailing.end() - checksum_bytes, 0);
+  // Allocate the extra byte before copying; update_checksum fills the final checksum extent.
+  bytes trailing(encoded.size() + 1);
+  std::copy_n(encoded.begin(), encoded.size() - checksum_bytes, trailing.begin());
   update_checksum(trailing);
   EXPECT_THROW(detail::decode_document_manifest(trailing, metadata_budget_bytes),
                std::invalid_argument);

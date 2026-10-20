@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <exception>
 #include <limits>
 #include <memory>
 #include <new>
@@ -37,21 +38,62 @@ class encoding_state : protected output_sink {
   std::size_t output_bytes{};
   bool failed_{};
   bool finished_{};
+  bool busy_{};
+  std::exception_ptr first_failure_{};
+
+  // Reject swallowed nested failures before invoking another borrowed callback.
+  void check_active() const {
+    if (first_failure_) {
+      std::rethrow_exception(first_failure_);
+    }
+  }
+  // Poll only while the same operation remains active on both sides of the callback.
+  void poll() const {
+    check_active();
+    if (limits_.check_cancelled) {
+      limits_.check_cancelled();
+    }
+    check_active();
+  }
+  // Admit one sequential operation and latch reentry before any backend state is reused.
+  void begin() {
+    if (busy_) {
+      failed_ = true;
+      if (!first_failure_) {
+        first_failure_ = std::make_exception_ptr(std::logic_error{"Reentrant compression encoder"});
+      }
+      std::rethrow_exception(first_failure_);
+    }
+    if (failed_ || finished_) {
+      throw std::logic_error{"Compression encoder is closed"};
+    }
+    busy_ = true;
+  }
+  // Preserve the first failure, including a nested failure swallowed by its callback.
+  [[noreturn]] void fail_operation() {
+    if (!first_failure_) {
+      first_failure_ = std::current_exception();
+    }
+    failed_ = true;
+    busy_ = false;
+    std::rethrow_exception(first_failure_);
+  }
 
 protected:
   // Encode another range from the same message without adding a record boundary.
   virtual void encode_bytes(std::span<const std::uint8_t> bytes) = 0;
   // Produce the backend trailer exactly once, including an empty-message frame if necessary.
   virtual void encode_end() = 0;
-  // Check every emission before invoking the borrowed destination.
+  // Check each emission and final callback before allowing the active operation to continue.
   void append(std::span<const std::uint8_t> bytes) override {
-    if (limits_.check_cancelled) { limits_.check_cancelled(); }
+    poll();
     if (bytes.size() > limits_.max_output_bytes - output_bytes) {
       throw error{error_code::resource_limit, "Compression output limit exceeded"};
     }
     if (!bytes.empty()) {
       destination_.append(bytes);
       output_bytes += bytes.size();
+      poll();
     }
   }
 
@@ -63,33 +105,34 @@ public:
   ~encoding_state() override = default;
   // Reject invalid lifecycle transitions and check input bounds before touching the backend.
   void write(std::span<const std::uint8_t> bytes) {
-    if (failed_ || finished_) {
-      throw std::logic_error{"Compression encoder is closed"};
-    }
+    begin();
     try {
+      poll();
       if (bytes.size() > limits_.max_input_bytes - input_bytes) {
         throw error{error_code::resource_limit, "Compression input limit exceeded"};
       }
       encode_bytes(bytes);
       input_bytes += bytes.size();
+      poll();
+      busy_ = false;
     } catch (...) {
-      failed_ = true;
-      throw;
+      fail_operation();
     }
   }
   // Fence failed streams; idempotence never emits a second frame or duplicate trailer.
   void finish() {
-    if (failed_) {
-      throw std::logic_error{"Compression encoder has failed"};
+    if (finished_ && !failed_) {
+      return;
     }
-    if (!finished_) {
-      try {
-        encode_end();
-        finished_ = true;
-      } catch (...) {
-        failed_ = true;
-        throw;
-      }
+    begin();
+    try {
+      poll();
+      encode_end();
+      poll();
+      finished_ = true;
+      busy_ = false;
+    } catch (...) {
+      fail_operation();
     }
   }
   // Report failure without invoking a borrowed resource.

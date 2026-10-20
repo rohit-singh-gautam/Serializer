@@ -18,9 +18,12 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -29,11 +32,52 @@ namespace {
 constexpr std::string_view runtime =
 #include "rust_runtime.inc"
     ;
+constexpr std::string_view compression_runtime =
+#include "rust_compression_runtime.inc"
+    ;
+constexpr std::string_view compression_provider_runtime =
+#include "rust_compression_provider_runtime.inc"
+    ;
 constexpr std::string_view keywords =
     " as async await break const continue crate dyn else enum extern false fn for if impl in let "
     "loop match mod move mut pub ref return self Self static struct super trait true type unsafe "
     "use where while abstract become box do final macro override priv typeof unsized virtual yield "
     "try gen BTreeMap ";
+
+// Compare a helper family against normalized generated declarations without renaming models.
+std::string compression_name_key(std::string_view name) {
+  auto result = snake(name);
+  std::erase(result, '_');
+  return result;
+}
+
+// Append a collision-selected standalone module after the unchanged native runtime and models.
+std::string compression_support(const schema& model) {
+  const std::string base{"serializer_compression"};
+  std::set<std::string> occupied;
+  for (const auto& item : model.names) { occupied.insert(compression_name_key(item.second)); }
+  auto name = base;
+  std::size_t suffix{1};
+  while (occupied.contains(compression_name_key(name))) {
+    if (suffix == std::numeric_limits<std::size_t>::max()) {
+      throw std::length_error{"Rust compression helper names exhausted"};
+    }
+    name = base + '_' + std::to_string(++suffix);
+  }
+  std::string result{compression_runtime};
+  const auto core_end = result.rfind("\n}");
+  if (core_end == std::string::npos) {
+    throw std::logic_error{"Missing Rust compression module boundary"};
+  }
+  result.insert(core_end, compression_provider_runtime);
+  constexpr std::string_view marker{"@compression_name@"};
+  std::size_t position{};
+  while ((position = result.find(marker, position)) != std::string::npos) {
+    result.replace(position, marker.size(), name);
+    position += name.size();
+  }
+  return "// Generated Rust compression helper module: " + name + "\n" + result;
+}
 // Emit Rust source with statically typed fields and fallible exact decoding.
 class rust_emitter {
   const schema& model;
@@ -1451,6 +1495,7 @@ public:
       close();
       close();
     }
+    output += compression_support(model);
     return output;
   }
 };

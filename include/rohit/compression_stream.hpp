@@ -4,10 +4,12 @@
 #pragma once
 
 #include <rohit/compression.hpp>
+#include <rohit/compression_io.hpp>
 #include <rohit/stream_io.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <ios>
 #include <memory>
 #include <span>
@@ -126,7 +128,8 @@ std::vector<std::uint8_t> read_compressed_message(Input& input, const decode_opt
     const auto view = borrow_stream_bytes(input, options.max_compressed_bytes);
     return decompress({view.curr(), view.remaining_buffer()}, options);
   } else {
-    const auto bytes = read_stream_bytes(input, options.max_compressed_bytes);
+    const auto bytes =
+        read_bounded_source(input, options.max_compressed_bytes, options.check_cancelled);
     return decompress({bytes.begin(), bytes.current_offset()}, options);
   }
 }
@@ -139,11 +142,22 @@ std::vector<std::uint8_t> read_compressed_message(Input& input, const decode_opt
 template <rohit::type_check::input_stream Input>
 class input_stream : public rohit::stream {
   std::vector<std::uint8_t> storage;
+  const cancellation_callback check_cancelled;
+  mutable std::exception_ptr first_failure{};
+  mutable bool checking{};
+
+  // Preserve swallowed same-wrapper reentry before another policy callback or successful finish.
+  void check_active() const {
+    if (first_failure) {
+      std::rethrow_exception(first_failure);
+    }
+  }
 
 public:
-  // Consume the source only under configured bounds; validate checksums/trailers before decoding.
+  // Validate the frame before decoding; keep the cancellation callable alive through the last wrapper operation.
   input_stream(Input& input, const decode_options& options)
-      : rohit::stream{}, storage{detail::read_compressed_message(input, options)} {
+      : rohit::stream{}, storage{detail::read_compressed_message(input, options)},
+        check_cancelled{options.check_cancelled} {
     current_data = storage.data();
     end_data = storage.empty() ? current_data : current_data + storage.size();
   }
@@ -154,6 +168,33 @@ public:
   input_stream& operator=(input_stream&&) = delete;
   // Require complete object consumption after decoding; JSON callers should use decoder.finish().
   void finish() const {
+    if (first_failure) {
+      try {
+        std::rethrow_exception(first_failure);
+      } catch (...) {
+        std::throw_with_nested(std::logic_error{"Compression input has failed"});
+      }
+    }
+    if (checking) {
+      first_failure =
+          std::make_exception_ptr(std::logic_error{"Reentrant compression input finish"});
+      std::rethrow_exception(first_failure);
+    }
+    checking = true;
+    try {
+      if (check_cancelled) {
+        check_cancelled();
+      }
+      check_active();
+      checking = false;
+    } catch (...) {
+      if (!first_failure) {
+        first_failure = std::current_exception();
+      }
+      checking = false;
+      std::rethrow_exception(first_failure);
+    }
+    // Preserve the established ability to consume remaining bytes after a premature finish check.
     if (!full()) {
       throw error{error_code::invalid_data, "Trailing decompressed message data"};
     }

@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { fileKey, includeCandidates } from './model';
 import { cppIncludeAt, dependencySchemas, indexSource, resolveType, spanAt,
   SourceIndex, Span, TypeSymbol } from './navigation_model';
-import { generatedBanner, generatedIncludes, generatedMember, generatedSource, indexGeneratedSource, outputMemberNames,
+import { generatedBanner, generatedIncludes, generatedMember, generatedMemberReader, generatedSource, indexGeneratedSource, outputMemberNames,
   outputNames } from './generated_navigation';
 import { callableMatches, cppCallables } from './callable_navigation';
 import type { CallableSymbol } from './navigation_model';
@@ -209,10 +209,14 @@ export class Navigator {
           }
         }
       }
+      let fieldAt: ReturnType<typeof generatedMemberReader> | undefined;
       for (const token of generated.text.matchAll(/[A-Za-z_]\w*/g)) {
         if (this.host.cancelled()) { return []; }
         if (!names.includes(token[0])) { continue; }
-        const field = generatedMember(generated.text, output, generated.index, token.index!);
+        // A field can occur in many generated methods; masking the entire output per occurrence
+        // exhausts the native interpreter's request budget across an eleven-language result set.
+        fieldAt ??= generatedMemberReader(generated.text, output, generated.index);
+        const field = fieldAt(token.index!);
         if (field && !!field.getter === !!member.getter &&
             (field.owner.schemaQualified === member.owner || owners.includes(field.owner.qualified))) {
           targets.push({ file: output, start: field.start, end: field.end });

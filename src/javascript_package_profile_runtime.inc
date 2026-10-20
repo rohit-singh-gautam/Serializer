@@ -1,0 +1,232 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+// Serializer runtime template source; emitted support may also be used under 0BSD.
+R"packagejs(
+  // Physical directory, device and symlink entries do not become OPC payload parts.
+  function physicalFile(entry) {
+    if (entry.name.endsWith('/')) return false;
+    if ([0, 10, 14].includes(entry.creatorSystem) && (entry.externalAttributes & 0x18)) return false;
+    if ([3, 19].includes(entry.creatorSystem)) { const kind = Math.floor(entry.externalAttributes / 65536) & 0xf000; if (kind && kind !== 0x8000) return false; }
+    return true;
+  }
+  // Validate scoped IDs and all source/target membership before decoding models or publishing output.
+  function validateLinks(links, parts, budget) {
+    const seen = new Map(), result = [];
+    for (const supplied of links) {
+      budget.check(); budget.consume('relationships', 1); budget.consume('references', 1);
+      const link = new Relationship(supplied.source, supplied.id, supplied.type, supplied.target, supplied.mode);
+      if (![link.source, link.id, link.type, link.target].every(value => typeof value === 'string')) throw new PackageError(Code.InvalidRelationship, 'Relationship fields must be strings');
+      const textBytes = link.source.length + link.id.length + link.type.length + link.target.length;
+      if (textBytes > budget.limits.maxMetadataBytes) throw new PackageError(Code.ResourceLimit, 'Relationship text exceeds metadata limit');
+      budget.consume('workUnits', textBytes);
+      if (!SrlXmlNcName.test(link.id)) throw new PackageError(Code.InvalidRelationship, 'Invalid relationship ID', link.source);
+      if (link.source !== '/') partName(link.source);
+      if (link.source !== '/' && !parts.has(fold(link.source))) throw new PackageError(Code.MissingPart, 'Relationship source is missing', link.source, link.id);
+      const key = fold(link.source) + '\0' + link.id; if (seen.has(key)) throw new PackageError(Code.InvalidRelationship, 'Duplicate source-scoped relationship ID', link.source, link.id); seen.set(key, true);
+      uri(link.type, true);
+      if (!['internal', 'external'].includes(link.mode)) throw new PackageError(Code.InvalidRelationship, 'Invalid relationship target mode', link.source, link.id);
+      if (link.mode === 'external') uri(link.target);
+      else { const target = targetName(link.source, link.target); if (!parts.has(fold(target))) throw new PackageError(Code.MissingPart, 'Relationship target is missing', target, link.id); }
+      result.push(Object.freeze(link));
+    }
+    return result;
+  }
+  // Resolve standard metadata and verify excluded physical files without treating them as payloads.
+  async function opcRead(archive, budget) {
+    const manifests = archive.entries.filter(entry => fold(entry.name) === '[content_types].xml');
+    if (manifests.length !== 1 || !physicalFile(manifests[0])) throw new PackageError(Code.InvalidMetadata, 'Missing or duplicate OPC content type manifest');
+    const defaults = new Map(), overrides = new Map();
+    for (const child of metadataRead(await archive.read(manifests[0].name), ctNamespace, 'Types', budget)) {
+      const attrs = child.attrs, keys = Object.keys(attrs);
+      if (child.name === 'Default' && keys.length === 2 && Object.hasOwn(attrs, 'Extension') && Object.hasOwn(attrs, 'ContentType')) {
+        const key = fold(attrs.Extension); if (!/^(?:[A-Za-z0-9_~!$&'()*+,:=@-]|%[0-9a-fA-F]{2})+$/.test(key) || defaults.has(key)) throw new PackageError(Code.InvalidMetadata, 'Invalid or duplicate default extension');
+        mimeIdentity(attrs.ContentType); defaults.set(key, attrs.ContentType);
+      } else if (child.name === 'Override' && keys.length === 2 && Object.hasOwn(attrs, 'PartName') && Object.hasOwn(attrs, 'ContentType')) {
+        const key = fold(partName(collapse(attrs.PartName), true)); if (overrides.has(key)) throw new PackageError(Code.InvalidMetadata, 'Duplicate content type override');
+        mimeIdentity(attrs.ContentType); overrides.set(key, attrs.ContentType);
+      } else throw new PackageError(Code.InvalidMetadata, 'Unknown OPC content type declaration');
+    }
+    if (!defaults.size && !overrides.size) throw new PackageError(Code.InvalidMetadata, 'Empty OPC content type manifest');
+    const parts = new Map(), relationshipParts = [], identities = new Map(), mapped = new Map();
+    for (const entry of archive.entries) {
+      budget.check(); if (entry === manifests[0]) continue; const name = '/' + entry.name;
+      let mappedPart = physicalFile(entry);
+      if (mappedPart) {
+        const unsupported = /[^\x00-\x7f]|%[89a-fA-F][0-9a-fA-F]/.test(name);
+        const probe = unsupported ? name.replace(/%[89a-fA-F][0-9a-fA-F]/g, '%20').replace(/[^\x00-\x7f]/g, '_') : name;
+        try { partName(probe, true); } catch (error) { if (!(error instanceof PackageError) || error.code !== Code.InvalidPartName) throw error; mappedPart = false; }
+        if (mappedPart && unsupported) throw new PackageError(Code.Unsupported, 'Non-ASCII OPC part names are unsupported', name);
+      }
+      if (!mappedPart) { await archive.read(entry.name); continue; }
+      const key = uniquePart(identities, name); mapped.set(key, true);
+      const extension = entry.name.slice(entry.name.lastIndexOf('.') + 1), contentType = overrides.get(key) || defaults.get(fold(extension));
+      if (!contentType) throw new PackageError(Code.InvalidMetadata, 'OPC part has no content type', name);
+      const source = relationshipSource(name);
+      if (source !== null) {
+        if (fold(contentType) !== relMime) throw new PackageError(Code.InvalidMetadata, 'Relationship infrastructure has the wrong MIME type', name);
+        relationshipParts.push({entry, source});
+      } else {
+        partName(name); if (fold(contentType) === relMime) throw new PackageError(Code.InvalidMetadata, 'Relationship MIME type requires infrastructure', name);
+        parts.set(key, {name, contentType, entry});
+      }
+    }
+    for (const key of overrides.keys()) if (!mapped.has(key)) throw new PackageError(Code.InvalidMetadata, 'Content type override names a missing or reserved part', key);
+    const links = [];
+    for (const {entry, source} of relationshipParts) {
+      if (source !== '/' && !parts.has(fold(source))) throw new PackageError(Code.MissingPart, 'Relationship part source is missing', source);
+      for (const child of metadataRead(await archive.read(entry.name), relNamespace, 'Relationships', budget)) {
+        const attrs = child.attrs, keys = Object.keys(attrs);
+        if (child.name !== 'Relationship' || !['Id', 'Type', 'Target'].every(key => Object.hasOwn(attrs, key)) || keys.some(key => !['Id', 'Type', 'Target', 'TargetMode'].includes(key))) throw new PackageError(Code.InvalidMetadata, 'Invalid relationship declaration', '/' + entry.name);
+        const mode = collapse(attrs.TargetMode === undefined ? 'Internal' : attrs.TargetMode);
+        if (!['Internal', 'External'].includes(mode)) throw new PackageError(Code.InvalidRelationship, 'Invalid relationship TargetMode', source);
+        links.push(new Relationship(source, collapse(attrs.Id), collapse(attrs.Type), collapse(attrs.Target), fold(mode)));
+      }
+    }
+    return {parts, relationships: validateLinks(links, parts, budget)};
+  }
+  // Snapshot all public opaque bytes before the first asynchronous provider or sink callback.
+  function snapshotParts(parts, state) {
+    if (!Array.isArray(parts) || parts.length > state.budget.limits.maxEntries) throw new PackageError(Code.ResourceLimit, 'Package part count exceeds limit');
+    return parts.map(part => {
+      if (typeof part.name !== 'string' || typeof part.contentType !== 'string') throw new PackageError(Code.InvalidOptions, 'Part metadata must be strings');
+      state.budget.consume('metadataBytes', part.name.length + part.contentType.length, part.name);
+      partName(part.name); mimeIdentity(part.contentType); if (fold(part.contentType) === relMime) throw new PackageError(Code.InvalidMetadata, 'Relationship MIME type is reserved', part.name);
+      if (!(part.data instanceof Uint8Array) || part.data.length > state.budget.limits.maxPartBytes) throw new PackageError(Code.InvalidOptions, 'Invalid opaque package payload', part.name);
+      admitCompression(part.compression === 'deflate' ? 8 : part.compression === 'stored' ? 0 : -1, state.provider);
+      state.budget.consume('decoderAllocationBytes', part.data.length, part.name);
+      state.hold(part.data.length, part.name);
+      return new BinaryPart(copyBytes(part.data, state), part.name, part.contentType, part.sourceIndex, part.compression);
+    });
+  }
+  // Assemble runtime-owned metadata and deterministic relationship groups using one shared budget.
+  async function opcEncode(parts, relationships, options = {}) {
+    const budget = getBudget(options), state = new State(budget); state.provider = options.compressionProvider;
+    admitCompression(8, options.compressionProvider);
+    try {
+    const snapshots = snapshotParts(parts, state), identities = new Map(), lookup = new Map();
+    for (const part of snapshots) lookup.set(uniquePart(identities, part.name), part);
+    const links = validateLinks(relationships, lookup, budget), groups = new Map(), children = [], entries = snapshots.slice();
+    for (const part of snapshots.slice().sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) children.push({name: 'Override', attrs: {PartName: part.name, ContentType: part.contentType}});
+    if (!snapshots.length && !links.length) children.push({name: 'Default', attrs: {Extension: 'rels', ContentType: relMime}});
+    for (const link of links) { if (!groups.has(link.source)) groups.set(link.source, []); groups.get(link.source).push(link); }
+    for (const source of Array.from(groups.keys()).sort()) {
+      const at = source.lastIndexOf('/'), name = source === '/' ? '/_rels/.rels' : source.slice(0, at + 1) + '_rels/' + source.slice(at + 1) + '.rels'; uniquePart(identities, name);
+      const declarations = groups.get(source).slice().sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0).map(link => {
+        const attrs = {Id: link.id, Type: link.type, Target: link.target}; if (link.mode === 'external') attrs.TargetMode = 'External'; return {name: 'Relationship', attrs};
+      });
+      children.push({name: 'Override', attrs: {PartName: name, ContentType: relMime}}); entries.push(new BinaryPart(metadataWrite(relNamespace, 'Relationships', declarations, budget), name, relMime, 0, 'deflate'));
+    }
+    entries.push(new BinaryPart(metadataWrite(ctNamespace, 'Types', children, budget), '/[Content_Types].xml', '', 0, 'deflate'));
+    const writer = new ZipWriter({...options, limits: undefined, budget});
+    try { for (const part of entries) { state.poll(); await writer.add({name: part.name.slice(1), data: part.data, compression: part.compression}); state.poll(); } const data = await writer.finish(); state.poll(); return data; }
+    finally { writer.close(); }
+    } finally { state.releaseHolds(); }
+  }
+  // Enforce total role cardinality before any complete aggregate can be published.
+  function occurs(count, role) { if (count < role.minimum || role.maximum !== null && count > role.maximum) { const error = new PackageError(Code.Occurrence, 'Package role occurrence constraint failed'); error.fieldPath = role.field; throw error; } }
+  // Create a schema-bound facade after model constructors exist; ordinary model codec APIs stay unchanged.
+  function profile(roles) {
+    /** Borrow typed role values; async encoding snapshots binary spans and eagerly encodes native XML. */
+    class Input { constructor(values = {}) { for (const role of roles) this[role.field] = values[role.field] === undefined ? role.singleton ? null : [] : values[role.field]; this.extensions = values.extensions || null; } }
+    /** Own the fresh decoded role aggregate. */
+    class Value extends Input {}
+    // Prepare all native payloads and metadata before the first asynchronous provider call.
+    async function encode(value, options = {}) {
+)packagejs"
+R"packagejs(      const budget = getBudget(options), state = new State(budget), parts = [], links = [], sources = new Map(); state.provider = options.compressionProvider;
+      admitCompression(8, options.compressionProvider);
+      try {
+      for (const role of roles) {
+        const supplied = value[role.field];
+        if (!role.singleton && !Array.isArray(supplied)) throw new PackageError(Code.InvalidOptions, 'Repeated package role requires an array');
+        const items = role.singleton ? supplied === null || supplied === undefined ? [] : [supplied] : supplied; occurs(items.length, role);
+        if (items.length > budget.limits.maxEntries - parts.length) throw new PackageError(Code.ResourceLimit, 'Package part count exceeds limit');
+        const discovered = [], parents = role.source === '/' ? ['/'] : sources.get(role.source);
+        for (let index = 0; index < items.length; ++index) {
+          state.poll(); const item = items[index], name = role.name === null ? item.name : role.name, contentType = role.mime === null ? item.contentType : role.mime, parent = role.singleton ? 0 : integer(item.sourceIndex, 'source occurrence');
+          if (typeof name !== 'string' || typeof contentType !== 'string') throw new PackageError(Code.InvalidOptions, 'Part metadata must be strings');
+          budget.consume('metadataBytes', name.length + contentType.length, name);
+          if (!parents || parent >= parents.length) throw new PackageError(Code.InvalidRelationship, 'Package source occurrence is missing', name);
+          partName(name); mimeIdentity(contentType); let data;
+          if (role.model !== null) {
+            const model = role.singleton ? item : item.value; if (!(model instanceof role.model)) throw new PackageError(Code.InvalidOptions, 'Typed package resource has the wrong native type', name);
+            state.poll(); data = srlUtf8(model.encodeXml()); state.poll();
+)packagejs"
+R"packagejs(          } else data = item.data;
+          if (!(data instanceof Uint8Array)) throw new PackageError(Code.InvalidOptions, 'Package resource requires bytes', name);
+          if (data.length > budget.limits.maxPartBytes) throw new PackageError(Code.ResourceLimit, 'Package part extent exceeds limit', name);
+          budget.consume('decoderAllocationBytes', data.length, name); state.hold(data.length, name);
+          const independent = copyBytes(data, state); parts.push(new BinaryPart(independent, name, contentType, parent, role.compression));
+          links.push(new Relationship(parents[parent], role.id === null ? 'srl_' + role.role + '_' + index : role.id, role.relationship, name)); discovered.push(name);
+        }
+        sources.set(role.field, discovered);
+      }
+      const extensions = value.extensions || new Extensions(); const opaque = snapshotParts(extensions.parts, state);
+      if (opaque.length > budget.limits.maxEntries - parts.length) throw new PackageError(Code.ResourceLimit, 'Package part count exceeds limit');
+      for (const part of opaque) parts.push(part);
+      for (const link of extensions.relationships) links.push(new Relationship(link.source, link.id, link.type, link.target, link.mode));
+      return await opcEncode(parts, links, {...options, limits: undefined, budget});
+      } finally { state.releaseHolds(); }
+    }
+    // Discover alternate part names through source-scoped links and publish only after complete validation.
+    async function load(source, options = {}) {
+      const budget = getBudget(options), state = new State(budget), policy = options.policy === undefined ? new ExtensionPolicy() : options.policy;
+      if (!(policy instanceof ExtensionPolicy) || options.validate !== undefined && typeof options.validate !== 'function') throw new PackageError(Code.InvalidOptions, 'Invalid package load policy');
+      const archive = await ZipReader.open(source, {...options, limits: undefined, budget});
+      try {
+        const metadata = await opcRead(archive, budget), candidate = new Value(), sources = new Map(), decoded = new Map(), selected = new Map();
+        for (const role of roles) {
+          const values = [], discovered = [], parents = role.source === '/' ? ['/'] : sources.get(role.source);
+          for (let parent = 0; parent < parents.length; ++parent) for (let index = 0; index < metadata.relationships.length; ++index) {
+            state.poll(); budget.consume('workUnits', 1); const link = metadata.relationships[index];
+            if (fold(link.source) !== fold(parents[parent]) || link.type !== role.relationship) continue;
+            if (link.mode !== 'internal') throw new PackageError(Code.InvalidRelationship, 'Typed role requires an internal target', link.source, link.id);
+            const key = fold(targetName(link.source, link.target)), part = metadata.parts.get(key);
+            if (role.mime !== null && !mimeEqual(part.contentType, role.mime)) throw new PackageError(Code.ContentType, 'Typed package MIME mismatch', part.name, link.id);
+            if (decoded.has(key)) throw new PackageError(Code.InvalidRelationship, 'Package part is claimed by multiple role occurrences', part.name, link.id);
+            selected.set(index, true); decoded.set(key, true); const data = await archive.read(part.entry.name); state.poll();
+            if (role.model !== null) {
+              let model; try { model = role.model.decodeXml(srlDecoder.decode(data)); } catch (cause) { const error = new PackageError(Code.InvalidMetadata, 'Typed package XML decoding failed', part.name, link.id); error.cause = cause; throw error; }
+              state.poll(); values.push(role.singleton ? model : new ModelPart(model, part.name, part.contentType, parent));
+            } else values.push(new BinaryPart(data, part.name, part.contentType, parent, part.entry.method)); discovered.push(part.name);
+          }
+          occurs(values.length, role); candidate[role.field] = role.singleton ? values.length ? values[0] : null : values; sources.set(role.field, discovered);
+        }
+        const opaque = [], preservedLinks = [];
+        for (const [key, part] of metadata.parts) {
+          if (decoded.has(key)) continue; state.poll(); const required = policy.isRequiredPart ? policy.isRequiredPart(part) : false; state.poll();
+          if (required && typeof required.then === 'function') NativePromise.resolve(required).catch(() => {});
+          if (typeof required !== 'boolean') throw new PackageError(Code.InvalidOptions, 'Required-part policy must return a synchronous boolean');
+          if (required || policy.parts === 'reject') throw new PackageError(Code.UnknownPart, 'Unknown required or rejected package part', part.name);
+          const data = await archive.read(part.entry.name); state.poll(); if (policy.parts === 'preserve') { budget.consume('preservedBytes', data.length, part.name); opaque.push(new BinaryPart(data, part.name, part.contentType, 0, part.entry.method)); }
+        }
+        for (let index = 0; index < metadata.relationships.length; ++index) {
+          if (selected.has(index)) continue; const link = metadata.relationships[index]; state.poll(); const required = policy.isRequiredRelationship ? policy.isRequiredRelationship(link) : false; state.poll();
+          if (required && typeof required.then === 'function') NativePromise.resolve(required).catch(() => {});
+          if (typeof required !== 'boolean') throw new PackageError(Code.InvalidOptions, 'Required-relationship policy must return a synchronous boolean');
+          if (required || policy.relationships === 'reject') throw new PackageError(Code.UnknownRelationship, 'Unknown required or rejected package relationship', link.source, link.id);
+          if (policy.relationships === 'preserve') { budget.consume('preservedBytes', srlUtf8(link.source + link.id + link.type + link.target).length); preservedLinks.push(link); }
+        }
+        candidate.extensions = new Extensions(opaque, preservedLinks);
+        if (options.validate) { state.poll(); await options.validate(candidate, budget); state.poll(); }
+        state.poll(); return new Result(candidate, candidate.extensions);
+      } finally { await archive.close(); }
+    }
+    // Prepare the complete archive before publishing independent chunks to a borrowed sink.
+    async function write(sink, value, options = {}) {
+      if (!sink || typeof sink.write !== 'function') throw new PackageError(Code.InvalidOptions, 'Expected borrowed byte sink');
+      const budget = getBudget(options), state = new State(budget), data = await encode(value, {...options, limits: undefined, budget});
+      for (let at = 0; at < data.length; at += chunkBytes) { state.poll(); const chunk = data.slice(at, at + chunkBytes); budget.consume('ioBytes', chunk.length); await sink.write(chunk); state.poll(); } state.poll();
+    }
+    // Reload-validate staging, then use the explicitly acquired same-directory atomic filesystem host.
+    async function save(path, value, options = {}) {
+      if (options.host !== filesystemHost || !filesystemHost) throw new PackageError(Code.InvalidOptions, 'Atomic save requires an explicitly acquired Node host');
+      const budget = getBudget(options), state = new State(budget), shared = {...options, limits: undefined, budget};
+      const data = await encode(value, shared); state.poll(); await load(data, {...shared, policy: new ExtensionPolicy({parts: 'preserve', relationships: 'preserve'})}); state.poll();
+      await options.host.save(path, data, budget, options.fault === undefined ? null : options.fault);
+    }
+    return Object.freeze({Input, Value, encode, load, write, save});
+  }
+  return Object.freeze({Code, Error: PackageError, Limits, Budget, ZipReader, ZipWriter, nodeHost, BinaryPart, ModelPart, Relationship, Extensions, ExtensionPolicy, Result, encode: opcEncode, profile});
+})();
+)packagejs"

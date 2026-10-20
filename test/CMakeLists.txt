@@ -523,6 +523,103 @@ foreach(profile IN ITEMS serializer core google llvm gnu cert misra autosar qt)
 endforeach()
 find_package(Python3 3.10 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
+  if(CMAKE_GENERATOR MATCHES "Ninja")
+    set(serializer_publication_ninja "${CMAKE_MAKE_PROGRAM}")
+  else()
+    find_program(serializer_publication_ninja NAMES ninja)
+  endif()
+  if(serializer_publication_ninja)
+    add_test(NAME serializer_generated_output_publication
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/generated_output_publication_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/generated_output_publication"
+        --ninja "${serializer_publication_ninja}" --with-xml "$<BOOL:${SERIALIZER_WITH_XML}>")
+  endif()
+  add_test(NAME serializer_compression_python
+    COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_compression_test.py"
+      --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_compression")
+  if(MSVC)
+    set(serializer_compression_c_compiler "${CMAKE_CXX_COMPILER}")
+  else()
+    find_program(serializer_compression_c_compiler NAMES cc gcc clang)
+  endif()
+  if(serializer_compression_c_compiler AND SERIALIZER_WITH_ZLIB)
+    add_test(NAME serializer_compression_c
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/c_compression_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/c_compression"
+        --cc "${serializer_compression_c_compiler}" --zlib-include "${ZLIB_INCLUDE_DIR}"
+        --zlib-library "$<TARGET_FILE:ZLIB::ZLIB>")
+  endif()
+  find_program(serializer_compression_go NAMES go)
+  if(serializer_compression_go)
+    add_test(NAME serializer_compression_go
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/go_compression_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/go_compression"
+        --go "${serializer_compression_go}")
+    set(serializer_go_package_native_args --native-producer "$<TARGET_FILE:package_interop>")
+    if(SERIALIZER_WITH_ZLIB)
+      list(APPEND serializer_go_package_native_args --cpp-zip64 "$<TARGET_FILE:package_zip64_probe>")
+    endif()
+    add_test(NAME serializer_package_go
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/go_package_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/go_package"
+        --go "${serializer_compression_go}" ${serializer_go_package_native_args})
+    set(serializer_go_opc_native_args)
+    if(SERIALIZER_WITH_XML)
+      list(APPEND serializer_go_opc_native_args --native-producer "$<TARGET_FILE:package_interop>")
+    endif()
+    add_test(NAME serializer_package_go_opc
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/go_package_opc_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/go_package_opc"
+        --go "${serializer_compression_go}" ${serializer_go_opc_native_args})
+  endif()
+  find_program(serializer_compression_dotnet NAMES dotnet)
+  find_program(serializer_compression_kotlinc NAMES kotlinc kotlinc.bat)
+  if(serializer_compression_kotlinc)
+    add_test(NAME serializer_compression_kotlin
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/kotlin_compression_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/kotlin_compression"
+        --kotlinc "${serializer_compression_kotlinc}")
+  endif()
+  find_program(serializer_compression_swiftc NAMES swiftc)
+  if(serializer_compression_swiftc)
+    add_test(NAME serializer_compression_swift
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/swift_compression_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/swift_compression"
+        --swiftc "${serializer_compression_swiftc}")
+  endif()
+    find_program(serializer_compression_rustc NAMES rustc)
+    if(serializer_compression_rustc)
+      add_test(NAME serializer_compression_rust
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/rust_compression_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/rust_compression"
+          --rustc "${serializer_compression_rustc}")
+    endif()
+  find_program(serializer_compression_node NAMES node)
+  find_file(serializer_compression_typescript_cli NAMES tsc
+    PATHS "${CMAKE_SOURCE_DIR}/editors/vscode/node_modules/typescript/bin" NO_DEFAULT_PATH)
+  if(serializer_compression_node AND serializer_compression_typescript_cli)
+    add_test(NAME serializer_compression_javascript
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_compression_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_compression"
+        --node "${serializer_compression_node}" --tsc "${serializer_compression_typescript_cli}")
+  endif()
+  if(serializer_compression_dotnet)
+    add_test(NAME serializer_compression_csharp
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/csharp_compression_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/csharp_compression"
+        --dotnet "${serializer_compression_dotnet}")
+  endif()
+  find_package(Java 17 COMPONENTS Runtime Development QUIET)
+  if(Java_FOUND)
+    add_test(NAME serializer_compression_java
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/java_compression_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/java_compression"
+        --java "${Java_JAVA_EXECUTABLE}" --javac "${Java_JAVAC_EXECUTABLE}")
+    add_test(NAME serializer_package_java
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/java_package_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/java_package"
+        --java "${Java_JAVA_EXECUTABLE}" --javac "${Java_JAVAC_EXECUTABLE}")
+  endif()
   add_test(NAME xml_fixture_manifest_test
     COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_fixture_manifest_test.py")
   add_executable(html_interop html_interop.cpp)
@@ -643,12 +740,16 @@ if(SERIALIZER_BUILD_MANAGED)
 
   # Exercise typed tokens and ID payloads with both policies, widths and storage representations.
   foreach(registry_profile IN ITEMS direct32 separate32 direct64 separate64 fixed32 fixed64 fixed_separate32 fixed_separate64)
-    add_executable(managed_entity_references_${registry_profile}_test managed_entity_references_test.cpp)
+    add_executable(managed_entity_references_${registry_profile}_test
+      managed_entity_references_test.cpp managed_identified_baseline_test.cpp)
     serializer_generate(TARGET managed_entity_references_${registry_profile}_test
       SCHEMAS resources/managed_entity_references.serializer
       CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/managed_entity_references_${registry_profile}.ini"
       OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_entity_references_${registry_profile}")
     target_link_libraries(managed_entity_references_${registry_profile}_test PRIVATE Serializer::managed GTest::gtest_main)
+    target_compile_definitions(managed_entity_references_${registry_profile}_test PRIVATE
+      SERIALIZER_IDENTIFIED_BASELINE_TEST_DIRECTORY="${CMAKE_CURRENT_BINARY_DIR}"
+      SERIALIZER_IDENTIFIED_BASELINE_TEST_PROFILE="${registry_profile}")
     if(MSVC)
       target_compile_options(managed_entity_references_${registry_profile}_test PRIVATE /W4 /WX)
     else()
@@ -1056,6 +1157,18 @@ if(SERIALIZER_INSTALL AND NOT CMAKE_CROSSCOMPILING)
       "-DLIBRARY_ARCHITECTURE=${CMAKE_LIBRARY_ARCHITECTURE}"
       "-DEXAMPLE_PYTHON=${serializer_installed_example_python}"
       -P "${CMAKE_CURRENT_SOURCE_DIR}/install_package.cmake")
+  add_test(NAME serializer_compiler_package
+    COMMAND "${CMAKE_COMMAND}" "-DBUILD_DIRECTORY=${PROJECT_BINARY_DIR}"
+      "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/compiler_package/$<CONFIG>"
+      "-DCONFIGURATION=$<CONFIG>" "-DBUILD_MANAGED=${SERIALIZER_BUILD_MANAGED}"
+      "-DVERSION=${PROJECT_VERSION}" "-DPOINTER_SIZE=${CMAKE_SIZEOF_VOID_P}"
+      "-DWITH_ZSTD=${SERIALIZER_WITH_ZSTD}" "-DWITH_LZ4=${SERIALIZER_WITH_LZ4}"
+      "-DWITH_ZLIB=${SERIALIZER_WITH_ZLIB}" "-DWITH_XML=${SERIALIZER_WITH_XML}"
+      "-DHOST_SYSTEM_NAME=${CMAKE_HOST_SYSTEM_NAME}" "-DDEPENDENCY_PREFIXES=${CMAKE_PREFIX_PATH}"
+      "-DGENERATOR=${CMAKE_GENERATOR}" "-DPLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+      "-DGENERATOR_INSTANCE=${CMAKE_GENERATOR_INSTANCE}" "-DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+      "-DLIBRARY_ARCHITECTURE=${CMAKE_LIBRARY_ARCHITECTURE}"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/compiler_package.cmake")
 endif()
 
 if(SERIALIZER_BUILD_JAVA_EXAMPLES)
@@ -1148,6 +1261,41 @@ else()
   target_compile_options(package_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 add_test(NAME package_test COMMAND package_test)
+
+# Fault substitution needs native static objects, rather than calls inside a shared library.
+get_target_property(serializer_runtime_test_type serializer_runtime TYPE)
+if(serializer_runtime_test_type STREQUAL "STATIC_LIBRARY" AND
+    (WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
+  add_executable(package_save_fault_test package_save_fault_test.cpp)
+  target_link_libraries(package_save_fault_test PRIVATE Serializer::runtime GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(package_save_fault_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(package_save_fault_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_link_options(package_save_fault_test PRIVATE
+      "LINKER:--wrap=open,--wrap=write,--wrap=fsync,--wrap=rename,--wrap=close")
+  endif()
+  add_test(NAME package_save_fault_test COMMAND package_save_fault_test)
+endif()
+
+add_executable(package_zip64_probe package_zip64_probe.cpp)
+target_link_libraries(package_zip64_probe PRIVATE Serializer::runtime)
+if(MSVC)
+  target_compile_options(package_zip64_probe PRIVATE /W4 /WX)
+else()
+  target_compile_options(package_zip64_probe PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(Python3_Interpreter_FOUND)
+  set(serializer_zip64_python_arguments)
+  if(SERIALIZER_WITH_XML)
+    list(APPEND serializer_zip64_python_arguments --compiler "$<TARGET_FILE:serializer>")
+  endif()
+  add_test(NAME package_zip64_test COMMAND "${Python3_EXECUTABLE}" -B
+    "${CMAKE_CURRENT_SOURCE_DIR}/package_zip64_test.py"
+    --probe "$<TARGET_FILE:package_zip64_probe>"
+    --build "${CMAKE_CURRENT_BINARY_DIR}/package_zip64"
+    ${serializer_zip64_python_arguments})
+endif()
 
 add_executable(package_interop package_interop.cpp)
 target_link_libraries(package_interop PRIVATE Serializer::runtime)
@@ -1378,6 +1526,10 @@ if(SERIALIZER_WITH_XML)
       add_test(NAME javascript_xml_token_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_xml_token_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_xml_token")
+      add_test(NAME serializer_package_javascript
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_package_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_package"
+          --native-producer "$<TARGET_FILE:package_interop>")
       add_test(NAME javascript_xml_content_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_xml_content_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_xml_content")

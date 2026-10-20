@@ -26,6 +26,7 @@
 
 #include "command_line.hpp"
 #include "schema_policy.hpp"
+#include "compiler_artifact_output.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -480,9 +481,7 @@ int import_schema(const rohit::serializer::cli::arguments& arguments) {
     destination.write_to_file_till_offset(output);
   }
   if (!depfile.empty()) {
-    rohit::full_stream_auto_alloc destination{};
-    destination.write(deptext);
-    destination.write_to_file_till_offset(depfile);
+    rohit::serializer::compiler_output::write_if_different(depfile, deptext);
   }
   std::cout << "Imported " << output << " (XSD bundle SHA-256 " << result.bundle_identity << ")\n";
   return 0;
@@ -865,9 +864,7 @@ int main(const int argc, const char* argv[]) {
       const auto& options = configurations[artifact.configuration_index].options;
       const auto parent = artifact.file.path.parent_path();
       if (!parent.empty()) { std::filesystem::create_directories(parent); }
-      rohit::full_stream_auto_alloc output{};
-      output.write(artifact.file.contents);
-      output.write_to_file_till_offset(artifact.file.path);
+      rohit::serializer::compiler_output::write_if_different(artifact.file.path, artifact.file.contents);
       std::cout << "Generated " << artifact.file.path << " (" << artifact.language << ", "
                 << (artifact.language == "java"
                         ? writer::java_coding_standard_name(options.java.standard)
@@ -876,9 +873,7 @@ int main(const int argc, const char* argv[]) {
                 << ")\n";
     }
     if (!depfile.empty()) {
-      rohit::full_stream_auto_alloc dependency_output{};
-      dependency_output.write(dependency_text);
-      dependency_output.write_to_file_till_offset(depfile);
+      rohit::serializer::compiler_output::write_if_different(depfile, dependency_text);
     }
     return 0;
   } catch (const std::exception& error) {

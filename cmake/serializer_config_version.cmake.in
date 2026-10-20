@@ -1,0 +1,7 @@
+# Preserve runtime ABI checks while allowing a host compiler for another target ABI.
+if(("compiler" IN_LIST Serializer_FIND_COMPONENTS OR "runtime" IN_LIST Serializer_FIND_COMPONENTS) AND
+    NOT ("runtime" IN_LIST Serializer_FIND_COMPONENTS AND Serializer_FIND_REQUIRED_runtime))
+  include("${CMAKE_CURRENT_LIST_DIR}/SerializerCompilerConfigVersion.cmake")
+else()
+  include("${CMAKE_CURRENT_LIST_DIR}/SerializerRuntimeConfigVersion.cmake")
+endif()

@@ -195,6 +195,9 @@ retain their existing prefix encoding. JSON and optional Protobuf scalar mapping
 remain unchanged. Strict prefix output rejects overflow; lenient output retains
 the low 30 bits. Every reader checks bounds and declared scalar width; varint
 readers also reject overlong, overflowing and unterminated encodings.
+The [signed/floating payload design](../design/compact_scalar_contract.md)
+specifies future encodings only. Its five proposed keywords remain unavailable
+and assign no current field kind or wire value.
 
 Language `1.3.0` adds [digest byte fields](../schema/digest.md). The four native protocols
 encode them as ordinary `uint8` sequences: compact element count followed by raw

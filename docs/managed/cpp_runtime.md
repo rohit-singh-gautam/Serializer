@@ -127,6 +127,36 @@ read the ledger name through `store.read()->value.name` in this mode, versus
 copy: it retains identity in default mode and returns an ID-free ordinary payload
 in separate-values mode. It never retains a connection to history.
 
+### First initialization from identified storage
+
+Runtime **2.14.0** adds an explicit admission path for an existing durable graph
+whose identities are already assigned. Given parsed `Store::storage_type`
+storage, its nonzero document namespace and its recorded allocation watermark:
+
+```cpp
+Store store{rohit::managed::identified_baseline, std::move(storage), document,
+            stored_watermark, options, validator};
+```
+
+Use the exact generated storage type, including separated wrappers where selected.
+Preserve the stored watermark even when deleted or reserved IDs leave gaps above
+the largest live ID. The constructor retains every owning ID and declared token;
+it neither reserves fresh IDs nor remaps the graph. Bounded native storage
+encode/decode checks the selected schema/layout and unchanged durable bytes,
+resets runtime-only fields to generated defaults, and checks complete identity,
+reference, history and resident policies before the scoped root allocation hook.
+Temporary codec/container allocations still occur; these policies do not provide
+a hard heap/RSS cap. Invalid namespace, width, zero/duplicate/out-of-range IDs,
+invalid references and rejected application validation prevent publication.
+
+Acceptance creates one initial linear entry or tree root, or no history records
+when history is disabled. It attaches no journal or collaboration service.
+Existing zero-ID constructors allocate fresh documents; native Save/load and
+journal recovery retain their established full-history contracts. Independent
+`import_storage` deliberately allocates fresh identities. The owner-thread
+`document()` and `allocated_id()` accessors expose metadata for a coherent capture.
+See the [executed direct/separated, fixed/compact and uint32/uint64 profiles](../verification/verification-managed-identified-baseline-2026-10-20.md).
+
 Default class codecs serialize `persistent_id` at reserved field ID `1073741823`
 (`0x3fffffff`), with wire name `persistent_id`. Application field IDs are unchanged;
 conflicting metadata field IDs or names are rejected. Opt-in wrappers instead use

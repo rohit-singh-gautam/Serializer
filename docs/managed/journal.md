@@ -294,10 +294,17 @@ store, preserving original bytes. During ordinary editing the original stays
 unchanged. Full Save stages and syncs the new document, companion and manifest,
 durably publishes `<path>.journal.pending`, replaces the main document, then
 publishes the selected manifest. Recovery chooses a manifest whose exact-byte
-digest matches the document before invoking the external decoder. It validates
-and repairs the selected journal before completing pending publication. A
+digest matches the document, then admits the selected companion header/generation
+and complete baseline-frame extent/checksum before invoking the external decoder.
+It validates and repairs journal replay before completing pending publication. A
 failure after publication begins fences the writer and requires fresh recovery.
 Do not delete pending metadata or guess a generation from its filename.
+
+The [runnable external-JSON example](../../example/managed/external_document/README.md)
+demonstrates exact native Save/reopen, an undone history cursor, redo and burned
+allocation gaps. The [Windows/Linux qualification](../verification/verification-managed-document-bridge-2026-10-20.md)
+includes zero-decoder-call rejection of stale documents, wrong codecs, foreign
+companions and damaged/truncated baselines, plus the expanded crash matrix.
 
 Save retains all history/session dependencies, including unsent work, operation
 IDs, exact retry bytes and receive cursors. Saving a file does not acknowledge

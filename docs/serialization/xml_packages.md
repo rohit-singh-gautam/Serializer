@@ -1,11 +1,39 @@
 # XML, compression streams and packages
 
-Compiler/runtime **2.12.0**, schema language **1.20.0**. Baseline XML generation
+Compiler/runtime **2.14.0**, schema language **1.20.0**. Baseline XML generation
 covers all output languages; the stream and package API examples below use C++20.
-Richer XML mappings and generated OPC profiles have C++ and Python support;
+Supported XML feature combinations are qualified per backend. Generated OPC
+profiles are available in C++, Python, Java, JavaScript/TypeScript and Go;
 unsupported backend combinations reject before output publication. Existing
 native wire formats and managed journals are unchanged.
 See [remaining work](../pending.md) and the [full design](../design/xml_support.md).
+
+Compiler/runtime **2.14.0** also supplies selected asynchronous
+[JavaScript/TypeScript ZIP/OPC APIs](../languages/javascript_packages.md):
+bounded readers/writers, typed XML aggregates, extension policies, canonical
+metadata and explicit Node filesystem Save. Stored ZIP remains browser-import
+safe. The [actual qualification](../verification/verification-javascript-packages-2026-10-20.md)
+records independent inputs/outputs, C++ interchange and Windows publication
+faults. Automatic nested cumulative contexts, arbitrary runtime codec dispatch
+and generated application key/reference checks remain pending.
+
+The selected [Java package API](../languages/java_packages.md) uses Java 17
+standard providers for the same typed XML/opaque package workflow, with bounded
+random sources, explicit private spooling and staged filesystem Save.
+The [Java qualification](../verification/verification-java-packages-2026-10-20.md)
+records strict actual JDK 17 compilation/execution, separate Linux JRE execution,
+independent ZIP/XML decisions and C++ exchange. Java-array output limits and the
+remaining automatic nested budget/runtime profile/reference work stay explicit.
+
+The selected [Go ZIP/OPC API](../languages/go_packages.md) uses Go 1.22 standard
+APIs for ZIP32/ZIP64, descriptors, bounded sources/spooling and staged Save.
+Schema packages add typed owning XML facades, metadata/relationship checks,
+transactional loading, preservation and canonical output. The
+[physical ZIP proof](../verification/verification-go-packages-2026-10-20.md) and
+[OPC proof](../verification/verification-go-opc-packages-2026-10-20.md) record actual
+Windows/Linux SDKs, independent archives, C++ exchanges and Save/quota faults.
+Automatic nested cumulative native-codec accounting, runtime profile dispatch
+and generated application key/reference checks remain pending.
 
 The [token codec guide](xml_tokens.md) describes the new generated direct paths
 and backend-specific advanced mappings. The [typed OPC example](../../example/opc/README.md)
@@ -429,6 +457,11 @@ failures preserve the previous file. `publication_uncertain` reports a failure
 after replacement when durability cannot be confirmed. Arbitrary streams have no
 replacement guarantee.
 
+The [native Save fault matrix](../verification/verification-package-save-faults-2026-10-20.md)
+qualifies creation, partial writes, file synchronization and replacement failures
+on Windows and Linux static runtimes, plus Linux postpublication directory sync.
+Power-loss and document/sidecar generation recovery remain separate contracts.
+
 These helpers add no Serializer history, journal or session parts. Application
 profiles must keep that state in side channels. The generic builder accepts
 caller-provided payloads; it does not identify or police their application meaning.
@@ -574,6 +607,35 @@ before publication. Pass retained `loaded.extensions` as `Input.extensions` to
 preserve permitted unknown parts and links after editing. External targets remain
 inert. Save rereads its staged candidate before replacement; a failure after
 replacement reports `publication_uncertain`.
+
+Byte-like input is addressed in bytes, including typed and multidimensional
+memoryviews. Keep borrowed mutable input unchanged through a synchronous call.
+Noncontiguous input needs an admitted contiguous copy. Borrowed source streams
+may return short byte reads; short sink writes fail and can retain a prefix.
+Neither stream is closed or flushed. Cancellation/deadlines remain active after
+the final sink callback. Owned private spools and failed Save staging are closed
+and removed, including failure to transfer a raw temporary descriptor to a stream.
+See the [executed boundary and fault matrix](../verification/verification-package-lifecycle-2026-10-20.md).
+
+Seekable Python streams are borrowed directly from their current position to
+their measured end. Successful reads leave the caller's stream at that end;
+archive-relative offsets never address an earlier prefix. Every byte extent,
+I/O charge and buffer bound is checked before a read. Genuine nonseekable input
+continues to use a bounded private spool. Both C++ and Python accept classic ZIP
+archives containing exactly 65,535 entries and check optional ZIP64 end records,
+including agreement with ordinary fields that have not overflowed. The
+[ZIP64 input qualification](../verification/verification-package-zip64-input-2026-10-20.md)
+covers logical offsets around 4 GiB, real entry-count transitions, malformed
+records, exact resource limits and limits reduced by one.
+
+Compiler **2.14.0** validates Python relationship IRIs using literal ASCII
+delimiters, preserving Unicode authority spelling without normalization. Unicode
+lookalikes of `/`, `?`, `#`, `@` and `:` remain authority data under the selected
+[RFC3987 syntax](https://www.rfc-editor.org/rfc/rfc3987#section-2.2).
+Malformed escapes, IP literals, zone identifiers and non-ASCII ports reject;
+internal targets still reject schemes and authorities. The
+[package verification](../verification/verification-package-lifecycle-2026-10-20.md)
+records the selected profile, independent ZIP/XML fixtures and atomic Save tests.
 
 The richer Python XML subset includes scalar facets/defaults/fixed values,
 typed lists, QName/prefix bindings, unions, supported repeated choices and

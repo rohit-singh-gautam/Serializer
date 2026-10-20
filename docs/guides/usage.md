@@ -1,5 +1,19 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.14.0** adds
+[compiler-only installed CMake discovery](cmake_integration.md#compiler-only-source-generation).
+Use `find_package(Serializer 2.14 CONFIG REQUIRED COMPONENTS compiler)` for
+source-generation projects, including `LANGUAGES NONE`, that need no C++ runtime
+targets or provider discovery. Use normal discovery or `COMPONENTS runtime` for
+the C++ `serializer_generate` helper and runtime linkage. The installed compiler
+still needs its own deployed shared libraries. Regenerated Python, Java, Go, C#,
+JavaScript/TypeScript, Kotlin, Swift, Rust and C offer
+[explicit whole-message compression](#compress-complete-messages), with bounded
+providers and borrowed-stream wrappers. Selected Java and JS/TS package facades
+also provide typed XML/opaque ZIP/OPC workflows. Schema language **1.20.0**,
+existing model APIs and wire formats are unchanged. Both editor source packages
+use **2.0.8** for package-facade navigation and bounded runtime indexing.
+
 Compiler/runtime **2.13.0** adds differential sidecar journaling and caller-supplied
 [external document codecs](#external-documents-with-a-differential-sidecar).
 Explicit sidecar generations use copy/literal records without periodic full
@@ -130,7 +144,7 @@ wrappers in every output, [pinned XSD bundle tools](../serialization/xsd_tooling
 and shared [native format selection](../languages/output_configuration.md).
 The [XML/package guide](../serialization/xml_packages.md) documents C++ ZIP64,
 explicit bounded spooling and transactional caller-authored OPC profiles.
-General backend parity and the managed document-state bridge remain pending.
+Selected whole-message compression framing/error/limit parity is [qualified across all eleven outputs](../verification/verification-compression-parity-2026-10-20.md). The C++ managed document-state bridge is implemented; native managed engines for other outputs and broader nested XML/package operation contexts remain pending.
 
 For an OPC-based application, the runtime generates `[Content_Types].xml` and
 `.rels` from registered parts and relationships; application schemas describe
@@ -372,6 +386,8 @@ Native positional binary writes `20 80 01` for these defaults; JSON keeps the
 ordinary integer values. Prefix allows 30 value bits; explicit `lenient` writes
 the low 30 bits without an overflow check. Varint preserves the full unsigned
 type range. See the compact guide for all policies, limits and migration rules.
+The [future signed/floating payload contract](../design/compact_scalar_contract.md)
+has reference vectors but no enabled schema syntax or generated codecs.
 
 New to the project? Start with the [project overview](../../README.md#get-started).
 For editing and persistence concepts, read the
@@ -1445,6 +1461,18 @@ No throughput benchmark or physical power-cut qualification was performed.
 
 ### External documents with a differential sidecar
 
+The [runnable external JSON example](../../example/managed/external_document/README.md)
+uses bounded owning callbacks and checks Save/reopen, retained redo, exact child
+IDs and burned allocation gaps. The generic adapter normalizes generated public
+identity fields to zero; native companions retain authoritative identities and
+history/session metadata.
+
+Recovery checks the exact document digest/codec, selected companion generation
+and complete first baseline-frame extent/checksum before invoking the external
+decoder. Stale or damaged pairs reject without decoder side effects. The
+[Windows/Linux proof](../verification/verification-managed-document-bridge-2026-10-20.md)
+also covers native history/session fences and the 364-check crash matrix.
+
 Link `Serializer::managed` and include `<rohit/managed_journal_document.hpp>`.
 The [typed adapter header](../../include/rohit/managed_journal_document.hpp)
 defines the callback contract; the [file adapter](../../src/managed_file_journal.cpp)
@@ -1498,7 +1526,9 @@ auto make_ledger_json_codec() {
 }
 ```
 
-Construct/load the store with the document's durable values, then attach it:
+For a new baseline, construct the store from durable values with zero owning IDs
+so its native allocator assigns their identities. For a previously saved native
+baseline, restore through its native save or journal contract. Then attach it:
 
 ```cpp
 rohit::managed::journal_options options;
@@ -1516,11 +1546,35 @@ updated main file and its matching generation metadata. To reopen, use a fresh
 store and `recover_journal("ledger.json", options)` with the same codec. With
 collaboration, attach the same session before recovery and synchronize afterward.
 
+For first attachment from already identified durable storage, runtime **2.14.0**
+adds the tagged constructor
+`Store{rohit::managed::identified_baseline, storage, document, stored_watermark}`.
+Supply the exact generated `Store::storage_type`, the nonzero stored document
+namespace and the recorded allocation watermark, including burned gaps. The
+constructor preserves identities and declared tokens, resets runtime-only fields
+and creates one initial history baseline after bounded native validation. Existing
+constructors remain the zero-ID allocation path; `import_storage` allocates fresh
+IDs for independent import. The public `document()` and `allocated_id()` accessors
+expose the corresponding native metadata; capture them coherently on the store's
+owner thread. See the [typed initialization contract](../managed/cpp_runtime.md#first-initialization-from-identified-storage)
+and [executed profiles](../verification/verification-managed-identified-baseline-2026-10-20.md).
+The selected Windows and Linux runs each pass 197 cases across nine CTests,
+including direct/separated storage, both native ID widths and both encodings.
+
+For package-backed document codecs, retain the package's own operation budget
+and typed validation before publishing the aggregate or replacing final bytes.
+The selected C++/Python proofs cover [descriptor/spool/Save lifecycle](../verification/verification-package-lifecycle-2026-10-20.md)
+and [typed rollback, extension policies and edited-link validation](../verification/verification-package-profiles-2026-10-20.md).
+
 The runtime normalizes managed IDs to zero and resets transient fields before
 the encoder; recovery restores real identities, allocation marks, history and
 session state from the side channel. Generated JSON may include zero-valued ID
 fields; an application-specific document projection can omit them. The main
 file carries no journal, undo history or session/outbox records.
+Declared reference tokens are separate from owning IDs: callbacks must preserve
+their durable values and satisfy the chosen external profile's validation rules.
+The adapter does not automatically create a valid XML/OPC projection for every
+managed reference graph.
 
 Keep the main file, its `<path>.journal` manifest and selected
 `<path>.journal-<high>-<low>` companion together. A pending
@@ -2046,10 +2100,255 @@ Calls stage bounded whole messages and require one standard frame/member in the
 input extent. They reject trailing compressed data, validate checksums when
 present, and finish the inner decoder. Frame failures precede field updates;
 member decoding can still partially update fields on inner parse errors. The exact
-helper returns a fresh value only on success. Input may be consumed on failure.
+helper returns a fresh value only on success. Cancellation is checked again after
+native decoding and the final sink append. Keep a named cancellation callable
+alive through the last operation on either compression wrapper, including cached
+input `finish()`. Source staging polls around bounded reads; swallowed same-writer
+reentry fences the outer operation. Input may be consumed on failure.
 Views require separately owned decompressed bytes before mapping. See the
 [format, memory, and custom-backend contract](../serialization/compression.md) and
 [verification](../verification/verification-compression-2026-09-17.md).
+
+### Python whole-message compression
+
+Regenerate Python output with release **2.14.0**, then use its stable compression
+namespace. Replace `models.Record` with the generated owning type:
+
+```python
+compression = models.__serializer_compression__
+wire = compression.encode(value, models.Protocol.JSON, compression.Format.GZIP,
+                          limits=compression.EncodeLimits(max_input_bytes=8*1024*1024))
+candidate = compression.decode(models.Record, wire, models.Protocol.JSON,
+                               compression.DecodeOptions(compression.Format.GZIP),
+                               models.Limits(max_bytes=8*1024*1024))
+```
+
+`Compression` is also available when no generated model has that name. Whole-model
+`encode` uses that same module's field tables and enabled native protocols;
+ordinary model `encode`/`decode` calls remain uncompressed. For already encoded
+bytes or XML, use `compress`/`decompress`. Choose `NONE`, `GZIP`, `ZLIB`, `DEFLATE`,
+`ZSTD` or `LZ4` explicitly; no auto-detection or concatenated streams are accepted.
+`zlib` supplies gzip/zlib/raw DEFLATE, optional stdlib `compression.zstd` requires
+Python 3.14+, and optional `lz4.frame` is a separate application dependency.
+`available(format)` checks provider imports; absence fails before source I/O or
+model traversal. These Python dependencies are independent of C++ CMake options.
+
+Byte/source helpers stage bounded complete messages before native field decoding
+and validate exact outer and inner EOF. Compressed/expanded/window policies and
+native object limits remain separate; native `Limits.max_bytes` also caps expansion.
+Both policies accept `check_cancelled`, a callable that throws between bounded
+provider/source/sink calls. Its exception is preserved, with a final check before
+publishing a fresh decoded object. This bounds cooperative polling, not provider
+execution time or total process memory.
+
+`OutputStream(sink, format, ...)` borrows a sink's `write(bytes_like)` and needs
+explicit `finish()`; failed or finished wrappers reject reuse. It never flushes
+or closes the sink, and an external failure can leave a prefix.
+`InputStream(source, DecodeOptions(format))` validates a borrowed EOF-delimited
+`read(size)` source before exposing expanded bytes. Consume them with `read()`
+and call `finish()` to check exact consumption. Finish nested output wrappers
+from the codec outward. Keep models, mutable source buffers and streams unchanged
+through synchronous use; no synchronization is added. See the
+[full Python compression API](../serialization/compression.md#generated-python-api)
+for standard framing, defaults, provider/window rules and memory limits.
+
+### Java whole-message compression
+
+Regenerate Java output with **2.14.0** and select its nested
+`SerializerCompression` helper (or the generated collision suffix). Pass the
+generated native codec to its whole-object callbacks; successful decode returns
+a fresh value after exact frame/message validation and a final cancellation
+check. Identity, gzip, zlib and raw DEFLATE use the platform provider. Optional
+runtime dependencies add Zstandard and LZ4 frames; generation and compilation
+need neither jar. Keep byte/window policies separate from native decode limits.
+Borrowed wrappers require explicit finish and preserve stream ownership. See the
+[Java API and provider coordinates](../languages/java.md#whole-message-compression)
+and [executed provider qualification](../verification/verification-java-compression-providers-2026-10-20.md).
+
+### Go whole-message compression
+
+Regenerate Go output with **2.14.0** and select its `SerializerCompression`
+helper family (or the generated collision suffix). Initialize options through
+`SerializerCompressionDefaultEncodeOptions` and
+`SerializerCompressionDefaultDecodeOptions`, choosing the outer format
+explicitly. Pass the generated model decoder to `SerializerCompressionDecode`
+to retain its exact fresh result type. Identity, gzip, zlib and raw DEFLATE use
+the standard library on Go 1.22+, without downloaded modules or cgo. Zstandard/LZ4
+use caller-owned `Provider` values in each operation's options. The maintained
+adapter pins klauspost/compress 1.20.3 and pierrec/lz4/v4 4.1.33 and requires
+Go 1.25+; absent providers reject before callbacks or I/O. Borrowed wrappers stage
+a bounded message, require explicit
+`Finish`, retain their first failure and keep their streams open. See the
+[Go examples, limits and cancellation contract](../languages/go_compression.md)
+and the [default](../verification/verification-go-compression-2026-10-20.md) and
+[optional-provider Windows/Linux qualification](../verification/verification-go-compression-providers-2026-10-20.md).
+
+### Go ZIP and OPC packages
+
+Regenerate Go output for the collision-selected `SerializerPackage` family. The
+Go 1.22 standard-library profile provides ZIP32/ZIP64, stored/DEFLATE entries, all
+descriptor forms, bounded random sources and explicitly enabled private spooling.
+Use one budget across the operation, finish the writer explicitly and close owned
+package resources. `Save` stages a complete archive and replaces the target under
+the selected filesystem contract. Schema package declarations also generate
+owning typed OPC Encode/Load/Write/Save facades. Loading discovers roles by
+source/type/media identity and publishes only a complete validated aggregate.
+Required unknown capabilities override optional preservation; edited retained
+links must still resolve. Native XML keeps its independently narrowed document
+limits; automatic cumulative native allocation/reference accounting, runtime
+codec selection and declarative application references remain pending. See the
+[Go package API](../languages/go_packages.md),
+[physical ZIP qualification](../verification/verification-go-packages-2026-10-20.md) and
+[Windows/Linux OPC proof](../verification/verification-go-opc-packages-2026-10-20.md).
+
+### C# whole-message compression
+
+Regenerate C# output with **2.14.0** and use its nested `SerializerCompression`
+helper or generated collision suffix. This .NET 8 profile provides
+identity/gzip/zlib/raw DEFLATE using `CompressionLevel` enum values. `Encode`
+and `Decode<T>` accept the model's existing native codec callbacks, with provider
+admission before callback invocation and a final cancellation check before fresh
+decoded publication. Keep native `Limits` separate from outer byte/window caps.
+Optional managed Zstandard/LZ4 use explicit assembly handles from
+`Provider.ZstdSharp` or `Provider.Lz4`, with `EncodeOptions.WithProvider` and
+`DecodeOptions.WithProvider`. Original public constructors keep their signatures
+and overload resolution. Borrowed wrappers require explicit `Finish`; disposal
+keeps the stream open and does not finish it. See the [C# API examples](../languages/csharp_compression.md)
+and [executed SDK checks](../verification/verification-csharp-compression-2026-10-20.md).
+
+### JavaScript and TypeScript whole-message compression
+
+Regenerate the JavaScript module and TypeScript declarations together with
+**2.14.0**. The collision-selected `SerializerCompression` container has owning
+asynchronous byte/model helpers and borrowed wrappers:
+
+```javascript
+const C = models.SerializerCompression;
+const provider = await C.nodeProvider();
+const packed = await C.encode(() => value.encode(models.Protocol.JSON),
+  new C.EncodeOptions({format: C.Format.Gzip, provider}));
+const candidate = await C.decode(packed,
+  bytes => models.Record.decode(bytes, models.Protocol.JSON),
+  new C.DecodeOptions({format: C.Format.Gzip, provider}));
+```
+
+`nodeProvider()` and `zstdProvider()` explicitly load `node:zlib`. Select the
+former for gzip/zlib/raw DEFLATE and the latter for public Node Zstandard
+transforms. `lz4Provider(blockModule)` adapts caller-loaded lz4js 0.2.0 exports
+without Node imports. LZ4 fast mode accepts only level 0. Ordinary browser imports
+and identity need no Node modules; compressed formats need the matching explicit
+per-operation handle. See the
+[optional provider examples](../languages/javascript_compression.md#optional-zstandard-and-lz4).
+Await wrapper operations sequentially, supply actual source EOF/completed sink
+writes, and call `finish()` explicitly. Native and compression limits are separate.
+See the [JS/TS API and transport contract](../languages/javascript_compression.md)
+and [actual Node/TypeScript proof](../verification/verification-javascript-compression-2026-10-20.md).
+
+### Kotlin whole-message compression
+
+Regenerate Kotlin with **2.14.0** for its collision-selected
+`SerializerCompression` object. Standard JDK providers supply identity, gzip,
+zlib and raw DEFLATE. `encode`/`decode` accept the existing owning native codec
+callbacks; `Output`/`Input` borrow Java streams and require explicit `finish()`.
+The selected actual SDK profile targets JVM 17. Optional runtime jars
+`com.github.luben:zstd-jni:1.5.7-16` and `at.yawk.lz4:lz4-java:1.12.0` enable
+Zstandard/LZ4 without compile-time dependencies. Availability and level/history
+admission precede application callbacks; a present jar with failed native
+deployment still reports unavailable. See the
+[Kotlin API](../languages/kotlin_compression.md) and
+[actual JVM 17 core proof](../verification/verification-kotlin-compression-2026-10-20.md)
+and [Windows/Linux provider proof](../verification/verification-kotlin-compression-providers-2026-10-20.md).
+
+### Swift whole-message compression
+
+Regenerate Swift with **2.14.0** for its collision-selected `SerializerCompression`
+enum. Identity/gzip/zlib/raw DEFLATE need no additional modules. Pass exact native
+codec callbacks to `encode`/`decode`; retain native decode limits separately from
+outer byte/history limits. Borrowed closure-based wrappers require explicit
+`finish()`, and `close()` abandons output without closing its transport. See the
+[Swift API](../languages/swift_compression.md) and
+[Windows/Linux core proof](../verification/verification-swift-compression-2026-10-20.md).
+Optional Zstandard/LZ4 use caller-owned providers through separate required
+`provider:` option initializers; the original initializers and default availability
+remain compatible. Copy/adapt the explicit native C shim only when selecting it,
+keep contexts private to one synchronous operation, and retain native workspace
+separately from logical byte/window caps. See the
+[provider example](../languages/swift_compression.md#explicit-optional-providers) and
+[actual provider proof](../verification/verification-swift-compression-providers-2026-10-20.md).
+
+### Rust whole-message compression
+
+Regenerate Rust with **2.14.0** for the collision-selected
+`serializer_compression` module. Identity/gzip/zlib/raw DEFLATE use only the
+standard library. Supply exact native codec callbacks with separate native
+limits. Wrappers take adapters by value; pass `&mut source` or `&mut sink` to
+retain transport ownership, then finish explicitly. Typed methods preserve
+error identity; standard `Read`/`Write` trait nesting needs an application
+adapter. Optional `*_with_provider` operations borrow explicit provider values;
+`Input::with_provider`/`Output::with_provider` preserve the same transport lifetime.
+Original option fields and constructors are unchanged. The pinned adapter crate
+uses independent zstd/lz4 Cargo features; set Zstandard level 3 or LZ4 fast level 0
+explicitly, since the legacy option default stays 6. See the
+[provider examples](../languages/rust_compression.md#explicit-optional-providers),
+[actual provider proof](../verification/verification-rust-compression-providers-2026-10-20.md) and
+[Rust API](../languages/rust_compression.md) and
+[Windows/native Linux proof](../verification/verification-rust-compression-2026-10-20.md).
+
+### C whole-message compression
+
+Regenerate C11 output with **2.14.0** for its collision-selected
+`serializer_compression` prefix. Identity needs only C11. For gzip/zlib/raw
+DEFLATE, define `SERIALIZER_COMPRESSION_ZLIB=1` consistently before including
+generated headers and link the application's zlib. Prefixed typed model helpers
+retain fresh native decoding and separate `srl_status`; buffers and wrappers
+start zeroed and need explicit cleanup. Borrowed callbacks require explicit
+finish and preserve their first failed status. Native encoding stages ordinary
+bytes before their compression size check. See the
+[C API](../languages/c_compression.md) and
+[Windows/Linux SDK proof](../verification/verification-c-compression-2026-10-20.md).
+Enable optional C Zstandard/LZ4 with `SERIALIZER_COMPRESSION_ZSTD=1` or
+`SERIALIZER_COMPRESSION_LZ4=1` plus application native linkage. Set a sufficient
+decode-history allowance explicitly; its default stays 32 KiB. Consult the
+[provider contract](../languages/c_compression.md#optional-zstandard-and-lz4) and
+[Windows/Linux proof](../verification/verification-c-compression-providers-2026-10-20.md)
+for native levels, exact frames and independently verified deployment profiles.
+
+All these helpers retain cooperative cancellation through staged input and final
+source/sink/native callbacks. Closing, disposing or reentering the same active
+wrapper prevents subsequent borrowed I/O and successful completion. An active
+outer call preserves its first failure; later calls retain the backend's inactive
+error contract. Logical byte/window caps exclude provider workspace and process
+RSS. The [dated proofs](../verification/verification-backlog-2026-10-20.md) distinguish
+tested backend profiles from broader shared-operation and performance gates.
+
+### Java ZIP/OPC
+
+Regenerate Java with **2.14.0** for the nested `SerializerPackage` container and
+typed schema package facades, using Java 17 standard APIs. Facades expose
+`Input`/`Value` and encode/write/load/save. Typed parts use generated XML; opaque
+parts own bytes. Share one snapshotted `Budget`, explicitly enable bounded
+private spooling, and validate the complete fresh aggregate before publication.
+Preserved source/target context is revalidated after edits; rebind links explicitly
+when authored writer names differ from loaded names. See the
+[API and bounded source/Save contracts](../languages/java_packages.md) and
+[actual Java SDK/Linux runtime proof](../verification/verification-java-packages-2026-10-20.md).
+Automatic nested cumulative contexts, arbitrary runtime codecs and generated
+application key/reference rules remain pending.
+
+### JavaScript and TypeScript ZIP/OPC
+
+Regenerate matching JavaScript modules and TypeScript declarations with **2.14.0**.
+The collision-selected `SerializerPackage` container supplies ZIP/OPC support;
+flattened schema package facades expose `Input` and `Value` with asynchronous
+encode/write/load/save. Stored ZIP works without Node imports. Select
+`await SerializerCompression.nodeProvider()` for DEFLATE and
+`await SerializerPackage.nodeHost()` for private spooling and Save. Supply the
+pinned XML dependencies, explicit shared package limits and a validator for the
+complete fresh typed aggregate. Preserved unknown parts/links are revalidated
+after edits. See the [package API and examples](../languages/javascript_packages.md)
+and [executed profile](../verification/verification-javascript-packages-2026-10-20.md).
+Automatic nested cumulative contexts, arbitrary runtime codec selection and
+generated application key/reference rules remain pending.
 
 ## Application command-line declarations
 
@@ -2118,3 +2417,41 @@ then assign it to replace an existing object. C++ in-place object readers retain
 existing values for missing keyed fields; an explicit absent optional resets
 an engaged field. Existing standalone C++ JSON handling of `std::optional`
 generic arguments retains its earlier `null`/value representation.
+
+### Measuring generated Python XML
+
+Use `qualification/python_xml_benchmark.py --compiler <serializer> --build <ignored-output>`
+for fixed owning workloads and all four ordinary native codec baselines. The
+[measurement record](../verification/verification-python-xml-performance-2026-10-20.md)
+reports wall/CPU samples, separately traced Python allocation and generated/encoded
+sizes. Native provider workspace and process RSS require separate measurement;
+no throughput threshold or constant-memory claim follows from logical limits.
+
+### Measuring generated C++ XML
+
+From an MSVC x64 developer environment, run
+`qualification/cpp_xml_benchmark.py` with `--compiler`, `--runtime-library`,
+`--provider-prefix` and an ignored `--build` directory. On native Linux, use
+`--cxx`, frozen `--headers`, `--runtime-library` and the actual `--xml-library`.
+Windows/Linux replay produces identical generated sources and encoded bytes.
+The driver generates the same
+public order schema with XML enabled and disabled, compiles both strict C++20
+profiles, and records 54 isolated owning operations with five wall/CPU samples
+each. Independent ElementTree checks the XML values; native bytes must match
+between profiles for all four ordinary protocols.
+
+The [C++ measurement record](../verification/verification-cpp-xml-performance-2026-10-20.md)
+retains source/encoded sizes, exact commands and process peak residency. The
+absolute OS high-water includes setup, model preparation, warmup and native
+libraries. Its change does not identify exact codec allocation, and zero change
+does not mean zero allocation. These complete owning messages establish no
+constant-memory streaming or machine-independent throughput threshold.
+
+The [eleven-language XML qualification](../verification/verification-xml-exchange-2026-10-20.md)
+runs each actual producer into every consumer under configured and fixed-XSD
+mapping, and independently checks expanded names and values. It also compiles
+or runs all eleven XML-disabled models through the four ordinary protocols.
+Use `qualification/xml_exchange_qualification.py --help` for explicit SDK, native
+helper and offline-cache inputs. A missing SDK fails qualification; it cannot
+silently remove a backend. This selected small-document proof leaves broader
+malformed/resource, vocabulary, platform and performance gates separate.

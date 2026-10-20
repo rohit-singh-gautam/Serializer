@@ -16,6 +16,34 @@ internal static class NavigationTest {
       var text = File.ReadAllText(model).Replace("serializer version 1;", "serializer version 1.0.0;");
       var live = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [model] = text };
       var checks = 0;
+      if (args.Length > 4 && args[4] == "--inherited-only") {
+        CheckInheritedNavigation(Path.GetFullPath(args[3]), live, ref checks);
+        Console.WriteLine("Visual Studio fresh inherited-field request passed: " + checks +
+          " checks, all 11 languages, original 256 MiB interpreter limit.");
+        return 0;
+      }
+      var packageSchema = Path.GetFullPath(Path.Combine(repository, "test/resources/opc_profile.serializer"));
+      var packageText = File.ReadAllText(packageSchema);
+      var packageOutput = Path.Combine(Path.GetDirectoryName(generated), "opc-packages");
+      // Real emitted Java classes, JS factories and TS namespaces share schema package identity.
+      foreach (var packageName in new[] { "archive", "document_profiles", "collection_archive" }) {
+        var start = packageText.IndexOf("package " + packageName, StringComparison.Ordinal) + "package ".Length;
+        foreach (var cursor in new[] { start, start + packageName.Length }) {
+          var definitions = NavigationRunner.Resolve(packageSchema, cursor, true, packageOutput, live, CancellationToken.None);
+          Require(definitions.Length == 3, "package definitions across Java, JavaScript and TypeScript");
+          foreach (var definition in definitions) {
+            foreach (var endpoint in new[] { definition.start, definition.end }) {
+              var source = NavigationRunner.Resolve(definition.file, endpoint, false, packageOutput, live, CancellationToken.None);
+              Require(source.Length == 1 && source[0].file == packageSchema && source[0].start == start,
+                "package facade reverse navigation retains both native selection boundaries");
+              ++checks;
+            }
+          }
+          ++checks;
+        }
+      }
+      Console.WriteLine("Visual Studio package facade adapter passed: " + checks + " declaration/source boundary checks.");
+      if (args.Skip(2).Contains("--packages-only")) { return 0; }
       var xmlCommon = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(model), "xml_authoring_common.serializer"));
       var xmlDependency = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(model), "schemas/core.xsd"));
       var xmlText = "serializer version 1.20.0; include xml_authoring_common; namespace xml_models { " +
@@ -650,31 +678,7 @@ internal static class NavigationTest {
         ++checks;
       }
       if (args.Length > 3) {
-        var inheritedOutput = Path.GetFullPath(args[3]);
-        var inheritedModel = Path.Combine(Path.GetDirectoryName(inheritedOutput), "generic-inheritance.serializer");
-        var inheritedText = File.ReadAllText(inheritedModel);
-        // A live edit moves the field while the generated output and dependency file remain unchanged.
-        live[inheritedModel] = "// Unsaved field declaration offset.\n" + inheritedText;
-        var declaration = live[inheritedModel].IndexOf("inherited_count", StringComparison.Ordinal);
-        var fieldDefinitions = NavigationRunner.Resolve(inheritedModel, declaration, true, inheritedOutput, live, CancellationToken.None);
-        Require(fieldDefinitions.Select(item => Path.GetExtension(item.file)).Distinct().Count() == 11,
-          "schema inherited field definitions in every output language");
-        ++checks;
-        var fieldLanguages = new HashSet<string>();
-        foreach (var outputFile in Directory.GetFiles(inheritedOutput).Where(file => Path.GetExtension(file) != ".d")) {
-          var outputText = File.ReadAllText(outputFile);
-          foreach (Match occurrence in Regex.Matches(outputText, @"\b(?:inherited_count|inheritedCount|InheritedCount)\b")) {
-            var source = NavigationRunner.Resolve(outputFile, occurrence.Index, false, inheritedOutput, live, CancellationToken.None);
-            if (source.Length != 1 || source[0].file != inheritedModel || source[0].start != declaration) { continue; }
-            var endpoint = NavigationRunner.Resolve(outputFile, occurrence.Index + occurrence.Length, false,
-              inheritedOutput, live, CancellationToken.None);
-            Require(endpoint.Length == 1 && endpoint[0].start == declaration, "inherited generic field selection endpoint");
-            fieldLanguages.Add(Path.GetExtension(outputFile));
-            ++checks;
-            break;
-          }
-        }
-        Require(fieldLanguages.Count == 11, "inherited generic field declarations in every output language with unsaved schema edits");
+        CheckInheritedNavigation(Path.GetFullPath(args[3]), live, ref checks);
       }
       var splitRoot = Path.Combine(generated, "split_fixture");
       var splitSchema = Path.Combine(splitRoot, "request.serializer");
@@ -733,6 +737,34 @@ internal static class NavigationTest {
       Console.WriteLine("Visual Studio shared resolver passed: " + checks + " source/output checks, real .NET interpreter, all 11 languages, separate C++ header ownership, construction/layout signatures, inherited generic fields, digest metadata/legacy names, optional operands/signatures, dimension defaults/extents, typed magic/inferred arrays, selection endpoints, unsaved includes and cancellation.");
       return 0;
     } catch (Exception error) { Console.Error.WriteLine(error); return 1; }
+  }
+
+  /// <summary>Exercise one real inherited-field definition request and reverse endpoints within native host limits.</summary>
+  private static void CheckInheritedNavigation(string inheritedOutput, IDictionary<string, string> live, ref int checks) {
+    var inheritedModel = Path.Combine(Path.GetDirectoryName(inheritedOutput), "generic-inheritance.serializer");
+    var inheritedText = File.ReadAllText(inheritedModel);
+    // A live edit moves the field while generated output and dependency files remain unchanged.
+    live[inheritedModel] = "// Unsaved field declaration offset.\n" + inheritedText;
+    var declaration = live[inheritedModel].IndexOf("inherited_count", StringComparison.Ordinal);
+    var fieldDefinitions = NavigationRunner.Resolve(inheritedModel, declaration, true, inheritedOutput, live, CancellationToken.None);
+    Require(fieldDefinitions.Select(item => Path.GetExtension(item.file)).Distinct().Count() == 11,
+      "schema inherited field definitions in every output language");
+    ++checks;
+    var fieldLanguages = new HashSet<string>();
+    foreach (var outputFile in Directory.GetFiles(inheritedOutput).Where(file => Path.GetExtension(file) != ".d")) {
+      var outputText = File.ReadAllText(outputFile);
+      foreach (Match occurrence in Regex.Matches(outputText, @"\b(?:inherited_count|inheritedCount|InheritedCount)\b")) {
+        var source = NavigationRunner.Resolve(outputFile, occurrence.Index, false, inheritedOutput, live, CancellationToken.None);
+        if (source.Length != 1 || source[0].file != inheritedModel || source[0].start != declaration) { continue; }
+        var endpoint = NavigationRunner.Resolve(outputFile, occurrence.Index + occurrence.Length, false,
+          inheritedOutput, live, CancellationToken.None);
+        Require(endpoint.Length == 1 && endpoint[0].start == declaration, "inherited generic field selection endpoint");
+        fieldLanguages.Add(Path.GetExtension(outputFile));
+        ++checks;
+        break;
+      }
+    }
+    Require(fieldLanguages.Count == 11, "inherited generic field declarations in every output language with unsaved schema edits");
   }
 
   /// <summary>Fail the executable on any observable navigation mismatch.</summary>

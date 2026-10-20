@@ -1,0 +1,4 @@
+module SerializerOptionalProvider {
+  header "provider.h"
+  export *
+}

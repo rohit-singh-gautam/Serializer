@@ -5,14 +5,16 @@ byte collections, including named-algorithm lengths, in all four native codecs.
 Compute hashes through the application's provider; generated Java does not
 automatically compute digest fields or import a cryptographic dependency.
 
-Serializer generates self-contained **Java 17+** source with no JNI, native library,
-reflection, third-party runtime, or formatter dependency. The C++ schema compiler
+Serializer generates **Java 17+** source whose ordinary codecs use JDK APIs.
+Optional Zstandard/LZ4 compression providers are loaded reflectively when selected;
+generated source compiles without either provider jar. The C++ schema compiler
 is used at build time only. Each output file contains one public outer class,
 namespace containers, generated owning types, and private codec helpers.
 
-Optional [compression backends](../serialization/compression.md) are currently C++ runtime features.
-Java's generated API has no new compression options; external standard libraries
-can compress/decompress its encoded bytes before calling the existing codecs.
+Compiler/runtime **2.14.0** adds optional whole-message identity, gzip, zlib and
+raw-DEFLATE helpers using `java.util.zip`, plus optional Zstandard and LZ4 frames.
+Ordinary generated codec methods and
+their wire bytes remain unchanged. See [compression](#whole-message-compression).
 
 Schema directives such as `include common;` load reusable declarations
 into the entry schema's Java output. Reopened namespace blocks share one static
@@ -161,6 +163,133 @@ collection entries, and 64 object nesting levels. JSON strings are bounded by
 both their escaped input length and decoded UTF-8 length. Limits bound input and
 logical work, not exact JVM heap use. Encoding limits object nesting to 64 levels.
 Input arrays and encoded objects must not be changed concurrently with a codec call.
+
+## ZIP and OPC packages
+
+Compiler/runtime 2.14.0 adds Java 17 package facades for existing schema 1.20.0
+typed XML and opaque part roles. The standard JDK implementation provides checked
+ZIP32/ZIP64 reading, stored/raw-DEFLATE output, OPC metadata and Relationships
+compatibility processing, extension policies, bounded source adapters and staged
+atomic Save. See the [Java package guide](java_packages.md) for generated APIs,
+ownership, resource accounting and the remaining shared-context/profile/reference
+limits.
+
+## Whole-message compression
+
+Each generated file supplies a nested `SerializerCompression` helper. If that name
+conflicts with the outer class or a schema declaration, the generator selects the
+first unused `SerializerCompression_2`, `_3`, and so on. Its generated Javadoc
+records the selected name; existing schema types retain their names.
+When an output class itself is named `Format`, `Input`, `Output` or another nested
+compression helper type, that helper type gains `_2` inside the compression
+container, with an emitted naming comment. This preserves those output filenames.
+
+```java
+var encoding = new AccountSchema.SerializerCompression.EncodeOptions(
+    AccountSchema.SerializerCompression.Format.GZIP);
+byte[] compressed = AccountSchema.SerializerCompression.encode(
+    () -> account.encode(AccountSchema.Protocol.BINARY_INTEGER), encoding);
+var decoding = new AccountSchema.SerializerCompression.DecodeOptions(
+    AccountSchema.SerializerCompression.Format.GZIP);
+var restored = AccountSchema.SerializerCompression.decode(compressed, decoding,
+    plain -> AccountSchema.Demo.Account.decode(plain,
+        AccountSchema.Protocol.BINARY_INTEGER));
+```
+
+`compress(byte[], EncodeOptions)` and `decompress(byte[], DecodeOptions)` operate
+on arbitrary complete codec bytes. The supplier/function adapters above validate
+provider availability before encoding or input decoding, then return only a
+completed result. The inner decoder retains its ordinary exact-message checks and
+`Limits`; pass its explicit limits overload when needed. No compression envelope,
+protocol autodetection or implicit compression is added. Readers select `NONE`,
+`GZIP`, `ZLIB`, `DEFLATE`, `ZSTD` or `LZ4` explicitly. An unavailable optional
+provider rejects before serializers, cancellation callbacks or borrowed I/O.
+
+| Format | Application dependency | Default encoding profile |
+| --- | --- | --- |
+| `NONE`, `GZIP`, `ZLIB`, `DEFLATE` | JDK | Level six for DEFLATE-based formats |
+| `ZSTD` | `com.github.luben:zstd-jni:1.5.7-16` qualified | Level three, content checksum enabled |
+| `LZ4` | `at.yawk.lz4:lz4-java:1.12.0` qualified | Fast mode, 64 KiB independent blocks, content checksum enabled |
+
+Pin the selected provider in the application and place its jar on the runtime
+classpath. Zstandard also requires its matching native library; zstd-jni bundles
+supported-platform libraries and loads them during provider admission. LZ4 uses
+the provider's safe pure-Java block and XXHash APIs. The maintained LZ4 artifact
+uses the `net.jpountz.*` package names; select one LZ4 artifact on the classpath.
+See the [provider's installation guidance](https://github.com/yawkat/lz4-java#installation).
+`available(format)` probes the selected optional deployment without invoking
+application callbacks or streams; native provider loading can access its own
+deployment files. It does not download or install dependencies.
+
+The `Output` and `Input` wrappers borrow ordinary Java streams:
+
+```java
+try (var compressedOutput = new AccountSchema.SerializerCompression.Output(
+    destination, encoding)) {
+  compressedOutput.write(account.encode(AccountSchema.Protocol.JSON));
+  compressedOutput.finish();
+}
+try (var compressedInput = new AccountSchema.SerializerCompression.Input(
+    source, decoding)) {
+  var copy = AccountSchema.Demo.Account.decode(compressedInput.readAllBytes(),
+      AccountSchema.Protocol.JSON);
+  compressedInput.finish();
+}
+```
+
+Output stages one bounded complete message and requires explicit `finish()` to
+compress and publish it. `flush()` does not finalize or flush the borrowed sink;
+`close()` discards unfinished staging and never emits a trailer. Input reads its
+bounded source through EOF and validates one complete frame before exposing
+decompressed bytes. Its `finish()` rejects unread inner bytes. Neither wrapper
+closes its underlying stream. Exceptions fence the affected wrapper, and later
+reads/writes/finish calls fail. External sink failures can retain a partial prefix.
+An EOF probe can consume one byte beyond a source's input limit before rejecting.
+
+`EncodeOptions` defaults to 64 MiB each of serialized input and compressed output,
+with the format-specific levels above. Its full constructor takes
+`(format, level, maxInputBytes, maxOutputBytes, checkCancelled)`. An additive
+overload appends `boolean checksum`; it selects Zstandard/LZ4 content checksums,
+while other formats retain their mandatory framing checks. `DecodeOptions` defaults to 64 MiB each of
+compressed input and expanded output and an 8 MiB history budget; its full
+constructor takes `(format, maxInputBytes, maxOutputBytes, maxWindowBytes,
+checkCancelled)`. DEFLATE-based formats require at least 32 KiB of history budget.
+DEFLATE levels are 0 through 9. Zstandard validates its provider's full advertised
+minimum/maximum, including negative fast levels, before callbacks or application
+I/O. The selected LZ4 profile accepts level zero for fast mode and one through nine
+for high compression. Both policies are immutable; no dictionary is supplied.
+
+Gzip/zlib checksums, gzip optional headers/FHCRC and exact single-stream boundaries
+are validated. Truncation, dictionaries, trailing bytes and concatenated streams
+reject before inner decoding. Raw DEFLATE has no checksum and cannot detect every
+corruption. Zstandard readers accept checksummed and unchecked standard frames,
+reject nonzero dictionary IDs, and round the history allowance down to a power of
+two. LZ4 readers support linked and independent standard blocks, validate descriptor,
+block and content checksums when present, and admit the advertised maximum block
+size against the history policy before decoding. Dictionary descriptors, legacy
+and skippable frames are rejected. Logical bounds include expansion and framing overhead, but exclude
+JVM/provider internals, spare buffer capacity and the ordinary encoder callback's
+allocation. Both directions stage complete messages and may hold several bounded
+byte arrays; this is not an incremental object protocol or a hard heap bound.
+
+The optional `Runnable` cancellation hook runs around bounded provider/I/O calls,
+including zero-output calls, and after the decoder callback before returning its
+candidate. Application stream I/O, Zstandard provider calls and checksum updates
+use batches of at most 32 KiB. LZ4 encoding uses at most 64 KiB per block-provider
+call; decoding uses one advertised block of at most 4 MiB plus at most 64 KiB of
+retained linked history. Parser loops also poll cancellation. A provider call
+cannot be preempted. Cancellation retains its original exception.
+Compression `Failure.code` is `UNAVAILABLE`, `INVALID_OPTIONS`, `INVALID_DATA` or
+`RESOURCE_LIMIT`. Borrowed-stream I/O, allocation and inner-codec exceptions retain
+their types; unexpected checked provider I/O uses `UncheckedIOException` with its
+original cause. Unrelated provider runtime failures propagate separately.
+Wrappers and application callbacks require caller-managed synchronization.
+
+The [selected optional-provider proof](../verification/verification-java-compression-providers-2026-10-20.md)
+records actual emitted Java 17 compilation, JDK 26 execution, present/absent SDKs,
+native deployment failures, independent standard frames and direct C++ exchanges.
+Other SDK/platform/provider versions and complete shared-operation budget profiles
+remain separate qualification work.
 
 ## CMake and verification
 

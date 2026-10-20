@@ -379,3 +379,205 @@ TEST(compression_stream, nested_filters_reverse_decode_and_finalization_order) {
   EXPECT_TRUE(premature_inner.fail());
   EXPECT_ANY_THROW(premature_outer.finish());
 }
+
+// Cancellation from the final borrowed sink must abort the active call and prevent later writes.
+TEST(compression_stream, final_sink_cancellation_fences_every_format) {
+  class callback_sink final : public compression::output_sink {
+    bool& stopped_;
+    const std::size_t stop_at_;
+
+  public:
+    std::size_t calls{};
+    // Borrow one operation's cancellation state and select its final baseline append.
+    callback_sink(bool& stopped, std::size_t stop_at) : stopped_{stopped}, stop_at_{stop_at} {}
+    // Simulate cancellation arriving from an external write that has already accepted bytes.
+    void append(std::span<const std::uint8_t>) override {
+      ++calls;
+      if (calls == stop_at_) {
+        stopped_ = true;
+      }
+    }
+  };
+  const auto plain = stream_payload(70001);
+  for (const auto& item : stream_cases) {
+    if (!compression::available(item.format)) {
+      continue;
+    }
+    SCOPED_TRACE(static_cast<int>(item.format));
+    bool stopped{};
+    callback_sink baseline{stopped, 0};
+    compression::stream_encoder original{baseline, item.options};
+    original.write(as_bytes(plain));
+    original.finish();
+    ASSERT_GT(baseline.calls, 0U);
+    callback_sink destination{stopped, baseline.calls};
+    int original_failure{};
+    auto check = [&] {
+      if (stopped) {
+        throw &original_failure;
+      }
+    };
+    compression::stream_encoder candidate{
+        destination, item.options, {plain.size(), plain.size() * 2, check}};
+    bool rejected{};
+    try {
+      candidate.write(as_bytes(plain));
+      candidate.finish();
+    } catch (int* failure) {
+      EXPECT_EQ(failure, &original_failure);
+      rejected = true;
+    }
+    EXPECT_TRUE(rejected);
+    EXPECT_TRUE(candidate.failed());
+    EXPECT_FALSE(candidate.finished());
+    const auto calls = destination.calls;
+    EXPECT_THROW(candidate.write(as_bytes("later")), std::logic_error);
+    EXPECT_THROW(candidate.finish(), std::logic_error);
+    EXPECT_EQ(destination.calls, calls);
+  }
+}
+
+// A swallowed nested operation must fence the outer call before another sink or policy callback.
+TEST(compression_stream, swallowed_callback_reentry_preserves_first_failure) {
+  class reentrant_sink final : public compression::output_sink {
+  public:
+    compression::stream_encoder* encoder{};
+    std::size_t calls{};
+    std::string nested_message;
+    // Reenter only identity finalization so this regression remains safe against the old implementation.
+    void append(std::span<const std::uint8_t>) override {
+      ++calls;
+      try {
+        encoder->finish();
+      } catch (const std::logic_error& failure) {
+        nested_message = failure.what();
+      }
+      // A later callback error cannot replace the failure already latched by nested finalization.
+      throw 42;
+    }
+  } destination;
+  compression::stream_encoder encoder{destination, compression::none_options{}};
+  destination.encoder = &encoder;
+  bool rejected{};
+  try {
+    encoder.write(as_bytes("message"));
+  } catch (const std::logic_error& failure) {
+    EXPECT_FALSE(destination.nested_message.empty());
+    EXPECT_EQ(failure.what(), destination.nested_message);
+    rejected = true;
+  } catch (...) {
+    FAIL() << "A later sink failure replaced swallowed reentry";
+  }
+  EXPECT_TRUE(rejected);
+  EXPECT_TRUE(encoder.failed());
+  EXPECT_FALSE(encoder.finished());
+  EXPECT_EQ(destination.calls, 1U);
+  EXPECT_THROW(encoder.finish(), std::logic_error);
+  EXPECT_EQ(destination.calls, 1U);
+}
+
+// Input staging must stop after a source callback requests cancellation, including owning decode.
+TEST(compression_stream, first_source_cancellation_prevents_additional_reads) {
+  class source_buffer final : public std::streambuf {
+    const bytes& input_;
+    bool& stopped_;
+    std::size_t offset_{};
+
+  public:
+    std::size_t calls{};
+    // Borrow immutable bytes and a cancellation flag for one synchronous read operation.
+    source_buffer(const bytes& input, bool& stopped) : input_{input}, stopped_{stopped} {}
+    // Return a full admitted batch and request cancellation before the reader can borrow again.
+    std::streamsize xsgetn(char* destination, std::streamsize requested) override {
+      const auto count = std::min(input_.size() - offset_, static_cast<std::size_t>(requested));
+      std::copy_n(input_.begin() + static_cast<std::ptrdiff_t>(offset_), count, destination);
+      offset_ += count;
+      ++calls;
+      stopped_ = true;
+      return static_cast<std::streamsize>(count);
+    }
+  };
+  const auto plain = stream_payload(131073);
+  for (const auto& item : stream_cases) {
+    if (!compression::available(item.format)) {
+      continue;
+    }
+    const auto frame = compression::compress(as_bytes(plain), item.options);
+    for (const bool owning_decode : {false, true}) {
+      SCOPED_TRACE(static_cast<int>(item.format));
+      SCOPED_TRACE(owning_decode);
+      bool stopped{};
+      source_buffer buffer{frame, stopped};
+      std::istream source{&buffer};
+      int original_failure{};
+      auto check = [&] {
+        if (stopped) {
+          throw &original_failure;
+        }
+      };
+      const compression::decode_options options{.format = item.format, .check_cancelled = check};
+      bool rejected{};
+      try {
+        if (owning_decode) {
+          static_cast<void>(codec::deserialize_exact<person, codec::json>(source, {}, options));
+        } else {
+          compression::input_stream candidate{source, options};
+        }
+      } catch (int* failure) {
+        EXPECT_EQ(failure, &original_failure);
+        rejected = true;
+      }
+      EXPECT_TRUE(rejected);
+      EXPECT_EQ(buffer.calls, 1U);
+    }
+  }
+}
+
+// An already staged input retains its cancellation policy through explicit finish and failure.
+TEST(compression_stream, cached_input_finish_preserves_cancellation_and_fences_reuse) {
+  const std::string plain{"complete message"};
+  for (const auto& item : stream_cases) {
+    if (!compression::available(item.format)) {
+      continue;
+    }
+    SCOPED_TRACE(static_cast<int>(item.format));
+    const auto frame = compression::compress(as_bytes(plain), item.options);
+    std::istringstream source{std::string{frame.begin(), frame.end()}};
+    bool stopped{};
+    std::size_t polls{};
+    int original_failure{};
+    auto check = [&] {
+      ++polls;
+      if (stopped) {
+        throw &original_failure;
+      }
+    };
+    compression::input_stream candidate{source, {.format = item.format, .check_cancelled = check}};
+    candidate.get_curr_and_increase_unchecked(candidate.remaining_buffer());
+    stopped = true;
+    bool rejected{};
+    try {
+      candidate.finish();
+    } catch (int* failure) {
+      EXPECT_EQ(failure, &original_failure);
+      rejected = true;
+    }
+    EXPECT_TRUE(rejected);
+    const auto prior_polls = polls;
+    stopped = false;
+    try {
+      candidate.finish();
+      FAIL() << "Failed cached input resumed finalization";
+    } catch (const std::logic_error& failure) {
+      bool original_retained{};
+      try {
+        std::rethrow_if_nested(failure);
+      } catch (int* original) {
+        EXPECT_EQ(original, &original_failure);
+        original_retained = true;
+      }
+      EXPECT_TRUE(original_retained);
+    }
+    EXPECT_EQ(polls, prior_polls);
+  }
+}

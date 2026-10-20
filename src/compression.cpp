@@ -3,6 +3,10 @@
 // See LICENSE-RUNTIME for permission to use this runtime in proprietary applications.
 #include <rohit/compression.hpp>
 
+#if SERIALIZER_WITH_ZLIB
+#include "compression_deflate.hpp"
+#endif
+
 #if SERIALIZER_WITH_ZSTD
 #include <zstd.h>
 #include <zstd_errors.h>
@@ -17,6 +21,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <new>
@@ -111,11 +116,6 @@ void decode_zstd(std::span<const std::uint8_t> input, output_sink& output,
   if (content_size != ZSTD_CONTENTSIZE_UNKNOWN && content_size > options.max_decompressed_bytes) {
     throw error{error_code::resource_limit, "Decompressed message limit exceeded"};
   }
-  const std::unique_ptr<ZSTD_DCtx, decltype(&ZSTD_freeDCtx)> context{ZSTD_createDCtx(),
-                                                                     ZSTD_freeDCtx};
-  if (!context) {
-    throw std::bad_alloc{};
-  }
   // The stable API accepts a power-of-two window bound; round down, never above policy.
   const auto window_log = static_cast<int>(std::bit_width(options.max_window_bytes) - 1);
   const auto bounds = ZSTD_dParam_getBounds(ZSTD_d_windowLogMax);
@@ -123,8 +123,33 @@ void decode_zstd(std::span<const std::uint8_t> input, output_sink& output,
   if (window_log < bounds.lowerBound) {
     throw error{error_code::resource_limit, "Zstandard window limit is too small"};
   }
-  check_zstd(ZSTD_DCtx_setParameter(context.get(), ZSTD_d_windowLogMax,
-                                    std::min(window_log, bounds.upperBound)));
+  const auto bounded_window_log = std::min(window_log, bounds.upperBound);
+  const auto maximum_window_bytes = std::uint64_t{1} << bounded_window_log;
+  constexpr std::size_t descriptor_offset{4};
+  constexpr std::size_t window_descriptor_offset{5};
+  constexpr std::uint8_t single_segment_mask{0x20};
+  constexpr unsigned window_exponent_shift{3};
+  constexpr unsigned window_exponent_bias{10};
+  constexpr std::uint8_t window_mantissa_mask{0x07};
+  // The content-size query above validates the complete header before these fixed offsets.
+  // A contiguous single-segment decode can bypass the provider's windowLogMax check.
+  std::uint64_t advertised_window_bytes{content_size};
+  if ((input[descriptor_offset] & single_segment_mask) == 0) {
+    const auto descriptor = input[window_descriptor_offset];
+    const auto exponent = (descriptor >> window_exponent_shift) + window_exponent_bias;
+    const auto base_bytes = std::uint64_t{1} << exponent;
+    advertised_window_bytes =
+        base_bytes + (base_bytes >> window_exponent_shift) * (descriptor & window_mantissa_mask);
+  }
+  if (advertised_window_bytes > maximum_window_bytes) {
+    throw error{error_code::resource_limit, "Zstandard frame exceeds the window limit"};
+  }
+  const std::unique_ptr<ZSTD_DCtx, decltype(&ZSTD_freeDCtx)> context{ZSTD_createDCtx(),
+                                                                     ZSTD_freeDCtx};
+  if (!context) {
+    throw std::bad_alloc{};
+  }
+  check_zstd(ZSTD_DCtx_setParameter(context.get(), ZSTD_d_windowLogMax, bounded_window_log));
   ZSTD_inBuffer source{input.data(), input.size(), 0};
   std::array<std::uint8_t, chunk_bytes> scratch{};
   while (true) {
@@ -456,6 +481,13 @@ std::vector<std::uint8_t> decompress(std::span<const std::uint8_t> input,
   case format::deflate:
     if (options.max_window_bytes < deflate_window_bytes) {
       throw error{error_code::resource_limit, "DEFLATE requires a 32 KiB window budget"};
+    }
+    // Native zlib enforces 32 KiB history but can ignore a smaller RFC1950 CINFO window.
+    // Preserve ordinary gzip/raw/32 KiB zlib decode paths and validate only that stricter header.
+    if (options.format == format::zlib && input.size() >= 2 && (input[0] & 15) == 8 &&
+        input[0] >> 4 < 7 && ((static_cast<unsigned>(input[0]) << 8) | input[1]) % 31 == 0 &&
+        (input[1] & 32) == 0) {
+      detail::deflate_validation::validate(input, options);
     }
     run_zlib(input, output, false, options.format);
     break;

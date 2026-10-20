@@ -334,3 +334,259 @@ TEST(compression, views_use_owned_decompressed_storage) {
     EXPECT_EQ(decoded.value, 73U);
   }
 }
+
+namespace {
+bool* stop_after_native_decode{};
+
+// Keep ordinary JSON semantics while arming cancellation after native candidate construction.
+template <codec::serialize_type Direction>
+class cancelling_json : public codec::json<Direction> {
+  using base = codec::json<Direction>;
+
+public:
+  using base::base;
+  // Simulate an application decoder that requests cancellation after producing its native value.
+  template <typename Value>
+  void serialize_in(Value& value) {
+    base::serialize_in(value);
+    *stop_after_native_decode = true;
+  }
+};
+} // namespace
+
+// Fresh decoded values must not publish after native code requests cancellation.
+TEST(compression, final_native_decode_cancellation_withholds_candidate) {
+  const person value{"new candidate", 42};
+  for (const auto& item : cases) {
+    if (!compression::available(item.format)) {
+      continue;
+    }
+    SCOPED_TRACE(static_cast<int>(item.format));
+    rohit::full_stream_auto_alloc frame;
+    codec::serialize_to<codec::json>(frame, value, item.options);
+    bool stopped{};
+    stop_after_native_decode = &stopped;
+    int original_failure{};
+    auto check = [&] {
+      if (stopped) {
+        throw &original_failure;
+      }
+    };
+    const compression::decode_options options{.format = item.format, .check_cancelled = check};
+    person destination{"unchanged", 7};
+    const auto input = rohit::make_constant_full_stream(frame.begin(), frame.current_offset());
+    bool rejected{};
+    try {
+      destination = codec::deserialize_exact<person, cancelling_json>(input, {}, options);
+    } catch (int* failure) {
+      EXPECT_EQ(failure, &original_failure);
+      rejected = true;
+    }
+    EXPECT_TRUE(rejected);
+    EXPECT_EQ(destination.name, "unchanged");
+    EXPECT_EQ(destination.id, 7U);
+    stopped = false;
+    const auto inplace = rohit::make_constant_full_stream(frame.begin(), frame.current_offset());
+    rejected = false;
+    try {
+      codec::serialize_from<cancelling_json>(inplace, destination, {}, options);
+    } catch (int* failure) {
+      EXPECT_EQ(failure, &original_failure);
+      rejected = true;
+    }
+    EXPECT_TRUE(rejected);
+    // In-place decoding retains its established partial-update semantics.
+    EXPECT_EQ(destination.name, value.name);
+    stop_after_native_decode = nullptr;
+  }
+}
+
+// Whole-object publication checks cancellation after the external destination accepts its final bytes.
+TEST(compression, final_whole_object_sink_cancellation_is_reported) {
+  class cancelling_sink {
+    bool& stopped_;
+
+  public:
+    std::size_t calls{};
+    // Borrow state only for this synchronous publication.
+    explicit cancelling_sink(bool& stopped) : stopped_{stopped} {}
+    // Simulate a completed external write that requests cancellation before the call returns.
+    void write(const char*, std::streamsize) {
+      ++calls;
+      stopped_ = true;
+    }
+    // The transport itself succeeds; the separate cancellation policy reports failure.
+    bool fail() const noexcept {
+      return false;
+    }
+  };
+  const person value{"publication", 42};
+  for (const auto& item : cases) {
+    if (!compression::available(item.format)) {
+      continue;
+    }
+    SCOPED_TRACE(static_cast<int>(item.format));
+    bool stopped{};
+    cancelling_sink output{stopped};
+    int original_failure{};
+    auto check = [&] {
+      if (stopped) {
+        throw &original_failure;
+      }
+    };
+    compression::encode_limits limits{};
+    limits.check_cancelled = check;
+    bool rejected{};
+    try {
+      codec::serialize_to<codec::binary_none>(output, value, item.options, limits);
+    } catch (int* failure) {
+      EXPECT_EQ(failure, &original_failure);
+      rejected = true;
+    }
+    EXPECT_TRUE(rejected);
+    EXPECT_EQ(output.calls, 1U);
+  }
+}
+
+// RFC1950's advertised window limits distances even when the native provider ignores CINFO.
+TEST(compression, zlib_advertised_history_rejects_one_beyond_window) {
+  if (!compression::available(compression::format::zlib)) {
+    GTEST_SKIP() << "The zlib provider is disabled";
+  }
+  // A nonfinal stored block emits 257 literals; a final fixed block copies distance 257.
+  bytes frame{0x08, 0x1d, 0x00, 0x01, 0x01, 0xfe, 0xfe};
+  frame.insert(frame.end(), 257, 'A');
+  constexpr auto trailer =
+      std::to_array<std::uint8_t>({0x03, 0x06, 0x00, 0x00, 0xa9, 0xfd, 0x42, 0x05});
+  frame.insert(frame.end(), trailer.begin(), trailer.end());
+  const compression::decode_options options{.format = compression::format::zlib};
+  try {
+    static_cast<void>(compression::decompress(frame, options));
+    FAIL() << "A distance beyond the advertised 256-byte history was accepted";
+  } catch (const compression::error& failure) {
+    EXPECT_EQ(failure.code, compression::error_code::invalid_data);
+  }
+  // The identical raw stream and checksum are valid under the ordinary 32 KiB header.
+  frame[0] = 0x78;
+  frame[1] = 0x01;
+  EXPECT_EQ(compression::decompress(frame, options), bytes(260, 'A'));
+}
+
+// Every legal single-segment content-size width advertises the complete decoded extent as history.
+TEST(compression, zstd_single_segment_window_is_admitted_before_expansion) {
+  if (!compression::available(compression::format::zstd)) {
+    GTEST_SKIP() << "The Zstandard provider is disabled";
+  }
+  constexpr std::size_t payload_bytes{65536};
+  const std::array headers{
+      bytes{0x28, 0xb5, 0x2f, 0xfd, 0x60, 0x00, 0xff},
+      bytes{0x28, 0xb5, 0x2f, 0xfd, 0xa0, 0x00, 0x00, 0x01, 0x00},
+      bytes{0x28, 0xb5, 0x2f, 0xfd, 0xe0, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00}};
+  for (const auto& header : headers) {
+    SCOPED_TRACE(header.size());
+    auto frame = header;
+    // A final raw block contains exactly 65,536 independent literal bytes.
+    frame.insert(frame.end(), {0x01, 0x00, 0x08});
+    frame.insert(frame.end(), payload_bytes, 'W');
+    EXPECT_EQ(compression::decompress(
+                  frame, {.format = compression::format::zstd, .max_window_bytes = payload_bytes}),
+              bytes(payload_bytes, 'W'));
+    EXPECT_EQ(compression::decompress(frame, {.format = compression::format::zstd,
+                                              .max_window_bytes = payload_bytes + 1}),
+              bytes(payload_bytes, 'W'));
+    for (const auto maximum : {std::size_t{}, payload_bytes - 1}) {
+      bool output_boundary_reached{};
+      int original_failure{};
+      auto check = [&] {
+        output_boundary_reached = true;
+        throw &original_failure;
+      };
+      try {
+        static_cast<void>(compression::decompress(frame, {.format = compression::format::zstd,
+                                                          .max_window_bytes = maximum,
+                                                          .check_cancelled = check}));
+        FAIL() << "A single-segment frame exceeded its history budget";
+      } catch (const compression::error& failure) {
+        EXPECT_EQ(failure.code, compression::error_code::resource_limit);
+      }
+      EXPECT_FALSE(output_boundary_reached);
+    }
+    int original_failure{};
+    auto check = [&] { throw &original_failure; };
+    try {
+      static_cast<void>(compression::decompress(frame, {.format = compression::format::zstd,
+                                                        .max_window_bytes = payload_bytes,
+                                                        .check_cancelled = check}));
+      FAIL() << "An admitted frame swallowed the application's output-boundary failure";
+    } catch (int* failure) {
+      EXPECT_EQ(failure, &original_failure);
+    }
+  }
+}
+
+// Explicit header admission also observes the provider's conservative power-of-two window profile.
+TEST(compression, zstd_window_descriptor_is_admitted_before_provider_expansion) {
+  if (!compression::available(compression::format::zstd)) {
+    GTEST_SKIP() << "The Zstandard provider is disabled";
+  }
+  // Window descriptor 0x31 advertises 65,536 + 8,192 = 73,728 bytes; FCS is absent.
+  const bytes frame{0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x31, 0x09, 0x00, 0x00, 'A'};
+  EXPECT_EQ(compression::decompress(
+                frame, {.format = compression::format::zstd, .max_window_bytes = 131072}),
+            bytes{'A'});
+  for (const auto maximum : {std::size_t{65536}, std::size_t{80000}}) {
+    try {
+      static_cast<void>(compression::decompress(
+          frame, {.format = compression::format::zstd, .max_window_bytes = maximum}));
+      FAIL() << "The advertised window exceeded the conservative provider budget";
+    } catch (const compression::error& failure) {
+      EXPECT_EQ(failure.code, compression::error_code::resource_limit);
+    }
+  }
+  // A 256 MiB advertised window rejects under the default budget before output.
+  const bytes huge{0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x90, 0x01, 0x00, 0x00};
+  try {
+    static_cast<void>(compression::decompress(huge, {.format = compression::format::zstd}));
+    FAIL() << "A huge advertised history was accepted";
+  } catch (const compression::error& failure) {
+    EXPECT_EQ(failure.code, compression::error_code::resource_limit);
+  }
+}
+
+// The admission check preserves native framing validation and accepts the specification's unused bit.
+TEST(compression, zstd_window_admission_preserves_header_and_dictionary_contracts) {
+  if (!compression::available(compression::format::zstd)) {
+    GTEST_SKIP() << "The Zstandard provider is disabled";
+  }
+  const std::array valid{bytes{0x28, 0xb5, 0x2f, 0xfd, 0x20, 0x01, 0x09, 0x00, 0x00, 'A'},
+                         bytes{0x28, 0xb5, 0x2f, 0xfd, 0x30, 0x01, 0x09, 0x00, 0x00, 'A'},
+                         bytes{0x28, 0xb5, 0x2f, 0xfd, 0x21, 0x00, 0x01, 0x09, 0x00, 0x00, 'A'}};
+  for (const auto& frame : valid) {
+    EXPECT_EQ(compression::decompress(frame, {.format = compression::format::zstd}), bytes{'A'});
+    const auto header_bytes = frame.size() - 4;
+    for (std::size_t size{}; size < header_bytes; ++size) {
+      const auto truncated = std::span<const std::uint8_t>{frame}.first(size);
+      try {
+        static_cast<void>(
+            compression::decompress(truncated, {.format = compression::format::zstd}));
+        FAIL() << "A truncated header was accepted";
+      } catch (const compression::error& failure) {
+        EXPECT_EQ(failure.code, compression::error_code::invalid_data);
+      }
+    }
+  }
+  auto reserved = valid.front();
+  reserved[4] |= 0x08;
+  auto dictionary = valid.back();
+  dictionary[5] = 1;
+  // Native header validation keeps its existing error for an unsupported maximum exponent.
+  const bytes unsupported_window{0x28, 0xb5, 0x2f, 0xfd, 0x00, 0xff, 0x01, 0x00, 0x00};
+  for (const auto& frame : {reserved, dictionary, unsupported_window}) {
+    try {
+      static_cast<void>(compression::decompress(frame, {.format = compression::format::zstd}));
+      FAIL() << "An unsupported header or dictionary was accepted";
+    } catch (const compression::error& failure) {
+      EXPECT_EQ(failure.code, compression::error_code::invalid_data);
+    }
+  }
+}

@@ -1,5 +1,216 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.14.0
+
+External-document journal recovery now rejects a foreign companion generation or
+damaged/truncated first baseline frame before calling the application decoder.
+Successful Save/reopen, existing callback signatures and native side-channel
+formats remain compatible. Keep the main file, manifest and selected companion
+together; use the [runnable JSON example](example/managed/external_document/README.md)
+and [Windows/Linux qualification](docs/verification/verification-managed-document-bridge-2026-10-20.md).
+
+Generation-only CMake consumers can now use
+`find_package(Serializer 2.14 CONFIG REQUIRED COMPONENTS compiler)`. It imports
+`Serializer::serializer` and loads the generation helpers without discovering
+enabled runtime-provider packages. This supports `LANGUAGES NONE` consumers on
+multiarch Linux without provider search-prefix or library-architecture workarounds.
+Use `serializer_generate_source` or `serializer_generate_java`; the source helper
+also supports C++ generation without runtime linkage.
+
+Existing unversioned discovery and `COMPONENTS runtime` retain the full installed
+targets and provider discovery. C++ `serializer_generate` and
+`serializer_generate_variants` still need `Serializer::runtime`; request runtime
+discovery before calling them. A later discovery can add runtime targets after
+compiler-only discovery. No consumer migration is required unless selecting the
+new component.
+
+The compiler component skips CMake provider lookup; deploy the host executable's
+own shared-library dependencies as before. In cross builds, select a host package
+with `NO_CMAKE_FIND_ROOT_PATH` or explicit `Serializer_DIR`, or pass a host
+`GENERATOR` override. See the [CMake guide](docs/guides/cmake_integration.md#compiler-only-source-generation).
+Regenerate Python modules to obtain the additive `__serializer_compression__`
+namespace and conditional `Compression` convenience alias. Existing schema types
+named `Compression` retain their names. Ordinary model `encode`/`decode` remain
+uncompressed; select a standard outer format explicitly through the new helpers.
+Gzip/zlib/raw DEFLATE need stdlib `zlib`; optional Zstandard uses
+`compression.zstd` on Python 3.14+, and optional LZ4 uses `lz4.frame`. A missing
+provider fails before source I/O or model serialization. Generated source gains
+support code even when compression is unused; existing model APIs and payload
+bytes retain their behavior. See [Python compression](docs/serialization/compression.md#generated-python-api)
+for byte/window bounds, cooperative cancellation and borrowed-stream ownership.
+
+Regenerated Java files add a nested whole-message helper, normally named
+`SerializerCompression`; an existing model with that name selects an unused
+helper suffix. Identity, gzip, zlib and raw DEFLATE use the platform provider.
+Optional runtime dependencies `com.github.luben:zstd-jni:1.5.7-16` and
+`at.yawk.lz4:lz4-java:1.12.0` enable Zstandard and LZ4 frames respectively;
+neither is needed for generation or compilation. Missing providers fail before
+callbacks or I/O. Existing native codec calls remain uncompressed. See
+[Java integration](docs/languages/java.md#whole-message-compression).
+
+Regenerated Go packages add the collision-selected `SerializerCompression`
+helper family. Identity, gzip, zlib and raw DEFLATE need only the Go standard
+library on Go 1.22+; existing native codecs keep their direct paths and wire bytes.
+Optional Zstandard/LZ4 providers are explicit per-operation adapters. The maintained
+adapter pins klauspost/compress 1.20.3 and pierrec/lz4/v4 4.1.33 and requires Go
+1.25+; it adds no dependency to the default generated core. Use explicit finish
+for borrowed streams and pass the generated decoder to the fresh-value helper.
+See [Go compression](docs/languages/go_compression.md).
+
+C++ compression now stops source staging after a callback requests cancellation,
+checks final external writes/native candidates, and fences swallowed same-writer
+reentry. Cached input `finish()` retains the named cancellation hook: keep its
+callable alive through the wrapper's last operation. Cancellation/reentry failure
+fences subsequent finish and retains its nested cause; a premature finish check
+with unread bytes remains recoverable. Existing uncompressed and disabled-hook
+buffering paths stay direct. C++, generated Python, Java and Go also enforce a
+valid zlib frame's smaller advertised history before provider expansion; this
+check leaves normal 32 KiB zlib, gzip and raw-DEFLATE decoding paths unchanged.
+
+Regenerated Go output also adds a separate collision-selected physical ZIP helper
+family using Go 1.22 standard APIs. Existing compression names, native model APIs
+and wire bytes remain unchanged. See the [Go ZIP contract](docs/languages/go_packages.md)
+for shared budgets, explicit sources/spooling and platform-dependent Save.
+Schema package declarations now also emit typed Go OPC facades. They enable
+XML automatically and reject an explicit conflicting XML-disable request before
+replacing existing output. Generic physical ZIP remains available independently.
+Typed payloads use existing owning XML mappings; supply a complete-aggregate
+validator for application references and keep cumulative native-codec limits
+separate. The [OPC proof](docs/verification/verification-go-opc-packages-2026-10-20.md)
+records actual Windows/Linux SDKs, quota regressions and publication faults.
+Prepared compiler output files and depfiles with equal bytes now retain their
+timestamps, including separate C++ children; changed files retain the prior write
+contract. See the [publication proof](docs/verification/verification-generated-output-publication-2026-10-20.md).
+
+Regenerated C# output adds a collision-selected nested `SerializerCompression`
+helper using .NET 8's standard identity/gzip/zlib/raw DEFLATE providers. Select
+actual `CompressionLevel` enum values and exact native codec callbacks; ordinary
+model APIs stay uncompressed. Borrowed wrappers require explicit `Finish`.
+Caller-selected `Provider.ZstdSharp(assembly)` and `Provider.Lz4(assembly)` add
+optional managed formats. Use `EncodeOptions.WithProvider` and
+`DecodeOptions.WithProvider`; original public constructors retain overload
+resolution, including untyped `default`. See the [C# contract](docs/languages/csharp_compression.md).
+
+Regenerated JavaScript ES modules and matching TypeScript declarations add an
+asynchronous `SerializerCompression` container with collision-safe naming. Call
+`await nodeProvider()` and pass that provider explicitly for gzip/zlib/raw DEFLATE;
+ordinary browser imports and identity use no Node modules. Optional
+`await zstdProvider()` selects public Node Zstandard transforms;
+`lz4Provider(blockModule)` selects caller-loaded lz4js 0.2.0, fast level 0 only.
+TypeScript preserves existing default provider literals and option-property types;
+new option constructors infer the additional provider types. Await borrowed-wrapper
+operations sequentially and finish explicitly. See the
+[JS/TS contract](docs/languages/javascript_compression.md).
+
+Regenerated Kotlin adds a collision-selected `SerializerCompression` object using
+standard JDK identity/gzip/zlib/raw DEFLATE providers. The selected actual runtime
+qualification targets JVM 17. Optional runtime jars lazily enable Zstandard and
+LZ4; compilation requires neither. Existing positional options remain compatible,
+with provider-specific default levels. Missing jars or failed Zstandard native
+deployment reject before callbacks or I/O. See the
+[Kotlin contract](docs/languages/kotlin_compression.md) and
+[Windows/Linux provider proof](docs/verification/verification-kotlin-compression-providers-2026-10-20.md).
+
+Regenerated Swift output adds standalone identity/gzip/zlib/raw-DEFLATE
+compression with owning native callbacks and borrowed closure-based wrappers.
+Core formats require no extra compression module or system library. Explicit
+caller-owned providers add Zstandard/LZ4 through separate required `provider:`
+initializers. Original initializer signatures, defaults and function-value types
+remain compatible; default optional availability is unchanged. The reference
+C shim and native libraries are application dependencies only when selected.
+See the [Swift API](docs/languages/swift_compression.md),
+[core SDK profiles](docs/verification/verification-swift-compression-2026-10-20.md) and
+[Windows/Linux provider proof](docs/verification/verification-swift-compression-providers-2026-10-20.md).
+
+Regenerated Rust adds a collision-selected `serializer_compression` module with
+standalone identity/gzip/zlib/raw DEFLATE. Native APIs and wire bytes retain their
+behavior. Supply owning callbacks with separate native limits; explicitly finish
+the typed wrappers and pass mutable adapter references to retain ownership.
+Additive `*_with_provider` operations and explicit wrapper constructors borrow
+caller-owned optional Zstandard/LZ4 providers. Exhaustive option literals retain
+their fields; the existing level default stays 6, so select Zstandard 3 or LZ4
+fast 0 explicitly. Standard-trait nesting remains separate. The
+[provider qualification](docs/verification/verification-rust-compression-providers-2026-10-20.md)
+uses pinned opt-in Cargo features with no generated default dependencies.
+See the [Rust API](docs/languages/rust_compression.md) and
+[actual Windows/native Linux proof](docs/verification/verification-rust-compression-2026-10-20.md).
+
+Regenerated C11 headers add a collision-selected `serializer_compression` prefix
+with byte/typed owning helpers and borrowed callbacks. Identity is standalone;
+define `SERIALIZER_COMPRESSION_ZLIB=1` consistently and link zlib to enable
+gzip/zlib/raw DEFLATE. Existing model functions and native bytes are unchanged.
+See the [C API](docs/languages/c_compression.md) and its
+[Windows/Linux SDK profiles](docs/verification/verification-c-compression-2026-10-20.md).
+Optional `SERIALIZER_COMPRESSION_ZSTD=1`/`SERIALIZER_COMPRESSION_LZ4=1`
+definitions and native linkage enable Zstandard/LZ4 without adding dependencies
+to the default C output. Select sufficient decode history explicitly; the
+32 KiB default is preserved. See the
+[provider contract](docs/languages/c_compression.md#optional-zstandard-and-lz4)
+and [actual Windows/Linux proof](docs/verification/verification-c-compression-providers-2026-10-20.md).
+
+Existing language **1.20.0** package declarations now generate asynchronous
+JavaScript facades and matching TypeScript declarations. Use the
+collision-selected `SerializerPackage` container, explicit Node providers for
+DEFLATE/filesystem operations and the same pinned XML dependencies as generated
+XML. Typed roles use XML; native model APIs and wire values retain their behavior.
+See the [package API](docs/languages/javascript_packages.md) and
+[selected independent/Save proof](docs/verification/verification-javascript-packages-2026-10-20.md)
+before claiming broader codec, cumulative-context or application-reference coverage.
+
+Regenerated Java also emits typed ZIP/OPC facades using only Java 17 standard
+APIs. The collision-selected nested `SerializerPackage` helper supplies bounded
+random/sequential sources, XML/opaque aggregate loading, preservation and staged
+Save. Existing native APIs and bytes retain their behavior. Use explicit package
+budgets and complete validation; preserved links must be rebound when known-role
+writer names change. See the [Java API](docs/languages/java_packages.md) and
+[actual qualification](docs/verification/verification-java-packages-2026-10-20.md)
+for Java-array output, nested budget and runtime codec limits.
+
+Regenerate Python, Java, Go and C# output to obtain the callback lifecycle repairs.
+An active wrapper now rejects callback-driven close/disposal or same-wrapper
+reentry before further borrowed I/O or successful completion. The active outer
+operation retains its first failure; later inactive calls retain each backend's
+existing lifecycle error contract. The JS/TS and Kotlin helpers enforce the same
+publication boundary. See the [dated backend proofs](docs/verification/verification-backlog-2026-10-20.md).
+
+For first initialization from already identified managed storage, use the new
+`identified_baseline` tagged constructor with the exact generated storage type,
+stored document namespace and native allocation watermark. It preserves IDs,
+declared references and burned gaps, resets runtime-only fields, and establishes
+one validated history baseline. Existing zero-ID constructors and native
+save/journal recovery keep their contracts. See the
+[typed admission guide](docs/managed/cpp_runtime.md#first-initialization-from-identified-storage)
+and [197-case Windows/Linux proof](docs/verification/verification-managed-identified-baseline-2026-10-20.md).
+
+The new [external JSON lesson](example/managed/external_document/README.md) makes
+the existing 2.13 document adapter executable: bounded owning callbacks, full
+Save/reopen, retained redo and burned identities. Public generated identity
+placeholders remain zero; authoritative native IDs and recovery metadata live
+in companions. No application codec or saved-format migration is required.
+
+Regenerate Python package facades for byte-correct buffer-view admission, final
+sink cancellation checks and reliable owned-descriptor cleanup if Save stream
+construction fails. Borrowed streams stay open; prepublication failures retain
+the old final bytes, and later durability failures report publication uncertainty.
+See the [descriptor/spool/Save proof](docs/verification/verification-package-lifecycle-2026-10-20.md)
+and [C++/Python typed rollback and preservation checks](docs/verification/verification-package-profiles-2026-10-20.md).
+
+Rebuild the native runtime and regenerate Python package facades for the
+[ZIP64 input corrections](docs/verification/verification-package-zip64-input-2026-10-20.md).
+Representable classic counts/offsets at their exact maxima are accepted when no
+ZIP64 locator is present; supplied ZIP64 metadata must agree. Python now borrows
+checked seekable inputs from their current position and leaves them open at EOF
+after successful use. Genuine nonseekable inputs retain bounded private spooling.
+Native directory indexing reuses existing budgeted scratch and preserves entry
+order. For archives with multiple independent errors, diagnostic precedence may
+change; isolated duplicate-name categories retain their contract.
+
+Schema language **1.20.0**, existing model APIs and serialized formats are
+unchanged. Both editor source packages use **2.0.7** for navigation to generated
+Java/JS/TS package facades and offset-preserving exclusion of marked Java runtime
+support from declaration indexing. Older generated output retains fallback
+indexing; normal language-service navigation remains separate.
+
 ## Compiler/runtime 2.13.0
 
 Require `find_package(Serializer 2.13 CONFIG REQUIRED)` for differential sidecars
@@ -900,7 +1111,9 @@ Adding or changing an encoding changes native binary bytes. Coordinate peers
 and explicitly decode/convert existing stored data with its original contract;
 a compiler upgrade does not auto-migrate payloads. Changing only strict/lenient
 preserves valid bytes but changes writer acceptance. Signed/floating formats
-remain proposals. See [compact fields](docs/schema/compact_integers.md).
+remain proposals. The [selected numeric contract](docs/design/compact_scalar_contract.md)
+now defines their payload mathematics; this design adds no syntax, wire value or
+automatic migration. See [compact fields](docs/schema/compact_integers.md).
 
 ## Inferred arrays and typed magic (7 October 2026)
 

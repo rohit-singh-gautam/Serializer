@@ -211,6 +211,8 @@ async function main() {
   fs.mkdirSync(parent, { recursive: true });
   const directory = fs.mkdtempSync(path.join(parent, 'generated-navigation-'));
   let checks = await verify(path.join(repository, 'example/schemas/complex/model.serializer'), path.join(directory, 'complex'));
+  checks += await verify(path.join(repository, 'test/resources/opc_profile.serializer'),
+    path.join(directory, 'opc-packages'), [], { java: outputs.java, js: outputs.js, typescript: outputs.typescript }, true, true);
   const xmlAuthoringInput = path.join(directory, 'xml-authoring.serializer');
   fs.writeFileSync(xmlAuthoringInput, `serializer version 1.20.0;
 namespace xml_models {
@@ -410,4 +412,7 @@ namespace Names_ { class Value_Type {} }
   console.log(`Fresh compiler navigation passed: ${checks} bidirectional type/field checks across all 11 ordinary output languages; default/explicit separate C++ headers and exact source ownership with .hpp/.hxx outputs; language 1.15 fresh constructor/factory record defaults and nested positional defaults; language 1.14 C++ readonly getters and deleted temporary overloads; language 1.13 C++ noexcept signature types; C++ language 1.12 native/factory contracts, constructor overloads and generic readonly signatures; projected readonly record calls, generic record map keys, owning generic inheritance and inherited declarations, nested optionals and generic containers, unnamed revisions and warning suppression, unions and variants, digest fields, compact fields, typed magic and inferred arrays, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
 }
 
-main().catch(error => { console.error(error.stderr?.toString() || error); process.exitCode = 1; });
+module.exports = { verify };
+if (require.main === module) {
+  main().catch(error => { console.error(error.stderr?.toString() || error); process.exitCode = 1; });
+}

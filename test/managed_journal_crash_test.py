@@ -1,6 +1,8 @@
 """Qualify recovery across abrupt process exits at native journal I/O boundaries."""
 
 import argparse
+import hashlib
+import json
 from pathlib import Path
 import struct
 import subprocess
@@ -72,6 +74,9 @@ def decode_delta(patch, baseline):
 
 def verify_container(path, mode, return_tags=False):
     """Read the documented wire layout independently of the production C++ framing implementation."""
+    if mode == 'document':
+        assert not return_tags
+        return verify_document_container(path)
     base = path.read_bytes()
     header = struct.unpack_from("<9Q", base)
     assert header[0] == 0x00314C4E4A5A5253
@@ -111,6 +116,84 @@ def verify_container(path, mode, return_tags=False):
     return (sequence, tags) if return_tags else sequence
 
 
+def verify_delta_shape(patch):
+    """Check bounded external-document patch instructions without claiming its native-root oracle."""
+    assert 40 <= len(patch) <= MAX_RECORD_BYTES
+    magic, base_bytes, _, target_bytes, count = struct.unpack_from('<5Q', patch)
+    assert magic == DELTA_MAGIC and base_bytes <= MAX_RECORD_BYTES
+    assert 0 < target_bytes <= MAX_RECORD_BYTES and count <= target_bytes
+    assert count <= (len(patch)-40)//9
+    cursor, produced = 40, 0
+    for _ in range(count):
+        assert cursor < len(patch)
+        opcode = patch[cursor]
+        cursor += 1
+        if opcode == 1:
+            assert len(patch)-cursor >= 8
+            length, = struct.unpack_from('<Q', patch, cursor)
+            cursor += 8
+            assert 0 < length <= len(patch)-cursor
+            cursor += length
+        else:
+            assert opcode in (2, 3) and len(patch)-cursor >= 16
+            offset, length = struct.unpack_from('<2Q', patch, cursor)
+            cursor += 16
+            available = base_bytes if opcode == 2 else produced
+            assert offset <= available and 0 < length <= available-offset
+        assert length <= target_bytes-produced
+        produced += length
+    assert produced == target_bytes and cursor == len(patch)
+
+
+def verify_document_container(path):
+    """Independently bind ordinary JSON, exact manifest and every selected companion frame."""
+    document = path.read_bytes()
+    model = json.loads(document)
+    assert set(model) == {'name', 'entries', 'persistent_id'} and isinstance(model['name'], str)
+    assert model['persistent_id'] == 0 and isinstance(model['entries'], list)
+    for item in model['entries']:
+        assert set(item) == {'key', 'value'} and isinstance(item['key'], int)
+        entry = item['value']
+        assert set(entry) == {'memo', 'amount_minor_units', 'persistent_id'}
+        assert entry['persistent_id'] == 0
+    manifest = Path(str(path)+'.journal').read_bytes()
+    assert 144 <= len(manifest) <= 400
+    assert struct.unpack_from('<2Q', manifest) == (0x33434F444A5A5253, 1)
+    assert struct.unpack_from('<Q', manifest, 88)[0] == len(document)
+    assert manifest[96:128] == hashlib.sha256(document).digest()
+    codec_bytes, = struct.unpack_from('<Q', manifest, 128)
+    assert len(manifest) == 144+codec_bytes
+    assert manifest[136:136+codec_bytes] == b'application/json'
+    assert struct.unpack_from('<Q', manifest, len(manifest)-8)[0] == crc64(manifest[:-8])
+    header = struct.unpack_from('<9Q', manifest, 16)
+    assert header[:4] == (0x00314C4E4A5A5253, 3, 2, 1)
+    assert header[8] == crc64(manifest[16:80])
+    companion = Path(f'{path}.journal-{header[4]}-{header[5]}').read_bytes()
+    other = struct.unpack_from('<9Q', companion)
+    assert other[:3] == header[:3] and other[3] == 2 and other[4:8] == header[4:8]
+    assert other[8] == crc64(companion[:64])
+    sequence, previous, offset = header[6], 0, 72
+    first = True
+    while offset < len(companion):
+        assert len(companion)-offset >= 24
+        length, check = struct.unpack_from('<2Q', companion, offset)
+        assert length <= MAX_RECORD_BYTES and length <= len(companion)-offset-24
+        seed = crc64(struct.pack('<2Q', sequence, previous))
+        assert check == crc64(companion[offset:offset+8], seed)
+        end = offset+16+length
+        digest, = struct.unpack_from('<Q', companion, end)
+        assert digest == crc64(companion[offset:end], seed)
+        if first:
+            assert digest == header[7]
+        verify_delta_shape(companion[offset+16:end])
+        first, previous, offset = False, digest, end+8
+        if offset < len(companion):
+            sequence += 1
+    assert not first and offset == len(companion)
+    assert not Path(str(path)+'.journal.pending').exists()
+    return sequence
+
+
 def main():
     """Create isolated fixtures and verify the selected durable decision after every interruption."""
     parser = argparse.ArgumentParser()
@@ -123,7 +206,8 @@ def main():
     checks = 0
     with tempfile.TemporaryDirectory(prefix="crash-", dir=root) as temporary:
         for mode, delta in (("appended", False), ("sidecar", False),
-                            ("appended", True), ("sidecar", True)):
+                            ("appended", True), ("sidecar", True),
+                            ("document", False), ("document", True)):
             def run(path, operation, point="before_append", expected=0):
                 """Run without a shell; an injected crash must exit with its distinctive status."""
                 result = subprocess.run(
@@ -159,12 +243,12 @@ def main():
                     else:
                         expected = "Base 2 0 1" if committed else "Changed 1 1 1"
                     inspect(path, expected)
-                    if delta and operation == "append" and committed:
+                    if delta and mode != 'document' and operation == "append" and committed:
                         assert 6 in verify_container(path, mode, return_tags=True)[1]
 
             save_points = ["after_base_flush", "before_replace", "after_replace",
                            "after_publish", "before_cleanup"]
-            if mode == "sidecar":
+            if mode in ("sidecar", "document"):
                 save_points.insert(0, "after_sidecar_flush")
             for point in save_points:
                 path = Path(temporary) / f"{fixture_prefix}-save-{point}"

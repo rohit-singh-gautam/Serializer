@@ -16,6 +16,7 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -29,9 +30,47 @@ namespace {
 constexpr std::string_view swift_runtime =
 #include "swift_runtime.inc"
     ;
+constexpr std::string_view swift_compression_runtime =
+#include "swift_compression_runtime.inc"
+    ;
 constexpr std::string_view kotlin_runtime =
 #include "kotlin_runtime.inc"
     ;
+constexpr std::string_view kotlin_compression_runtime =
+#include "kotlin_compression_runtime.inc"
+    ;
+constexpr std::string_view kotlin_optional_compression_runtime =
+#include "kotlin_zstd_compression_runtime.inc"
+#include "kotlin_lz4_compression_runtime.inc"
+    ;
+
+// Choose a native helper without changing any existing flattened model name.
+std::string mobile_compression_support(const schema& model, bool swift) {
+  const std::string language{swift ? "Swift" : "Kotlin"};
+  const std::string base{"SerializerCompression"};
+  auto name = base;
+  std::size_t suffix{1};
+  while (std::any_of(model.names.begin(), model.names.end(), [&](const auto& item) {
+    return item.second == name;
+  })) {
+    if (suffix == std::numeric_limits<std::size_t>::max()) {
+      throw std::length_error{language + " compression helper names exhausted"};
+    }
+    name = base + '_' + std::to_string(++suffix);
+  }
+  std::string result{swift ? swift_compression_runtime : kotlin_compression_runtime};
+  if (!swift) {
+    result.insert(result.rfind("\n}"), kotlin_optional_compression_runtime);
+  }
+  constexpr std::string_view marker{"@compression_name@"};
+  std::size_t position{};
+  while ((position = result.find(marker, position)) != std::string::npos) {
+    result.replace(position, marker.size(), name);
+    position += name.size();
+  }
+  return "// Generated " + language + " compression helper name: " + name + "\n" + result;
+}
+
 // Share field traversal while emitting native Swift and Kotlin syntax and ownership.
 class mobile_emitter {
   const schema& model;
@@ -1730,6 +1769,7 @@ public:
       if (code.language == (swift ? "swift" : "kotlin")) { output += behavior::source_marker(code, swift ? "swift" : "kotlin") + code.text + "\n"; }
     }
     output += swift ? swift_runtime : kotlin_runtime;
+    output += mobile_compression_support(model, swift);
     if (swift && std::any_of(model.nodes.begin(), model.nodes.end(), [](const auto* node) {
           return node->type == object_type::class_type && static_cast<const class_node&>(*node).reference.has_value();
         })) { output += reference_support::portable_runtime("swift"); }

@@ -51,6 +51,25 @@ auto change_text(auto& store, std::string text) {
   return store.execute_transaction([&](auto& edit) { edit.root().set_text(std::move(text)); });
 }
 
+// Identified durable admission restores transient defaults while preserving the supplied IDs.
+TEST(managed_runtime_features, identified_baseline_resets_runtime_fields_like_native_load) {
+  auto value = traits::make_storage(initial_value());
+  value.persistent_id = 77U;
+  traits::payload(value).lookup_buffer = {1U, 2U, 3U};
+  store_type store{managed::identified_baseline, std::move(value), {171U, 172U}, 123U};
+  EXPECT_EQ(store.read()->persistent_id, 77U);
+  EXPECT_EQ(store.allocated_id(), 123U);
+  EXPECT_EQ(payload(store).text, "First");
+  EXPECT_EQ(payload(store).lookup_cache, 0U);
+  EXPECT_TRUE(payload(store).lookup_buffer.empty());
+  EXPECT_EQ(store.history_cursor(), 0U);
+  store_type loaded{initial_value(), {181U, 182U}};
+  loaded.load(store.save());
+  EXPECT_EQ(loaded.save(), store.save());
+  EXPECT_EQ(payload(loaded).lookup_cache, 0U);
+  EXPECT_TRUE(payload(loaded).lookup_buffer.empty());
+}
+
 // Runtime publication preserves pins, bytes and allocator state; durable changes reset memory fields.
 TEST(managed_runtime_features, immutable_runtime_publication_and_explicit_cloning) {
   store_type store{initial_value(), {11, 12}};

@@ -285,3 +285,27 @@ modifier requires a separate scalar type and field name; ordinary fields such as
 Shared grammar/resolver tests cover both interpretations, and the Visual Studio
 interpreter tests exercise compact generic operands and all 11 adjacent output
 destinations.
+
+## Inherited-field request allocation (2.0.8)
+
+Both extensions reuse one offset-preserving lexical mask per generated output
+while checking inherited-field candidates. A field can appear in its declaration,
+constructors and many codec methods; masking the entire generated file again for
+every occurrence needlessly exhausted Visual Studio's existing 256 MiB request
+limit when one lookup returned definitions across all eleven languages. The
+prepared text belongs only to that immutable output within the current request,
+so later edits, cancellation and other requests cannot reuse stale masks.
+
+The actual .NET/Jint regression retains the original 256 MiB and 30-second limits.
+Its fresh-process mode checks all eleven output languages, live schema offsets
+and both reverse-navigation selection endpoints:
+
+```powershell
+SerializerNavigationTest.exe <repository> <complex-output> <generic-output> <inherited-output> --inherited-only
+```
+
+The preserved prior resolver fails this single request with
+`MemoryLimitExceededException`; the repaired resolver passes all twelve checks.
+The regular native test also includes these checks among its complete navigation
+suite. Both local package versions are synchronized at **2.0.8**; package builds
+do not install extensions or update Marketplace listings.

@@ -71,6 +71,57 @@ test('language 1.20 schema links and package role types preserve live include an
     [['common.serializer', 'renamed']]);
 });
 
+test('generated JS/TS package facades navigate both directions without changing enum identity', async () => {
+  const source = 'serializer version 1.20.0; namespace pkg { class model {} enum state { ready } ' +
+    'package archive { part main : model { name("/model.xml"); content_type("application/xml"); relationship("urn:main"); } } }';
+  const javascript = banner + 'const mimeToken = "[!#$%&\'*.^_`|~0-9A-Za-z-]+";\n' +
+    'const ignored = `\nexport class PkgPhantom {}\n`;\n' +
+    'export class PkgModel {}\nexport const PkgState = Object.freeze({ready:0});\n' +
+    'export const PkgArchive = SerializerPackage_2.profile([{model:PkgModel}]);\n';
+  const typescript = banner + 'export declare class PkgModel {}\nexport declare const PkgState: {readonly ready:0};\n' +
+    'export declare namespace PkgArchive {class Input {} class Value extends Input {}}\n';
+  const outputs = ['build/model.mjs', 'build/model.d.mts'];
+  const state = fixture({'model.serializer':source, [outputs[0]]:javascript, [outputs[1]]:typescript,
+    [outputs[0]+'.d']:`${escapeDependency(file(outputs[0]))}: ${escapeDependency(file('model.serializer'))}`,
+    [outputs[1]+'.d']:`${escapeDependency(file(outputs[1]))}: ${escapeDependency(file('model.serializer'))}`}, [], outputs);
+  const start = source.indexOf('archive');
+  for (let cursor = start; cursor <= start + 'archive'.length; ++cursor) {
+    assert.deepEqual(selected(state, await state.resolver().schema(file('model.serializer'), cursor, true)),
+      outputs.map(name => [name, 'PkgArchive']));
+  }
+  for (const output of outputs) {
+    const generated = state.files.get(file(output));
+    const position = generated.indexOf('PkgArchive');
+    for (let cursor = position; cursor <= position + 'PkgArchive'.length; ++cursor) {
+      assert.deepEqual(selected(state, await state.resolver().generatedDeclaration(file(output), cursor)),
+        [['model.serializer','archive']]);
+    }
+    assert.equal(indexGeneratedSource(generated, output).symbols.find(symbol => symbol.name === 'PkgState').kind, 'enum');
+    assert.ok(!indexGeneratedSource(generated, output).symbols.some(symbol => symbol.name === 'PkgPhantom'));
+  }
+  state.files.set(file('model.serializer'), source.replace('package archive', 'package renamed'));
+  for (const output of outputs) {
+    assert.deepEqual(await state.resolver().generatedDeclaration(file(output), state.files.get(file(output)).indexOf('PkgArchive')), []);
+  }
+});
+
+test('compiler-marked Java runtime is excluded without moving schema declaration offsets', () => {
+  const source = banner + 'public final class Schema {\n' +
+    '  // Serializer runtime support begins.\n' +
+    '  public static class RuntimeOnly { String value = "class Phantom {}"; }\n' +
+    '  // Serializer schema declarations begin.\n' +
+    '  public static class Models { public static class Value { public int count; } }\n}\n';
+  const index = indexGeneratedSource(source, 'Schema.java');
+  assert.deepEqual(index.symbols.map(symbol => symbol.qualified), ['Schema', 'Schema::Models', 'Schema::Models::Value']);
+  for (const symbol of index.symbols) {
+    assert.equal(source.slice(symbol.start, symbol.end), symbol.name);
+    assert.equal(source[symbol.body], '{');
+  }
+  const legacy = source.replace('  // Serializer runtime support begins.\n', '')
+    .replace('  // Serializer schema declarations begin.\n', '');
+  assert.ok(indexGeneratedSource(legacy, 'Schema.java').symbols.some(symbol => symbol.name === 'RuntimeOnly'));
+});
+
 test('schema dependencies reject remote or incomplete paths and preserve older contextual names', async () => {
   for (const source of ['serializer version 1.20.0; namespace s { using schema "https://example.test/core.xsd"; }',
     'serializer version 1.20.0; namespace s { using schema "unfinished',

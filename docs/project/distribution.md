@@ -9,7 +9,7 @@ particular distribution actually exposes.
 
 ## Choose the dependency for your application
 
-The current source release **2.12.0** provides proprietary-compatible generated
+The current source release **2.14.0** provides proprietary-compatible generated
 output and a 0BSD application runtime. Packages of this release should include
 `LICENSE`, `LICENSE-RUNTIME`, and `LICENSE-GENERATED`, and export the separate
 `Serializer::runtime` application target. The compiler and
@@ -20,7 +20,7 @@ Both current editor source packages are version **2.0.5**; their schema support
 and documentation links match the current checkout. Source releases and local builds do
 not update published Marketplace listings or the upstream vcpkg registry.
 
-The current 2.12.0 CMake package uses `SameMajorVersion` discovery: versioned
+The current 2.14.0 CMake package uses `SameMajorVersion` discovery: versioned
 requests for Serializer 1.x do not resolve to it. Select
 `find_package(Serializer 2.0 CONFIG REQUIRED)` and regenerate through the
 consumer's build rules. Copy/install generated C++ dependency-header trees with
@@ -55,7 +55,32 @@ the port published by `microsoft/vcpkg`. Updating that file does not update the
 registry package. [`vcpkg-configuration.json`](../../vcpkg-configuration.json) selects
 the development registry baseline; it does not maintain a local Serializer port.
 
-## Inspected distribution baseline: 8 October 2026
+## Inspected distribution baseline: 20 October 2026
+
+The official Marketplace pages and their downloaded VSIX packages both report
+**2.0.0**. ZIP CRC and manifest identities/versions pass, and the VS Code archive's
+SHA-256 matches the Marketplace metadata. Current local extension source remains
+**2.0.5**. The older published packages were inspected without installation.
+See the [VS Code listing](https://marketplace.visualstudio.com/items?itemName=rohitjairajsingh.serializer-language)
+and [Visual Studio listing](https://marketplace.visualstudio.com/items?itemName=rohitjairajsingh.rohitserializervisualstudio).
+
+The current [upstream port manifest](https://github.com/microsoft/vcpkg/blob/master/ports/rohit-singh-gautam-serializer/vcpkg.json)
+reports **2.0.1**. Its [portfile](https://github.com/microsoft/vcpkg/blob/master/ports/rohit-singh-gautam-serializer/portfile.cmake)
+pins `d39fc06efa005bbd88896975e40309c71abe7ec1`, enables managed support and
+installation, and applies host-generator and extent-width patches. The pinned
+source declares compiler/runtime **2.0.1**, separate runtime/managed targets and
+`SameMajorVersion` discovery. Default upstream features are `lz4`, `zlib` and
+`zstd`; Windows linkage is static and UWP is excluded. Its actual x64-windows
+vcpkg build/install passes, followed by **9/9 installed-consumer tests** covering
+code generation, runtime/managed targets, compression and the pinned managed
+examples. The installed compiler reports language **1.17.0**; it does not provide
+current-source language/features simply because same-major discovery succeeds.
+
+The [inspection record](../verification/verification-distribution-2026-10-20.md)
+retains downloaded artifact hashes and exact limits. These observations supersede
+the older distribution state below; they do not publish current source changes.
+
+## Historical distribution baseline: 8 October 2026
 
 | Surface | Inspected state | Interpretation |
 | --- | --- | --- |
@@ -64,22 +89,20 @@ the development registry baseline; it does not maintain a local Serializer port.
 | Published Marketplace listings | Both report `1.1.22` | Source changes are not automatically published. |
 | Upstream vcpkg port | `1.0.0`, source pin `f1966b6a25c7b43f0257b60b7451ce99c7162f18` | Source-version and package-option inspection is required. |
 
-The [upstream manifest](https://github.com/microsoft/vcpkg/blob/master/ports/rohit-singh-gautam-serializer/vcpkg.json)
-and [portfile](https://github.com/microsoft/vcpkg/blob/master/ports/rohit-singh-gautam-serializer/portfile.cmake)
-were inspected together with that pinned source. The pin already contains managed
-history, journal, and collaboration code; its
+The then-current upstream manifest and portfile were inspected together with
+that pinned source. The historical pin already contained managed history,
+journal, and collaboration code; its
 [pinned CMake configuration](https://github.com/rohit-singh-gautam/Serializer/blob/f1966b6a25c7b43f0257b60b7451ce99c7162f18/CMakeLists.txt)
-defaults the managed option OFF,
-and the port does not enable it or provide a managed feature. Consequently its
-configuration omits `Serializer::managed` and the generated runtime record headers.
+defaulted the managed option OFF,
+and the old port did not enable it or provide a managed feature. Consequently its
+configuration omitted `Serializer::managed` and the generated runtime record headers.
 The mere presence of managed source or some installed headers does not establish
 a usable managed package. This is a source/packaging inspection, not a completed
 installed-consumer build.
 
-The port's features are `zstd`, `lz4`, and `zlib`, distinct from this checkout's
-development feature names. Its platform policy excludes UWP and requires static
-linkage on Windows. Preserve those policies during a metadata-only update.
-The pinned CMake package also uses `SameMinorVersion` discovery compatibility;
+That port's features were `zstd`, `lz4`, and `zlib`, distinct from this checkout's
+development feature names. Its platform policy excluded UWP and required static
+linkage on Windows. The historical pinned CMake package used `SameMinorVersion` discovery compatibility;
 current source uses `SameMajorVersion`. Apply the installed package's own version
 contract rather than assuming the current-source policy retroactively changes it.
 
@@ -90,17 +113,8 @@ These are dated observations; recheck the actual installed/resolved distribution
 
 ## Prepared upstream work
 
-A metadata-only port revision can use this description after matching it to the
-unchanged pin:
-
-> Serialization components of Serializer — State Framework: a C++20 schema compiler and runtime with multi-language output, JSON, binary, Protobuf codecs, and optional compression.
-
-Set its homepage to <https://www.singh.org.in/serializer.html>. Keep upstream
-version `1.0.0`, source revision/hash, dependencies, feature keys, and platform
-policy unchanged; follow the registry's current port-revision/version-database
-workflow. This copy is prepared guidance, not an applied upstream patch.
-
-A package exposing the current managed capabilities needs a separate update:
+A package exposing the current source features needs a separately qualified
+update from the inspected **2.0.1** port:
 
 1. Select an immutable source revision for the intended compiler/runtime release
    and verify its archive hash. A printed version does not establish a release tag.

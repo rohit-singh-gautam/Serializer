@@ -1,0 +1,27 @@
+cmake_minimum_required(VERSION 3.24)
+project(serializer_go_optional_provider_qualification LANGUAGES CXX)
+find_package(lz4 CONFIG REQUIRED)
+if(TARGET lz4::lz4)
+  set(serializer_lz4_target lz4::lz4)
+elseif(TARGET LZ4::lz4_static)
+  set(serializer_lz4_target LZ4::lz4_static)
+elseif(TARGET LZ4::lz4_shared)
+  set(serializer_lz4_target LZ4::lz4_shared)
+elseif(TARGET LZ4::lz4)
+  set(serializer_lz4_target LZ4::lz4)
+else()
+  message(FATAL_ERROR "The selected LZ4 package exports no supported library target")
+endif()
+add_executable(compression_linked_lz4 linked_lz4.cpp)
+target_compile_features(compression_linked_lz4 PRIVATE cxx_std_20)
+target_link_libraries(compression_linked_lz4 PRIVATE ${serializer_lz4_target})
+if(MSVC)
+  target_compile_options(compression_linked_lz4 PRIVATE /W4 /WX /permissive- /utf-8)
+  add_custom_command(TARGET compression_linked_lz4 POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      $<TARGET_RUNTIME_DLLS:compression_linked_lz4>
+      $<TARGET_FILE_DIR:compression_linked_lz4>
+    COMMAND_EXPAND_LISTS)
+else()
+  target_compile_options(compression_linked_lz4 PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()

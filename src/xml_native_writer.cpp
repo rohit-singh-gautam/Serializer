@@ -1161,6 +1161,14 @@ public:
   generator(const native::schema& model, const xml_options& options, std::string_view language)
       : model_{model}, bindings_{options}, options_{options}, language_{language},
         swift_{language == "swift"}, c_{language == "c"} {}
+  // Keep callbacks and the borrowed owner cursor within one emission pass.
+  generator(const generator&) = delete;
+  // Prevent copying another pass over active generator state.
+  generator& operator=(const generator&) = delete;
+  // Preserve callback captures bound to this generator instance.
+  generator(generator&&) = delete;
+  // Prevent invalidating callbacks while replacing an emission pass.
+  generator& operator=(generator&&) = delete;
   // Generate the provider adapter once and direct typed bindings for every selected record.
   std::string generate();
 };

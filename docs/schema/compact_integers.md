@@ -99,8 +99,11 @@ acceptance; consider the application's value contract separately.
 These names describe possible follow-up formats and are **not implemented
 schema keywords**.
 
-Their implementation status and completion requirements are tracked as **SC01**
-in [the central backlog](../xml_pending.md#compiler-and-backend-proposals).
+The [signed/floating payload contract](../design/compact_scalar_contract.md)
+completes the **SC01** design prerequisite: exact rounding, overflow, NaN, signed
+zero, scaled arithmetic and fixed wire vectors. These remain unavailable schema
+keywords; the [reference qualification](../verification/verification-compact-scalar-contract-2026-10-20.md)
+checks the proposed payload mathematics rather than implemented generated codecs.
 
 | Proposed name | Encoding | Tradeoff |
 | --- | --- | --- |
@@ -116,8 +119,9 @@ uses one sign, five exponent and ten fraction bits;
 [bfloat16](https://www.tensorflow.org/jvm/api_docs/java/org/tensorflow/ndarray/impl/buffer/layout/Bfloat16Layout)
 keeps the eight-bit exponent and seven fraction bits.
 
-Floating formats need explicit rounding, overflow, NaN, infinity and signed-zero
-contracts before implementation. Applying varints to raw IEEE bits is lossless
+The proposed floating contract specifies direct nearest/ties-to-even rounding,
+gradual underflow, checked finite overflow, canonical quiet NaN and preserved
+signed zero; scaled encoding has separate exact-decimal and zero rules. Applying varints to raw IEEE bits is lossless
 but can expand typical floats and does not guarantee compression. Whole-message
 [compression](../serialization/compression.md) remains available when exact floating bits matter.
 

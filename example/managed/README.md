@@ -8,6 +8,11 @@ The separate [multilanguage wire matrix](multilanguage/README.md) exchanges runt
 records across language codecs. It is preparation for native managed ports; the
 feature demonstrations below still use the C++ runtime.
 
+The [external JSON document lesson](external_document/README.md) demonstrates
+bounded owning codecs and a differential native sidecar. Full Save/reopen retains
+exact native IDs, redo state and burned allocation gaps while the main file stays
+ordinary model JSON.
+
 Start with the point examples in the order below. Each folder is a separate executable
 and introduces one small idea. The only application model is a point with x
 and y. Every example generates its point class and editor from a local

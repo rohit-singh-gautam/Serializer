@@ -4,10 +4,12 @@
 
 #include <ledger.hpp>
 #include <rohit/managed.hpp>
+#include <rohit/managed_journal_stream.hpp>
 #include <rohit/serializer.hpp>
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -16,6 +18,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -429,6 +432,126 @@ TEST_F(managed_document_journal, discard_restores_saved_root_and_preserves_alloc
         EXPECT_GT(edit.root().entries().insert(30, {"New", 400}), reserved_id);
       })
       .throw_if_failed();
+}
+
+// External tree snapshots retain the selected cursor, labels, siblings and burned allocation gaps.
+TEST_F(managed_document_journal, full_save_restores_external_tree_branches_and_allocation) {
+  using tree_store =
+      managed::model_store<ledger, managed::history_mode::tree, managed::history_labels::enabled>;
+  const auto options = json_options();
+  std::uint64_t first{}, tip{}, sibling{};
+  std::uint32_t child_id{}, reserved_id{};
+  bytes expected;
+  {
+    tree_store store{ledger{"Base", {{10, {"Existing", 200}}}}};
+    child_id = store.read()->entries.at(10).persistent_id;
+    store.create_journal(path_, mode::sidecar, options);
+    first =
+        store.execute_transaction("First", [](auto& tx) { tx.root().set_name("One"); }).revision;
+    tip =
+        store.execute_transaction("Tip", [](auto& tx) { tx.root().set_name("One tip"); }).revision;
+    store.undo();
+    store.undo();
+    sibling =
+        store.execute_transaction("Sibling", [](auto& tx) { tx.root().set_name("Two"); }).revision;
+    store
+        .execute_transaction([&](auto& tx) {
+          reserved_id = tx.create_id();
+          tx.revert();
+        })
+        .throw_if_failed();
+    store.checkout(first);
+    store.save_journal();
+    expected = store.save();
+    EXPECT_EQ(decode_document<codec::json>(read_document_bytes(path_)).name, "One");
+  }
+  tree_store reopened{ledger{}};
+  reopened.recover_journal(path_, options);
+  EXPECT_EQ(reopened.save(), expected);
+  EXPECT_EQ(reopened.current_revision(), first);
+  EXPECT_EQ(reopened.undo_label(), "First");
+  EXPECT_EQ(reopened.read()->entries.at(10).persistent_id, child_id);
+  EXPECT_EQ(reopened.redo_children(), (std::vector<std::uint64_t>{tip}));
+  EXPECT_EQ(reopened.redo_label(tip), "Tip");
+  reopened.undo();
+  EXPECT_EQ(reopened.redo_children(), (std::vector<std::uint64_t>{first, sibling}));
+  EXPECT_EQ(reopened.redo_label(sibling), "Sibling");
+  reopened.redo(sibling);
+  EXPECT_EQ(reopened.read()->name, "Two");
+  reopened
+      .execute_transaction(
+          [&](auto& tx) { EXPECT_GT(tx.root().entries().insert(20, {"Fresh", 300}), reserved_id); })
+      .throw_if_failed();
+}
+
+// Saved byte identity and codec selection reject stale documents before application decoding.
+TEST_F(managed_document_journal, stale_document_binding_rejects_before_payload_decoder) {
+  std::size_t decoded{};
+  auto options = json_options();
+  options.document_codec = managed::make_journal_document_codec<ledger>(
+      "application/json", encode_document<codec::json>, [&](std::span<const std::uint8_t> input) {
+        ++decoded;
+        return decode_document<codec::json>(input);
+      });
+  {
+    store_type store{ledger{"Original"}};
+    store.create_journal(path_, mode::sidecar, options);
+  }
+  const auto original = read_document_bytes(path_);
+  auto altered = original;
+  const std::string_view text{reinterpret_cast<const char*>(altered.data()), altered.size()};
+  const auto position = text.find("Original");
+  ASSERT_NE(position, std::string_view::npos);
+  altered[position] = 'X';
+  write_document_bytes(path_, altered);
+  store_type destination{ledger{"Untouched"}};
+  const auto before = destination.save();
+  decoded = 0;
+  EXPECT_THROW(destination.recover_journal(path_, options), std::invalid_argument);
+  EXPECT_EQ(decoded, 0u);
+  EXPECT_EQ(destination.save(), before);
+  write_document_bytes(path_, original);
+  auto wrong = options;
+  wrong.document_codec = managed::make_journal_document_codec<ledger>(
+      "application/another-format", encode_document<codec::json>,
+      [&](std::span<const std::uint8_t> input) {
+        ++decoded;
+        return decode_document<codec::json>(input);
+      });
+  EXPECT_THROW(destination.recover_journal(path_, wrong), std::invalid_argument);
+  EXPECT_EQ(decoded, 0u);
+  EXPECT_EQ(destination.save(), before);
+  const auto companion = companion_path();
+  const auto original_companion = read_document_bytes(companion);
+  constexpr auto native_header_bytes = 9 * managed::detail::wire_word_bytes;
+  constexpr auto checksum_offset = native_header_bytes - managed::detail::wire_word_bytes;
+  constexpr auto generation_offset = 4 * managed::detail::wire_word_bytes;
+  constexpr auto payload_offset = native_header_bytes + managed::detail::frame_header_bytes;
+  ASSERT_GT(original_companion.size(), payload_offset);
+  for (unsigned fault = 0; fault != 3; ++fault) {
+    SCOPED_TRACE(fault);
+    auto damaged = original_companion;
+    if (fault == 0) {
+      // A valid header CRC cannot authorize a different selected generation.
+      damaged[generation_offset] ^= 1;
+      bytes checksum;
+      managed::detail::put_word(
+          checksum, managed::detail::checksum(std::span{damaged}.first(checksum_offset)));
+      std::copy(checksum.begin(), checksum.end(), damaged.begin() + checksum_offset);
+    } else if (fault == 1) {
+      damaged[payload_offset] ^= 1;
+    } else {
+      damaged.resize(payload_offset);
+    }
+    write_document_bytes(companion, damaged);
+    decoded = 0;
+    EXPECT_THROW(destination.recover_journal(path_, options), std::invalid_argument);
+    EXPECT_EQ(decoded, 0u);
+    EXPECT_EQ(destination.save(), before);
+  }
+  write_document_bytes(companion, original_companion);
+  EXPECT_NO_THROW(destination.recover_journal(path_, options));
+  EXPECT_GT(decoded, 0u);
 }
 
 // External documents require a separate companion and cannot be mistaken for appended containers.
