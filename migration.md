@@ -1,5 +1,16 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.19.1
+
+No schema, model/API or saved-format migration is required. This patch qualifies
+existing package reproducibility policies rather than changing default wire bytes.
+Use the [standalone inventory](qualification/package_reproducibility/README.md)
+when verifying input permutations, independent processes, ZIP64 metadata and
+provider-qualified compressed equality. Retain exact payloads/names/IDs and the
+selected backend policy. Python's generic ZIP probe remains diagnostic/internal;
+its public schema-bound OPC facade is unchanged. The selected C# matrix targets
+.NET 8; it does not qualify later runtime/provider combinations.
+
 ## Compiler/runtime 2.19.0
 
 Regenerate affected package output and rebuild C++ consumers against matching

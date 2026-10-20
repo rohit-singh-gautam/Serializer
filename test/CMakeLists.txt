@@ -1553,6 +1553,18 @@ if(SERIALIZER_WITH_XML)
     CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/opc_profile.ini"
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/package_relocation")
   target_link_libraries(package_relocation_sdk PRIVATE Serializer::runtime)
+  if(SERIALIZER_WITH_ZLIB)
+    add_executable(package_reproducibility_cpp "${PROJECT_SOURCE_DIR}/qualification/package_reproducibility/cpp_producer.cpp")
+    serializer_generate(TARGET package_reproducibility_cpp SCHEMAS resources/package_relocation.serializer
+      CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/opc_profile.ini"
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/package_reproducibility")
+    target_link_libraries(package_reproducibility_cpp PRIVATE Serializer::runtime ZLIB::ZLIB)
+    if(MSVC)
+      target_compile_options(package_reproducibility_cpp PRIVATE /W4 /WX)
+    else()
+      target_compile_options(package_reproducibility_cpp PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+  endif()
   if(MSVC)
     target_compile_options(package_relocation_sdk PRIVATE /W4 /WX)
   else()
@@ -1565,6 +1577,10 @@ if(SERIALIZER_WITH_XML)
         --consumer "$<TARGET_FILE:package_relocation_sdk>"
         --generated "${CMAKE_CURRENT_BINARY_DIR}/package_relocation/package_relocation.hpp"
         --build "${CMAKE_CURRENT_BINARY_DIR}/package_relocation_cpp")
+    add_test(NAME serializer_package_reproducibility_oracle
+      COMMAND "${Python3_EXECUTABLE}" -B "${PROJECT_SOURCE_DIR}/qualification/package_reproducibility/oracle.py" self-test)
+    add_test(NAME serializer_package_reproducibility_guards
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_reproducibility_guard_test.py")
   endif()
 
   add_executable(xml_schema_test xml_schema_test.cpp)

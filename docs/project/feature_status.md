@@ -1,5 +1,10 @@
 # Features and implementation status
 
+Compiler/runtime **2.19.1** adds the
+[eleven-output package reproducibility inventory](../../qualification/package_reproducibility/README.md),
+with independent raw ZIP/XML checks and provider-qualified byte comparisons.
+Existing writer policies and public APIs retain their contracts.
+
 Compiler/runtime **2.19.0**, schema language **1.21.0**, provides selected owning
 package profiles in all eleven outputs, including fixed/default storage policies,
 scoped application references and shared native operation admission. Fixed

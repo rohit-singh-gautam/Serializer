@@ -4,6 +4,16 @@ These tools separate regression tests, performance measurements, and fuzzing.
 The dated [verification record](../docs/verification/verification-2026-09-17.md) ties executed
 checks to a source revision and configurations, and lists outstanding work.
 
+## Package reproducibility
+
+The [eleven-output package inventory](package_reproducibility/README.md) uses an
+independent raw ZIP/XML oracle, fixed legacy metadata policies, six input
+permutations, fresh processes and explicit ZIP64/compression choices. Its
+[standalone driver](package_reproducibility.py) requires every declared SDK for a
+full result and pins providers/options before qualifying compressed byte equality.
+Diagnostic subsets cannot satisfy that gate. Python's plain ZIP probe is explicitly
+an internal-helper diagnostic; its OPC probe uses the public generated facade.
+
 ## Shared compression exchange
 
 The [all-language selected parity inventory](compression_parity/README.md) extends

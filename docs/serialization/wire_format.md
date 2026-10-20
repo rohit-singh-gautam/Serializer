@@ -1,5 +1,13 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.19.1** qualifies existing package ordering and metadata
+policies without changing native fields, wire IDs, language versions, ZIP layouts
+or default writer choices. The
+[independent reproducibility inventory](../../qualification/package_reproducibility/README.md)
+keeps each backend's existing name comparator, timestamps, attributes, descriptors
+and ZIP64 conventions. Cross-provider compressed equality, lexical XML and
+signatures remain separate contracts.
+
 Compiler/runtime **2.19.0** extends preserved relationship rebinding across
 generated package outputs. It uses existing OPC part names and relationship
 records without adding archive side channels, native fields, protocol IDs or

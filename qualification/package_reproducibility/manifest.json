@@ -1,0 +1,562 @@
+{
+  "format": "serializer-package-reproducibility-v1",
+  "baseline_release": "2.19.0",
+  "profiles": [
+    "zip-stored",
+    "zip-deflate",
+    "opc-stored",
+    "opc-deflate"
+  ],
+  "force_zip64": [
+    false,
+    true
+  ],
+  "process_repetitions": 2,
+  "permutations": [
+    "identity",
+    "reverse",
+    "rotate-left-one",
+    "rotate-left-floor-half",
+    "even-indexes-ascending-then-odd-indexes-ascending",
+    "odd-indexes-descending-then-even-indexes-descending"
+  ],
+  "tsv": {
+    "encoding": "UTF-8",
+    "newline": "LF",
+    "headers": false,
+    "escaping": "none; textual fields cannot contain tab or newline",
+    "parts": [
+      "name",
+      "media",
+      "storage",
+      "hexpayload"
+    ],
+    "links": [
+      "source",
+      "id",
+      "type",
+      "target",
+      "mode"
+    ]
+  },
+  "fixtures": {
+    "zip": {
+      "parts": [
+        [
+          "z-last.bin",
+          "application/octet-stream",
+          "stored",
+          "00010203feff"
+        ],
+        [
+          "empty.dat",
+          "application/octet-stream",
+          "deflate",
+          ""
+        ],
+        [
+          "utf8.txt",
+          "text/plain;charset=utf-8",
+          "stored",
+          "436166c3a920ceb120f09f98800a"
+        ],
+        [
+          "A-first.bin",
+          "application/octet-stream",
+          "deflate",
+          "deadbeef00ff"
+        ],
+        [
+          "dir/a.bin",
+          "application/octet-stream",
+          "stored",
+          "61616161616161616161616161616161"
+        ],
+        [
+          "dir/Z.bin",
+          "application/octet-stream",
+          "deflate",
+          "5a5a5a5a005a5a5a5a"
+        ],
+        [
+          "order/\ue000.bin",
+          "application/octet-stream",
+          "stored",
+          "424d50"
+        ],
+        [
+          "order/\ud800\udc00.bin",
+          "application/octet-stream",
+          "deflate",
+          "535550504c454d454e54415259"
+        ]
+      ],
+      "links": []
+    },
+    "opc": {
+      "parts": [
+        [
+          "/z-last.bin",
+          "application/octet-stream",
+          "stored",
+          "00010203feff"
+        ],
+        [
+          "/empty.dat",
+          "application/octet-stream",
+          "deflate",
+          ""
+        ],
+        [
+          "/models/model.xml",
+          "application/vnd.serializer.repro+xml",
+          "stored",
+          "3c6d6f64656c20786d6c6e733d2275726e3a73657269616c697a65723a726570726f222069643d2237223ec3a9f09f98803c2f6d6f64656c3e"
+        ],
+        [
+          "/assets/a.bin",
+          "application/octet-stream",
+          "deflate",
+          "61616161616161616161616161616161"
+        ],
+        [
+          "/assets/Z.bin",
+          "application/octet-stream",
+          "stored",
+          "5a5a5a5a005a5a5a5a"
+        ],
+        [
+          "/utf8.txt",
+          "text/plain;charset=utf-8",
+          "deflate",
+          "436166c3a920ceb120f09f98800a"
+        ]
+      ],
+      "links": [
+        [
+          "/",
+          "rZ",
+          "urn:serializer:repro:start",
+          "models/model.xml?mode=%2f#main",
+          "internal"
+        ],
+        [
+          "/",
+          "rA",
+          "urn:serializer:repro:empty",
+          "/empty.dat#",
+          "internal"
+        ],
+        [
+          "/models/model.xml",
+          "rZ",
+          "urn:serializer:repro:asset",
+          "../assets/a.bin?x=%2F#A",
+          "internal"
+        ],
+        [
+          "/models/model.xml",
+          "rA",
+          "urn:serializer:repro:self",
+          "#self",
+          "internal"
+        ],
+        [
+          "/models/model.xml",
+          "rX",
+          "urn:serializer:repro:external",
+          "../z-last.bin?external=%2f#stay",
+          "external"
+        ],
+        [
+          "/assets/a.bin",
+          "rB",
+          "urn:serializer:repro:model",
+          "../models/model.xml#model",
+          "internal"
+        ],
+        [
+          "/assets/a.bin",
+          "rA",
+          "urn:serializer:repro:peer",
+          "Z.bin?raw=%41#Z",
+          "internal"
+        ],
+        [
+          "/",
+          "rExt",
+          "urn:serializer:repro:external",
+          "https://example.invalid/a?q=%2f#x",
+          "external"
+        ],
+        [
+          "/models/model.xml",
+          "rComb",
+          "urn:serializer:repro:selectors",
+          "?\u0301#\u0301",
+          "internal"
+        ]
+      ]
+    }
+  },
+  "wire_policy": {
+    "dos_time": 0,
+    "dos_date": 33,
+    "internal_attributes": 0,
+    "entry_comments": "empty",
+    "archive_comment": "empty",
+    "disk_number": 0,
+    "encryption": false,
+    "extra_fields": [
+      1
+    ],
+    "extra_fields_meaning": "Only ZIP64 identifier 1 is permitted, and only where required by the selected legacy forcing policy."
+  },
+  "policy_provenance": "Normal metadata independently inspected from the accepted 2.19 eleven-SDK relocation outputs; policies are frozen literals, not imported from generated implementation constants. Forced ZIP64 fields preserve the existing 2.19 public forcing contracts, with producer SDK output independently checked before acceptance.",
+  "backends": {
+    "cpp": {
+      "made_by": 20,
+      "flags": 2048,
+      "external_attributes": 0,
+      "name_order": "utf8",
+      "metadata_method": 0,
+      "content_type_order": "payload-then-relationships",
+      "content_type_attributes": [
+        "PartName",
+        "ContentType"
+      ],
+      "forced_made_by": 45,
+      "force_metadata_entries": false,
+      "force_central_offsets": false,
+      "force_end_sentinels": false,
+      "forced_local_sizes": "actual",
+      "opc_physical_order": "payload-then-relationships-then-manifest",
+      "relationship_attributes": {
+        "internal": [
+          "Id",
+          "Type",
+          "Target"
+        ],
+        "external": [
+          "Id",
+          "Type",
+          "Target",
+          "TargetMode"
+        ]
+      }
+    },
+    "python": {
+      "made_by": 20,
+      "flags": 2056,
+      "external_attributes": 2172649472,
+      "name_order": "unicode-scalars",
+      "metadata_method": 8,
+      "content_type_order": "payload-then-relationships",
+      "content_type_attributes": [
+        "PartName",
+        "ContentType"
+      ],
+      "forced_made_by": 45,
+      "force_metadata_entries": true,
+      "force_central_offsets": true,
+      "force_end_sentinels": true,
+      "forced_local_sizes": "expanded-only",
+      "zip_entrypoint": "diagnostic generated private helper; no public generic ZIP writer API is claimed",
+      "opc_entrypoint": "public generated optional-role package facade, using preserved opaque parts and links",
+      "relationship_attributes": {
+        "internal": [
+          "Id",
+          "Type",
+          "Target"
+        ],
+        "external": [
+          "Id",
+          "Type",
+          "Target",
+          "TargetMode"
+        ]
+      }
+    },
+    "c": {
+      "made_by": 831,
+      "flags": 2048,
+      "external_attributes": 2175008768,
+      "name_order": "utf8",
+      "metadata_method": 0,
+      "content_type_order": "all-overrides",
+      "content_type_attributes": [
+        "ContentType",
+        "PartName"
+      ],
+      "forced_made_by": 831,
+      "force_metadata_entries": true,
+      "force_central_offsets": true,
+      "force_end_sentinels": true,
+      "forced_local_sizes": "actual",
+      "relationship_attributes": {
+        "internal": [
+          "Id",
+          "Target",
+          "Type"
+        ],
+        "external": [
+          "Id",
+          "Target",
+          "TargetMode",
+          "Type"
+        ]
+      }
+    },
+    "rust": {
+      "made_by": 831,
+      "flags": 2048,
+      "external_attributes": 2175008768,
+      "name_order": "utf8",
+      "metadata_method": 8,
+      "content_type_order": "all-overrides",
+      "content_type_attributes": [
+        "ContentType",
+        "PartName"
+      ],
+      "forced_made_by": 831,
+      "force_metadata_entries": true,
+      "force_central_offsets": true,
+      "force_end_sentinels": true,
+      "forced_local_sizes": "actual",
+      "relationship_attributes": {
+        "internal": [
+          "Id",
+          "Target",
+          "Type"
+        ],
+        "external": [
+          "Id",
+          "Target",
+          "TargetMode",
+          "Type"
+        ]
+      }
+    },
+    "go": {
+      "made_by": 788,
+      "flags": 2056,
+      "external_attributes": 2172649472,
+      "name_order": "utf8",
+      "metadata_method": 8,
+      "content_type_order": "all-overrides",
+      "content_type_attributes": [
+        "ContentType",
+        "PartName"
+      ],
+      "forced_made_by": 813,
+      "force_metadata_entries": true,
+      "force_central_offsets": true,
+      "force_end_sentinels": true,
+      "forced_local_sizes": "zero",
+      "relationship_attributes": {
+        "internal": [
+          "Id",
+          "Target",
+          "Type"
+        ],
+        "external": [
+          "Id",
+          "Target",
+          "TargetMode",
+          "Type"
+        ]
+      }
+    },
+    "java": {
+      "made_by": 788,
+      "flags": 2056,
+      "external_attributes": 2172649472,
+      "name_order": "utf16",
+      "metadata_method": 8,
+      "content_type_order": "payload-then-relationships",
+      "content_type_attributes": [
+        "ContentType",
+        "PartName"
+      ],
+      "forced_made_by": 813,
+      "force_metadata_entries": true,
+      "force_central_offsets": true,
+      "force_end_sentinels": true,
+      "forced_local_sizes": "zero",
+      "relationship_attributes": {
+        "internal": [
+          "Id",
+          "Target",
+          "Type"
+        ],
+        "external": [
+          "Id",
+          "Target",
+          "TargetMode",
+          "Type"
+        ]
+      }
+    },
+    "javascript": {
+      "made_by": 788,
+      "flags": 2056,
+      "external_attributes": 2172649472,
+      "name_order": "utf16",
+      "metadata_method": 8,
+      "content_type_order": "payload-then-relationships",
+      "content_type_attributes": [
+        "PartName",
+        "ContentType"
+      ],
+      "forced_made_by": 813,
+      "force_metadata_entries": true,
+      "force_central_offsets": true,
+      "force_end_sentinels": true,
+      "forced_local_sizes": "expanded-only",
+      "relationship_attributes": {
+        "internal": [
+          "Id",
+          "Type",
+          "Target"
+        ],
+        "external": [
+          "Id",
+          "Type",
+          "Target",
+          "TargetMode"
+        ]
+      }
+    },
+    "typescript": {
+      "made_by": 788,
+      "flags": 2056,
+      "external_attributes": 2172649472,
+      "name_order": "utf16",
+      "metadata_method": 8,
+      "content_type_order": "payload-then-relationships",
+      "content_type_attributes": [
+        "PartName",
+        "ContentType"
+      ],
+      "forced_made_by": 813,
+      "force_metadata_entries": true,
+      "force_central_offsets": true,
+      "force_end_sentinels": true,
+      "forced_local_sizes": "expanded-only",
+      "relationship_attributes": {
+        "internal": [
+          "Id",
+          "Type",
+          "Target"
+        ],
+        "external": [
+          "Id",
+          "Type",
+          "Target",
+          "TargetMode"
+        ]
+      }
+    },
+    "kotlin": {
+      "made_by": 20,
+      "flags": 2056,
+      "external_attributes": 0,
+      "name_order": "utf16",
+      "metadata_method": 8,
+      "content_type_order": "payload-then-relationships",
+      "content_type_attributes": [
+        "ContentType",
+        "PartName"
+      ],
+      "forced_made_by": 45,
+      "force_metadata_entries": true,
+      "force_central_offsets": true,
+      "force_end_sentinels": true,
+      "forced_local_sizes": "actual",
+      "relationship_attributes": {
+        "internal": [
+          "Id",
+          "Target",
+          "Type"
+        ],
+        "external": [
+          "Id",
+          "Target",
+          "TargetMode",
+          "Type"
+        ]
+      }
+    },
+    "csharp": {
+      "made_by": 788,
+      "flags": 2048,
+      "external_attributes": 2172649472,
+      "name_order": "utf16",
+      "metadata_method": 8,
+      "content_type_order": "all-overrides",
+      "content_type_attributes": [
+        "ContentType",
+        "PartName"
+      ],
+      "forced_made_by": 813,
+      "force_metadata_entries": true,
+      "force_central_offsets": true,
+      "force_end_sentinels": true,
+      "forced_local_sizes": "actual",
+      "relationship_attributes": {
+        "internal": [
+          "Id",
+          "Target",
+          "Type"
+        ],
+        "external": [
+          "Id",
+          "Target",
+          "TargetMode",
+          "Type"
+        ]
+      }
+    },
+    "swift": {
+      "made_by": 788,
+      "flags": 2048,
+      "external_attributes": 2172649472,
+      "name_order": "utf8",
+      "metadata_method": 0,
+      "content_type_order": "rels-default-then-payload",
+      "content_type_attributes": [
+        "Extension",
+        "ContentType"
+      ],
+      "forced_made_by": 813,
+      "force_metadata_entries": true,
+      "force_central_offsets": false,
+      "force_end_sentinels": true,
+      "forced_local_sizes": "actual",
+      "override_attributes": [
+        "PartName",
+        "ContentType"
+      ],
+      "relationship_attributes": {
+        "internal": [
+          "Id",
+          "Type",
+          "Target"
+        ],
+        "external": [
+          "Id",
+          "Type",
+          "Target",
+          "TargetMode"
+        ]
+      }
+    }
+  },
+  "selected_sdk_boundaries": {
+    "csharp": {
+      "sdk": "8.0.426",
+      "target": "net8.0",
+      "scope": "The full qualification selects .NET8. The .NET10 preflight emits an unfinished empty raw DEFLATE stream and is retained as an excluded provider checkpoint, not claimed as qualified."
+    }
+  }
+}

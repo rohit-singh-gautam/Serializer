@@ -1,5 +1,12 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.19.1** adds an
+[independent package reproducibility inventory](../../qualification/package_reproducibility/README.md).
+Keep authored payloads/names/IDs and writer policies fixed when comparing bytes.
+Stored ZIP equality differs from compressed equality: pin compression options and
+the complete provider implementation before making the latter claim. This update
+changes no public native codec or package representation.
+
 Compiler/runtime **2.19.0** extends fixed singleton package canonicalization to
 all eleven outputs. Retain loaded extensions while editing; preserved internal
 links resolve in their original source scope before simultaneous endpoint

@@ -1,12 +1,19 @@
 # Pending requirements across Serializer
 
+Compiler/runtime **2.19.1** completes `XML-B23`: independent ordering, ZIP/XML
+metadata and provider-qualified byte reproducibility checks across all eleven
+outputs on Windows and Linux. The matrix preserves each backend's existing wire
+policy; Python's generic ZIP probe remains diagnostic/internal. See the
+[actual SDK matrix and provider boundaries](verification/verification-package-reproducibility-2026-10-21.md).
+**60 requirements remain unchecked**; 787 of 847 rows are checked.
+
 Compiler/runtime **2.19.0** completes `XML-B22` preservation/policy/collision
 qualification in supported XML/package graphs across all eleven outputs. Fixed
 singleton role paths rebind preserved links simultaneously, with opt-in canonical
 C/Rust writers and Go loaders. Dynamic renames, broader XML graphs, lexical XML,
 signatures and the remaining `OPC-R06` profile work stay separate. See the
 [actual SDK matrix and scope](verification/verification-package-relocation-2026-10-21.md).
-**61 requirements remain unchecked**; 786 of 847 rows are checked.
+That checkpoint left 61 unchecked, with 786 of 847 rows checked.
 
 Compiler/runtime **2.18.0** completes `XML-B20`: additive C/Rust native XML
 operations, shared XSD identity budgets and public selected-codec composition in
@@ -176,7 +183,7 @@ and actual SDK checks before the parent requirement can be checked.
 | [x] | XML-B20 | — | Typed package loading: Complete generated transactional profiles and automatic codec/reference budgets in every backend; caller-owned callbacks compose selected codecs with the same shared context; [2.18 SDK verification and graph limits](verification/verification-native-xml-operations-2026-10-21.md). | — |
 | [ ] | XML-B21 | — | Complete-operation context: Propagate shared accounting/deadlines across remaining backends; qualify projection/compression/provider cancellation and large-input boundaries, including explicit provider-internal peak/preemption limits. | — |
 | [x] | XML-B22 | — | Preservation: XML/package policy and collision qualification covers supported graphs in every backend, including simultaneous fixed-role rebinding, removed-role tombstones, exact selector/external values and failure publication; broader graph gates, signatures and lexical preservation remain separate. [Executed matrix and historical XML-policy evidence](verification/verification-package-relocation-2026-10-21.md). | — |
-| [ ] | XML-B23 | — | Reproducibility: Extend independently checked canonical ordering/metadata policies across backends; pin provider/version/options when qualifying compressed byte equality. | — |
+| [x] | XML-B23 | — | Independent canonical ordering/metadata policies pass across all eleven outputs on Windows/Linux: 2,112 actual archives, six input permutations, two fresh processes and both ZIP64 selections. Provider-qualified compressed equality preserves existing wire policies; Python plain ZIP is a private diagnostic. [2.19.1 evidence and scope](verification/verification-package-reproducibility-2026-10-21.md). | — |
 | [ ] | XML-B24 | — | HTML: Broaden restricted HTML adapters only under an explicit supported contract; keep arbitrary HTML and unrestricted mixed-content XHTML outside that contract. | — |
 
 ## Work units capped at five hours

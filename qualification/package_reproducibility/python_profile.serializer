@@ -1,0 +1,16 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.21.0;
+
+namespace reproducibility {
+  xml(namespace("urn:serializer:reproducibility"), scalars(attribute));
+  class marker { public uint32 id (1); }
+  package archive {
+    part marker : marker {
+      name("/unused-marker.xml");
+      content_type("application/vnd.serializer.marker+xml");
+      relationship("urn:serializer:reproducibility:marker");
+      occurs(0, 1);
+    }
+  }
+}

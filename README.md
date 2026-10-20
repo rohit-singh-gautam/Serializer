@@ -38,11 +38,17 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.19.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.19.1**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.21.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.19.1** adds an [independent package reproducibility inventory](qualification/package_reproducibility/README.md)
+covering all eleven outputs. Existing writer policies, names and serialized
+representations retain their contracts. The inventory checks unordered input
+permutations, fresh processes, ZIP64 metadata and compression-provider boundaries;
+it does not establish lexical XML or signature normalization.
 
 Release **2.19.0** extends fixed singleton package path canonicalization across
 all eleven outputs. Preserved links resolve in their original source scope before

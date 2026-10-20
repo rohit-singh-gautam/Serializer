@@ -46,7 +46,7 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-The current compiler/runtime release is **2.19.0**, with schema language
+The current compiler/runtime release is **2.19.1**, with schema language
 **1.21.0**. Preserve the supported native managed identity, transaction,
 preview, journal and collaboration contracts when composing those features.
 For local collaboration, attach a fresh placeholder store before editing or
@@ -59,6 +59,17 @@ Use the [native reference qualification record](../../../docs/verification/verif
 for actual ID/storage profiles and failure/recovery boundaries. Root/control-block
 allocation hooks and resident admission estimates do not replace allocators in
 generated standard-library payload containers.
+
+When requiring reproducible package bytes, retain the backend's documented writer
+policy, exact authored payloads/names/IDs and compression options. Release 2.19.1
+provides an [independent eleven-output inventory](../../../qualification/package_reproducibility/README.md)
+for input permutations, fresh processes and ZIP64 metadata. Stored ZIP equality
+and provider-independent OPC/payload projections are distinct from compressed
+byte equality, which requires matching provider fingerprints or a pinned
+self-contained encoder. `opc-stored` controls payload storage; infrastructure may
+still use DEFLATE. Python's plain ZIP probe is a diagnostic of its generated
+private helper, not a new public generic ZIP writer. Public schema-bound OPC
+Save retains its existing contract. No model/API/schema migration is required.
 
 For fixed singleton package canonicalization in 2.19.0, keep the loaded
 extensions with the edited aggregate. Generated facades retain moved-role origin
