@@ -1,5 +1,10 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.12.1** fixes C++23 XML floating-point parsing with
+warnings treated as errors. Rebuild against the updated runtime headers; signed-zero
+underflow and overflow rejection are unchanged. No schema regeneration or wire
+migration is required.
+
 Compiler/runtime **2.12.0** adds [generated XML token codecs](../serialization/xml_tokens.md).
 Regenerate and use `xml::serialize_tokens`/`deserialize_tokens` with
 `<rohit/xml_tokens.hpp>` for the supported tree-free C++ mapping. Explicit presence

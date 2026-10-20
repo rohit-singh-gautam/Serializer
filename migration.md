@@ -1,5 +1,13 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.12.1
+
+C++ XML floating-point parsing uses `std::numeric_limits<T>::denorm_min()` instead
+of the traits deprecated in C++23. Rebuild consumers against the updated runtime
+header to retain warnings-as-errors builds. Float, double and long double keep
+signed-zero underflow and overflow rejection. No schema regeneration, API or wire
+migration is required; schema language remains **1.20.0**.
+
 ## Compiler/runtime 2.12.0
 
 Require `find_package(Serializer 2.12 CONFIG REQUIRED)` and regenerate owning

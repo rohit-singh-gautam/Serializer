@@ -97,6 +97,16 @@ else()
 endif()
 add_test(NAME xml_event_test COMMAND xml_event_test)
 
+add_executable(xml_cpp23_test xml_cpp23_test.cpp)
+set_target_properties(xml_cpp23_test PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+target_link_libraries(xml_cpp23_test PRIVATE Serializer::runtime GTest::gtest_main)
+if(MSVC)
+  target_compile_options(xml_cpp23_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(xml_cpp23_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME xml_cpp23_test COMMAND xml_cpp23_test)
+
 add_executable(xml_event_reader_test xml_event_reader_test.cpp)
 target_link_libraries(xml_event_reader_test PRIVATE Serializer::runtime GTest::gtest_main)
 target_compile_definitions(xml_event_reader_test PRIVATE

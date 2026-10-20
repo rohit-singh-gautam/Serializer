@@ -36,11 +36,16 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.12.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.12.1**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.20.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.12.1** fixes C++23 XML floating-point parsing builds with warnings
+treated as errors. Numeric conversion uses `numeric_limits<T>::denorm_min()`
+without deprecated traits, preserving signed-zero underflow and overflow rejection.
+Schema language **1.20.0**, generated APIs and wire formats are unchanged.
 
 Release **2.12.0** adds [generated XML token paths](docs/serialization/xml_tokens.md),
 explicit presence/nil, maps, selected variant mappings and ordered mixed

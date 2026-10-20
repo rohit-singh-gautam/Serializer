@@ -410,8 +410,7 @@ template <typename T> void read_scalar(std::string_view text, T& value) {
         // also reports overflow, so only admit values below the least positive
         // representable magnitude after validating the complete lexical grammar.
         const auto magnitude = text.front() == '-' ? text.substr(1U) : text;
-        constexpr auto minimum_positive = std::numeric_limits<T>::has_denorm == std::denorm_absent ?
-            std::numeric_limits<T>::min() : std::numeric_limits<T>::denorm_min();
+        constexpr auto minimum_positive = std::numeric_limits<T>::denorm_min();
         if (compare_numeric_values(magnitude, scalar_text(minimum_positive)) < 0) {
           value = std::copysign(T{}, text.front() == '-' ? T{-1} : T{1});
           return;

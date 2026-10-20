@@ -46,6 +46,12 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
+Compiler/runtime **2.12.1** fixes C++23 XML floating-point parsing with
+warnings treated as errors. Rebuild consumers against the updated runtime header;
+`numeric_limits<T>::denorm_min()` preserves signed-zero underflow and overflow
+rejection without deprecated traits. No schema regeneration or wire migration is
+required; schema language remains **1.20.0**.
+
 Compiler/runtime **2.12.0** adds [generated XML token codecs](../../../docs/serialization/xml_tokens.md).
 Require `find_package(Serializer 2.12 CONFIG REQUIRED)` and regenerate C++ models
 before using `<rohit/xml_tokens.hpp>` with `xml::serialize_tokens` or
