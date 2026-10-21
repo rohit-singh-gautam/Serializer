@@ -246,7 +246,7 @@ TEST(string_stream, serializes_object_to_owning_string_in_one_expression) {
   const auto text = codec::serialize_as(original);
   EXPECT_EQ(text, (codec::serialize_as<std::string, json_protocol>(original)));
   EXPECT_EQ(text.find('\n'), std::string::npos);
-  EXPECT_NE(text.find("\\n"), std::string::npos);
+  EXPECT_NE(text.find("\\u000a"), std::string::npos);
   const auto binary = codec::serialize_as<std::string, positional_protocol>(original);
   EXPECT_NE(binary.find('\0'), std::string::npos);
   EXPECT_EQ(std::string{"inline:"} + codec::serialize_as(original), "inline:" + text);

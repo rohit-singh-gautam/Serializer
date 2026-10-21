@@ -502,6 +502,32 @@ TEST(xsd_import, nested_qname_list_enumeration_selects_supported_backend_contrac
   EXPECT_EQ(differences.front().message, "Scalar restrictions or default/fixed semantics changed");
 }
 
+// Portable scalar/list enumerations own schema identities independently of instance aliases.
+TEST(xsd_import, portable_qname_enumerations_retain_expanded_schema_identities) {
+  import_directory files;
+  const auto path = files.write("model.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:q="urn:allowed">
+    <xs:simpleType name="Kind"><xs:restriction base="xs:QName"><xs:enumeration value="q:item"/></xs:restriction></xs:simpleType>
+    <xs:simpleType name="Names"><xs:list itemType="xs:QName"/></xs:simpleType>
+    <xs:simpleType name="AllowedNames"><xs:restriction base="Names"><xs:enumeration value="q:one q:two"/></xs:restriction></xs:simpleType>
+    <xs:element name="model"><xs:complexType><xs:attribute name="kind" type="Kind"/>
+      <xs:attribute name="names" type="AllowedNames"/></xs:complexType></xs:element></xs:schema>)");
+  const auto imported = binding::import_xsd(path, {"models", {}, "model.xsd"});
+  const auto parsed = rohit::serializer::parser::parse_file(files.write("model.serializer", imported.schema_text));
+  const auto options = binding::effective_options(parsed.statements, {});
+  const auto contract = binding::schema{options}.bind(*model_classes(parsed).front());
+  for (const auto language : {"go", "java", "csharp", "kotlin", "swift"}) {
+    EXPECT_NO_THROW(binding::validate_backend(contract, language));
+  }
+  ASSERT_EQ(contract.fields.size(), 2u);
+  EXPECT_EQ(contract.fields[0].facets.qname_enumeration.front(),
+      (rohit::serializer::xml::name{"item", "urn:allowed"}));
+  EXPECT_EQ(contract.fields[1].facets.qname_list_enumeration.front(),
+      (std::vector<rohit::serializer::xml::name>{{"one", "urn:allowed"}, {"two", "urn:allowed"}}));
+  for (const auto language : {"c", "rust"}) {
+    EXPECT_THROW(binding::validate_backend(contract, language), std::invalid_argument) << language;
+  }
+}
+
 // Empty QName-list defaults need no schema namespace identities and retain their existing export path.
 TEST(xsd_import, empty_qname_list_default_keeps_compatible_export) {
   import_directory files;

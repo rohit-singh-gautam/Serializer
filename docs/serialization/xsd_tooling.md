@@ -135,8 +135,13 @@ C++ graphs using schema-owned QName-list defaults/fixed values use the direct to
 codec. Its bounded normalized-event prefix inventory prevents an early default
 from binding an otherwise unbound string-union prefix occurring later in the document.
 Automatic import supports builtin QName lists as native string arrays; backend
-capability checks still apply to their attached restrictions. Other backends keep
-their existing QName-list restriction gates. Namespace-dependent outer union restrictions and
+capability checks still apply to their attached restrictions. Release 2.24 adds
+Go/Java/C# scalar/list enumeration, default/fixed values and selected QName/list
+union members with [separate executed evidence](../verification/verification-qname-constraints-2026-10-21.md).
+Kotlin/Swift also support expanded scalar/list enumeration and retain their
+namespace-dependent default/fixed and union gates. C/Rust keep their QName-list
+restriction gates. All five preserve QName-pattern aliases and lexical prefix-list
+enumeration. Namespace-dependent outer union restrictions and
 union defaults still reject, as does exporting these schema-scope QName-list
 constraints. See the [QName-list qualification](../verification/verification-qname-lists-2026-10-21.md).
 

@@ -206,9 +206,14 @@ Reference declarations reject C++ constant-evaluation/emission-only profiles;
 their live bindings and validation require runtime state.
 Translators also reject C++ constant-evaluation, emission-only and Protocol Buffers
 output profiles, whose traversal contracts are separate from native runtime codecs.
-Reference address codecs and scoped translators currently reject optional XML generation in every
-backend until XML entry points implement the same address/projected contracts.
-Existing XML codecs for ordinary schemas remain supported. Existing borrowed
+Named durable address codecs reject optional XML generation in every backend;
+there is no durable-address XML wire representation. Inline value-reference and
+scoped-translator XML output supports the selected readonly graphs in all eleven
+outputs. It emits payload values, retains source lifetime requirements and rejects
+input into an export-only graph. See the [value-reference guide](value_references.md)
+and [XML token qualification](../verification/verification-xml-tokens-2026-10-19.md).
+Broader graph, resource and stress qualification remains tracked by
+[OPC-R10](../pending.md#opc-and-3mf-requirements). Existing borrowed
 `span`/`reference_wrapper` output and mapped binary views retain their independent
 contracts. See the [native, SDK and editor qualification report](../verification/verification-references-translators-2026-10-18.md)
 for executed checks and remaining verification boundaries.

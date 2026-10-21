@@ -1945,6 +1945,13 @@ if(SERIALIZER_WITH_XML)
       add_test(NAME go_xml_namespace_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/go_xml_namespace_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/go_xml_namespace")
+      add_test(NAME go_xml_qname_constraints_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/go_xml_qname_constraints_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/go_xml_qname_constraints")
+      add_test(NAME portable_xml_qname_constraints_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/go_xml_qname_constraints_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_qname_constraints"
+          --language java,csharp)
       add_test(NAME portable_xml_namespace_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/go_xml_namespace_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_namespace"
@@ -1955,6 +1962,9 @@ if(SERIALIZER_WITH_XML)
       add_test(NAME mobile_xml_namespace_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/mobile_xml_namespace_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/mobile_xml_namespace")
+      add_test(NAME mobile_xml_qname_constraints_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/mobile_xml_qname_constraints_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/mobile_xml_qname_constraints")
       add_test(NAME go_xml_pattern_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/go_xml_pattern_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/go_xml_pattern")

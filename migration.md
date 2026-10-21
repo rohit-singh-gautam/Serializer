@@ -1,5 +1,31 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.24.0
+
+Regenerate Go/Java/C# XML codecs for QName scalar/list enumeration, default/fixed
+and selected union-member checks. Regenerate Kotlin/Swift for expanded scalar/list
+enumeration checks. All five retain QName pattern aliases and lexical prefix-list
+enumeration spellings. They compare ordered expanded identities and
+retain schema aliases separately from instance bindings. Missing required fixed
+attributes now reject before candidate publication. Native model fields, wire
+IDs and schema language remain unchanged. Namespace-dependent outer union
+enumeration/fixed constraints and union defaults remain gated. Kotlin/Swift also
+retain their namespace-dependent default/fixed and union gates; see the
+[executed scope](docs/verification/verification-qname-constraints-2026-10-21.md).
+
+Rebuild C++ managed consumers and regenerate the internal collaboration record
+header for opt-in [retained-branch merge requests](docs/managed/branch_merging.md#collaboration).
+Existing applications keep branch merging disabled. A model-protocol tree
+authority can enable `collaboration_options::allow_branch_merges` and advertise
+`branch_merges_enabled()` through its authenticated transport. A replica's
+`merge_request` names retained source and exact target revisions and retains the
+ordinary accepted-cursor fence, session binding and operation retry semantics.
+Only the host configures conflict resolution. Accepted snapshot/field deltas and
+native merge-aware Save/journal formats keep their existing representations.
+Earlier runtimes reject the new model-change format version 4. Ordinary command,
+model-edit, history-request and accepted-change protocol versions are unchanged;
+schema language remains 1.21.0. No editor syntax or generated model API changes.
+
 ## Compiler/runtime 2.23.0
 
 Use `rohit::serializer::serialize_as(value)` to return compact JSON as an owning

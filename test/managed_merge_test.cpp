@@ -428,3 +428,230 @@ TEST(managed_merge, appended_and_sidecar_journal_recovery) {
     }
   }
 }
+
+// A merge contributes accepted field deltas, native ancestry and selective session Undo/Redo.
+TEST(managed_merge, collaboration_merge_replication_retry_and_selective_history) {
+  using authority_type = managed::collaboration_authority<root, managed::history_mode::tree>;
+  store_type seed{initial()};
+  const auto source = branches(seed,
+      [](auto& tx) { tx.root().set_count(20); },
+      [](auto& tx) { tx.root().set_title("target"); });
+  const auto target = seed.current_revision();
+  managed::collaboration_options options;
+  options.allow_branch_merges = true;
+  authority_type authority{initial(), 1, seed.document(), options};
+  authority.load_document(seed.save());
+  authority.open_session(10);
+  authority.open_session(20);
+  ASSERT_TRUE(authority.branch_merges_enabled());
+  managed::collaboration_replica<root> replica;
+  replica.synchronize(authority.snapshot(), authority.context());
+  auto request = replica.merge_request(10, 1, source, authority.current_revision());
+  request = managed::decode_collaboration_record<decltype(request)>(
+      managed::encode_collaboration_record(request));
+  const auto accepted = authority.submit_change(request, 10, 0);
+  ASSERT_EQ(accepted->status, managed::collaboration_status::accepted);
+  EXPECT_EQ(authority.submit_change(request, 10, 1), accepted);
+  ASSERT_EQ(accepted->accepted->history.fields.size(), 1u);
+  EXPECT_EQ(accepted->accepted->history.fields.front().field, 2u);
+  EXPECT_EQ(replica.apply_accepted_change(*accepted->accepted, authority.context()),
+      managed::replication_status::applied);
+  EXPECT_EQ(payload(replica).count, 20u);
+  store_type restored{initial()};
+  restored.load(authority.save_document());
+  EXPECT_EQ(restored.revision_parents(restored.current_revision()),
+      (std::vector<std::uint64_t>{target, source}));
+  const auto edit = replica.propose(20, 1, [](auto& tx) { tx.root().set_title("later"); });
+  const auto changed = authority.submit_change(edit, 20, 1);
+  ASSERT_EQ(changed->status, managed::collaboration_status::accepted);
+  replica.apply_accepted_change(*changed->accepted, authority.context());
+  const auto undo = authority.submit_change(replica.undo(10, 2), 10, 2);
+  ASSERT_EQ(undo->status, managed::collaboration_status::accepted);
+  EXPECT_EQ(payload(authority).count, 10u);
+  EXPECT_NE(rohit::serializer::serialize_as(*authority.read()).find("\"title\":\"later\""), std::string::npos);
+  replica.apply_accepted_change(*undo->accepted, authority.context());
+  const auto redo = authority.submit_change(replica.redo(10, 3), 10, 3);
+  ASSERT_EQ(redo->status, managed::collaboration_status::accepted);
+  EXPECT_EQ(payload(authority).count, 20u);
+  EXPECT_NE(rohit::serializer::serialize_as(*authority.read()).find("\"title\":\"later\""), std::string::npos);
+  replica.apply_accepted_change(*redo->accepted, authority.context());
+  const auto noop = replica.merge_request(10, 4, source, authority.current_revision());
+  EXPECT_EQ(authority.submit_change(noop, 10, 4)->status, managed::collaboration_status::no_change);
+  auto reused = request;
+  reused.base_sequence = 1;
+  EXPECT_THROW(authority.submit_change(reused, 10, 4), std::invalid_argument);
+}
+
+// Capability, exact target/cursor, session binding and malformed requests cannot publish ancestry.
+TEST(managed_merge, collaboration_merge_capability_and_request_fences) {
+  using authority_type = managed::collaboration_authority<root, managed::history_mode::tree>;
+  store_type seed{initial()};
+  const auto source = branches(seed,
+      [](auto& tx) { tx.root().set_count(20); },
+      [](auto& tx) { tx.root().set_title("target"); });
+  for (const bool enabled : {false, true}) {
+    managed::collaboration_options options;
+    options.allow_branch_merges = enabled;
+    authority_type authority{initial(), 1, seed.document(), options};
+    authority.load_document(seed.save());
+    authority.open_session(10);
+    authority.open_session(20, false);
+    managed::collaboration_replica<root> replica;
+    replica.synchronize(authority.snapshot(), authority.context());
+    const auto before = authority.save_document();
+    const auto target = authority.current_revision();
+    EXPECT_EQ(authority.branch_merges_enabled(), enabled);
+    const auto request = replica.merge_request(10, 1, source, target);
+    EXPECT_THROW(authority.submit_change(request, 20, 0), std::invalid_argument);
+    EXPECT_EQ(authority.submit_change(replica.merge_request(20, 1, source, target), 20, 0)->status,
+        managed::collaboration_status::denied);
+    const auto stale = replica.merge_request(10, 2, source, target - 1);
+    EXPECT_EQ(authority.submit_change(stale, 10, 0)->status, enabled
+        ? managed::collaboration_status::conflict : managed::collaboration_status::denied);
+    auto malformed = replica.merge_request(10, 3, source, target);
+    auto change = managed::decode_collaboration_record<managed::collaboration::model_change>(malformed.command);
+    change.allocated_id = 1;
+    malformed.command = managed::encode_collaboration_record(change);
+    EXPECT_EQ(authority.submit_change(malformed, 10, 0)->status, enabled
+        ? managed::collaboration_status::failed : managed::collaboration_status::denied);
+    auto ahead = replica.merge_request(10, 4, source, target);
+    ++ahead.base_sequence;
+    EXPECT_EQ(authority.submit_change(ahead, 10, 0)->status, managed::collaboration_status::conflict);
+    EXPECT_EQ(authority.save_document(), before);
+    const auto result = authority.submit_change(request, 10, 0);
+    EXPECT_EQ(result->status, enabled
+        ? managed::collaboration_status::accepted : managed::collaboration_status::denied);
+  }
+}
+
+// Conflict, current policy, work admission and lock ownership retain the complete old decision.
+TEST(managed_merge, collaboration_merge_conflict_policy_quota_and_locks) {
+  using authority_type = managed::collaboration_authority<root, managed::history_mode::tree>;
+  for (unsigned failure{}; failure < 4; ++failure) {
+    store_type seed{initial()};
+    const auto source = branches(seed,
+        [](auto& tx) { tx.root().set_count(20); },
+        [failure](auto& tx) {
+          if (failure == 0) { tx.root().set_count(30); }
+          else { tx.root().set_title("target"); }
+        });
+    managed::collaboration_options options;
+    options.allow_branch_merges = true;
+    if (failure == 2) { options.max_merge_work_bytes = 1; }
+    if (failure == 3) { options.require_edit_lock = true; }
+    authority_type authority{initial(), 1, seed.document(), options, {},
+        [failure](const auto&, const auto&, const auto&, const auto&) { return failure != 1; }};
+    authority.load_document(seed.save());
+    authority.open_session(10);
+    managed::collaboration_replica<root> replica;
+    replica.synchronize(authority.snapshot(), authority.context());
+    const auto before = authority.save_document();
+    const auto request = replica.merge_request(10, 1, source, authority.current_revision());
+    const auto result = authority.submit_change(request, 10, 0);
+    const auto expected = failure == 0 ? managed::collaboration_status::conflict :
+        failure == 2 ? managed::collaboration_status::failed : managed::collaboration_status::denied;
+    EXPECT_EQ(result->status, expected);
+    EXPECT_EQ(authority.submit_change(request, 10, 1), result);
+    EXPECT_EQ(authority.save_document(), before);
+    EXPECT_EQ(authority.snapshot().sequence, 0u);
+  }
+}
+
+// Resolution is a fresh host-authorized decision; exact conflict retries retain their old outcome.
+TEST(managed_merge, collaboration_merge_resolution_and_ancestry_only_acceptance) {
+  using authority_type = managed::collaboration_authority<root, managed::history_mode::tree>;
+  store_type seed{initial()};
+  const auto source = branches(seed,
+      [](auto& tx) { tx.root().set_count(20); },
+      [](auto& tx) { tx.root().set_count(30); });
+  managed::collaboration_options options;
+  options.allow_branch_merges = true;
+  authority_type authority{initial(), 1, seed.document(), options};
+  authority.load_document(seed.save());
+  authority.open_session(10);
+  managed::collaboration_replica<root> replica;
+  replica.synchronize(authority.snapshot(), authority.context());
+  const auto rejected = replica.merge_request(10, 1, source, authority.current_revision());
+  const auto conflict = authority.submit_change(rejected, 10, 0);
+  ASSERT_EQ(conflict->status, managed::collaboration_status::conflict);
+  unsigned calls{};
+  authority.set_branch_merge_resolver([&](const auto& value) {
+    ++calls;
+    EXPECT_EQ(value.field, 2u);
+    EXPECT_THROW(authority.snapshot(), std::logic_error);
+    return managed::merge_resolution::target;
+  });
+  EXPECT_EQ(authority.submit_change(rejected, 10, 0), conflict);
+  EXPECT_EQ(calls, 0u);
+  const auto before_revision = authority.current_revision();
+  const auto request = replica.merge_request(10, 2, source, before_revision);
+  const auto result = authority.submit_change(request, 10, 0);
+  ASSERT_EQ(result->status, managed::collaboration_status::accepted);
+  EXPECT_EQ(calls, 1u);
+  EXPECT_EQ(payload(authority).count, 30u);
+  EXPECT_TRUE(result->accepted->history.fields.empty());
+  EXPECT_GT(authority.current_revision(), before_revision);
+  EXPECT_EQ(authority.submit_change(request, 10, 0), result);
+  EXPECT_EQ(calls, 1u);
+  EXPECT_EQ(replica.apply_accepted_change(*result->accepted, authority.context()),
+      managed::replication_status::applied);
+}
+
+// Durable merge faults fence the authority exactly as edits do and recover both native parents.
+TEST(managed_merge, collaboration_merge_journal_fault_recovery) {
+  using authority_type = managed::collaboration_authority<root, managed::history_mode::tree>;
+  using event = managed::journal_io_event;
+  for (const auto mode : {managed::journal_storage_mode::appended, managed::journal_storage_mode::sidecar}) {
+    for (const auto point : {event::before_append, event::after_header, event::after_payload,
+                             event::after_commit, event::after_flush}) {
+      const journal_directory directory;
+      const auto path = directory.path / "document";
+      store_type seed{initial()};
+      const auto source = branches(seed,
+          [](auto& tx) { tx.root().set_count(20); },
+          [](auto& tx) { tx.root().set_title("target"); });
+      const auto target = seed.current_revision();
+      managed::collaboration_options options;
+      options.allow_branch_merges = true;
+      bool armed{};
+      managed::journal_options fault;
+      fault.fault_injector = [&](auto actual) {
+        if (armed && actual == point) { throw std::runtime_error{"collaborative merge interruption"}; }
+      };
+      {
+        authority_type authority{initial(), 1, seed.document(), options};
+        authority.load_document(seed.save());
+        authority.create_journal(path, mode, fault);
+        authority.open_session(10);
+        managed::collaboration_replica<root> replica;
+        replica.synchronize(authority.snapshot(), authority.context());
+        const auto request = replica.merge_request(10, 1, source, target);
+        armed = true;
+        const auto result = authority.submit_change(request, 10, 0);
+        EXPECT_EQ(result->status, point == event::before_append
+            ? managed::collaboration_status::failed : managed::collaboration_status::indeterminate);
+        EXPECT_FALSE(result->accepted);
+        if (point != event::before_append) {
+          EXPECT_THROW(authority.snapshot(), managed::journal_indeterminate_error);
+        }
+      }
+      armed = false;
+      authority_type recovered{initial(), 2, seed.document(), options};
+      recovered.recover_journal(path);
+      const bool committed = point == event::after_commit || point == event::after_flush;
+      EXPECT_EQ(payload(recovered).count, committed ? 20u : 10u);
+      store_type restored{initial()};
+      restored.load(recovered.save_document());
+      if (committed) {
+        EXPECT_EQ(restored.revision_parents(restored.current_revision()),
+            (std::vector<std::uint64_t>{target, source}));
+      }
+      recovered.open_session(10);
+      managed::collaboration_replica<root> replica;
+      replica.synchronize(recovered.snapshot(), recovered.context());
+      const auto request = replica.merge_request(10, 1, source, recovered.current_revision());
+      EXPECT_EQ(recovered.submit_change(request, 10, 0)->status, committed
+          ? managed::collaboration_status::no_change : managed::collaboration_status::accepted);
+    }
+  }
+}

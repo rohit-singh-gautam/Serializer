@@ -7,11 +7,21 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <numeric>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace {
 namespace xml = rohit::serializer::xml;
+
+// Keep a caller-owned identity token visible through the exception runtime's copies.
+struct projection_interrupted : std::runtime_error {
+  std::shared_ptr<const int> marker;
+  // Bind the original callback token independently of the exception object's storage address.
+  explicit projection_interrupted(std::shared_ptr<const int> value)
+      : std::runtime_error{"large projection interrupted"}, marker{std::move(value)} {}
+};
 }
 
 // Record references export the same XML as their selected owning values without copying models.
@@ -106,4 +116,49 @@ TEST(xml_projection, scoped_translator_direct_output_uses_zero_tree_budget) {
   source.with_project([&](const auto& view) {
     EXPECT_EQ(xml::serialize_tokens(view, bounds), xml::serialize_tokens(source.current, bounds));
   });
+}
+
+// Large readonly traversals borrow the original array and recover after exact-byte and callback failures.
+TEST(xml_projection, large_scoped_arrays_keep_storage_and_transactional_output) {
+  constexpr std::size_t value_count{25000U};
+  xml_projection::large_source source{};
+  source.values.resize(value_count);
+  std::iota(source.values.begin(), source.values.end(), 0U);
+  source.nested.number = 17U;
+  source.nested.label = "large <& borrowed";
+  const auto* const storage = source.values.data();
+  xml::limits bounds{};
+  bounds.max_tree_bytes = 0U;
+  source.with_project([&](const auto& view) {
+    EXPECT_EQ(&view.get_values(), &source.values);
+    EXPECT_EQ(&view.get_nested(), &source.nested);
+    const auto expected = xml::serialize_tokens(view, bounds);
+    const auto decoded = xml::deserialize_tokens<xml_projection::large_payload>(expected, bounds);
+    EXPECT_EQ(decoded.values, source.values);
+    EXPECT_EQ(decoded.nested.label, source.nested.label);
+    EXPECT_EQ(decoded.fallback, "default");
+    auto exact = bounds;
+    exact.max_output_bytes = expected.size();
+    EXPECT_EQ(xml::serialize_tokens(view, exact), expected);
+    --exact.max_output_bytes;
+    std::string published{"previous output"};
+    EXPECT_THROW(published = xml::serialize_tokens(view, exact), std::length_error);
+    EXPECT_EQ(published, "previous output");
+    xml::operation_context operation{};
+    std::size_t polls{};
+    const auto interrupted = std::make_shared<const int>(17);
+    operation.charge = [&](xml::operation_resource, std::size_t) {
+      if (++polls == 100U) { throw projection_interrupted{interrupted}; }
+    };
+    std::shared_ptr<const int> observed{};
+    try { published = xml::serialize_tokens(view, bounds, &operation); }
+    catch (const projection_interrupted& failure) { observed = failure.marker; }
+    EXPECT_EQ(observed, interrupted);
+    EXPECT_EQ(polls, 100U);
+    EXPECT_EQ(published, "previous output");
+    EXPECT_EQ(xml::serialize_tokens(view, bounds), expected);
+  });
+  EXPECT_EQ(source.values.data(), storage);
+  EXPECT_EQ(source.values.size(), value_count);
+  EXPECT_EQ(source.values.back(), value_count - 1U);
 }

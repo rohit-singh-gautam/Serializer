@@ -10,10 +10,22 @@ internal class SrlXmlRule(private val kind: String, private val whitespace: Stri
     private val maximum: Long, private val enumeration: Array<String>, private val finite: Boolean,
     private val groups: Array<Array<Pattern>>, private val listKind: String,
     private val members: Array<SrlXmlRule>, private val fixed: String?) {
+    private var qnames: Array<SrlXmlName> = emptyArray()
+    private var qnameLists: Array<Array<SrlXmlName>> = emptyArray()
+    // Prepare schema-owned expanded identities before exposing the immutable generated rule.
+    fun namespaceValues(names: Array<SrlXmlName>, lists: Array<Array<SrlXmlName>>): SrlXmlRule {
+        qnames=names; qnameLists=lists; return this
+    }
     // Retain finite work shared by inherited patterns, lists and union alternatives.
-    class Work(var remaining: Int = srlXmlMaxPatternWork, val maximumItems: Int = srlXmlMaxListItems) {
+    class Work(var remaining: Int = srlXmlMaxPatternWork, val maximumItems: Int = srlXmlMaxListItems,
+        private val operation: SrlXmlBudget.Operation? = null) {
+        var namespace: ((String) -> String?)? = null
+        var callbackFailure: kotlin.Throwable? = null
         // Charge before scanning or traversing a prepared instruction.
-        fun spend(units: Int) { if (units < 0 || units > remaining) throw SrlXmlScalarLimit("Portable XML regex work limit exceeded"); remaining -= units }
+        fun spend(units: Int) {
+            try { operation?.charge("work",units.toLong()) } catch (failure: kotlin.Throwable) { callbackFailure=failure; throw failure }
+            if (units < 0 || units > remaining) throw SrlXmlScalarLimit("Portable XML regex work limit exceeded"); remaining -= units
+        }
     }
     // Normalize only XML whitespace; preserve all other Unicode separators byte-for-byte.
     private fun normalize(raw: String): String {
@@ -80,6 +92,15 @@ internal class SrlXmlRule(private val kind: String, private val whitespace: Stri
     // Package-only classification leaves ordinary scalar-limit exception behavior untouched.
     fun check(raw: String, maximumItems: Int, operation: SrlXmlBudget.Operation?): String =
         try { check(raw,maximumItems) } catch (failure: SrlXmlScalarLimit) { operation?.limit(failure.message ?: "XML scalar resource limit"); throw failure }
+    // Check aliases against schema identities in the exact input or active output vocabulary.
+    fun checkScoped(raw: String, namespace: (String) -> String?, maximumItems: Int, operation: SrlXmlBudget.Operation?): String {
+        operation?.charge("allocation",128L+raw.length*4L)
+        val work=Work(maximumItems=maximumItems,operation=operation); work.namespace=namespace
+        return try { check(raw,work) } catch (failure: SrlXmlScalarLimit) { if(work.callbackFailure===failure)throw failure; operation?.limit(failure.message ?: "XML scalar resource limit"); throw failure }
+    }
+    // Borrow captured bindings without copying the input's admitted namespace map.
+    fun checkScoped(raw: String, scope: Map<String,String>, maximumItems: Int, operation: SrlXmlBudget.Operation?): String =
+        checkScoped(raw,{ scope[it] },maximumItems,operation)
     // A union's invalid lexical branch may fall through; a depleted operation budget may not.
     private fun check(raw: String, work: Work): String {
         work.spend(raw.length); val text=normalize(raw); lexical(text)
@@ -92,7 +113,17 @@ internal class SrlXmlRule(private val kind: String, private val whitespace: Stri
         if (listKind.isNotEmpty()) { val items=tokens(text,work.maximumItems); count=items.size.toLong(); val rule=itemRule(listKind); for (item in items) rule.check(item,work) }
         require((length < 0 || count == length) && (minimum < 0 || count >= minimum) && (maximum < 0 || count <= maximum)) { "XML length facet failed" }
         for (index in bounds.indices) { if (bounds[index].isEmpty()) continue; val order=compare(text,bounds[index]); require(order != null && when(index) { 0->order >= 0; 1->order <= 0; 2->order > 0; else->order < 0 }) { "XML numeric facet failed" } }
-        require(enumeration.isEmpty() || enumeration.any { compare(text,normalize(it)) == 0 }) { "XML enumeration facet failed" }
+        require(enumeration.isEmpty() || qnames.isNotEmpty() || qnameLists.isNotEmpty() || enumeration.any { compare(text,normalize(it)) == 0 }) { "XML enumeration facet failed" }
+        work.namespace?.let { namespace ->
+            if (kind == "QName" || listKind == "QName") {
+                val items=if (listKind == "QName") tokens(text,work.maximumItems) else listOf(text)
+                val names=items.map { work.spend(it.length+1); srlXmlTypeQName(it,namespace) }
+                require(qnames.isEmpty() || names.size == 1 && qnames.any { work.spend(it.local.length+it.namespace.length+1); it == names[0] }) { "XML QName enumeration facet failed" }
+                require(qnameLists.isEmpty() || qnameLists.any { allowed ->
+                    allowed.size == names.size && allowed.indices.all { work.spend(allowed[it].local.length+allowed[it].namespace.length+1); allowed[it] == names[it] }
+                }) { "XML QName-list enumeration facet failed" }
+            }
+        }
         require(fixed == null || compare(text,normalize(fixed)) == 0) { "XML fixed value differs" }
         require(!finite || (if (kind == "float") srlXmlFloat32(text).isFinite() else srlXmlFloat(text).isFinite())) { "XML finite facet failed" }
         for (group in groups) require(group.any { it.matches(text,work) }) { "XML portable pattern facet failed" }

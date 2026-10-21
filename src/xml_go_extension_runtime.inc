@@ -60,7 +60,7 @@ func (value *srlXmlExtensions)measure(name srlxml.Name,attributes []srlxml.Attr,
 )xmlextension"
 R"xmlextension(
 // Choose a deterministic prefix without shadowing any preserved lexical QName binding.
-func (output *srlXmlOutput)extensionPrefix(base,uri string,pinned map[string]string)string{for index:=0;;index++{prefix:=base;if index!=0{prefix+=strconv.Itoa(index)};bound,exists:=pinned[prefix];if !exists{bound,exists=output.identityNamespace(prefix)};if !exists||bound==uri{return prefix}}}
+func (output *srlXmlOutput)extensionPrefix(base,uri string,pinned map[string]string)string{for index:=0;;index++{prefix:=base;if index!=0{prefix+=strconv.Itoa(index)};if _,reserved:=output.namespaceReserved[prefix];reserved{continue};bound,exists:=pinned[prefix];if !exists{bound,exists=output.identityNamespace(prefix)};if !exists||bound==uri{return prefix}}}
 // Reuse a nonshadowed existing binding to stabilize opaque retained storage across repeated replay.
 func (output *srlXmlOutput)extensionMatchingPrefix(uri string,pinned map[string]string,attribute bool)(string,bool){
   lookup:=func(prefix string)(string,bool){if value,exists:=pinned[prefix];exists{return value,true};return output.identityNamespace(prefix)}
@@ -74,7 +74,7 @@ func (output *srlXmlOutput)extensionDeclare(prefix,uri string)error{if current,e
 // Pin original in-scope bindings while keeping the ordinary writer's fast path unchanged.
 func (output *srlXmlOutput)openScoped(name srlxml.Name,scope map[string]string)error{
   if len(output.stack)>=output.budget.limits.MaxDepth||output.budget.nodes>=output.budget.limits.MaxNodes{return srlXmlLimitError("XML node or depth limit exceeded")};if err:=output.budget.textValue(name.Space+name.Local);err!=nil{return err};if err:=output.seal();err!=nil{return err};output.budget.nodes++
-  prefix:="";if name.Space!=""{var exists bool;prefix,exists=output.extensionMatchingPrefix(name.Space,scope,false);if !exists{prefix=output.extensionPrefix("srl",name.Space,scope)}};local:=name.Local;if prefix!=""{local=prefix+":"+local};output.stack=append(output.stack,srlXmlOutputFrame{start:srlxml.StartElement{Name:srlxml.Name{Local:local}},expanded:name,pending:true,manual:true,scoped:true})
+  prefix:="";if name.Space!=""{var exists bool;prefix,exists=output.extensionMatchingPrefix(name.Space,scope,output.namespaceReserved!=nil);if !exists{prefix=output.extensionPrefix("srl",name.Space,scope)}};local:=name.Local;if prefix!=""{local=prefix+":"+local};output.stack=append(output.stack,srlXmlOutputFrame{start:srlxml.StartElement{Name:srlxml.Name{Local:local}},expanded:name,pending:true,manual:true,scoped:true})
   if scope!=nil{keys:=make([]string,0,len(scope));for key:=range scope{keys=append(keys,key)};sort.Strings(keys);for _,key:=range keys{if err:=output.extensionDeclare(key,scope[key]);err!=nil{return err}}}
   if name.Space==""{if current,_:=output.identityNamespace("");current!=""{return output.extensionDeclare("","")}}else{return output.extensionDeclare(prefix,name.Space)};return nil
 }

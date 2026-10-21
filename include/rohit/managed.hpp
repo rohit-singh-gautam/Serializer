@@ -2691,7 +2691,7 @@ private:
 
   // Stage the entire merge, authorization and durable decision before changing either input branch.
   outcome_type merge_revision_impl(std::uint64_t source, const merge_options& options,
-                                   label_type action)
+                                   label_type action, bool authority_merge = false)
     requires(Mode == history_mode::tree)
   {
     outcome_type outcome;
@@ -2701,7 +2701,7 @@ private:
         throw std::logic_error{"Detach collaboration before merging native tree revisions"};
       }
       if constexpr (has_collaboration) {
-        if (collaboration_state_.prepare) {
+        if (collaboration_state_.prepare && !authority_merge) {
           throw std::logic_error{"Authority branch-merge negotiation is unavailable"};
         }
       }
@@ -2739,6 +2739,16 @@ private:
       validate(*candidate);
       auto snapshot = detail::encode(*candidate, options_.max_snapshot_bytes);
       check_snapshot(snapshot);
+      if constexpr (has_collaboration) {
+        if (collaboration_state_.prepare) {
+          // The authority prepares locks, policy, accepted deltas and retry retention before durability.
+          callback_active_ = true;
+          try {
+            collaboration_state_.prepare(collaboration_state_.prepare_context, *candidate, snapshot);
+          } catch (...) { callback_active_ = false; throw; }
+          callback_active_ = false;
+        }
+      }
       auto event = prepare_publication(publication_kind::durable_edit, identities, candidate.get());
       candidate_charge->resize(estimate_storage(*candidate));
       auto history = history_;

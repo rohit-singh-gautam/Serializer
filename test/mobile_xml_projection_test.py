@@ -63,6 +63,19 @@ fun main(arguments: Array<String>) {
  Files.write(directory.resolve("translator.kotlin.xml"),output)
  large.values[0]=9u; large.nested.number=5u
  check(ProjectedLarger.decodeXml(large.withProject { it.encodeXml() }).nested.number == 5u)
+ val stress=ProjectedLargerSource(); stress.values=(0 until 25000).map { it.toUInt() }.toMutableList(); stress.nested.number=17u
+ val values=stress.values; val nested=stress.nested; val native=Protocol.entries.map { stress.encode(it) }
+ val stressed=stress.withProject { view -> check(view.getValues() === values && view.getNested() === nested); view.encodeXml() }
+ check(stressed.contentEquals(stress.withProject { it.encodeXml(XmlLimits(maxBytes=stressed.size)) }))
+ rejected { stress.withProject { it.encodeXml(XmlLimits(maxBytes=stressed.size-1)) } }
+ val marker=IllegalStateException("Large projection interrupted"); var polls=0
+ val canceledLimits=XmlLimits().withCancellation { if(++polls==100)throw marker }
+ val sentinel=byteArrayOf(17); var published=sentinel; var interrupted:Throwable?=null
+ try { published=stress.withProject { it.encodeXml(canceledLimits) } } catch(error:Throwable){interrupted=error}
+ check(interrupted===marker && polls==100 && published===sentinel)
+ check(stressed.contentEquals(stress.withProject { it.encodeXml() }))
+ for((index,protocol) in Protocol.entries.withIndex())check(native[index].contentEquals(stress.encode(protocol)))
+ Files.write(directory.resolve("large.kotlin.xml"),stressed)
  println("Kotlin live XML references, scoped getters, arrays and native wire identities pass")
 }'''
 
@@ -113,6 +126,26 @@ try require(copy.values == [1,2] && copy.nested.number == 3 && copy.fallback == 
 try Data(output).write(to:directory.appendingPathComponent("translator.swift.xml"))
 large.values[0]=9; large.nested.number=5
 try require(ProjectedLarger.decodeXml(large.withProject { try $0.encodeXml() }).nested.number == 5)
+var stress=ProjectedLargerSource(); stress.values=(0..<25000).map { UInt32($0) }; stress.nested.number=17
+let nativeStress=try Protocol.allCases.map { try stress.encode($0) }
+let stressStorageAddress=stress.values.withUnsafeBufferPointer { UInt(bitPattern:UnsafeRawPointer($0.baseAddress!)) }
+let stressed=try stress.withProject { view in
+ try view.getValues().withUnsafeBufferPointer { projected in
+  try require(UInt(bitPattern:UnsafeRawPointer(projected.baseAddress!)) == stressStorageAddress)
+  return try view.encodeXml()
+ }
+}
+var exactStress=XmlLimits(); exactStress.maxBytes=stressed.count
+try require(stressed == stress.withProject { try $0.encodeXml(exactStress) })
+exactStress.maxBytes-=1; try rejected { _=try stress.withProject { try $0.encodeXml(exactStress) } }
+var stressPolls=0
+let canceledStress=XmlLimits().withCancellation { stressPolls+=1; if stressPolls==100 { throw ProjectionCancellation.canceled } }
+let sentinelStress:[UInt8]=[17]; var publishedStress=sentinelStress; var interruptedStress=false
+do { publishedStress=try stress.withProject { try $0.encodeXml(canceledStress) } } catch ProjectionCancellation.canceled { interruptedStress=true }
+try require(interruptedStress && stressPolls==100 && publishedStress==sentinelStress)
+try require(stressed == stress.withProject { try $0.encodeXml() })
+for (index,protocolValue) in Protocol.allCases.enumerated() { try require(nativeStress[index] == stress.encode(protocolValue)) }
+try Data(stressed).write(to:directory.appendingPathComponent("large.swift.xml"))
 print("Swift live XML owners, weak expiry, scoped array getters and native identities pass")
 '''
 
@@ -149,6 +182,11 @@ def main():
         node = etree.parse(str(args.build / f'translator.{language}.xml')).getroot()
         assert node.tag == '{urn:serializer:projected}larger'
         assert [child.text for child in node.findall('{urn:serializer:projected}values')] == ['1', '2']
+        assert node.find('{urn:serializer:projected}fallback').text == 'default'
+        node = etree.parse(str(args.build / f'large.{language}.xml')).getroot()
+        assert node.tag == '{urn:serializer:projected}larger'
+        assert [int(child.text) for child in node.findall('{urn:serializer:projected}values')] == list(range(25000))
+        assert node.find('{urn:serializer:projected}nested')[0].text == '17'
         assert node.find('{urn:serializer:projected}fallback').text == 'default'
     print(f'PASS: live reference/scoped translator XML exports and native controls across {len(languages)} mobile SDKs', flush=True)
 

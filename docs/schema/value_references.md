@@ -172,8 +172,14 @@ supported scalar/string/enum or ordinary record. Direct legacy `array`, `map` an
 or use a supported owning type application. Private paths, optional/variant
 traversal, managed storage, packed/view owners and nested reference payloads remain
 unsupported. Do not add storage defaults, compact/auto-size policies or array/getter
-exposure to the reference field. Optional XML and C++ emission-only, constant-
-evaluation and Protocol Buffers profiles reject this runtime feature.
+exposure to the reference field. Optional XML supports selected readonly
+value-reference and scoped-translator output graphs in all eleven outputs;
+reading those graphs rejects before native candidate construction. Encode inside
+the binding/projection scope and keep the source unchanged through all passes.
+See [XML token qualification](../verification/verification-xml-tokens-2026-10-19.md)
+for the executed graph and lifetime boundaries; broader qualification remains
+[OPC-R10](../pending.md#opc-and-3mf-requirements). C++ emission-only,
+constant-evaluation and Protocol Buffers profiles reject this runtime feature.
 
 The older [named durable address references](references.md) remain a separate
 language 1.18 feature for applications that need serialized identity and resolution.

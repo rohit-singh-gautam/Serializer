@@ -1,8 +1,8 @@
 # Native C++ branch merging
 
 Compiler/runtime 2.23.0 adds `merge_revision` to generated C++ tree stores.
-This is the native retained-history portion of **MG04**. Collaboration merge
-negotiation and accepted-delta integration remain pending. The broader contract
+Compiler/runtime 2.24.0 adds opt-in collaborative retained-branch merging, using
+the existing accepted snapshot and field-delta protocol. The broader contract
 is tracked in [the backlog](../pending.md#managed-state-and-storage).
 
 ```cpp
@@ -58,8 +58,9 @@ to the retained source. Entity and revision allocation marks are never rewound.
 
 Successful publication resets transient caches. General `exclude(history)`
 overlays remain proposed syntax and gain no merge semantics from this API.
-Attached collaboration sessions and authority acceptance hooks reject branch
-merging until the collaboration protocol has its own negotiated merge contract.
+Attached store clients cannot call `merge_revision` directly. Tree authorities
+use the explicitly enabled request contract below; custom command authorities
+continue to reject branch-merge model requests.
 
 The first parent is always the target and the second is the source. Undo and
 explicit Redo follow the existing first-parent navigation contract. Both parents
@@ -81,8 +82,53 @@ write fences the store until recovery, as for other journal operations.
 Standalone identity/history-policy conversion helpers do not yet negotiate this
 wrapper; they reject it rather than dropping ancestry.
 
-The generated direct/separate uint32/uint64 fixtures and both label policies are
-covered by [the native merge suite](../../test/managed_merge_test.cpp). Initial
-Windows checks passed before the additional malformed/fault cases were added.
-Final qualification is deferred until the requested implementation/compilation
-commit; no current all-platform qualification is claimed.
+The generated direct/separate uint32/uint64 fixtures and both native label policies
+are covered by [the native merge suite](../../test/managed_merge_test.cpp).
+The current Windows/Linux runs pass all eighteen cases per storage/ID profile;
+see [executed qualification and its limits](../verification/verification-collaboration-merging-2026-10-21.md).
+
+## Collaboration
+
+```cpp
+rohit::managed::collaboration_options options;
+options.allow_branch_merges = true;
+using authority_type = rohit::managed::collaboration_authority<document,
+    rohit::managed::history_mode::tree>;
+authority_type authority{initial, epoch, document_id, options};
+// Load a retained tree document before opening sessions, when needed.
+authority.open_session(session);
+replica.synchronize(authority.snapshot(), authority.context());
+if (authority.branch_merges_enabled()) {
+  auto request = replica.merge_request(session, operation,
+      retained_source_revision, authority.current_revision());
+  auto result = authority.submit_change(request, authenticated_session, now_ms);
+  if (result->accepted) {
+    replica.apply_accepted_change(*result->accepted, authenticated_authority);
+  }
+}
+```
+
+The host advertises the capability through its authenticated transport. It is
+disabled by default, requires a tree authority using the built-in model protocol,
+and selects only retained revisions of the authority's own document. Arbitrary
+client snapshots, imported branch graphs and automatic stale-edit rebasing are
+not part of this request. Both `base_sequence` and the target revision must match;
+source ancestry is computed at the authority. An already incorporated source
+returns `no_change`. Equal payloads on distinct branches still publish a merge
+decision, increment the accepted cursor and retain both native parents.
+
+The current session permissions, grants, affected-entity policy, model invariants,
+identity validation, retention and merge-work budgets all precede durability.
+Unresolved conflicts return `conflict`, retaining `merge_conflict_error` locally.
+The host may install `set_branch_merge_resolver` to choose complete sides under
+the native conflict contract. It cannot reenter the authority. Resolver failures
+publish nothing. An exact retry returns its original outcome even if the host
+later changes its resolver; a new decision needs a new operation ID.
+
+Accepted changes use the existing snapshot and field/dependency deltas. Selective
+session Undo/Redo reverses the merge's contributions while preserving unrelated
+later edits. It creates ordinary subsequent revisions; it does not erase the
+historical merge ancestry. Replicas retain accepted model state, while native
+two-parent history remains authority-owned. Full Save and appended/sidecar journal
+recovery retain that graph. Uncertain writes fence the authority until fresh-epoch
+recovery, which never reruns the resolver or restores session rights/retry caches.

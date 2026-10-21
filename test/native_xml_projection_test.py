@@ -18,6 +18,10 @@ NS='urn:serializer:projected'
 XSD='''<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:serializer:projected" targetNamespace="urn:serializer:projected" elementFormDefault="qualified">
 <xs:complexType name="payload"><xs:sequence><xs:element name="number" type="xs:unsignedInt"/><xs:element name="label" type="xs:string"/></xs:sequence></xs:complexType>
 <xs:element name="payload" type="t:payload"/><xs:element name="envelope"><xs:complexType><xs:sequence><xs:element name="value" type="t:payload"/></xs:sequence><xs:attribute name="label" type="xs:string" use="required"/></xs:complexType></xs:element></xs:schema>'''
+XSD=XSD.replace('</xs:schema>','''<xs:element name="collection"><xs:complexType><xs:sequence>
+<xs:element name="items" type="xs:unsignedShort" minOccurs="0" maxOccurs="unbounded"/>
+<xs:element name="value"><xs:simpleType><xs:restriction base="xs:hexBinary"><xs:length value="2"/></xs:restriction></xs:simpleType></xs:element>
+</xs:sequence></xs:complexType></xs:element></xs:schema>''')
 RUST=r'''mod schema;
 use schema::*;
 use std::{cell::RefCell,rc::Rc,path::Path};
@@ -40,7 +44,17 @@ fn main()->Result<(),Box<dyn std::error::Error>> {
  let guard=owner.borrow_mut();assert!(envelope.value.encode_xml().is_err());drop(guard);
  assert!(envelope.encode_xml_with_validation(XmlLimits{max_nodes:1,..XmlLimits::default()},None).is_err());
  let mut collection=ProjectedCollectionSource::default();collection.stored.items=vec![1,65535];collection.stored.value=vec![0,255];
- collection.with_project(|view|->Result<(),Error>{assert!(std::ptr::eq(view.get_items(),&collection.stored.items));assert!(std::ptr::eq(view.get_value(),&collection.stored.value));let output=view.encode_xml()?;let value=ProjectedCollection::decode_xml(&output)?;assert_eq!(value,collection.stored);for protocol in [Protocol::Json,Protocol::BinaryNone,Protocol::BinaryInteger,Protocol::BinaryString]{assert_eq!(view.encode(protocol)?,collection.stored.encode(protocol)?);}Ok(())})?;
+ for count in [2usize,25000]{
+  if count!=2{collection.stored.items=(0..count).map(|index|if index%2==0{0}else{u16::MAX}).collect();}
+  collection.with_project(|view|->Result<(),Error>{
+   assert!(std::ptr::eq(view.get_items(),&collection.stored.items));assert!(std::ptr::eq(view.get_value(),&collection.stored.value));
+   let output=view.encode_xml()?;let value=ProjectedCollection::decode_xml(&output)?;assert_eq!(value,collection.stored);
+   assert_eq!(view.encode_xml_with_validation(XmlLimits{max_bytes:output.len(),..XmlLimits::default()},None)?,output);
+   assert!(view.encode_xml_with_validation(XmlLimits{max_bytes:output.len()-1,..XmlLimits::default()},None).is_err());assert_eq!(view.encode_xml()?,output);
+   for protocol in [Protocol::Json,Protocol::BinaryNone,Protocol::BinaryInteger,Protocol::BinaryString]{assert_eq!(view.encode(protocol)?,collection.stored.encode(protocol)?);}
+   std::fs::write(directory.join("collection.rust.xml"),output).map_err(|_|Error("Write collection proof"))?;Ok(())
+  })?;
+ }
  let unbound=ProjectedEnvelope::default();assert!(unbound.encode_xml().is_err());
  let transient=Rc::new(RefCell::new(ProjectedSource::default()));let mut weak=ProjectedWeakEnvelope::default();weak.value.bind(&transient)?;assert!(weak.encode_xml().is_ok());drop(transient);assert!(weak.encode_xml().is_err());
  drop(owner);assert!(envelope.value.encode_xml().is_ok());envelope.value.unbind();assert!(envelope.encode_xml().is_err());
@@ -68,7 +82,19 @@ static void translated(const projected_source_project_translator* view,void* poi
 /* Borrow inherited defaults and complete non-Copy container descriptors through their native getters. */
 static void derived(const projected_source_derived_translator* view,void* context){(void)context;srl_buffer bytes={0};projected_inherited value={0};require(projected_inherited_init(&value)==srl_ok,"Inherited view init");require(projected_source_derived_translator_encode_xml(view,&bytes,NULL)==srl_ok && projected_inherited_decode_xml(&value,bytes.data,bytes.size,NULL)==srl_ok && value.extra==7,"Inherited getter XML");srl_buffer_free(&bytes);projected_inherited_free(&value);}
 /* Confirm a readonly native collection/digest descriptor is borrowed, with exact XML and wire identities. */
-static void collection_translated(const projected_collection_source_project_translator* view,void* pointer){const projected_collection_source* source=(const projected_collection_source*)pointer;require(projected_collection_source_project_translator_get_items(view)==&source->stored.items && projected_collection_source_project_translator_get_value(view)==&source->stored.value,"Non-Copy getter identity");srl_buffer bytes={0},expected={0};projected_collection value={0};require(projected_collection_init(&value)==srl_ok,"Collection view init");require(projected_collection_source_project_translator_encode_xml(view,&bytes,NULL)==srl_ok && projected_collection_decode_xml(&value,bytes.data,bytes.size,NULL)==srl_ok && value.items.size==2 && value.items.data[1]==65535 && value.value.size==2 && value.value.data[1]==255,"Collection view XML");srl_buffer_free(&bytes);const srl_protocol protocols[]={srl_json,srl_binary_none,srl_binary_integer,srl_binary_string};for(size_t index=0;index<sizeof(protocols)/sizeof(protocols[0]);++index){require(projected_collection_source_project_translator_encode(view,protocols[index],&bytes)==srl_ok && projected_collection_encode(&source->stored,protocols[index],&expected)==srl_ok && bytes.size==expected.size && memcmp(bytes.data,expected.data,bytes.size)==0,"Collection view native wire");srl_buffer_free(&bytes);srl_buffer_free(&expected);}projected_collection_free(&value);}
+typedef struct collection_context {const projected_collection_source* source;const char* directory;} collection_context;
+/* Borrow the original descriptors through byte limits, recovery and all native formats. */
+static void collection_translated(const projected_collection_source_project_translator* view,void* pointer){
+ const collection_context* context=(const collection_context*)pointer;const projected_collection_source* source=context->source;
+ require(projected_collection_source_project_translator_get_items(view)==&source->stored.items && projected_collection_source_project_translator_get_value(view)==&source->stored.value,"Non-Copy getter identity");
+ srl_buffer bytes={0},expected={0};projected_collection value={0};require(projected_collection_init(&value)==srl_ok,"Collection view init");
+ require(projected_collection_source_project_translator_encode_xml(view,&bytes,NULL)==srl_ok && projected_collection_decode_xml(&value,bytes.data,bytes.size,NULL)==srl_ok && value.items.size==source->stored.items.size && memcmp(value.items.data,source->stored.items.data,value.items.size*sizeof(*value.items.data))==0 && value.value.size==2 && value.value.data[1]==255,"Collection view XML");
+ write_output(context->directory,"collection",&bytes);srl_limits limits=srl_default_limits();limits.max_bytes=bytes.size;
+ require(projected_collection_source_project_translator_encode_xml(view,&expected,&limits)==srl_ok && expected.size==bytes.size && memcmp(expected.data,bytes.data,bytes.size)==0,"Exact large projection bytes");srl_buffer_free(&expected);--limits.max_bytes;
+ require(projected_collection_source_project_translator_encode_xml(view,&expected,&limits)!=srl_ok && !expected.data,"One-tight large projection bytes");
+ require(projected_collection_source_project_translator_encode_xml(view,&expected,NULL)==srl_ok && expected.size==bytes.size && memcmp(expected.data,bytes.data,bytes.size)==0,"Fresh large projection recovery");srl_buffer_free(&expected);srl_buffer_free(&bytes);
+ const srl_protocol protocols[]={srl_json,srl_binary_none,srl_binary_integer,srl_binary_string};for(size_t index=0;index<sizeof(protocols)/sizeof(protocols[0]);++index){require(projected_collection_source_project_translator_encode(view,protocols[index],&bytes)==srl_ok && projected_collection_encode(&source->stored,protocols[index],&expected)==srl_ok && bytes.size==expected.size && memcmp(bytes.data,expected.data,bytes.size)==0,"Collection view native wire");srl_buffer_free(&bytes);srl_buffer_free(&expected);}projected_collection_free(&value);
+}
 /* Preserve initialized bindings on rejected input and hold owners only during direct traversals. */
 int main(int argc,char** argv){require(argc==2,"Output directory");
  projected_source* owner=(projected_source*)calloc(1,sizeof(*owner));require(owner && projected_source_init(owner)==srl_ok,"Owner init");owner->current.number=7;require(srl_string_set(&owner->current.label,"first",5)==srl_ok,"Owner field");
@@ -84,7 +110,10 @@ int main(int argc,char** argv){require(argc==2,"Output directory");
  const projected_envelope before=envelope;require(projected_envelope_decode_xml(&envelope,output.data,output.size,NULL)==srl_invalid && memcmp(&before,&envelope,sizeof(before))==0,"Reference graph input changed bindings");srl_buffer_free(&output);
  require(projected_source_with_derived(owner,derived,NULL)==srl_ok,"Inherited native readonly view");
  const proof_context context={owner,argv[1]};require(projected_source_with_project(owner,translated,(void*)&context)==srl_ok,"Scoped translator");
- projected_collection_source collection={0};require(projected_collection_source_init(&collection)==srl_ok,"Collection source init");collection.stored.items.data=(uint16_t*)malloc(2u*sizeof(uint16_t));require(collection.stored.items.data!=NULL,"Collection memory");collection.stored.items.size=collection.stored.items.capacity=2;collection.stored.items.data[0]=1;collection.stored.items.data[1]=65535;collection.stored.value.data[0]=0;collection.stored.value.data[1]=255;require(projected_collection_source_with_project(&collection,collection_translated,&collection)==srl_ok,"Collection readonly scope");projected_collection_source_free(&collection);
+ projected_collection_source collection={0};require(projected_collection_source_init(&collection)==srl_ok,"Collection source init");collection.stored.items.data=(uint16_t*)malloc(2u*sizeof(uint16_t));require(collection.stored.items.data!=NULL,"Collection memory");collection.stored.items.size=collection.stored.items.capacity=2;collection.stored.items.data[0]=1;collection.stored.items.data[1]=65535;collection.stored.value.data[0]=0;collection.stored.value.data[1]=255;
+ const collection_context collection_proof={&collection,argv[1]};require(projected_collection_source_with_project(&collection,collection_translated,(void*)&collection_proof)==srl_ok,"Collection readonly scope");
+ const size_t large_values=25000;uint16_t* expanded=(uint16_t*)realloc(collection.stored.items.data,large_values*sizeof(*expanded));require(expanded!=NULL,"Large collection memory");collection.stored.items.data=expanded;collection.stored.items.size=collection.stored.items.capacity=large_values;for(size_t index=0;index<large_values;++index){expanded[index]=index%2?UINT16_MAX:0;}
+ require(projected_collection_source_with_project(&collection,collection_translated,(void*)&collection_proof)==srl_ok,"Large collection readonly scope");projected_collection_source_free(&collection);
  srl_limits bounds=srl_default_limits();bounds.max_elements=1;require(projected_envelope_encode_xml(&envelope,&output,&bounds)!=srl_ok && !output.data,"Reference output budgets");
  projected_envelope detached={0};require(projected_envelope_init(&detached)==srl_ok && projected_envelope_encode_xml(&detached,&output,NULL)!=srl_ok && !output.data,"Detached reference export");projected_envelope_free(&detached);
  require(projected_weak_envelope_encode_xml(&weak,&output,NULL)==srl_ok,"Live weak reference");srl_buffer_free(&output);projected_envelope_free(&envelope);require(released==1,"Strong lease leak");require(projected_weak_envelope_encode_xml(&weak,&output,NULL)!=srl_ok && !output.data,"Expired weak reference export");projected_weak_envelope_free(&weak);projected_source_free(&borrowed);require(released==1,"Duplicate owner release");puts("C native owner leases, direct reference XML and scoped getters pass");return 0;
@@ -117,6 +146,9 @@ def main():
             payload=node[0] if kind=='envelope' else node
             assert payload.find('{'+NS+'}number').text=='7';assert payload.find('{'+NS+'}label').text==('first' if kind=='shared' else 'second')
             if kind=='envelope':assert node.get('label')=='borrowed'
+        collection=etree.parse(str(args.build/f'collection.{language}.xml'));oracle.assertValid(collection)
+        assert [int(child.text) for child in collection.getroot().findall('{'+NS+'}items')]==[0,65535]*12500
+        assert bytes.fromhex(collection.getroot().find('{'+NS+'}value').text)==bytes((0,255))
     private=args.build/'private.serializer';private.write_text(MODEL.replace('inherited : public payload','inherited : private payload'),encoding='utf-8')
     for enabled in ['true','false']:
         target=args.build/('private-'+enabled+'.sentinel');target.write_bytes(b'existing output')

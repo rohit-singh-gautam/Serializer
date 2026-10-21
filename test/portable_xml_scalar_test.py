@@ -367,7 +367,7 @@ func main(){for _,path:=range os.Args[1:]{valid:=strings.HasSuffix(path,".valid.
 
 
 def rejected_bindings(args, languages):
-    """Keep namespace identities and unsupported selected-member comparisons behind precise atomic gates."""
+    """Accept supported identities and protect existing files when a selected contract is unsupported."""
     directory = args.build / 'rejections'; directory.mkdir(parents=True, exist_ok=True)
     fixtures = [
         ('<xs:element name="value" default="p:item"><xs:simpleType><xs:union memberTypes="xs:QName xs:unsignedShort"/></xs:simpleType></xs:element>', '', 'QName union defaults'),
@@ -387,8 +387,14 @@ def rejected_bindings(args, languages):
             output = directory / sdk.OUTPUTS[language]; output.write_text('preserve existing output', encoding='utf-8'); outputs.append(output)
             command += [f'--{language}.output', str(output)]
         result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', timeout=60)
+        if diagnostic == 'QName list enumeration' and all(
+                language in ('go', 'java', 'csharp', 'kotlin', 'swift') for language in languages):
+            if result.returncode != 0 or any(path.read_text(encoding='utf-8') == 'preserve existing output' for path in outputs):
+                raise AssertionError(f'Supported QName enumeration failed: {result.stdout} {result.stderr}')
+            continue
         if result.returncode == 0 or diagnostic not in result.stdout + result.stderr or any(path.read_text(encoding='utf-8') != 'preserve existing output' for path in outputs):
             raise AssertionError(f'Atomic scalar gate {index} failed: {result.stdout} {result.stderr}')
+    return len(fixtures)
 
 
 def main():
@@ -434,8 +440,8 @@ def main():
                     raise AssertionError(f'Independent output oracle differs: {emitted}: {oracle.error_log}')
             elif emitted.exists():
                 raise AssertionError(f'Invalid scalar output published: {emitted}')
-    rejected_bindings(args, languages)
-    print(f'PASS: {len(paths)} independent exact scalar/list/union/default/simpleContent probes and 6 atomic binding gates across {len(languages)} SDKs', flush=True)
+    binding_checks = rejected_bindings(args, languages)
+    print(f'PASS: {len(paths)} independent exact scalar/list/union/default/simpleContent probes and {binding_checks} binding checks across {len(languages)} SDKs', flush=True)
 
 
 if __name__ == '__main__':

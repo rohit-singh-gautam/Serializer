@@ -10,6 +10,22 @@ R"xmlscalar(
   private readonly string listKind;
   private readonly string? fixedValue;
   private readonly SrlXmlRule[] members;
+  private string[][]? qnames, fixedNames, defaultNames;
+  private string[][][]? qnameLists;
+  internal string? DefaultNamespaceText;
+  internal bool DefaultNamespaceAttribute;
+  internal System.Collections.Generic.Dictionary<string,string> DefaultNamespaceScope=new(System.StringComparer.Ordinal);
+  // Bind compiler-owned expanded identities before publishing the prepared rule.
+  internal SrlXmlRule NamespaceValues(string[][] names,string[][][] lists){qnames=names;qnameLists=lists;return this;}
+  // Keep aliases observed by lexical patterns and prefix-list string enumerations.
+  internal SrlXmlRule NamespaceLexical(){KeepNamespaceLexical=true;return this;}
+  internal bool KeepNamespaceLexical;
+  // Retain schema aliases separately from the instance vocabulary used by an explicit value.
+  internal SrlXmlRule NamespaceDefault(string text,string[][] bindings,string[][] names,bool fixedValue,bool attribute){DefaultNamespaceText=text;defaultNames=names;DefaultNamespaceAttribute=attribute;fixedNames=fixedValue?names:null;foreach(var binding in bindings)DefaultNamespaceScope.Add(binding[0],binding[1]);return this;}
+  // Preserve ordinary string alternatives without assigning QName semantics to their spelling.
+  internal int NamespaceMode()=>listKind=="QName"?1:kind=="QName"?0:-1;
+  // Compare the complete schema default before omitting an optional namespace-valued attribute.
+  internal bool MatchesNamespaceDefault(string text,System.Collections.Generic.Dictionary<string,string> scope,int maximum,Limits.IOperation? operation){if(!DefaultNamespaceAttribute||defaultNames==null)return false;var work=new Work(MAX_WORK_UNITS,maximum,operation);work.Allocate(128L+text.Length*4L);string[] tokens=Tokens(text,maximum);var names=new (string Prefix,string Uri,string Local)[tokens.Length];bool empty=false;for(int index=0;index<tokens.Length;++index){names[index]=SrlXmlNamespaceValues.Resolve(tokens[index],NamespaceMode(),scope);empty|=names[index].Uri.Length==0;}return empty&&EqualNames(names,defaultNames,work);}
   // Retain compiler-owned immutable scalar metadata once per generated field.
   internal SrlXmlRule(string kind, string whitespace, int bits, string[] bounds, long length,
       long minimum, long maximum, string[] enumeration, bool finite, Pattern[][] groups,
@@ -111,7 +127,8 @@ R"xmlscalar(
       if (kind == "positiveInteger" && sign <= 0 || kind == "negativeInteger" && sign >= 0 || kind == "nonPositiveInteger" && sign > 0 || kind == "nonNegativeInteger" && sign < 0) throw new System.FormatException("XML integer sign failed");
     } else if (kind == "decimal") {
       if (!System.Text.RegularExpressions.Regex.IsMatch(text, @"\A[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant)) throw new System.FormatException("Invalid XML decimal");
-    } else if (kind == "boolean") SrlXmlBoolean(text);
+)xmlscalar"
+R"xmlscalar(    } else if (kind == "boolean") SrlXmlBoolean(text);
     else if (kind == "float" || kind == "double") SrlXmlFloat(text, kind == "float");
     else if (kind == "language") { if (!System.Text.RegularExpressions.Regex.IsMatch(text, @"\A[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant)) throw new System.FormatException("Invalid XML language"); }
     else if (kind == "Name" || kind == "NCName" || kind == "NMTOKEN" || kind == "ID" || kind == "IDREF" || kind == "ENTITY") {
@@ -159,12 +176,13 @@ R"xmlscalar(
   // Share work across recursive union alternatives; never swallow a resource failure.
   private string Check(string text, Work work) {
     work.Spend(text.Length); text = Normalize(text); Lexical(text);
+    SrlXmlRule selected=this;
     if (members.Length != 0) {
       bool matched = false;
       foreach (SrlXmlRule member in members) {
-        try { member.Check(text, work); matched = true; break; }
+        try { text=member.Check(text, work);selected=work.Selected;matched = true; break; }
         catch (LimitFailure) { throw; }
-        catch (System.FormatException) { /* Another complete union branch may match. */ }
+        catch (System.FormatException) { work.CallbackFailure?.Throw(); /* Another complete union branch may match. */ }
       }
       if (!matched) throw new System.FormatException("XML union has no matching member");
     }
@@ -177,12 +195,13 @@ R"xmlscalar(
       int? order = Compare(text, bounds[index]);
       if (order == null || index == 0 && order.Value < 0 || index == 1 && order.Value > 0 || index == 2 && order.Value <= 0 || index == 3 && order.Value >= 0) throw new System.FormatException("XML numeric facet failed");
     }
-    if (enumeration.Length != 0) {
+    if (enumeration.Length != 0 && (qnames==null||qnames.Length==0) && (qnameLists==null||qnameLists.Length==0)) {
       bool matched = false;
       foreach (string allowed in enumeration) if (Compare(text, Normalize(allowed)) == 0) { matched = true; break; }
       if (!matched) throw new System.FormatException("XML enumeration facet failed");
     }
-    if (fixedValue != null && Compare(text, Normalize(fixedValue)) != 0) throw new System.FormatException("XML fixed value differs");
+    if (fixedValue != null && fixedNames==null && Compare(text, Normalize(fixedValue)) != 0) throw new System.FormatException("XML fixed value differs");
+    if(work.Scope!=null&&NamespaceMode()>=0)CheckNames(text,work);
     if (finite && !double.IsFinite(SrlXmlFloat(text, kind == "float"))) throw new System.FormatException("XML finite facet failed");
     if (groups.Length != 0) {
       foreach (Pattern[] group in groups) {
@@ -191,8 +210,21 @@ R"xmlscalar(
         if (!matched) throw new System.FormatException("XML portable pattern facet failed");
       }
     }
-    return text;
+    work.Selected=selected;return text;
   }
+  // Validate one complete value in its retained scope, preserving the first successful member.
+  internal Work CheckNamespace(string text,System.Collections.Generic.Dictionary<string,string> scope,int maximum,Limits.IOperation? operation){var work=new Work(MAX_WORK_UNITS,maximum,operation){Scope=scope};try{work.Checked=Check(text,work);return work;}catch(LimitFailure failure){operation?.ResourceLimit(failure.Message);throw;}}
+  // Admit temporary identities before resolving or comparing any instance aliases.
+  private void CheckNames(string text,Work work){
+    const int identityEntryBytes=64;int count=0;bool inside=false;foreach(char character in text){bool space=character==' '||character=='\t'||character=='\r'||character=='\n';if(!space&&!inside)++count;inside=!space;}
+    work.Allocate((long)identityEntryBytes*count+text.Length*4L);string[] tokens=Tokens(text,work.MaximumItems);int mode=NamespaceMode();if(mode==0&&tokens.Length!=1)throw new System.FormatException("XML QName requires one name");
+    var names=new (string Prefix,string Uri,string Local)[tokens.Length];for(int index=0;index<tokens.Length;++index)names[index]=SrlXmlNamespaceValues.Resolve(tokens[index],mode,work.Scope!);
+    if(fixedNames!=null&&!EqualNames(names,fixedNames,work))throw new System.FormatException("XML fixed QName value differs");
+    if(qnames!=null&&qnames.Length!=0){foreach(var allowed in qnames)if(EqualNames(names,new[]{allowed},work))return;throw new System.FormatException("XML QName enumeration facet failed");}
+    if(qnameLists!=null&&qnameLists.Length!=0){foreach(var allowed in qnameLists)if(EqualNames(names,allowed,work))return;throw new System.FormatException("XML QName enumeration facet failed");}
+  }
+  // Compare ordered expanded values while excluding lexical prefixes from equality.
+  private static bool EqualNames((string Prefix,string Uri,string Local)[] actual,string[][] expected,Work work){work.Spend(1);if(actual.Length!=expected.Length)return false;for(int index=0;index<actual.Length;++index){var name=actual[index];work.Spend(name.Uri.Length+name.Local.Length+1);if(name.Uri!=expected[index][0]||name.Local!=expected[index][1])return false;}return true;}
   // Preserve bounded evaluation failures while union branches probe ordinary lexical failures.
   private sealed class LimitFailure : System.FormatException {
     // Retain the precise resource diagnostic used by ordinary pattern checks.
@@ -204,10 +236,17 @@ R"xmlscalar(
   internal sealed class Work {
     private int remaining;
     internal readonly int MaximumItems;
+    private readonly Limits.IOperation? operation;
+    internal System.Collections.Generic.Dictionary<string,string>? Scope;
+    internal SrlXmlRule Selected=null!;
+    internal string Checked=string.Empty;
+    internal System.Runtime.ExceptionServices.ExceptionDispatchInfo? CallbackFailure;
     // Retain one private finite allowance for this match operation.
-    internal Work(int remaining, int maximumItems) { this.remaining = remaining; MaximumItems = maximumItems; }
+    internal Work(int remaining, int maximumItems,Limits.IOperation? operation=null) { this.remaining = remaining; MaximumItems = maximumItems;this.operation=operation; }
+    // Preserve caller exception identity rather than treating an admission failure as a union mismatch.
+    internal void Allocate(long bytes){try{operation?.Consume(Limits.OperationResource.AllocationBytes,bytes);}catch(System.Exception failure){CallbackFailure=System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure);throw;}}
     // Charge before clearing state storage, following edges or inspecting characters.
-    internal void Spend(int units) { if (units < 0 || units > remaining) throw new LimitFailure("Portable XML regex work limit exceeded"); remaining -= units; }
+    internal void Spend(int units) {try{operation?.Consume(Limits.OperationResource.WorkUnits,units);}catch(System.Exception failure){CallbackFailure=System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure);throw;} if (units < 0 || units > remaining) throw new LimitFailure("Portable XML regex work limit exceeded"); remaining -= units; }
   }
   // Execute only compiler-lowered Thompson instructions, without host-regex semantics.
   internal sealed class Pattern {

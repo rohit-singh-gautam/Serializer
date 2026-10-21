@@ -619,8 +619,12 @@ Compiler/runtime 2.16.0 additionally retains complete C++/Python scalar-child
 scopes by field and occurrence, including local/shadowed declarations and default
 namespace resets. Keep these XML-only scopes associated with the corresponding
 values when editing. Go/Java/C#/Kotlin/Swift support plain QName/list/prefix-list mappings with
-per-occurrence bindings; their namespace-dependent union/default/fixed/enumeration
-combinations remain explicit generation errors. C/Rust retain plain scalar scopes
+per-occurrence bindings. Go/Java/C# additionally support scalar/list enumeration,
+default/fixed values and selected QName/list union members; see the
+[constraint checks and remaining gates](../verification/verification-qname-constraints-2026-10-21.md).
+Kotlin/Swift also support expanded scalar/list enumeration; their namespace-dependent
+default/fixed and union combinations remain gated. All five retain QName-pattern
+aliases and prefix-list string enumeration spellings. C/Rust retain plain scalar scopes
 through their XML document companions with additional graph capability gates. See the
 [current namespace checks](../verification/verification-qname-scopes-2026-10-20.md).
 Unknown core names remain errors. Extension policies preserve semantic content

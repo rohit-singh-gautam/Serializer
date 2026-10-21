@@ -44,10 +44,27 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Release **2.24.0** adds opt-in [collaborative retained-branch merging](docs/managed/branch_merging.md#collaboration).
+Tree authorities advertise `branch_merges_enabled()` after the host enables
+`collaboration_options::allow_branch_merges`. Replica `merge_request` binds both
+the accepted cursor and native target revision. Complete-candidate policy/locks,
+accepted field deltas, selective Undo/Redo and native two-parent journal recovery
+use the existing publication boundary. The host may install an explicit conflict
+resolver; clients cannot supply ancestry or bypass the current policy.
+Go/Java/C# XML codecs also retain schema-scope QName scalar/list enumeration,
+default and fixed identities, including QName/list union members. Kotlin/Swift
+add scalar/list expanded enumeration checks. These five codecs retain aliases
+observed by QName patterns and prefix-list string enumeration. Regenerate
+affected codecs; [the executed checks and remaining boundaries](docs/verification/verification-qname-constraints-2026-10-21.md)
+keep broader OPC requirements separate.
+The [large readonly XML checks](docs/verification/verification-readonly-xml-stress-2026-10-21.md)
+exercise 25,000 borrowed values in all eleven outputs, with storage identity,
+exact byte bounds and recovery; broader OPC-R10 combinations remain pending.
+
 Release **2.23.0** adds [native C++ branch merging](docs/managed/branch_merging.md)
 for retained tree revisions, with explicit conflict choices, two-parent ancestry
-and native journal recovery. Collaboration merge negotiation remains pending;
-final qualification follows the implementation/compilation commit.
+and native journal recovery. The 2.24 qualification adds opt-in collaboration
+requests and verifies all four native storage/ID profiles on Windows and Linux.
 Unchanged managed variant identities also merge per field during native merging
 and selective collaboration Undo/Redo; tag/identity replacements remain atomic.
 Use `rohit::serializer::serialize_as(object)` for
@@ -87,7 +104,7 @@ Regenerate Python package facades for cancellation checks after Save hooks:
 pre-publication cancellation preserves the old file; a failure after replacement
 reports `publication_uncertain` with the complete new archive retained.
 
-The current compiler and runtime release is **2.23.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.24.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.21.0**;

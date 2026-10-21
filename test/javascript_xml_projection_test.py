@@ -81,6 +81,29 @@ class javascript_xml_projection_test(unittest.TestCase):
         assert.equal(Model.XmlProjectionPayload.decodeXml(owner.value.encodeXml()).number,7);
         ''' )
 
+    def test_large_scoped_array_storage_limits_and_recovery(self):
+        """Keep 25,000 values borrowed through complete output, exact/one-tight limits and a fresh retry."""
+        result=json.loads(self.run_node('''
+        const Guarded=await import('./extra-constructor-tripwires.mjs');
+        const owner=new Guarded.ProjectionExtraSource();owner.values=Array.from({length:25000},(_,index)=>index);owner.nested.number=17;
+        const values=owner.values,nested=owner.nested;
+        const native=Object.values(Guarded.Protocol).map(protocol=>owner.encode(protocol));
+        const exportView=(view,limits)=>{assert.equal(view.getValues(),values);assert.equal(view.getNested(),nested);return view.encodeXml(limits);};
+        let output;globalThis.srlProjectionForbidTargetConstruction=true;
+        try{
+          output=owner.withProject(view=>exportView(view));const length=new TextEncoder().encode(output).length;
+          assert.equal(owner.withProject(view=>exportView(view,new Guarded.XmlLimits({maxBytes:length}))),output);
+          let published='previous output';assert.throws(()=>{published=owner.withProject(view=>exportView(view,new Guarded.XmlLimits({maxBytes:length-1})));});
+          assert.equal(published,'previous output');assert.equal(owner.withProject(view=>exportView(view)),output);
+        }finally{globalThis.srlProjectionForbidTargetConstruction=false;}
+        for(const [index,protocol] of Object.values(Guarded.Protocol).entries())assert.deepEqual(owner.encode(protocol),native[index]);
+        assert.equal(owner.values,values);assert.equal(owner.nested,nested);console.log(JSON.stringify(output));
+        '''))
+        root=self.provider.fromstring(result.encode())
+        self.assertEqual([int(child.text) for child in root.findall('{urn:projection-extra}values')],list(range(25000)))
+        self.assertEqual(root.find('{urn:projection-extra}nested')[0].text,'17')
+        self.assertEqual(root.find('{urn:projection-extra}fallback').text,'default')
+
     def test_weak_qname_scope_nil_and_output_policies(self):
         """Preserve selected namespace state, native weak expiration, nil/empty distinctions and exact callback failures."""
         outputs=json.loads(self.run_node('''

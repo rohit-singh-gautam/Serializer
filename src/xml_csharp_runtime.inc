@@ -267,12 +267,27 @@ R"xmlcs(
     private readonly System.Collections.Generic.List<SrlXmlIdentity> identities = new();
     private readonly System.IO.MemoryStream bytes = new();
     private readonly System.Collections.Generic.List<Frame> stack = new();
+    private System.Collections.Generic.HashSet<string>? namespaceReserved;
+    private int namespaceReservedBytes;
+    private bool skipNamespaceAttribute;
+    // Keep schema-owned no-namespace defaults private when the owner needs another default URI.
+    internal bool NamespaceDefaultOmissionAllowed()=>identities.Count==0&&IdentityNamespace("")!="";
+    // Consume the immediately following optional attribute through schema default augmentation.
+    internal void OmitNamespaceAttribute(){skipNamespaceAttribute=true;}
+    // Bound namespace preflight while borrowing the unchanged native owner graph.
+    internal void ReserveNamespaceDepth(int depth){if(depth>=budget.Limits.MaxDepth)throw SrlXmlBudget.Limit("XML namespace reservation depth limit exceeded",budget.Operation);budget.Operation?.Consume(Limits.OperationResource.WorkUnits,1);if(namespaceReserved==null){budget.Operation?.Consume(Limits.OperationResource.AllocationBytes,128);namespaceReserved=new(System.StringComparer.Ordinal);}}
+    // Reserve lexical prefixes without copying payload objects or constructing XML descendants.
+    internal void ReserveNamespaceText(string text){if(text==null)throw new System.FormatException("Null XML namespace value");if(text.Length>budget.Limits.MaxStringBytes)throw SrlXmlBudget.Limit("XML namespace reservation text limit exceeded",budget.Operation);budget.Operation?.Consume(Limits.OperationResource.WorkUnits,text.Length);int start=0,colon=-1;for(int end=0;end<=text.Length;++end){if(end!=text.Length&&" \t\r\n".IndexOf(text[end])<0){if(colon<0&&text[end]==':')colon=end;continue;}if(colon<start)colon=end;if(colon>=start&&colon<=end){budget.Operation?.Consume(Limits.OperationResource.AllocationBytes,128L+(colon-start)*4L);string prefix=text[start..colon];if(SrlXmlExtensionNcName(prefix)&&!namespaceReserved!.Contains(prefix)){int size=SrlUtf8.GetByteCount(prefix);if(size>budget.Limits.MaxStringBytes-namespaceReservedBytes)throw SrlXmlBudget.Limit("XML namespace reservation byte limit exceeded",budget.Operation);namespaceReserved.Add(prefix);namespaceReservedBytes+=size;}}start=end+1;colon=-1;}}
+    // Preserve a selected union string's original default namespace on its pending scalar tag.
+    internal void NamespaceStringDefault(string uri){var frame=stack[^1];if(uri==IdentityNamespace(""))return;if(!frame.Pending||frame.UnqualifiedQName||frame.Name.IndexOf(':')<0&&frame.Namespace!=uri||frame.IdentityNamespaces!=null&&frame.IdentityNamespaces.ContainsKey(""))throw new System.FormatException("XML QName output would change selected string member");Declare("",uri);}
+    // Protect earlier unprefixed QName identities from a later default-namespace change.
+    internal void MarkUnqualifiedQName(){stack[^1].UnqualifiedQName=true;}
     // Track a pending start tag without retaining scalar values or descendants.
     private sealed class Frame {
       internal readonly string Name, Namespace, Expanded;
       internal readonly System.Collections.Generic.HashSet<string> Attributes = new();
       internal System.Collections.Generic.Dictionary<string,string>? IdentityAttributes, IdentityNamespaces;
-      internal bool Pending = true, Scoped;
+      internal bool Pending = true, Scoped, UnqualifiedQName;
       // Bind the generated qualified name used by its end tag.
       internal Frame(string name, string xmlNamespace, string expanded) { Name = name; Namespace = xmlNamespace; Expanded=expanded; }
     }
@@ -314,7 +329,7 @@ R"xmlcs(
     // Admit and emit an element before visiting any model descendants.
     internal void Open(string name) { if(stack.Count!=0&&stack[^1].Scoped){Open(name,null);return;} if (stack.Count >= budget.Limits.MaxDepth || budget.Nodes >= budget.Limits.MaxElements) throw SrlXmlBudget.Limit("XML node or depth limit exceeded",budget.Operation); budget.Text(name); ++budget.Nodes; Seal(); var (uri, local) = Parts(name); string prefix = uri == "http://www.w3.org/XML/1998/namespace" ? "xml" : "srl"; string qualified = uri.Length == 0 ? local : prefix + ":" + local; Append("<" + qualified); if (uri.Length != 0 && prefix != "xml" && (stack.Count == 0 || stack[^1].Namespace != uri)) { NamespaceBudget(prefix,uri); Append(" xmlns:srl=\""); Escaped(uri, true); Append("\""); } stack.Add(new Frame(qualified, uri, name)); }
     // Choose a deterministic prefix without shadowing an opaque lexical QName binding.
-    internal string FreshPrefix(string basis,string uri){for(int index=0;;++index){string prefix=basis+(index==0?"":index.ToString(System.Globalization.CultureInfo.InvariantCulture));string? bound=IdentityNamespace(prefix);if(bound==null||bound==uri)return prefix;}}
+    internal string FreshPrefix(string basis,string uri){for(int index=0;;++index){string prefix=basis+(index==0?"":index.ToString(System.Globalization.CultureInfo.InvariantCulture));if(namespaceReserved!=null&&namespaceReserved.Contains(prefix))continue;string? bound=IdentityNamespace(prefix);if(bound==null||bound==uri)return prefix;}}
     // Admit the private rewritten QName lexical builder before retaining its tokens.
     internal void NamespaceRetention(long size){budget.Operation?.Consume(Limits.OperationResource.WorkUnits,size+1);budget.Operation?.Consume(Limits.OperationResource.AllocationBytes,64L+size*2);}
     // Reuse existing bindings so retained semantic scope charges stay stable across roundtrips.
@@ -324,7 +339,7 @@ R"xmlcs(
     // Pin every preserved binding before selecting a known or opaque element prefix.
     internal void Open(string name,System.Collections.Generic.Dictionary<string,string>? scope){
       if(stack.Count>=budget.Limits.MaxDepth||budget.Nodes>=budget.Limits.MaxElements)throw SrlXmlBudget.Limit("XML node or depth limit exceeded",budget.Operation);budget.Text(name);++budget.Nodes;Seal();var (uri,local)=Parts(name);string prefix="";
-      var temporary=new Frame("",uri,name){Scoped=true,IdentityNamespaces=scope};stack.Add(temporary);if(uri.Length!=0)prefix=MatchingPrefix(uri,false)??(uri=="http://www.w3.org/XML/1998/namespace"?"xml":FreshPrefix("srl",uri));stack.RemoveAt(stack.Count-1);
+      var temporary=new Frame("",uri,name){Scoped=true,IdentityNamespaces=scope};stack.Add(temporary);if(uri.Length!=0)prefix=MatchingPrefix(uri,namespaceReserved!=null)??(uri=="http://www.w3.org/XML/1998/namespace"?"xml":FreshPrefix("srl",uri));stack.RemoveAt(stack.Count-1);
       string qualified=prefix.Length==0?local:prefix+":"+local;Append("<"+qualified);var frame=new Frame(qualified,uri,name){Scoped=true};stack.Add(frame);if(scope!=null)foreach(var entry in scope)Declare(entry.Key,entry.Value);
       if(uri.Length==0){if(IdentityNamespace("")!.Length!=0)Declare("","");}else Declare(prefix,uri);
     }
@@ -333,7 +348,7 @@ R"xmlcs(
 )xmlcs"
 R"xmlcs(
     // Add each attribute before the first content token.
-    internal void Attribute(string name, string text) { if(stack[^1].Scoped){ScopedAttribute(name,text);return;} var frame = stack[^1]; if (!frame.Pending || !frame.Attributes.Add(name)) throw new System.FormatException("Invalid XML attribute position or duplicate"); if (budget.Attributes >= budget.Limits.MaxElements) throw SrlXmlBudget.Limit("XML attribute limit exceeded",budget.Operation); ++budget.Attributes; budget.Text(name); budget.Text(text); var (uri, local) = Parts(name); string prefix = uri == "http://www.w3.org/XML/1998/namespace" ? "xml" : "a" + frame.Attributes.Count; if (uri.Length != 0 && prefix != "xml") { NamespaceBudget(prefix,uri); Append(" xmlns:" + prefix + "=\""); Escaped(uri, true); Append("\""); } Append(" " + (uri.Length == 0 ? local : prefix + ":" + local) + "=\""); Escaped(text, true); Append("\""); if(identities.Count!=0){frame.IdentityAttributes??=new();frame.IdentityAttributes.Add(name,text);if(uri.Length!=0&&prefix!="xml"){frame.IdentityNamespaces??=new();frame.IdentityNamespaces[prefix]=uri;}} }
+    internal void Attribute(string name, string text) { if(skipNamespaceAttribute){skipNamespaceAttribute=false;return;} if(stack[^1].Scoped){ScopedAttribute(name,text);return;} var frame = stack[^1]; if (!frame.Pending || !frame.Attributes.Add(name)) throw new System.FormatException("Invalid XML attribute position or duplicate"); if (budget.Attributes >= budget.Limits.MaxElements) throw SrlXmlBudget.Limit("XML attribute limit exceeded",budget.Operation); ++budget.Attributes; budget.Text(name); budget.Text(text); var (uri, local) = Parts(name); string prefix = uri == "http://www.w3.org/XML/1998/namespace" ? "xml" : "a" + frame.Attributes.Count; if (uri.Length != 0 && prefix != "xml") { NamespaceBudget(prefix,uri); Append(" xmlns:" + prefix + "=\""); Escaped(uri, true); Append("\""); } Append(" " + (uri.Length == 0 ? local : prefix + ":" + local) + "=\""); Escaped(text, true); Append("\""); if(identities.Count!=0){frame.IdentityAttributes??=new();frame.IdentityAttributes.Add(name,text);if(uri.Length!=0&&prefix!="xml"){frame.IdentityNamespaces??=new();frame.IdentityNamespaces[prefix]=uri;}} }
     // Declare a QName prefix on this pending payload before emitting its xsi:type attribute.
     internal void TypeName(string identity) {
       var frame = stack[^1]; if (!frame.Pending) throw new System.FormatException("XML variant type follows content");

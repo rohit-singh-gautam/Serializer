@@ -212,8 +212,8 @@ func (f *srlXmlInputFields) finish()error{if f.used!=len(f.attrs){return fmt.Err
 // Reject oversized serialized output before growing its byte storage.
 func (w *srlXmlSink) Write(data []byte)(int,error) { if len(data)>w.maximum-w.text.Len() { return 0,srlXmlLimitError("XML output limit exceeded") }; return w.text.Write(data) }
 // Retain only the pending start tag and namespace of each active ancestor.
-type srlXmlOutputFrame struct { start srlxml.StartElement; expanded srlxml.Name; pending bool; inherited string; manual,scoped bool; attributes map[srlxml.Name]bool; identityAttributes map[string]string }
-type srlXmlOutput struct { budget srlXmlBudget; mapLimits XmlMapLimits; mixedLimits XmlMixedLimits; identityLimits XmlIdentityLimits; digestLimits XmlDigestLimits; extensionOptions XmlExtensionOptions; identities []*srlXmlIdentity; sink srlXmlSink; encoder *srlxml.Encoder; stack []srlXmlOutputFrame }
+type srlXmlOutputFrame struct { start srlxml.StartElement; expanded srlxml.Name; pending bool; inherited string; manual,scoped bool; attributes map[srlxml.Name]bool; identityAttributes map[string]string; unqualifiedQName bool }
+type srlXmlOutput struct { budget srlXmlBudget; mapLimits XmlMapLimits; mixedLimits XmlMixedLimits; identityLimits XmlIdentityLimits; digestLimits XmlDigestLimits; extensionOptions XmlExtensionOptions; identities []*srlXmlIdentity; sink srlXmlSink; encoder *srlxml.Encoder; stack []srlXmlOutputFrame; namespaceReserved map[string]struct{}; namespaceReservedBytes int; skipNamespaceAttribute, namespaceReserveOnly bool; namespaceScanDepth int }
 // Create operation-local output; no model value or descendant node is retained.
 func srlXmlOutputStart(limits XmlLimits,maps ...XmlMapLimits)*srlXmlOutput { mapLimits:=DefaultXmlMapLimits();if len(maps)!=0{mapLimits=maps[0]};result:=&srlXmlOutput{budget:srlXmlBudget{limits:limits},mapLimits:mapLimits,mixedLimits:DefaultXmlMixedLimits(),identityLimits:DefaultXmlIdentityLimits(),digestLimits:DefaultXmlDigestLimits(),extensionOptions:DefaultXmlExtensionOptions(),sink:srlXmlSink{maximum:limits.MaxBytes}};result.encoder=srlxml.NewEncoder(&result.sink);return result }
 // Flush attributes before the first child or scalar text token.
@@ -229,6 +229,7 @@ func srlXmlAttributePrefix(uri string)string{
 }
 // Add a statically bound attribute while its start token remains pending, reusing inherited aliases.
 func (w *srlXmlOutput) attribute(name srlxml.Name,text string)error {
+  if w.skipNamespaceAttribute{w.skipNamespaceAttribute=false;return nil}
   w.budget.field=name.Local;if err:=w.budget.charge("allocation",96);err!=nil{return err}
   if len(w.stack)==0||!w.stack[len(w.stack)-1].pending{return fmt.Errorf("XML attribute follows content")};frame:=&w.stack[len(w.stack)-1]
   if name.Space=="xmlns"||name.Space==""&&(name.Local=="xmlns"||strings.HasPrefix(name.Local,"xmlns:")){prefix:=name.Local;if name.Space==""{prefix=strings.TrimPrefix(prefix,"xmlns:");if prefix=="xmlns"{prefix=""}};if err:=w.budget.namespaceValue(prefix,text);err!=nil{return err};local:="xmlns";if prefix!=""{local+=":"+prefix};frame.start.Attr=append(frame.start.Attr,srlxml.Attr{Name:srlxml.Name{Local:local},Value:text});return nil}
@@ -269,7 +270,8 @@ func (w *srlXmlOutput) typeName(identity srlxml.Name)error{
   }else if identity.Space!=""{if err:=w.attribute(srlxml.Name{Local:"xmlns:srltype"},identity.Space);err!=nil{return err};lexical="srltype:"+lexical}
   return w.attribute(srlxml.Name{Space:"http://www.w3.org/2001/XMLSchema-instance",Local:"type"},lexical)
 }
-// Validate and escape a scalar directly into bounded output storage.
+)serializer"
+R"serializer(// Validate and escape a scalar directly into bounded output storage.
 func (w *srlXmlOutput) text(text string)error { if err:=w.budget.textValue(text);err!=nil{return err};if err:=w.seal();err!=nil{return err};for _,identity:=range w.identities{if !identity.complete{if err:=identity.text(text);err!=nil{return err}}};return w.encoder.EncodeToken(srlxml.CharData(text)) }
 // Complete one active element without retaining its finished contents.
 func (w *srlXmlOutput) close()error { if len(w.stack)==0{return fmt.Errorf("Unexpected XML end")};if err:=w.seal();err!=nil{return err};last:=len(w.stack)-1;for _,identity:=range w.identities{if !identity.complete{if err:=identity.end(w.identityNamespace);err!=nil{return err}}};end:=w.stack[last].start.End();w.stack=w.stack[:last];return w.encoder.EncodeToken(end) }
@@ -325,7 +327,7 @@ func srlXmlFormatFloat(value float64,bits int)string { if math.IsNaN(value){retu
 type srlXmlPatternState struct { epsilon []int; ranges [][2]rune; next int; consumes,inverted,dot,accepting bool }
 )serializer"
 R"serializer(type srlXmlPattern struct { start int; states []srlXmlPatternState }
-type srlXmlPatternWork struct { remaining int; budget *srlXmlBudget }
+type srlXmlPatternWork struct { remaining int; budget *srlXmlBudget; namespace func(string)(string,bool); selected *srlXmlRule }
 // Charge deterministic matching work before clearing storage or following an edge.
 func (w *srlXmlPatternWork) spend(units int)error { if w.budget!=nil{if err:=w.budget.charge("work",int64(units));err!=nil{return err}};if units<0||units>w.remaining{return srlXmlLimitError("Portable XML regex work limit exceeded")};w.remaining-=units;return nil }
 // Execute a prepared Thompson automaton without backtracking or host-regex semantics.

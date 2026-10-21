@@ -254,8 +254,8 @@ def main():
             if any((directory / language / sdk.OUTPUTS[language]).read_bytes() != original[language] for language in languages):
                 raise AssertionError('Rejected pattern replaced generated source')
         total += len(paths)
-    scalars.rejected_bindings(args, languages)
-    print(f'PASS: {total} independent exact scalar/list/union/default/pattern probes and 6 atomic binding gates across {len(languages)} SDKs', flush=True)
+    binding_checks = scalars.rejected_bindings(args, languages)
+    print(f'PASS: {total} independent exact scalar/list/union/default/pattern probes and {binding_checks} binding checks across {len(languages)} SDKs', flush=True)
 
 
 if __name__ == '__main__':

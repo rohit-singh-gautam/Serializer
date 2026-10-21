@@ -10,6 +10,22 @@ R"xmlscalar(
   private final Pattern[][] groups;
   private final String listKind, fixed;
   private final SrlXmlRule[] members;
+  private String[][] qnames, fixedNames, defaultNames;
+  private String[][][] qnameLists;
+  private String defaultText;
+  private boolean defaultAttribute;
+  private java.util.Map<String,String> defaultScope=java.util.Map.of();
+  /** Bind schema-owned expanded identities before publishing this immutable prepared field rule. */
+  SrlXmlRule namespaceValues(String[][] names,String[][][] lists){qnames=names;qnameLists=lists;return this;}
+  /** Preserve prefix spellings observed by a pattern or lexical prefix-list enumeration. */
+  SrlXmlRule namespaceLexical(){keepNamespaceLexical=true;return this;}
+  private boolean keepNamespaceLexical;
+  /** Retain only schema lexical aliases needed to materialize an absent attribute or empty element. */
+  SrlXmlRule namespaceDefault(String text,String[][] bindings,String[][] names,boolean fixedValue,boolean attribute){defaultText=text;defaultNames=names;defaultAttribute=attribute;fixedNames=fixedValue?names:null;var scope=new java.util.LinkedHashMap<String,String>();for(var binding:bindings)scope.put(binding[0],binding[1]);defaultScope=java.util.Map.copyOf(scope);return this;}
+  /** Identify the selected leaf without interpreting an ordinary string union member as a QName. */
+  int namespaceMode(){return listKind.equals("QName")?1:kind.equals("QName")?0:-1;}
+  /** Omit an optional default only when its complete expanded value is schema-equivalent. */
+  boolean matchesNamespaceDefault(String text,java.util.Map<String,String> scope,int maximum,SrlXmlBudget budget){if(!defaultAttribute||defaultNames==null)return false;var work=new Work(MAX_WORK_UNITS,maximum,budget);work.charge("allocation",128L+text.length()*4L);String[] tokens=tokens(text,maximum);String[][] names=new String[tokens.length][];boolean empty=false;for(int index=0;index<tokens.length;++index){names[index]=SrlXmlNamespaceValues.resolve(tokens[index],namespaceMode(),scope);empty|=names[index][1].isEmpty();}return empty&&equalNames(names,defaultNames,work);}
   /** Retain compiler-owned immutable scalar metadata once per field. */
   SrlXmlRule(String kind, String whitespace, int bits, String[] bounds, long length,
       long minimum, long maximum, String[] enumeration, boolean finite, Pattern[][] groups,
@@ -104,7 +120,8 @@ R"xmlscalar(
   String check(String text) {
     return check(text, MAX_LIST_ITEMS);
   }
-  /** Carry the operation's native collection admission limit through every union/list branch. */
+)xmlscalar"
+R"xmlscalar(  /** Carry the operation's native collection admission limit through every union/list branch. */
   String check(String text, int maximumItems) {
     if (text == null) throw new IllegalArgumentException("Null XML scalar value");
     return check(text,maximumItems,null);
@@ -129,12 +146,13 @@ R"xmlscalar(
   /** Share work across recursive union alternatives; resource failures cannot select another branch. */
   private String check(String text, Work work) {
     work.spend(text.length()); text = normalize(text); lexical(text);
+    SrlXmlRule selected=this;
     if (members.length != 0) {
       boolean matched = false;
       for (SrlXmlRule member : members) {
-        try { member.check(text, work); matched = true; break; }
+        try { text=member.check(text, work); selected=work.selected;matched = true; break; }
         catch (LimitFailure failure) { throw failure; }
-        catch (IllegalArgumentException rejected) { /* A different complete union branch may match. */ }
+        catch (IllegalArgumentException rejected) { if(work.callbackFailure!=null)throw work.callbackFailure; /* A different complete union branch may match. */ }
       }
       if (!matched) throw new IllegalArgumentException("XML union has no matching member");
     }
@@ -146,12 +164,13 @@ R"xmlscalar(
       Integer order = compare(text, bounds[index]);
       if (order == null || index == 0 && order < 0 || index == 1 && order > 0 || index == 2 && order <= 0 || index == 3 && order >= 0) throw new IllegalArgumentException("XML numeric facet failed");
     }
-    if (enumeration.length != 0) {
+    if (enumeration.length != 0 && (qnames==null||qnames.length==0) && (qnameLists==null||qnameLists.length==0)) {
       boolean matched = false;
       for (String allowed : enumeration) { Integer order = compare(text, normalize(allowed)); if (order != null && order == 0) { matched = true; break; } }
       if (!matched) throw new IllegalArgumentException("XML enumeration facet failed");
     }
-    if (fixed != null && !Integer.valueOf(0).equals(compare(text, normalize(fixed)))) throw new IllegalArgumentException("XML fixed value differs");
+    if (fixed != null && fixedNames==null && !Integer.valueOf(0).equals(compare(text, normalize(fixed)))) throw new IllegalArgumentException("XML fixed value differs");
+    if(work.scope!=null&&namespaceMode()>=0)checkNames(text,work);
     if (finite && !Double.isFinite(srlXmlFloat(text, kind.equals("float")))) throw new IllegalArgumentException("XML finite facet failed");
     if (groups.length != 0) {
       for (Pattern[] group : groups) {
@@ -160,8 +179,23 @@ R"xmlscalar(
         if (!matched) throw new IllegalArgumentException("XML portable pattern facet failed");
       }
     }
-    return text;
+    work.selected=selected;return text;
   }
+  /** Validate a complete scalar in its original scope, retaining the first successful leaf. */
+  Work checkNamespace(String text,java.util.Map<String,String> scope,int maximum,SrlXmlBudget budget){var work=new Work(MAX_WORK_UNITS,maximum,budget);work.scope=scope;work.checked=check(text,work);return work;}
+  /** Admit temporary identities before resolving aliases and comparing schema-owned values. */
+  private void checkNames(String text,Work work){
+    final int identityEntryBytes=64;int count=0;boolean inside=false;
+    for(int index=0;index<text.length();++index){char character=text.charAt(index);boolean space=character==' '||character=='\t'||character=='\r'||character=='\n';if(!space&&!inside)++count;inside=!space;}
+    work.charge("allocation",(long)identityEntryBytes*count+text.length()*4L);
+    String[] tokens=tokens(text,work.maximumItems);int mode=namespaceMode();if(mode==0&&tokens.length!=1)throw new IllegalArgumentException("XML QName requires one name");
+    String[][] names=new String[tokens.length][];for(int index=0;index<tokens.length;++index)names[index]=SrlXmlNamespaceValues.resolve(tokens[index],mode,work.scope);
+    if(fixedNames!=null&&!equalNames(names,fixedNames,work))throw new IllegalArgumentException("XML fixed QName value differs");
+    if(qnames!=null&&qnames.length!=0){for(var allowed:qnames)if(equalNames(names,new String[][]{allowed},work))return;throw new IllegalArgumentException("XML QName enumeration facet failed");}
+    if(qnameLists!=null&&qnameLists.length!=0){for(var allowed:qnameLists)if(equalNames(names,allowed,work))return;throw new IllegalArgumentException("XML QName enumeration facet failed");}
+  }
+  /** Compare ordered expanded identities, excluding the source prefix from value equality. */
+  private static boolean equalNames(String[][] actual,String[][] expected,Work work){work.spend(1);if(actual.length!=expected.length)return false;for(int index=0;index<actual.length;++index){var name=actual[index];work.spend(name[1].length()+name[2].length()+1);if(!name[1].equals(expected[index][0])||!name[2].equals(expected[index][1]))return false;}return true;}
   /** Preserve bounded evaluation failures across union branch probing. */
   private static final class LimitFailure extends IllegalArgumentException {
     private static final long serialVersionUID = 1L;
@@ -183,12 +217,16 @@ R"xmlscalar(
   private static final class Work {
     private int remaining;
     final int maximumItems;final SrlXmlBudget budget;
+    java.util.Map<String,String> scope;SrlXmlRule selected;String checked;
+    RuntimeException callbackFailure;
     /** Retain one private finite allowance. */
     Work(int remaining, int maximumItems) {this(remaining,maximumItems,null);}
     /** Borrow only operation-local admission, never mutate static scalar metadata. */
     Work(int remaining,int maximumItems,SrlXmlBudget budget){this.remaining=remaining;this.maximumItems=maximumItems;this.budget=budget;}
     /** Charge before clearing state storage, following edges or inspecting characters. */
-    void spend(int units) { if(budget!=null)budget.charge("work",units);if (units < 0 || units > remaining) throw new LimitFailure("Portable XML regex work limit exceeded"); remaining -= units; }
+    void spend(int units) { charge("work",units);if (units < 0 || units > remaining) throw new LimitFailure("Portable XML regex work limit exceeded"); remaining -= units; }
+    /** Preserve the caller's first admission exception across speculative union alternatives. */
+    void charge(String resource,long units){try{if(budget!=null)budget.charge(resource,units);}catch(RuntimeException failure){callbackFailure=failure;throw failure;}}
   }
   /** Execute only compiler-lowered portable Thompson instructions, never host regex syntax. */
   static final class Pattern {

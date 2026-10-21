@@ -86,6 +86,34 @@ class python_xml_projection_test(unittest.TestCase):
             envelope.label.encode_xml()
         self.assertEqual(module.XmlProjectionPayload.decode_xml(envelope.value.encode_xml()).number,7)
 
+    def test_large_scoped_array_limits_and_fresh_recovery(self):
+        """Borrow 25,000 source values while target construction and copied nested owners are forbidden."""
+        extra=self.extra; owner=extra.ProjectionExtraSource()
+        owner.values=list(range(25000)); owner.nested.number=17
+        original_values=owner.values; original_nested=owner.nested
+        native=[owner.encode(protocol) for protocol in extra.Protocol]
+        def export(view, limits=None):
+            """Assert storage identity on each complete pass before invoking its real codec."""
+            self.assertIs(view.get_values(),original_values)
+            self.assertIs(view.get_nested(),original_nested)
+            return view.encode_xml(limits)
+        with mock.patch.object(extra.ProjectionExtraTarget,'__init__',side_effect=AssertionError('large target constructed')):
+            with mock.patch.object(extra.ProjectionExtraChild,'__init__',side_effect=AssertionError('large nested owner copied')):
+                output=owner.with_project(export)
+                exact=extra.Limits(max_bytes=len(output))
+                self.assertEqual(owner.with_project(lambda view:export(view,exact)),output)
+                published=b'previous output'
+                with self.assertRaises(ValueError):
+                    published=owner.with_project(lambda view:export(view,extra.Limits(max_bytes=len(output)-1)))
+                self.assertEqual(published,b'previous output')
+                self.assertEqual(owner.with_project(export),output)
+        root=self.provider.fromstring(output)
+        self.assertEqual([int(child.text) for child in root.findall('{urn:projection-extra}values')],owner.values)
+        self.assertEqual(root.find('{urn:projection-extra}nested')[0].text,'17')
+        self.assertEqual(root.find('{urn:projection-extra}fallback').text,'default')
+        self.assertEqual([owner.encode(protocol) for protocol in extra.Protocol],native)
+        self.assertIs(owner.values,original_values); self.assertIs(owner.nested,original_nested)
+
     def test_weak_qname_namespace_context_and_nil_target(self):
         """Preserve borrowed QName scope, native weak expiration and explicit nil target states."""
         module=self.module;source=module.XmlProjectionQualifiedSource();source.current.value='p:Thing'

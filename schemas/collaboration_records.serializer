@@ -38,6 +38,11 @@ namespace rohit {
         public array uint8 command (5);
         public array grant_reference grants (6);
       }
+      // Retained authority revisions selected by an opt-in format-four model command.
+      class branch_merge_request stable_ids {
+        public uint64 source_revision (1);
+        public uint64 target_revision (2);
+      }
       // Default command payload: a candidate edited through the generated model editor.
       class model_change stable_ids {
         public uint32 format_version (1);

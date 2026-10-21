@@ -5,6 +5,7 @@
 #include "native_schema.hpp"
 #include "xml_native_model_writer.hpp"
 #include "xml_portable_projection_writer.hpp"
+#include "xml_namespace_reservation.hpp"
 
 #include <rohit/html.hpp>
 
@@ -39,11 +40,59 @@ std::string qualified(const xml::name& value) {
 }
 // Select only namespace-dependent scalar strings qualified by the Go direct token path.
 bool namespace_scalar(const xml_binding::field& field) {
-  return field.qname || field.prefix_list || field.facets.list_item_kind == "QName";
+  const auto dependent = [&](auto&& self, const xml_binding::scalar_facets& facets) -> bool {
+    return facets.lexical_kind == "QName" || facets.list_item_kind == "QName" ||
+        std::any_of(facets.union_members.begin(), facets.union_members.end(),
+            [&](const auto& branch) { return self(self, branch); });
+  };
+  return field.qname || field.prefix_list || dependent(dependent, field.facets);
+}
+// Expanded enumeration identities belong to schema scope, independently of instance aliases.
+bool namespace_enumeration(const xml_binding::field& field) {
+  return !field.facets.qname_enumeration.empty() || !field.facets.qname_list_enumeration.empty();
+}
+// Namespace-valued fixed/default contracts require schema identities as well as lexical checks.
+bool namespace_constraints(const xml_binding::field& field) {
+  return namespace_enumeration(field) || field.qname_fixed || field.qname_list_fixed ||
+      field.qname_default || field.qname_list_default ||
+      (namespace_scalar(field) && (!field.facets.union_members.empty() ||
+          xml_codegen::namespace_lexical_facets(field.facets) ||
+          (field.prefix_list && !field.facets.enumeration.empty())));
+}
+// Bind schema lexical aliases privately so an instance's shadowed prefixes cannot change a default.
+std::map<std::string, std::string> default_bindings(const xml_binding::field& field) {
+  const auto& lexical = field.fixed_value ? field.fixed_value : field.default_value;
+  std::vector<xml::name> names{};
+  if (field.qname_fixed || field.qname_default) {
+    names.push_back(field.qname_fixed ? *field.qname_fixed : *field.qname_default);
+  } else if (field.qname_list_fixed || field.qname_list_default) {
+    names = field.qname_list_fixed ? *field.qname_list_fixed : *field.qname_list_default;
+  }
+  std::map<std::string, std::string> bindings{};
+  constexpr std::string_view whitespace{" \t\r\n"};
+  std::size_t offset{}, index{};
+  while (lexical && (offset = lexical->find_first_not_of(whitespace, offset)) != std::string::npos) {
+    const auto end = lexical->find_first_of(whitespace, offset);
+    const auto token = std::string_view{*lexical}.substr(offset, end - offset);
+    const auto colon = token.find(':');
+    if (index >= names.size()) { throw std::logic_error{"Missing schema QName default identity"}; }
+    bindings.emplace(colon == std::string::npos ? "" : std::string{token.substr(0U, colon)},
+        names[index++].namespace_uri);
+    if (end == std::string::npos) { break; }
+    offset = end;
+  }
+  return bindings;
+}
+// Emit private Go schema bindings without exposing metadata through native codecs.
+std::string go_default_scope(const xml_binding::field& field) {
+  std::string result{"map[string]string{"};
+  for (const auto& [prefix, uri] : default_bindings(field)) { result += quote(prefix) + ':' + quote(uri) + ','; }
+  return result + '}';
 }
 // Keep QName, QName-list and namespace-prefix-list semantics distinct during token traversal.
 std::string namespace_mode(const xml_binding::field& field) {
-  return field.prefix_list ? "2" : field.facets.list_item_kind == "QName" ? "1" : "0";
+  return field.prefix_list ? "2" : !field.facets.union_members.empty() ? "3" :
+      field.facets.list_item_kind == "QName" ? "1" : "0";
 }
 // Select the statically known leaf beneath one supported presence/collection modifier.
 const type_name& leaf(const member& value) {
@@ -120,7 +169,11 @@ std::string scalar_facets(const xml_binding::field& field,
   if (output) {
     result += ".output(srlText," + quote(fallback.value_or("")) + ',' +
         (fallback && !field.attribute ? "true" : "false") + ",output.budget.limits.MaxNodes,&output.budget)\n";
-  } else { result += ".check(srlText,input.budget.limits.MaxNodes,&input.budget)\n"; }
+  } else {
+    result += namespace_constraints(field)
+        ? ".checkScoped(srlText,srlScope,input.budget.limits.MaxNodes,&input.budget)\n"
+        : ".check(srlText,input.budget.limits.MaxNodes,&input.budget)\n";
+  }
   return result + "if srlFacetErr!=nil{return nil,srlFacetErr}\nsrlText=srlChecked\n";
 }
 // Lower the shared Thompson program without introducing a host-regex dialect.
@@ -163,9 +216,46 @@ std::string go_scalar_rule(const xml_binding::field& field) {
     }
     result += "},members:[]srlXmlRule{";
     for (const auto& branch : facets.union_members) { result += self(self, branch, {}) + ','; }
-    return result + "},hasFixed:" + (fixed ? "true" : "false") + ",fixed:" + quote(fixed.value_or("")) + '}';
+    result += "},hasFixed:" + std::string{fixed ? "true" : "false"} + ",fixed:" + quote(fixed.value_or(""));
+    result += ",qnames:[]srlxml.Name{";
+    for (const auto& item : facets.qname_enumeration) { result += qualified(item) + ','; }
+    result += "},qnameLists:[][]srlxml.Name{";
+    for (const auto& items : facets.qname_list_enumeration) {
+      result += '{';
+      for (const auto& item : items) { result += qualified(item) + ','; }
+      result += "},";
+    }
+    return result + "}}";
   };
-  return rule(rule, field.facets, field.fixed_value);
+  auto result = rule(rule, field.facets, field.fixed_value);
+  if (namespace_scalar(field) && (xml_codegen::namespace_lexical_facets(field.facets) ||
+      (field.prefix_list && !field.facets.enumeration.empty()))) {
+    result.pop_back();
+    result += ",keepNamespaceLexical:true}";
+  }
+  if (field.qname_default || field.qname_fixed || field.qname_list_default || field.qname_list_fixed) {
+    result.pop_back();
+    const auto& fallback = field.fixed_value ? field.fixed_value : field.default_value;
+    result += ",hasDefault:true,defaultText:" + quote(fallback.value_or("")) +
+        ",defaultScope:" + go_default_scope(field) + ",defaultAttribute:" +
+        (field.attribute && field.min_occurs == 0U ? "true" : "false") + ",defaultNames:[]srlxml.Name{";
+    if (field.qname_fixed || field.qname_default) {
+      result += qualified(field.qname_fixed ? *field.qname_fixed : *field.qname_default) + ',';
+    } else {
+      for (const auto& name : field.qname_list_fixed ? *field.qname_list_fixed : *field.qname_list_default) {
+        result += qualified(name) + ',';
+      }
+    }
+    result += '}';
+    if (field.qname_fixed || field.qname_list_fixed) {
+      result += ",fixedNames:[]srlxml.Name{";
+      if (field.qname_fixed) { result += qualified(*field.qname_fixed) + ','; }
+      else { for (const auto& name : *field.qname_list_fixed) { result += qualified(name) + ','; } }
+      result += "},hasFixedNames:true";
+    }
+    result += '}';
+  }
+  return result;
 }
 // Encode the shared instructions as bounded ASCII fragments instead of oversized JVM initializers.
 std::string pattern_blob(const xml::portable_pattern& pattern) {
@@ -362,7 +452,9 @@ std::string encode_list(const xml_binding::field& field, const std::string& acce
       result += "if scopes:=value.srlXmlNamespaces[" + std::to_string(field_index) +
           "];len(scopes)!=0{srlScope=scopes[0]}else if fallback:=value.srlXmlNamespaces[-1];len(fallback)!=0{srlScope=fallback[0]}\n";
     }
-    return result + "srlQualified,srlNamespaceErr:=output.namespaceValue(srlText,1,srlScope);if srlNamespaceErr!=nil{return srlNamespaceErr};srlText=srlQualified\n";
+    return result + "srlQualified,srlNamespaceErr:=output.namespaceValue(srlText,1,srlScope" +
+        (namespace_constraints(field) ? ",&" + rule : "") +
+        ");if srlNamespaceErr!=nil{return srlNamespaceErr};srlText=srlQualified\n";
   };
   if (field.attribute) {
     out += qualify();
@@ -407,23 +499,26 @@ std::string decode_list(const xml_binding::field& field, const std::string& acce
   if (optional) { out += access + "=nil\n"; }
   if (field.attribute) {
     out += "srlText,srlPresent,srlErr:=fields.attribute(" + qualified(field.qualified_name) + ',' +
-        (optional || fallback || field.min_occurs == 0U ? "false" : "true") + ");if srlErr!=nil{return nil,srlErr}\n";
+        (field.min_occurs == 0U ? "false" : "true") + ");if srlErr!=nil{return nil,srlErr}\n";
+    if (namespace_scalar(field) && fallback) { out += "srlDefault:=!srlPresent\n"; }
     if (fallback) { out += "if !srlPresent{srlText=" + quote(*fallback) + ";srlPresent=true}\n"; }
     out += "if srlPresent{\n";
     if (namespace_scalar(field)) {
-      out += "srlScope,srlNamespaceErr:=input.namespaceScope(srlText,1,nil);if srlNamespaceErr!=nil{return nil,srlNamespaceErr}\n";
+      out += "srlClosed:=map[string]string(nil)\n";
+      if (fallback) { out += "if srlDefault{srlClosed=" + rule + ".defaultScope}\n"; }
+      out += "srlScope,srlNamespaceErr:=input.namespaceScope(srlText,1,srlClosed);if srlNamespaceErr!=nil{return nil,srlNamespaceErr}\n";
     }
     out += decode_list_value(field, access, type, rule, field_index) + "}\n";
   } else if (field.text) {
     out += "if fields.used!=len(fields.attrs){return nil,fmt.Errorf(\"Unexpected XML attribute\")}\n";
     out += namespace_scalar(field)
-        ? "srlText,srlScope,srlErr:=input.namespaceText(1);if srlErr!=nil{return nil,srlErr}\n"
+        ? "srlText,srlScope,srlErr:=input.namespaceText(1,&" + rule + ");if srlErr!=nil{return nil,srlErr}\n"
         : "srlText,srlErr:=input.text();if srlErr!=nil{return nil,srlErr}\n";
     out += decode_list_value(field, access, type, rule, field_index);
   } else {
     if (optional) { out += "srlPresent,srlErr:=input.has(" + qualified(field.qualified_name) + ");if srlErr!=nil{return nil,srlErr};if srlPresent{\n"; }
     out += namespace_scalar(field)
-        ? "srlText,srlScope,srlErr:=input.namespaceScalar(" + qualified(field.qualified_name) + ",1);if srlErr!=nil{return nil,srlErr}\n"
+        ? "srlText,srlScope,srlErr:=input.namespaceScalar(" + qualified(field.qualified_name) + ",1,&" + rule + ");if srlErr!=nil{return nil,srlErr}\n"
         : "srlText,srlErr:=input.scalar(" + qualified(field.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\n";
     out += decode_list_value(field, access, type, rule, field_index);
     if (optional) { out += "}\n"; }
@@ -644,10 +739,46 @@ std::string scalar_rule(const xml_binding::field& field, std::size_t index, std:
   }
   result += "}," + quote(facets.list_item_kind) + ",new SrlXmlRule[]{";
   for (const auto& branch : facets.union_members) { result += self(self, branch, {}) + ','; }
-  return result + "}," + (fixed ? quote(*fixed) : "null") + ')';
+  result += "}," + (fixed ? quote(*fixed) : "null") + ')';
+  const auto names = [&](const auto& values) {
+    std::string identities{java ? "new String[][]{" : "new string[][]{"};
+    for (const auto& item : values) {
+      identities += std::string{string_array} + quote(item.namespace_uri) + ',' + quote(item.local) + "},";
+    }
+    return identities + '}';
   };
+  if (!facets.qname_enumeration.empty() || !facets.qname_list_enumeration.empty()) {
+    result += std::string{java ? ".namespaceValues(" : ".NamespaceValues("} +
+        names(facets.qname_enumeration) + ',' + (java ? "new String[][][]{" : "new string[][][]{");
+    for (const auto& values : facets.qname_list_enumeration) { result += names(values) + ','; }
+    result += "})";
+  }
+  return result;
+  };
+  auto expression = rule(rule, field.facets, field.fixed_value);
+  if (namespace_scalar(field) && (xml_codegen::namespace_lexical_facets(field.facets) ||
+      (field.prefix_list && !field.facets.enumeration.empty()))) {
+    expression += java ? ".namespaceLexical()" : ".NamespaceLexical()";
+  }
+  if (field.qname_default || field.qname_fixed || field.qname_list_default || field.qname_list_fixed) {
+    const auto& fallback = field.fixed_value ? field.fixed_value : field.default_value;
+    expression += std::string{java ? ".namespaceDefault(" : ".NamespaceDefault("} +
+        quote(fallback.value_or("")) + ',' + (java ? "new String[][]{" : "new string[][]{");
+    for (const auto& [prefix, uri] : default_bindings(field)) {
+      expression += std::string{string_array} + quote(prefix) + ',' + quote(uri) + "},";
+    }
+    expression += "},";
+    expression += java ? "new String[][]{" : "new string[][]{";
+    const auto add_name = [&](const auto& name) {
+      expression += std::string{string_array} + quote(name.namespace_uri) + ',' + quote(name.local) + "},";
+    };
+    if (field.qname_fixed || field.qname_default) { add_name(field.qname_fixed ? *field.qname_fixed : *field.qname_default); }
+    else { for (const auto& name : field.qname_list_fixed ? *field.qname_list_fixed : *field.qname_list_default) { add_name(name); } }
+    expression += "}," + std::string{field.fixed_value ? "true" : "false"} + ',' +
+        (field.attribute && field.min_occurs == 0U ? "true" : "false") + ')';
+  }
   return std::string{java ? "private static final SrlXmlRule " : "private static readonly SrlXmlRule "} +
-      scalar_rule_name(index, language) + " = " + rule(rule, field.facets, field.fixed_value) + ';';
+      scalar_rule_name(index, language) + " = " + expression + ';';
 }
 
 std::string scalar_check(const xml_binding::field& field, std::size_t index,
@@ -658,6 +789,7 @@ std::string scalar_check(const xml_binding::field& field, std::size_t index,
 
 std::string scalar_input(const xml_binding::field& field, std::size_t index,
                          const std::string& expression, std::string_view language) {
+  const auto rule = needs_scalar_rule(field) ? scalar_rule_name(index, language) : "null";
   const auto namespaced = [&] {
     if (!namespace_scalar(field) || expression == "srlLexical" || expression == "srlLexical!") {
       return expression;
@@ -668,13 +800,14 @@ std::string scalar_input(const xml_binding::field& field, std::size_t index,
       return std::string{prefix} + (java ? "scalar(input," : "Scalar(input,") + std::to_string(index) + ',' +
           quote(field.qualified_name.namespace_uri.empty() ? field.qualified_name.local :
               '{' + field.qualified_name.namespace_uri + '}' + field.qualified_name.local) + ',' +
-          namespace_mode(field) + ')';
+          namespace_mode(field) + ',' + rule + ')';
     }
     return std::string{prefix} + (java ? "capture(input," : "Capture(input,") + std::to_string(index) +
-        ',' + expression + ",srlNamespaceScope," + namespace_mode(field) + ')' + (java ? "" : "!");
+        ',' + expression + ",srlNamespaceScope," + namespace_mode(field) + ',' + rule + ',' +
+        (field.attribute ? "true" : "false") + ')' + (java ? "" : "!");
   }();
   const auto& fallback = field.fixed_value ? field.fixed_value : field.default_value;
-  const auto text = fallback ? std::string{"SrlXmlRule."} +
+  const auto text = fallback && !namespace_scalar(field) ? std::string{"SrlXmlRule."} +
       (language == "java" ? "defaultText(" : "DefaultText(") + expression + ',' +
       quote(*fallback) + ',' + (field.attribute ? "true" : "false") + ')' : namespaced;
   return needs_scalar_rule(field) ? scalar_rule_name(index, language) +
@@ -688,7 +821,8 @@ std::string scalar_output(const xml_binding::field& field, std::size_t index,
   const bool java = language == "java";
   const auto text = namespace_scalar(field) ? std::string{"srlXmlNamespaces."} +
       (java ? "output(output," : "Output(output,") + std::to_string(index) + ',' +
-      (typed_list(field) ? "0" : "srlNamespaceIndex++") + ',' + expression + ',' + namespace_mode(field) + ')' : expression;
+      (typed_list(field) ? "0" : "srlNamespaceIndex++") + ',' + expression + ',' + namespace_mode(field) + ',' +
+      (needs_scalar_rule(field) ? scalar_rule_name(index, language) : "null") + ')' : expression;
   if (!needs_scalar_rule(field)) { return text; }
   const auto limit = java ? "output.listLimit(),output.budget" : "output.ListLimit,output.Operation";
   return scalar_rule_name(index, language) + (fallback && !field.attribute ?
@@ -743,16 +877,19 @@ std::string list_read(const xml_binding::field& field, std::size_t index,
   const auto& selected_type = leaf(*field.source);
   const auto item_type = type(selected_type);
   const bool defaulted = field.default_value || field.fixed_value;
+  const auto rule = needs_scalar_rule(field) ? scalar_rule_name(index, language) : "null";
   const auto lexical = namespace_scalar(field) ? (field.attribute || field.text ?
       std::string{"result.srlXmlNamespaces."} + (java ? "capture(input," : "Capture(input,") +
-          std::to_string(index) + ',' + expression + ",srlNamespaceScope," + namespace_mode(field) + ')' :
+          std::to_string(index) + ',' + expression + ",srlNamespaceScope," + namespace_mode(field) + ',' + rule + ',' +
+          (field.attribute ? "true" : "false") + ')' :
       std::string{"result.srlXmlNamespaces."} + (java ? "scalar(input," : "Scalar(input,") +
           std::to_string(index) + ',' + quote(field.qualified_name.namespace_uri.empty() ?
               field.qualified_name.local : '{' + field.qualified_name.namespace_uri + '}' + field.qualified_name.local) +
-          ',' + namespace_mode(field) + ')') : expression;
+          ',' + namespace_mode(field) + ',' + rule + ')') : expression;
   std::string result{"{\nvar srlLexical=" + lexical + ";\n"};
   if (optional && !defaulted) { result += "if(srlLexical==null){" + access + (java ? "=java.util.Optional.empty();" : "=null;") + "}else{\n"; }
-  result += "var srlListText=" + scalar_input(field, index, java || defaulted ? "srlLexical" : "srlLexical!", language) + ";\n";
+  result += "var srlListText=" + scalar_input(field, index,
+      java || (defaulted && !namespace_scalar(field)) ? "srlLexical" : "srlLexical!", language) + ";\n";
   result += java ? "var srlTokens=SrlXmlRule.tokens(srlListText,input.listLimit());\n" : "var srlTokens=SrlXmlRule.Tokens(srlListText,input.ListLimit,input.Operation);\n";
   if (field.source->fixed_extent != 0U) {
     result += "if(srlTokens." + std::string{java ? "length" : "Length"} + "!=" +
@@ -1305,6 +1442,7 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
   if (language != "go") { throw std::invalid_argument{"Unsupported XML portable methods"}; }
   const bool export_graph = readonly || xml_codegen::native_xml_export_graph(object);
   const bool namespace_values = std::any_of(contract.fields.begin(), contract.fields.end(), namespace_scalar);
+  const bool namespace_reservations = xml_codegen::namespace_union_graph(object, xml_binding::schema{options});
   const bool all = supports_all(contract);
   if (!contract.all_groups.empty() && !all) {
     throw std::invalid_argument{"Go XML all traversal requires one complete unwrapped singleton group"};
@@ -1416,7 +1554,9 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
   const auto operation_encode="// "+operation_method+" applies additional admission without changing XmlOptions layout.\nfunc(value *"+identifier+") "+operation_method+"(operation "+std::string{operation_type}+")([]byte,error){return value.EncodeXML(operation.Policy())}\n";
   out += "policy,err:=srlXmlOptions(policies);if err!=nil{return nil,err}\n";
   if (!options.runtime_xsd) { out += "if policy.Validator!=nil{return nil,fmt.Errorf(\"Runtime XSD was not enabled during generation\")}\n"; }
-  out += "output:=srlXmlOutputStart(policy.Limits,maps)\noutput.budget.operation=policy.Operation\noutput.mixedLimits=mixed\noutput.identityLimits=identity\noutput.digestLimits=digests\noutput.extensionOptions=extensions\nif err=value.srlXmlEncode(output," + qualified(contract.root) + ");err!=nil{return nil,err}\ndata,err:=output.finish();if err!=nil{return nil,err}\n";
+  out += "output:=srlXmlOutputStart(policy.Limits,maps)\noutput.budget.operation=policy.Operation\noutput.mixedLimits=mixed\noutput.identityLimits=identity\noutput.digestLimits=digests\noutput.extensionOptions=extensions\n";
+  if (namespace_reservations) { out += "output.namespaceReserveOnly=true;err=value.srlXmlEncode(output," + qualified(contract.root) + ");output.namespaceReserveOnly=false;if err!=nil{return nil,err}\n"; }
+  out += "if err=value.srlXmlEncode(output," + qualified(contract.root) + ");err!=nil{return nil,err}\ndata,err:=output.finish();if err!=nil{return nil,err}\n";
   if (options.runtime_xsd && options.validation_scope != "input") {
     out += "if policy.Validator!=nil{if err=output.budget.charge(\"work\",0);err!=nil{return nil,err};if err=policy.Validator.ValidateXML(data);err!=nil{return nil,err};if err=output.budget.charge(\"work\",0);err!=nil{return nil,err}}\n";
   }
@@ -1447,12 +1587,39 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
   }
   }
   out += "// Emit statically bound tokens while retaining only active ancestors.\nfunc (value *" + identifier + ") srlXmlEncode(output *srlXmlOutput,name srlxml.Name,types ...srlxml.Name)error{\nif value==nil{return fmt.Errorf(\"Nil XML record\")}\nif len(types)>1{return fmt.Errorf(\"Ambiguous XML variant type\")}\n";
+  out += "// Borrow mapped fields once to reserve lexical aliases before any output tag exists.\nif output.namespaceReserveOnly{depth:=output.namespaceScanDepth;if err:=output.reserveNamespaceDepth(depth);err!=nil{return err};output.namespaceScanDepth++;defer func(){output.namespaceScanDepth--}()\n";
+  for (const auto& path : base_paths) { out += "if value." + path + "==nil{return fmt.Errorf(\"Nil XML base record\")}\n"; }
+  out += xml_codegen::namespace_reservation_body(contract,
+      [&](const member& source) { return "value." + member_paths.at(&source); }, field, alternative, "go",
+      [&](const member& source) { return xml_codegen::native_xml_active(contract, source, version_language::go, revision_path); });
+  out += "return nil\n}\n";
+  const bool owner_union = std::any_of(contract.fields.begin(), contract.fields.end(), xml_codegen::namespace_owner_union);
+  if (owner_union) {
+    out += "srlOwnerDefault:=\"\";srlOwnerDefaultSet:=false\n";
+    for (std::size_t index{}; index < contract.fields.size(); ++index) {
+      const auto& mapped = contract.fields[index];
+      if (!xml_codegen::namespace_owner_union(mapped)) { continue; }
+      const auto& source = *mapped.source;
+      const auto active = active_scope(source, out);
+      const auto access = "value." + member_paths.at(&source);
+      const bool optional = source.type_name_list.front().is_optional();
+      out += optional ? "if " + access + "!=nil{\n" : "{\n";
+      out += output_errors(encode_scalar(leaf(source), optional ? "(*" + access + ')' : access, type));
+      out += "srlOwnerScope:=map[string]string(nil)\n";
+      if (!readonly) {
+        out += "if scopes:=value.srlXmlNamespaces[" + std::to_string(index) + "];len(scopes)!=0{srlOwnerScope=scopes[0]}else if fallback:=value.srlXmlNamespaces[-1];len(fallback)!=0{srlOwnerScope=fallback[0]}\n";
+      }
+      out += "srlPreferred,srlRequired,srlPreferenceErr:=output.namespacePreferredDefault(srlText,srlOwnerScope,&" + patterns.at(&source) +
+          ");if srlPreferenceErr!=nil{return srlPreferenceErr};if srlRequired{if srlOwnerDefaultSet&&srlOwnerDefault!=srlPreferred{return fmt.Errorf(\"Conflicting XML union owner defaults\")};srlOwnerDefault=srlPreferred;srlOwnerDefaultSet=true}\n}\n";
+    }
+  }
   if(contract.extensions){
     out+="srlScope:=map[string]string{}\n";
     if(!readonly)out+="if value.srlXmlPreserved!=nil{srlScope=value.srlXmlPreserved.scope}\n";
+    if (owner_union) { out += "if srlOwnerDefaultSet&&srlScope[\"\"]!=srlOwnerDefault{return fmt.Errorf(\"Conflicting XML union and preserved defaults\")}\n"; }
     out+="srlExtensions,srlExtensionErr:=srlXmlExtensionTracker(&"+extension_name+",srlScope,output.extensionOptions,"+std::string{readonly?"nil":"value.srlXmlPreserved"}+");if srlExtensionErr!=nil{return srlExtensionErr}\nif err:=output.openScoped(name,srlScope);err!=nil{return err}\n";
-  } else if (namespace_values) {
-    out += "if err:=output.openScoped(name,map[string]string{\"\":\"\"});err!=nil{return err}\n";
+  } else if (namespace_values || namespace_reservations) {
+    out += "if err:=output.openScoped(name,map[string]string{\"\":" + std::string{owner_union ? "srlOwnerDefault" : "\"\""} + "});err!=nil{return err}\n";
   } else { out += "if err:=output.open(name);err!=nil{return err}\n"; }
   if (contract.identity) {
     out += "srlIdentity,srlIdentityErr:=output.identityScope(&" + identity_name + ");if srlIdentityErr!=nil{return srlIdentityErr}\n";
@@ -1544,15 +1711,16 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
             patterns.contains(&source) ? patterns.at(&source) : "", true));
         const auto namespace_value = [&] {
           if (!namespace_scalar(mapped)) { return std::string{}; }
+          const auto constraint = namespace_constraints(mapped) ? ",&" + patterns.at(&source) : "";
           if (readonly) {
             return "srlQualified,srlNamespaceErr:=output.namespaceValue(srlText," + namespace_mode(mapped) +
-                ",nil);if srlNamespaceErr!=nil{return srlNamespaceErr};srlText=srlQualified\nsrlNamespaceIndex++\n";
+                ",nil" + constraint + ");if srlNamespaceErr!=nil{return srlNamespaceErr};srlText=srlQualified\nsrlNamespaceIndex++\n";
           }
           return "srlScope:=map[string]string(nil)\nsrlScopes:=value.srlXmlNamespaces[" +
               std::to_string(&mapped - contract.fields.data()) + "]\n" +
               "if srlNamespaceIndex<len(srlScopes){srlScope=srlScopes[srlNamespaceIndex]}else if fallback:=value.srlXmlNamespaces[-1];len(fallback)!=0{srlScope=fallback[0]}\n" +
               "srlQualified,srlNamespaceErr:=output.namespaceValue(srlText," + namespace_mode(mapped) +
-              ",srlScope);if srlNamespaceErr!=nil{return srlNamespaceErr};srlText=srlQualified\nsrlNamespaceIndex++\n";
+              ",srlScope" + constraint + ");if srlNamespaceErr!=nil{return srlNamespaceErr};srlText=srlQualified\nsrlNamespaceIndex++\n";
         };
         if (mapped.attribute) {
           out += namespace_value();
@@ -1660,17 +1828,22 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
       if (optional) { out += access + "=nil\n"; }
       if (mapped.attribute) {
         const auto& fallback = mapped.fixed_value ? mapped.fixed_value : mapped.default_value;
-        out += "srlText,srlPresent,srlErr:=fields.attribute(" + qualified(mapped.qualified_name) + "," + (min && !fallback ? "true" : "false") + ");if srlErr!=nil{return nil,srlErr}\n";
+        out += "srlText,srlPresent,srlErr:=fields.attribute(" + qualified(mapped.qualified_name) + "," + (min ? "true" : "false") + ");if srlErr!=nil{return nil,srlErr}\n";
+        if (namespace_scalar(mapped) && fallback) { out += "srlDefault:=!srlPresent\n"; }
         if (fallback) { out += "if !srlPresent{srlText=" + quote(*fallback) + ";srlPresent=true}\n"; }
         out += "if srlPresent{\n";
         if (namespace_scalar(mapped)) {
+          out += "srlClosed:=map[string]string(nil)\n";
+          if (fallback) { out += "if srlDefault{srlClosed=" + patterns.at(&source) + ".defaultScope}\n"; }
           out += "srlScope,srlNamespaceErr:=input.namespaceScope(srlText," + namespace_mode(mapped) +
-              ",nil);if srlNamespaceErr!=nil{return nil,srlNamespaceErr}\n";
+              ",srlClosed" + (patterns.contains(&source) ? ",&" + patterns.at(&source) : "") +
+              ");if srlNamespaceErr!=nil{return nil,srlNamespaceErr}\n";
         }
       } else if (mapped.text) {
         out += "if fields.used!=len(fields.attrs){return nil,fmt.Errorf(\"Unexpected XML attribute\")}\n";
         out += namespace_scalar(mapped)
-            ? "srlText,srlScope,srlErr:=input.namespaceText(" + namespace_mode(mapped) + ");if srlErr!=nil{return nil,srlErr}\n"
+            ? "srlText,srlScope,srlErr:=input.namespaceText(" + namespace_mode(mapped) +
+                (patterns.contains(&source) ? ",&" + patterns.at(&source) : "") + ");if srlErr!=nil{return nil,srlErr}\n"
             : "srlText,srlErr:=input.text();if srlErr!=nil{return nil,srlErr}\n";
       } else {
         if (mapped.wrapper) { out += "wrapper,srlErr:=input.open(" + qualified(*mapped.wrapper) + ");if srlErr!=nil{return nil,srlErr}\n"; }
@@ -1680,7 +1853,8 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
           out += "srlValue,srlErr:=srlXmlDecode" + record_name(type(scalar)) + "(input," + qualified(mapped.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\n";
         } else {
           out += namespace_scalar(mapped)
-              ? "srlText,srlScope,srlErr:=input.namespaceScalar(" + qualified(mapped.qualified_name) + ',' + namespace_mode(mapped) + ");if srlErr!=nil{return nil,srlErr}\n"
+              ? "srlText,srlScope,srlErr:=input.namespaceScalar(" + qualified(mapped.qualified_name) + ',' + namespace_mode(mapped) +
+                  (patterns.contains(&source) ? ",&" + patterns.at(&source) : "") + ");if srlErr!=nil{return nil,srlErr}\n"
               : "srlText,srlErr:=input.scalar(" + qualified(mapped.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\n";
         }
       }
@@ -1735,7 +1909,8 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
             qualified(mapped.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\n";
       } else {
         out += namespace_scalar(mapped)
-            ? "srlText,srlScope,srlErr:=input.namespaceScalar(" + qualified(mapped.qualified_name) + ',' + namespace_mode(mapped) + ");if srlErr!=nil{return nil,srlErr}\n"
+            ? "srlText,srlScope,srlErr:=input.namespaceScalar(" + qualified(mapped.qualified_name) + ',' + namespace_mode(mapped) +
+                (patterns.contains(mapped.source) ? ",&" + patterns.at(mapped.source) : "") + ");if srlErr!=nil{return nil,srlErr}\n"
             : "srlText,srlErr:=input.scalar(" + qualified(mapped.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\n";
         out += scalar_facets(mapped, patterns.contains(mapped.source) ? patterns.at(mapped.source) : "");
         if (namespace_scalar(mapped)) {

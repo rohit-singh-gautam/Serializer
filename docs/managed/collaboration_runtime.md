@@ -118,6 +118,12 @@ new operation ID. There is no automatic merge, callback retry, offline acceptanc
 or per-entity version conflict resolution in this version. Newly inserted entity
 IDs are allocated at the authority; rejected reservations are never reused.
 
+For an explicitly enabled tree authority, the separate
+[retained-branch merge request](branch_merging.md#collaboration) names source
+and exact target revisions. It retains the accepted-cursor fence and complete
+session/lock/policy checks, then publishes ordinary accepted field deltas and
+native two-parent ancestry. It does not automatically merge stale edit proposals.
+
 ## Application-owned sessions
 
 Applications decide how sessions are created, stored, associated with connections,

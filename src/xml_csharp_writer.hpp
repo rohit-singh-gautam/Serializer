@@ -7,6 +7,7 @@
 #include "xml_native_model_writer.hpp"
 #include "xml_portable_projection_writer.hpp"
 #include "xml_portable_extension_writer.hpp"
+#include "xml_namespace_reservation.hpp"
 
 #include <algorithm>
 #include <functional>
@@ -128,6 +129,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
                            const xml_portable::field_name& projection = {}) {
   const bool export_graph = readonly || xml_codegen::native_xml_export_graph(object);
   const bool namespace_values = std::any_of(contract.fields.begin(), contract.fields.end(), xml_portable::namespace_dependent);
+  const bool namespace_reservations = xml_codegen::namespace_union_graph(object, xml_binding::schema{options});
   const bool all = xml_portable::supports_all(contract);
   if (!contract.all_groups.empty() && !all) {
     throw std::invalid_argument{"C# XML all traversal requires one complete unwrapped singleton group"};
@@ -303,6 +305,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
   line("// Carry explicit vocabulary understanding and opaque preservation admission.");
   line("public byte[] EncodeXml(Limits limits, XmlSchema? schema, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity, XmlDigestLimits digests, XmlExtensionOptions extensions) {"); ++indent;
   line("var output = new SrlXmlOutput(limits, maps, mixed, identity, digests, extensions);");
+  if (namespace_reservations) { line("XmlWrite(output,0);"); }
   line("XmlWrite(output, " + expanded(contract.root) + ");");
   line("byte[] bytes = output.Finish();");
   if (!options.runtime_xsd) { line("if (schema != null) throw new System.InvalidOperationException(\"Runtime XSD was not enabled during generation\");"); }
@@ -340,18 +343,36 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
   }
   --indent; line("}");
   }
-  line("// Emit direct typed tokens while retaining only active ancestor state.");
+  line("// Reserve lexical aliases across mapped fields before emitting the first tag.");
+  line("internal void XmlWrite(SrlXmlOutput output,int depth){"); ++indent;
+  line("output.ReserveNamespaceDepth(depth);");
+  for (const auto& path : base_paths) { line("if(this." + path + "==null)throw new System.FormatException(\"Null XML base record\");"); }
+  line(xml_codegen::namespace_reservation_body(contract,
+      [&](const member& source) { return "this." + mapped_field(source); }, field_name, alternative, "csharp",
+      [&](const member& source) { return xml_codegen::native_xml_active(contract, source, version_language::csharp, revision_path("this.")); }));
+  --indent; line("}");
+  line("// Emit one mapped field tag after namespace reservation completes.");
   line("internal void XmlWrite(SrlXmlOutput output, string name) {"); ++indent;
   line("XmlWrite(output, name, null);"); --indent; line("}");
   line("// Add an explicit type before native attributes without changing ordinary callers.");
   line("internal void XmlWrite(SrlXmlOutput output, string name, string? typeIdentity) {"); ++indent;
   line("using var srlOperationOwner=output.FieldOwner();");
+  const bool owner_union = std::any_of(contract.fields.begin(), contract.fields.end(), xml_codegen::namespace_owner_union);
+  if (owner_union) {
+    for (const auto& path : base_paths) { line("if(this." + path + "==null)throw new System.FormatException(\"Null XML base record\");"); }
+    line(xml_codegen::managed_namespace_owner_default(contract,
+        [&](const member& source) { return "this." + mapped_field(source); }, scalar,
+        [&](const member& source) { return xml_portable::scalar_rule_name(rule_indices.at(&source), "csharp"); }, "csharp",
+        [&](const member& source) { return xml_codegen::native_xml_active(contract, source, version_language::csharp, revision_path("this.")); }));
+  }
   if(contract.extensions){
     line(readonly?"var srlScope=new System.Collections.Generic.Dictionary<string,string>();":"var srlScope=SrlXmlPreservedState?.Scope??new System.Collections.Generic.Dictionary<string,string>();");
+    if (owner_union) { line("if(srlOwnerDefault!=null&&srlOwnerDefault!=(srlScope.TryGetValue(\"\",out string? srlPreservedDefault)?srlPreservedDefault:\"\"))throw new System.FormatException(\"Conflicting XML union and preserved defaults\");"); }
     line("var srlExtensions=new SrlXmlExtensions(SrlXmlExtensionMetadata,srlScope,output.ExtensionOptions,"+std::string{readonly?"null":"SrlXmlPreservedState"}+",output.Operation);");
     line("output.Open(name,srlScope);");
-  } else if (namespace_values) {
-    line("output.Open(name,new System.Collections.Generic.Dictionary<string,string>{{\"\",\"\"}});");
+  } else if (namespace_values || namespace_reservations) {
+    line("output.Open(name,new System.Collections.Generic.Dictionary<string,string>{{\"\"," +
+        std::string{owner_union ? "srlOwnerDefault??\"\"" : "\"\""} + "}});");
   } else { line("output.Open(name);"); }
   if (contract.identity) { line("var srlIdentity=output.IdentityScope(SrlXmlIdentityMetadata);"); }
   line("if (typeIdentity != null) output.TypeName(typeIdentity);");
@@ -483,7 +504,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
         const auto access = "result." + mapped_field(*item.source);
         const bool optional = item.source->type_name_list.front().is_optional();
         const auto text = item.attribute ? "fields.Attribute(" + expanded(item.qualified_name) + ',' +
-            (optional || item.default_value || item.fixed_value ? "true" : "false") + ')' :
+            (item.min_occurs == 0U ? "true" : "false") + ')' :
             item.text ? "fields.Text()" : "input.Scalar(" + expanded(item.qualified_name) + ')';
         if (!item.attribute && !item.text && optional) { line("if(input.Has(" + expanded(item.qualified_name) + ")) {"); ++indent; }
         line(xml_portable::list_read(item, rule_indices.at(item.source), access, text, native_type, scalar, "csharp"));
@@ -522,7 +543,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
       if (item.text) {
         line(access + " = " + read_value("fields.Text()") + ";");
       } else if (item.attribute) {
-        line("var text = fields.Attribute(" + expanded(item.qualified_name) + ", " + (optional || item.default_value || item.fixed_value ? "true" : "false") + ");");
+        line("var text = fields.Attribute(" + expanded(item.qualified_name) + ", " + (item.min_occurs == 0U ? "true" : "false") + ");");
         line(access + " = " + (optional ? (item.default_value || item.fixed_value ? "new System.ValueTuple<" + native_type(type) + ">(" + read_value("text") + ")" : "text == null ? null : new System.ValueTuple<" + native_type(type) + ">(" + read_value("text") + ")") : read_value("text!")) + ";");
       } else {
         if (item.wrapper) { line("var wrapper = input.Open(" + expanded(*item.wrapper) + ");"); }

@@ -2192,6 +2192,8 @@ void validate_backend(const record& contract, std::string_view language) {
     throw std::invalid_argument{"Shared XML presence/mixed/map/variant/extension contracts are bound; "
         "generated token codec support is not implemented for " + std::string{language}};
   }
+  const bool expanded_namespace_backend = language == "go" || language == "java" || language == "csharp";
+  const bool expanded_enumeration_backend = expanded_namespace_backend || language == "kotlin" || language == "swift";
   const auto namespace_value = [&](auto&& self, const scalar_facets& facets) -> bool {
     return facets.lexical_kind == "QName" || facets.list_item_kind == "QName" ||
         !facets.qname_enumeration.empty() ||
@@ -2199,7 +2201,7 @@ void validate_backend(const record& contract, std::string_view language) {
             [&](const auto& member) { return self(self, member); });
   };
   const auto check_unions = [&](auto&& self, const scalar_facets& facets) -> void {
-    if (language != "python" && language != "cpp" && !javascript_backend &&
+    if (language != "python" && language != "cpp" && !expanded_enumeration_backend && !javascript_backend &&
         facets.list_item_kind == "QName" && !facets.enumeration.empty()) {
       throw std::invalid_argument{"XSD QName list enumeration requires expanded item identities"};
     }
@@ -2211,7 +2213,7 @@ void validate_backend(const record& contract, std::string_view language) {
     for (const auto& alternative : facets.union_members) { self(self, alternative); }
   };
   for (const auto& field : contract.fields) {
-    if (language != "python" && language != "cpp" && !javascript_backend && field.facets.list_item_kind == "QName" && field.default_value &&
+    if (language != "python" && language != "cpp" && !expanded_namespace_backend && !javascript_backend && field.facets.list_item_kind == "QName" && field.default_value &&
         !lexical_words(*field.default_value).empty()) {
       throw std::invalid_argument{"XSD QName list defaults require expanded schema-scope item identities"};
     }
@@ -2288,14 +2290,17 @@ void validate_backend(const record& contract, std::string_view language) {
       return managed_kinds.contains(kind) || (namespace_backend && kind == "QName");
     };
     return supported_kind(facets.lexical_kind) && supported_kind(facets.list_item_kind) &&
-        facets.qname_enumeration.empty() && std::all_of(facets.union_members.begin(), facets.union_members.end(),
+        (expanded_enumeration_backend || facets.qname_enumeration.empty()) && std::all_of(facets.union_members.begin(), facets.union_members.end(),
             [&](const auto& branch) { return self(self, branch); });
   };
   for (const auto& value : contract.fields) {
     const auto& facets = value.facets;
+    const bool expanded_enumeration = expanded_enumeration_backend &&
+        (!facets.qname_enumeration.empty() || !facets.qname_list_enumeration.empty() || value.prefix_list);
     if (namespace_backend && (value.qname || value.prefix_list || namespace_value(namespace_value, facets)) &&
-        (!facets.union_members.empty() || value.default_value || value.fixed_value ||
-            !facets.enumeration.empty() || !facets.qname_enumeration.empty())) {
+        ((!expanded_namespace_backend && !facets.union_members.empty()) ||
+            ((!expanded_namespace_backend || value.prefix_list) && (value.default_value || value.fixed_value)) ||
+            (!expanded_enumeration && (!facets.enumeration.empty() || !facets.qname_enumeration.empty())))) {
       throw std::invalid_argument{std::string{language} +
           " XML QName unions/defaults/fixed/enumeration require expanded value identities: " + value.source->name};
     }

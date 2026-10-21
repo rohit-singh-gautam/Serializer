@@ -5,11 +5,28 @@ when assigning authentication, policy administration, external effects and custo
 migrations. These are explicit host responsibilities, not missing runtime engines.
 Library-owned compiler, codec, transaction and resource guarantees remain required.
 
+Compiler/runtime **2.24.0** adds [collaborative retained-branch merging](../managed/branch_merging.md#collaboration).
+Enable it explicitly on a tree authority, check its advertised capability and
+author a replica `merge_request` against the exact accepted cursor and native
+target revision. Submit through the existing authenticated session/lock/policy
+boundary and apply the resulting accepted snapshot/field deltas. Source branches
+must already belong to the authority's retained tree. General stale-edit merging
+and client-authored ancestry imports are separate contracts.
+
+Regenerate Go/Java/C# XML codecs for [QName schema constraints](../verification/verification-qname-constraints-2026-10-21.md).
+Enumeration and fixed values compare expanded names; schema defaults keep their
+own vocabulary when an instance shadows a prefix. QName/list union members retain
+their first successful selection. Kotlin/Swift also implement expanded scalar/list
+enumeration, while their namespace-dependent defaults/fixed and unions remain
+gated. All five retain pattern-sensitive aliases and prefix-list enumeration
+spellings. Ordinary strings and native wire fields keep
+their existing contract; broader namespace-dependent outer unions remain gated.
+
 Compiler/runtime **2.23.0** adds [native C++ branch merging](../managed/branch_merging.md).
 Use `merge_revision` only for retained revisions of a generated tree store;
 conflict choices, complete-candidate validation and current authorization precede
-publication. Merge ancestry survives native saves and journals. Collaboration
-negotiation remains pending; final qualification follows the compilation commit.
+publication. Merge ancestry survives native saves and journals. Release 2.24 adds
+the opt-in collaboration path and its Windows/Linux qualification.
 It also enables [C++ Protobuf fixed arrays](../serialization/protobuf.md#mapping-contract)
 as standard repeated fields with exact per-owner reader cardinality.
 

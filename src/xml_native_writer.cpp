@@ -259,15 +259,16 @@ class generator {
     const auto limit = encoding ? "output.listLimit" : swift_ ? "listLimit" : "input.listLimit";
     const auto quota = swift_ ? std::string{encoding ? ",output.scalarQuota,output.scalarOperation" : ",extensionOptions.srlPackageLimit,extensionOptions.srlPackageConsume"} :
         std::string{encoding ? ",output.packageContext()" : ",input.packageContext()"};
+    if (mobile_namespace_value(field) && namespace_scope.empty()) {
+      namespace_scope = encoding ? select("output.namespace", "output::namespace") :
+          select("state.value.srlXmlNamespaces.owner", "namespaces.owner");
+    }
     if (found != scalar_rules_.end()) {
-      expression = select("try ", "") + found->second + (encoding && fallback && !field.attribute ?
+      expression = select("try ", "") + found->second + (mobile_namespace_value(field) ?
+          ".checkScoped(" + expression + ',' + namespace_scope + ',' + limit + quota + ')' : encoding && fallback && !field.attribute ?
           ".output(" + expression + ',' + quote(*fallback) + ',' + limit + quota + ')' : ".check(" + expression + ',' + limit + quota + ')');
     }
     if (mobile_namespace_value(field)) {
-      if (namespace_scope.empty()) {
-        namespace_scope = encoding ? select("output.namespace", "output::namespace") :
-            select("state.value.srlXmlNamespaces.owner", "namespaces.owner");
-      }
       expression = select("try ", "") + "srlXmlNamespaceChecked(" + expression + ',' +
           (field.facets.list_item_kind == "QName" || field.list ? "true" : "false") + ',' +
           (field.prefix_list ? "true" : "false") + ',' + namespace_scope + ',' + limit + quota + ')';

@@ -85,7 +85,23 @@ inline std::string mobile_scalar_rule(const xml_binding::field& field,
     }
     result += end + ',' + quote(facets.list_item_kind) + ',' + start;
     for (const auto& member : facets.union_members) { result += self(self, member, {}) + ','; }
-    return result + end + ',' + (fixed ? quote(*fixed) : swift ? "nil" : "null") + ')';
+    result += end + ',' + (fixed ? quote(*fixed) : swift ? "nil" : "null") + ')';
+    if (!facets.qname_enumeration.empty() || !facets.qname_list_enumeration.empty()) {
+      const auto name = [&](const auto& value) {
+        return std::string{"SrlXmlName("} + (swift ? "local:" : "") + quote(value.local) + ',' +
+            (swift ? "namespace:" : "") + quote(value.namespace_uri) + ')';
+      };
+      result += ".namespaceValues(" + start;
+      for (const auto& value : facets.qname_enumeration) { result += name(value) + ','; }
+      result += end + ',' + start;
+      for (const auto& values : facets.qname_list_enumeration) {
+        result += start;
+        for (const auto& value : values) { result += name(value) + ','; }
+        result += end + ',';
+      }
+      result += end + ')';
+    }
+    return result;
   };
   return rule(rule, field.facets, field.fixed_value);
 }

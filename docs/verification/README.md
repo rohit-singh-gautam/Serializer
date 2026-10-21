@@ -11,6 +11,9 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [Large readonly XML exports](verification-readonly-xml-stress-2026-10-21.md) | All eleven actual Windows outputs: 25,000 borrowed values, storage identity, exact/one-tight output limits, fresh recovery and bounded interruption controls; broader OPC-R10 graphs remain open. |
+| [QName constraints in five portable codecs](verification-qname-constraints-2026-10-21.md) | Go/Java/C# expanded enumeration/default/fixed/union identities, Kotlin/Swift enumeration and five-codec lexical-pattern checks: 145 new decisions, with independent JAXP/lxml boundaries. |
+| [Collaborative retained-branch merging](verification-collaboration-merging-2026-10-21.md) | MG04: retained authority revisions, capability/session/policy/lock fences, exact retries, accepted deltas and journal faults; 72 tests pass on each Windows/Linux host. |
 | [Integrated OPC and runtime completion](verification-integrated-opc-2026-10-21.md) | 2.22.0 build, 275/275 CTests, separate final-fix replays and dated SDK evidence; eleven implemented closures, three will-not-fix decisions and 40 remaining rows. |
 | [Large combined package operations](verification-large-package-operations-2026-10-21.md) | All eleven actual SDKs: three identity owners, 150,003 elements, 225,000 tuples, real DEFLATE/preservation/Save controls and independent ZIP/XSD outputs; exact/one-tight quotas, interruption and recovery pass. |
 | [Large owning XML measurements](verification-large-xml-2026-10-21.md) | Eleven actual Windows SDKs at 75,000 repeated/random tags, 216 isolated operation profiles, 1,080 timed batches and 132 large cancellation/deadline/recovery controls; Linux C++ adds 54 profiles, 270 calls and 12 controls. |

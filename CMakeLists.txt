@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.23.0 LANGUAGES CXX)
+project(serializer VERSION 2.24.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.21.0)
@@ -156,6 +156,7 @@ add_library(serializer_lib
   src/xml_portable_writer.cpp
   src/xml_portable_writer.hpp
   src/xml_portable_projection_writer.hpp
+  src/xml_namespace_reservation.hpp
   src/xml_native_writer.cpp
   src/xml_native_choice_writer.hpp
   src/xml_native_model_writer.hpp

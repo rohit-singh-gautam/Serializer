@@ -10,6 +10,7 @@
 #include "auto_size_writer.hpp"
 #include "generated_notices.hpp"
 #include "xml_schema.hpp"
+#include "xml_namespace_reservation.hpp"
 #include "xml_portable_writer.hpp"
 #include "xml_native_model_writer.hpp"
 #include "xml_portable_projection_writer.hpp"
@@ -285,6 +286,7 @@ class emitter {
     }
     const auto contract = xml_contract.bind(value);
     const bool namespace_values = std::any_of(contract.fields.begin(), contract.fields.end(), xml_portable::namespace_dependent);
+    const bool namespace_reservations = xml_codegen::namespace_union_graph(value, xml_contract);
     const bool export_graph = readonly || xml_codegen::native_xml_export_graph(value);
     const bool all = xml_portable::supports_all(contract);
     if (!contract.all_groups.empty() && !all) {
@@ -436,6 +438,7 @@ class emitter {
     line("/** Carry explicit foreign-vocabulary understanding and preservation bounds. */");
     line("public byte[] encodeXml(Limits limits, XmlSchema schema, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity, XmlDigestLimits digests, XmlExtensionOptions extensions) {"); ++level;
     line("var output = new SrlXmlOutput(limits, maps, mixed, identity, digests, extensions);");
+    if (namespace_reservations) { line("xmlWrite(output,0);"); }
     line("xmlWrite(output, " + expanded(contract.root) + ");");
     line("byte[] bytes = output.finish();");
     if (!options.xml.runtime_xsd) { line("if (schema != null) throw new IllegalArgumentException(\"Runtime XSD was not enabled during generation\");"); }
@@ -485,17 +488,37 @@ class emitter {
     }
     --level; line("}");
     }
+    line("/** Reserve lexical aliases while borrowing mapped fields without XML payload copies. */");
+    line("private void xmlWrite(SrlXmlOutput output,int depth){"); ++level;
+    line("output.reserveNamespaceDepth(depth);");
+    for (const auto& path : base_paths) { line("if(this." + path + "==null)throw new IllegalArgumentException(\"Null XML base record\");"); }
+    line(xml_codegen::namespace_reservation_body(contract,
+        [&](const member& source) { return "this." + member_paths.at(&source); },
+        [&](const member& source) { return field(source.name); }, alternative, "java",
+        [&](const member& source) { return xml_codegen::native_xml_active(contract, source, version_language::java, revision_path("this.")); }));
+    --level; line("}");
     line("/** Emit statically bound tokens with only active ancestor state. */");
     line("private void xmlWrite(SrlXmlOutput output, String name) {"); ++level;
     line("xmlWrite(output, name, null);"); --level; line("}");
     line("/** Add an explicit type before native attributes without changing ordinary callers. */");
     line("private void xmlWrite(SrlXmlOutput output, String name, String typeIdentity) {"); ++level;
+    const bool owner_union = std::any_of(contract.fields.begin(), contract.fields.end(), xml_codegen::namespace_owner_union);
+    if (owner_union) {
+      for (const auto& path : base_paths) { line("if(this." + path + "==null)throw new IllegalArgumentException(\"Null XML base record\");"); }
+      line(xml_codegen::managed_namespace_owner_default(contract,
+          [&](const member& source) { return "this." + member_paths.at(&source); }, map_scalar,
+          [&](const member& source) { return xml_portable::scalar_rule_name(rule_indices.at(&source), "java"); }, "java",
+          [&](const member& source) { return xml_codegen::native_xml_active(contract, source, version_language::java, revision_path("this.")); }));
+    }
     if(contract.extensions){
       const auto state=readonly?"null":"srlXmlPreserved";
       line(readonly?"var srlScope=java.util.Map.<String,String>of();":"var srlScope=srlXmlPreserved==null?java.util.Map.<String,String>of():srlXmlPreserved.scope;");
+      if (owner_union) { line("if(srlOwnerDefault!=null&&!srlOwnerDefault.equals(srlScope.getOrDefault(\"\",\"\")))throw new IllegalArgumentException(\"Conflicting XML union and preserved defaults\");"); }
       line("var srlExtensions=new SrlXmlExtensions(srlXmlExtensionMetadata,srlScope,output.extensionOptions,"+std::string{state}+");");
       line("output.open(name,srlScope);");
-    } else if (namespace_values) { line("output.open(name,java.util.Map.of(\"\",\"\"));"); }
+    } else if (namespace_values || namespace_reservations) {
+      line("output.open(name,java.util.Map.of(\"\"," + std::string{owner_union ? "srlOwnerDefault==null?\"\":srlOwnerDefault" : "\"\""} + "));");
+    }
     else { line("output.open(name);"); }
     if (contract.identity) { line("var srlIdentity=output.identityScope(srlXmlIdentityMetadata);"); }
     line("if (typeIdentity != null) output.typeName(typeIdentity);");
@@ -626,7 +649,7 @@ class emitter {
           const auto access = "result." + member_paths.at(item.source);
           const bool optional = item.source->type_name_list.front().is_optional();
           const auto text = item.attribute ? "fields.attribute(" + expanded(item.qualified_name) + ',' +
-              (optional || item.default_value || item.fixed_value ? "true" : "false") + ')' :
+              (item.min_occurs == 0U ? "true" : "false") + ')' :
               item.text ? "fields.text()" : "input.scalar(" + expanded(item.qualified_name) + ')';
           if (!item.attribute && !item.text && optional) { line("if(input.has(" + expanded(item.qualified_name) + ")) {"); ++level; }
           line(xml_portable::list_read(item, rule_indices.at(item.source), access, text, map_type,
@@ -667,7 +690,7 @@ class emitter {
         if (item.text) {
           line(access + " = " + read_value("fields.text()") + ";");
         } else if (item.attribute) {
-          line("var text = fields.attribute(" + expanded(item.qualified_name) + ", " + (optional || item.default_value || item.fixed_value ? "true" : "false") + ");");
+          line("var text = fields.attribute(" + expanded(item.qualified_name) + ", " + (item.min_occurs == 0U ? "true" : "false") + ");");
           line(access + " = " + (optional ? (item.default_value || item.fixed_value ? "java.util.Optional.of(" + read_value("text") + ")" : "text == null ? java.util.Optional.empty() : java.util.Optional.of(" + read_value("text") + ")") : read_value("text")) + ";");
         } else {
           if (item.wrapper) { line("var wrapper = input.open(" + expanded(*item.wrapper) + ");"); }

@@ -8,11 +8,21 @@ type srlXmlRule struct {
   bounds [4]string
   length, minimum, maximum int
   enumeration []string
+  qnames []srlxml.Name
+  qnameLists [][]srlxml.Name
   finite bool
   patterns [][]srlXmlPattern
   members []srlXmlRule
   fixed string
   hasFixed bool
+  defaultText string
+  defaultScope map[string]string
+  hasDefault bool
+  fixedNames []srlxml.Name
+  hasFixedNames bool
+  defaultNames []srlxml.Name
+  defaultAttribute bool
+  keepNamespaceLexical bool
 }
 // Keep resource admission failures distinct from an ordinary rejected union alternative.
 type srlXmlLimitError string
@@ -84,16 +94,52 @@ func (r *srlXmlRule) check(text string,maximumItems int,budgets ...*srlXmlBudget
 func (r *srlXmlRule) checkWith(text string,maximumItems int,work *srlXmlPatternWork)(string,error){
   if err:=work.spend(len(text));err!=nil{return "",err};if !utf8.ValidString(text){return "",fmt.Errorf("Invalid XML UTF-8")}
   text=srlXmlWhitespace(text,r.whitespace);if err:=r.lexical(text);err!=nil{return "",err}
-  if len(r.members)!=0{matched:=false;for index:=range r.members{_,err:=r.members[index].checkWith(text,maximumItems,work);if err==nil{matched=true;break};if _,resource:=err.(srlXmlLimitError);resource{return "",err}};if !matched{return "",fmt.Errorf("XML union has no matching member")}}
+  selected:=r
+  if len(r.members)!=0{matched:=false;for index:=range r.members{member,err:=r.members[index].checkWith(text,maximumItems,work);if err==nil{text=member;selected=work.selected;matched=true;break};if _,resource:=err.(srlXmlLimitError);resource{return "",err}};if !matched{return "",fmt.Errorf("XML union has no matching member")}}
   count:=utf8.RuneCountInString(text)
   if r.listKind!=""{items,err:=srlXmlTokens(text,maximumItems);if err!=nil{return "",err};count=len(items);item:=srlXmlRule{kind:r.listKind};for _,value:=range items{if err=work.spend(len(value));err!=nil{return "",err};if err=item.lexical(value);err!=nil{return "",err}}}
   if r.length>=0&&count!=r.length||r.minimum>=0&&count<r.minimum||r.maximum>=0&&count>r.maximum{return "",fmt.Errorf("XML length facet failed")}
   for index,bound:=range r.bounds{if bound==""{continue};order,comparable,err:=r.compare(text,bound);if err!=nil{return "",err};if !comparable||index==0&&order<0||index==1&&order>0||index==2&&order<=0||index==3&&order>=0{return "",fmt.Errorf("XML numeric facet failed")}}
-  if len(r.enumeration)!=0{matched:=false;for _,allowed:=range r.enumeration{order,comparable,err:=r.compare(text,srlXmlWhitespace(allowed,r.whitespace));if err!=nil{return "",err};if comparable&&order==0{matched=true;break}};if !matched{return "",fmt.Errorf("XML enumeration facet failed")}}
-  if r.hasFixed{order,comparable,err:=r.compare(text,srlXmlWhitespace(r.fixed,r.whitespace));if err!=nil{return "",err};if !comparable||order!=0{return "",fmt.Errorf("XML fixed value differs")}}
+  if len(r.enumeration)!=0&&len(r.qnames)==0&&len(r.qnameLists)==0{matched:=false;for _,allowed:=range r.enumeration{order,comparable,err:=r.compare(text,srlXmlWhitespace(allowed,r.whitespace));if err!=nil{return "",err};if comparable&&order==0{matched=true;break}};if !matched{return "",fmt.Errorf("XML enumeration facet failed")}}
+  if r.hasFixed&&!r.hasFixedNames{order,comparable,err:=r.compare(text,srlXmlWhitespace(r.fixed,r.whitespace));if err!=nil{return "",err};if !comparable||order!=0{return "",fmt.Errorf("XML fixed value differs")}}
+  if work.namespace!=nil&&(r.kind=="QName"||r.listKind=="QName"){if err:=r.checkNames(text,maximumItems,work);err!=nil{return "",err}}
   if r.finite{value,err:=srlXmlDouble(text,srlXmlKindBits(r.kind));if err!=nil{return "",err};if math.IsNaN(value)||math.IsInf(value,0){return "",fmt.Errorf("XML finite facet failed")}}
   for _,group:=range r.patterns{matched:=false;for index:=range group{accept,err:=group[index].matches(text,work);if err!=nil{return "",err};if accept{matched=true;break}};if !matched{return "",fmt.Errorf("XML portable pattern facet failed")}}
-  return text,nil
+  work.selected=selected;return text,nil
+}
+// Select the first complete union member while all alternatives share one bounded evaluator.
+func (r *srlXmlRule) selectNamespace(text string,lookup func(string)(string,bool),maximum int,budget *srlXmlBudget)(string,*srlXmlRule,error){
+  work:=srlXmlPatternWork{remaining:srlXmlPatternMaxWorkUnits,budget:budget,namespace:lookup}
+  checked,err:=r.checkWith(text,maximum,&work);return checked,work.selected,err
+}
+// Bind an explicit private scope for ordinary caller values and return normalized lexical text.
+func (r *srlXmlRule) checkScoped(text string,scope map[string]string,maximum int,budget *srlXmlBudget)(string,error){
+  lookup:=func(prefix string)(string,bool){if prefix=="xml"{return "http://www.w3.org/XML/1998/namespace",true};uri,found:=scope[prefix];return uri,found||prefix==""}
+  checked,_,err:=r.selectNamespace(text,lookup,maximum,budget);return checked,err
+}
+// Compare schema-owned expanded QName identities independently of source presentation aliases.
+func (r *srlXmlRule) checkNames(checked string,maximum int,work *srlXmlPatternWork)error{
+  budget:=work.budget
+  // One encoding/xml.Name holds two native string descriptors, each with pointer and length words.
+  const stringsPerName=2;const wordsPerString=2;const bitsPerByte=8
+  const nameBytes=stringsPerName*wordsPerString*(strconv.IntSize/bitsPerByte)
+  count,inside:=0,false;for _,value:=range checked{space:=srlXmlSpace(value);if !space&&!inside{count++};inside=!space}
+  if count>int(^uint(0)>>1)/nameBytes{return srlXmlLimitError("XML QName identity allocation overflow")}
+  if budget!=nil{if err:=budget.charge("allocation",int64(count*nameBytes));err!=nil{return err}}
+  mode:=0;if r.listKind=="QName"{mode=1}
+  names,err:=srlXmlNamespaceNames(checked,mode,maximum,work.namespace);if err!=nil{return err}
+  equal:=func(expected []srlxml.Name)(bool,error){
+    if budget!=nil{if err:=budget.charge("work",1);err!=nil{return false,err}}
+    if len(names)!=len(expected){return false,nil}
+    for index,name:=range names{if budget!=nil{if err:=budget.charge("work",int64(len(name.Space)+len(name.Local)+1));err!=nil{return false,err}};if name!=expected[index]{return false,nil}}
+    return true,nil
+  }
+  if r.hasFixedNames{matched,failure:=equal(r.fixedNames);if failure!=nil{return failure};if !matched{return fmt.Errorf("XML fixed QName value differs")}}
+  if len(r.qnames)==0&&len(r.qnameLists)==0{return nil}
+  if mode==0{for _,allowed:=range r.qnames{matched,failure:=equal([]srlxml.Name{allowed});if failure!=nil{return failure};if matched{return nil}}}else{
+    for _,allowed:=range r.qnameLists{matched,failure:=equal(allowed);if failure!=nil{return failure};if matched{return nil}}
+  }
+  return fmt.Errorf("XML QName enumeration facet failed")
 }
 // Preserve a present normalized empty token without activating a nonempty element default.
 func (r *srlXmlRule) output(text,fallback string,hasDefault bool,maximumItems int,budgets ...*srlXmlBudget)(string,error){

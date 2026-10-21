@@ -52,7 +52,7 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-The current compiler/runtime release is **2.23.0**, with schema language
+The current compiler/runtime release is **2.24.0**, with schema language
 **1.21.0**. Use [C++ core-property adapters](../../../docs/serialization/core_properties.md)
 for application-supplied OPC metadata, following the selected fifth-edition
 property/date/keyword contract. Use the [managed authorization boundary](../../../docs/managed/authorization.md)
@@ -69,13 +69,20 @@ For retained C++ tree revisions, use `merge_base`, `merge_revision` and
 `revision_parents` under the [native merge contract](../../../docs/managed/branch_merging.md).
 Resolve conflicts explicitly and retain complete-candidate validation and current
 authorization. Undo follows the target parent; both parents participate in ancestry.
-Attached collaboration, general history overlays and standalone conversion of the
-new merge wrapper remain gated. Final qualification of this implementation follows
-the requested compilation commit. Do not claim MG04's collaboration gate is closed.
+For retained authority branches, opt in through `collaboration_options::allow_branch_merges`
+on a tree authority. Check `branch_merges_enabled()`, capture `current_revision()`
+with the replica's accepted cursor, and author `replica.merge_request` with source
+and target revisions. Submit through the host-authenticated `submit_change` path;
+apply its ordinary accepted snapshot/field deltas. Retain the request for exact
+retries. A changed target or rejection requires reconciliation and a new operation
+ID. Only the host installs `set_branch_merge_resolver`; reentry and callback replay
+during recovery remain prohibited. General history overlays, client-authored branch
+imports and standalone conversion of the merge wrapper remain outside this contract.
 For selective collaboration Undo/Redo, unchanged managed variant tag/identity
 contributions now merge their child fields independently; tag/identity replacement
 remains atomic. Complete publication, reference and contribution-version checks
-remain mandatory, and this additive worktree behavior still needs final qualification.
+remain mandatory; the [Windows/Linux merge qualification](../../../docs/verification/verification-collaboration-merging-2026-10-21.md)
+records the actual native storage/ID profiles and fault boundaries.
 New non-C++ managed engines, paged/lazy storage and database sink/rebaseline adapters
 are deferred in linked GitHub issues, not completed features.
 For one-expression C++ serialization, call `serialize_as(value)` for an owning
@@ -96,12 +103,26 @@ before combining fragmented embedded messages or schema default initialization.
 
 Regenerate C++/Python/JavaScript/TypeScript output for [QName-list restrictions](../../../docs/verification/verification-qname-lists-2026-10-21.md):
 enumeration/default/fixed constraints retain ordered schema-scope expanded names,
-including enumerated list union members and global text. The other seven backends and
-namespace-dependent outer-union/default/export combinations retain explicit gates.
+including enumerated list union members and global text. Regenerate Go/Java/C#
+for their [expanded QName constraints](../../../docs/verification/verification-qname-constraints-2026-10-21.md):
+scalar/list enumeration, default/fixed values and selected QName/list union
+members retain their original identities. Kotlin/Swift also compare scalar/list
+enumerations by expanded identity; their namespace-dependent defaults/fixed and
+unions retain gates. C/Rust constraint parity and broader namespace-dependent
+outer-union/default/export combinations remain pending. The five codecs retain
+QName-pattern aliases and prefix-list string enumeration spellings. Regenerate
+and qualify with the linked actual-SDK checks before selecting those combinations.
 Supported private-field projections isolate no-namespace schema defaults from
 an active instance default while retaining other fields' expanded identities.
 Check the linked graph/backend limits before choosing a combination.
 Native IDs/wire formats and schema language are unchanged.
+
+Use the [large readonly XML qualification](../../../docs/verification/verification-readonly-xml-stress-2026-10-21.md)
+for the eleven-output 25,000-value scoped traversal, exact/one-tight byte bounds,
+source storage identity and fresh-recovery controls. Keep source lifetime stable
+through every synchronous pass. Namespace-sensitive scoped projection and broader
+graph/resource combinations remain tracked under OPC-R10; named durable address
+XML still rejects. The record does not imply allocation-free output.
 
 Regenerate affected XML codecs for the
 [eleven-output namespace/provider boundary fixes](../../../docs/verification/verification-runtime-boundaries-2026-10-21.md).
@@ -256,9 +277,13 @@ namespace identity. Native JSON/binary codecs omit that XML-only state. Go/Java/
 plain QName/list/prefix-list codecs and validate/copy authored bindings through
 Go `SetXMLNamespaces`, Java `setXmlNamespaces` and C# `SetXmlNamespaces`;
 these setters replace loaded scopes on that record and nested records bind
-independently. Namespace-dependent unions/defaults/fixed/enumeration remain
-explicitly gated. Valid Unicode XML mapping names and prefixes are accepted.
-Kotlin/Swift provide equivalent plain scalar scope retention on owning records.
+independently. Release 2.24 adds scalar/list enumeration/default/fixed constraints
+and selected QName/list union members for these three backends; namespace-dependent
+outer union enumeration/fixed constraints and union defaults remain gated.
+Valid Unicode XML mapping names and prefixes are accepted.
+Kotlin/Swift provide equivalent plain scalar scope retention on owning records;
+2.24 adds expanded scalar/list enumeration checks without enabling their
+namespace-dependent defaults/fixed or unions.
 C/Rust keep scopes in XML document companions; use document decode and
 encode-with-extensions APIs, and respect their additional graph capability gates.
 Regenerate affected outputs and rebuild C++ consumers with matching headers/runtime.

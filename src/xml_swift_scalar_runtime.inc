@@ -8,6 +8,7 @@ fileprivate struct SrlXmlScalarLimit: Error { let message: String; var original:
 fileprivate final class SrlXmlScalarWork {
     var remaining = srlXmlMaxPatternWork
     let maximumItems: Int
+    var namespace: ((String) -> String?)? = nil
     private let operation: ((String,Int) throws -> Void)?
     // Bind the operation's native list admission bound without changing document limits.
     init(_ maximumItems: Int, _ operation: ((String,Int) throws -> Void)? = nil) { self.maximumItems = maximumItems; self.operation=operation }
@@ -25,6 +26,11 @@ fileprivate final class SrlXmlRule {
     let finite: Bool
     let groups: [[Pattern]], members: [SrlXmlRule]
     let fixed: String?
+    private var qnames: [SrlXmlName] = [], qnameLists: [[SrlXmlName]] = []
+    // Bind schema-expanded identities during preparation; checks keep operation-local state.
+    func namespaceValues(_ names: [SrlXmlName], _ lists: [[SrlXmlName]]) -> SrlXmlRule {
+        qnames=names; qnameLists=lists; return self
+    }
     // Retain only compiled metadata; counters remain local to each complete check.
     init(_ kind: String, _ whitespace: String, _ bounds: [String], _ length: Int, _ minimum: Int,
         _ maximum: Int, _ enumeration: [String], _ finite: Bool, _ groups: [[Pattern]],
@@ -136,7 +142,8 @@ fileprivate final class SrlXmlRule {
         var count=0; var item=false
         for scalar in raw.unicodeScalars {
             let space=scalar.value == 32 || scalar.value == 9 || scalar.value == 10 || scalar.value == 13
-            if !space && !item { guard count < maximum else { if let quota { throw quota("XML list item limit exceeded") }; throw SrlXmlScalarLimit(message:"XML list item limit exceeded") }; count += 1 }; item = !space
+)xmlscalar"
+R"xmlscalar(            if !space && !item { guard count < maximum else { if let quota { throw quota("XML list item limit exceeded") }; throw SrlXmlScalarLimit(message:"XML list item limit exceeded") }; count += 1 }; item = !space
         }
         return raw.split(whereSeparator:{ character in character.unicodeScalars.allSatisfy { $0.value == 32 || $0.value == 9 || $0.value == 10 || $0.value == 13 } }).map(String.init)
     }
@@ -161,6 +168,19 @@ fileprivate final class SrlXmlRule {
         do { return try check(raw,SrlXmlScalarWork(maximumItems,operation)) }
         catch let error as SrlXmlScalarLimit { if let original=error.original { throw original }; throw srlXmlLimitFailure(quota,error.message) }
     }
+    // Resolve QName restrictions against one exact provider or pending output scope.
+    func checkScoped(_ raw: String, _ namespace: @escaping (String) -> String?, _ maximumItems: Int,
+        _ quota: ((String) -> any Swift.Error)?, _ operation: ((String,Int) throws -> Void)?) throws -> String {
+        try operation?("allocation",128+raw.utf8.count*4)
+        let work=SrlXmlScalarWork(maximumItems,operation); work.namespace=namespace
+        do { return try check(raw,work) }
+        catch let error as SrlXmlScalarLimit { if let original=error.original { throw original }; throw srlXmlLimitFailure(quota,error.message) }
+    }
+    // Borrow a captured dictionary with copy-on-write storage instead of rebuilding its bindings.
+    func checkScoped(_ raw: String, _ scope: [WireString:String], _ maximumItems: Int,
+        _ quota: ((String) -> any Swift.Error)?, _ operation: ((String,Int) throws -> Void)?) throws -> String {
+        try checkScoped(raw,{ scope[WireString($0)] },maximumItems,quota,operation)
+    }
     // Preserve work exhaustion across union probing and inherited restriction groups.
     private func check(_ raw: String, _ work: SrlXmlScalarWork) throws -> String {
         try work.spend(raw.utf8.count); let text=normalize(raw); try lexical(text)
@@ -175,7 +195,29 @@ fileprivate final class SrlXmlRule {
         for index in bounds.indices where !bounds[index].isEmpty {
             guard let order=try compare(text,bounds[index]), index == 0 ? order >= 0 : index == 1 ? order <= 0 : index == 2 ? order > 0 : order < 0 else { throw SerializerError.invalid("XML numeric facet failed") }
         }
-        if !enumeration.isEmpty { var matched=false; for value in enumeration { if try compare(text,normalize(value)) == 0 { matched=true; break } }; guard matched else { throw SerializerError.invalid("XML enumeration facet failed") } }
+        if !enumeration.isEmpty && qnames.isEmpty && qnameLists.isEmpty { var matched=false; for value in enumeration { if try compare(text,normalize(value)) == 0 { matched=true; break } }; guard matched else { throw SerializerError.invalid("XML enumeration facet failed") } }
+        if let namespace=work.namespace, kind == "QName" || listKind == "QName" {
+            let items=listKind == "QName" ? try Self.tokens(text,work.maximumItems) : [text]
+            let names=try items.map { item -> SrlXmlName in
+                try work.spend(item.utf8.count+1)
+                guard let name=srlXmlTypeQName(item,namespace) else { throw SerializerError.invalid("Invalid or unbound XML QName") }
+                return name
+            }
+            if !qnames.isEmpty {
+                var matched=false
+                if names.count == 1 { for name in qnames { try work.spend(name.local.utf8.count+name.namespace.utf8.count+1); if name == names[0] { matched=true; break } } }
+                guard matched else { throw SerializerError.invalid("XML QName enumeration facet failed") }
+            }
+            if !qnameLists.isEmpty {
+                var matched=false
+                for allowed in qnameLists where allowed.count == names.count {
+                    var equal=true
+                    for index in allowed.indices { try work.spend(allowed[index].local.utf8.count+allowed[index].namespace.utf8.count+1); if allowed[index] != names[index] { equal=false; break } }
+                    if equal { matched=true; break }
+                }
+                guard matched else { throw SerializerError.invalid("XML QName-list enumeration facet failed") }
+            }
+        }
         if let fixed=fixed { guard try compare(text,normalize(fixed)) == 0 else { throw SerializerError.invalid("XML fixed value differs") } }
         if finite { let value=kind == "float" ? Double(try srlXmlFloat32(text)) : try srlXmlFloat(text); guard value.isFinite else { throw SerializerError.invalid("XML finite facet failed") } }
         for group in groups { var matched=false; for pattern in group { if try pattern.matches(text,work) { matched=true; break } }; guard matched else { throw SerializerError.invalid("XML portable pattern facet failed") } }

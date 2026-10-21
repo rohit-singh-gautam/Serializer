@@ -2,6 +2,17 @@
 
 ## Native merge ancestry
 
+Compiler/runtime 2.24.0 adds an explicitly enabled collaboration model command
+with `model_change.format_version = 4`. Its `snapshot` bytes encode one exact keyed
+`branch_merge_request`: source revision (field 1), target revision (field 2).
+`base_allocated_id`, `allocated_id`, `history_action` and `target_operation` must
+all be zero. The outer proposal retains the existing domain/session/operation,
+accepted `base_sequence` and grant fields. The authority requires an exact current
+cursor/target and uses retained native ancestry; client-supplied model graphs
+cannot establish a merge parent. Accepted snapshots and field/dependency delta
+records retain their existing formats, including an empty field list when only
+ancestry changes. Earlier model-command handlers reject format 4.
+
 Compiler/runtime **2.23.0** adds an opt-in C++ tree-history wrapper. Ordinary model,
 linear/tree save, journal and collaboration bytes retain their previous contracts
 when no branch merge is recorded. The schema language stays **1.21.0**.

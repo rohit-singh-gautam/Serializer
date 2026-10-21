@@ -142,7 +142,7 @@ TEST(dimension_templates, canonical_resource_boundaries) {
   EXPECT_THROW(parse_dimensions(source + "public tag<1025> extra; }"), std::exception);
 }
 
-// All ordinary backends retain exact fixed cardinality; direct Protobuf still rejects it.
+// Ordinary backends and C++ Protobuf accept the implemented fixed-cardinality mappings.
 TEST(dimension_templates, backend_diagnostics) {
   const auto nodes = parse_dimensions("class p { public array[3] double x; }");
   for (const auto language : {"js", "typescript", "python"}) {
@@ -156,7 +156,7 @@ TEST(dimension_templates, backend_diagnostics) {
   EXPECT_NO_THROW(schema::writer::java::write(java, nodes, "Schema"));
   schema::writer::cpp_options options{};
   options.protobuf = true;
-  EXPECT_THROW(schema::writer::cpp::generate(nodes, options), std::invalid_argument);
+  EXPECT_NO_THROW(schema::writer::cpp::generate(nodes, options));
 }
 
 // Exercise exact and adjacent parser/storage boundaries before allocating generated storage.

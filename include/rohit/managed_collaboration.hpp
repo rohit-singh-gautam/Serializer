@@ -39,6 +39,7 @@ inline constexpr std::uint32_t collaboration_model_protocol_version =
     collaboration_record_types<>::model_protocol;
 inline constexpr std::uint32_t collaboration_model_change_version = 3;
 inline constexpr std::uint32_t collaboration_history_change_version = 2;
+inline constexpr std::uint32_t collaboration_branch_merge_version = 4;
 
 enum class collaboration_status {
   accepted,
@@ -73,6 +74,8 @@ struct collaboration_options {
   std::size_t max_created_ids{4096};
   std::size_t max_tracked_fields{100000};
   std::size_t max_identity_leases{4096};
+  bool allow_branch_merges{false};
+  std::size_t max_merge_work_bytes{merge_options{}.max_work_bytes};
 };
 
 template <typename Session = std::uint64_t,
@@ -359,6 +362,7 @@ private:
   command_handler handler_{};
   change_policy policy_{};
   lock_policy lock_policy_{};
+  std::function<merge_resolution(const merge_conflict&)> merge_resolver_{};
   std::unique_ptr<store_type> store_{};
   collaboration::domain domain_{};
   detail::collaboration_entities entities_{};
@@ -899,7 +903,59 @@ private:
     prepared_batch_ = std::move(batch);
   }
 
+  // Admit only retained authority branches and an exact target; client snapshots never supply ancestry.
+  typename store_type::outcome_type apply_branch_merge(const collaboration::model_change& change) {
+    if constexpr (Mode != history_mode::tree) {
+      throw std::invalid_argument{"Collaborative branch merging requires tree history"};
+    } else {
+      if (!options_.allow_branch_merges) {
+        reject_candidate(collaboration_status::denied);
+      }
+      if (change.base_allocated_id != 0 || change.allocated_id != 0 ||
+          change.history_action != 0 || change.target_operation != 0) {
+        throw std::invalid_argument{"Invalid collaborative branch-merge payload"};
+      }
+      const auto request = decode_collaboration_record<collaboration::branch_merge_request>(
+          change.snapshot, store_options_.decode);
+      if (request.target_revision != store_->current_revision()) {
+        reject_candidate(collaboration_status::conflict);
+      }
+      merge_options options;
+      options.max_work_bytes = options_.max_merge_work_bytes;
+      options.resolve = merge_resolver_;
+      auto outcome = store_->merge_revision_impl(request.source_revision, options, {}, true);
+      if (outcome.error) {
+        try { std::rethrow_exception(outcome.error); }
+        catch (const merge_conflict_error&) { preparing_->status = collaboration_status::conflict; }
+        catch (...) { /* Preserve the native validation, quota or durable-write failure. */ }
+      }
+      return outcome;
+    }
+  }
+
 public:
+  // Advertise only the explicit retained-branch facility, independently of ordinary model edits.
+  bool branch_merges_enabled() const {
+    check_access();
+    return Mode == history_mode::tree && options_.allow_branch_merges &&
+        domain_.protocol_version == records_type::model_protocol;
+  }
+
+  // Install a synchronous host resolution policy; retry a rejected request with a new operation ID.
+  // The callback cannot reenter the authority, and journal recovery never invokes it.
+  void set_branch_merge_resolver(std::function<merge_resolution(const merge_conflict&)> resolver) {
+    if (!branch_merges_enabled()) {
+      throw std::logic_error{"Collaborative branch merging is not enabled"};
+    }
+    merge_resolver_ = std::move(resolver);
+  }
+
+  // Bind merge authoring to the authority's current native revision as well as its accepted cursor.
+  std::uint64_t current_revision() const requires(Mode == history_mode::tree) {
+    check_access();
+    return store_->current_revision();
+  }
+
   // Use generated model editors by default; custom command schemas and dispatchers are optional.
   collaboration_authority(Root initial, std::uint64_t epoch,
                           document_id document = make_document_id(),
@@ -1094,8 +1150,16 @@ public:
     if constexpr (has_history) {
       inverse_.action = collaboration_history_action::edit;
     }
-    const auto outcome =
-        store_->execute_transaction([&](auto& edit) { handler_(edit, proposal.command); });
+    typename store_type::outcome_type outcome;
+    try {
+      outcome = decoded_change.format_version == collaboration_branch_merge_version &&
+              domain_.protocol_version == records_type::model_protocol
+          ? apply_branch_merge(decoded_change)
+          : store_->execute_transaction([&](auto& edit) { handler_(edit, proposal.command); });
+    } catch (...) {
+      outcome.status = transaction_status::failed;
+      outcome.error = std::current_exception();
+    }
     proposal_ = nullptr;
     preparing_ = nullptr;
     decoded_change_ = nullptr;
@@ -1580,6 +1644,26 @@ public:
             base_sequence,
             encode_collaboration_record(change, options.max_command_bytes),
             std::move(grants)};
+  }
+
+  // Request a retained authority branch after the host checks its advertised opt-in capability.
+  // Both native revisions and the accepted cursor fence the request; no client snapshot is trusted.
+  change_proposal_type merge_request(const session_type& session, std::uint64_t operation,
+      std::uint64_t source_revision, std::uint64_t target_revision,
+      std::vector<collaboration::grant_reference> grants = {},
+      collaboration_options options = {}) const {
+    static_cast<void>(store_.read());
+    if (!initialized_ || domain_.protocol_version != records_type::model_protocol ||
+        !SessionTraits::valid(session) || operation == 0 || source_revision == 0 ||
+        target_revision == 0 || grants.size() > options.max_locks) {
+      throw std::invalid_argument{"Invalid collaborative branch-merge authoring context"};
+    }
+    collaboration::model_change change;
+    change.format_version = collaboration_branch_merge_version;
+    change.snapshot = encode_collaboration_record(
+        collaboration::branch_merge_request{source_revision, target_revision}, options.max_command_bytes);
+    return {domain_, session, operation, sequence_,
+            encode_collaboration_record(change, options.max_command_bytes), std::move(grants)};
   }
 
   // Build an undo/redo request with no client-authored inverse; retain bytes for exact retries.

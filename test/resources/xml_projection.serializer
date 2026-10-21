@@ -36,4 +36,17 @@ namespace xml_projection {
   class nil_envelope {
     public shared(nil_source.current) value;
   }
+  class large_payload {
+    public array<uint32> values;
+    public payload nested;
+    public string fallback { "default" };
+  }
+  class large_source {
+    public array<uint32> values;
+    public payload nested;
+    public translator large_payload as project {
+      values = values;
+      nested = nested;
+    };
+  }
 }

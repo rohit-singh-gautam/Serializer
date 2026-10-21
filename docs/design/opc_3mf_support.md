@@ -4,7 +4,7 @@
 [Implemented APIs](../serialization/xml_packages.md) · [Pending work](../pending.md)
 
 Status: implemented subsets and remaining requirements, **21 October 2026**.
-The source release is compiler/runtime **2.22.0**, schema language **1.21.0**.
+The source release is compiler/runtime **2.24.0**, schema language **1.21.0**.
 The C++ OPC builder and declarative package facades in all eleven outputs exist;
 complete 3MF support and broader profile/provider qualification remain pending. Current source qualification
 is separate from the historically checked manual example.
@@ -106,9 +106,10 @@ it does not maintain a second completion list. Application vocabulary and geomet
 remain application responsibilities.
 
 OPC-R10 extends the existing [value-reference](../schema/value_references.md)
-and [scoped-translator](../schema/references.md) contracts to XML. C++ generated
-borrowed/shared value and scoped projection output is checked; other-backend
-coverage remains pending. Durable typed address XML is still rejected. Value
+and [scoped-translator](../schema/references.md) contracts to XML. Selected generated
+readonly value-reference and scoped projection output graphs are checked in all
+eleven outputs; broader graph, resource and stress qualification remains pending.
+Durable typed address XML is still rejected. Value
 projection is distinct from serializing durable typed
 addresses: an external value projection must emit payload values, not Serializer
 document/object/path metadata. Application code keeps borrowed sources alive and
