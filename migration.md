@@ -1,5 +1,30 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.23.0
+
+Use `rohit::serializer::serialize_as(value)` to return compact JSON as an owning
+`std::string`, or select `serialize_as<Result, Protocol>(value)`. The default string
+result transfers buffer storage; other owning results copy completed bytes.
+Borrowed results such as `std::string_view` require caller-owned storage as the
+second argument, retained unchanged for the borrow's lifetime. Binary NUL bytes
+are preserved. There is no `serialize_string` alias. Existing generated APIs,
+schemas and serialized bytes remain compatible.
+
+Regenerate C++ Protobuf output for fixed arrays. These use standard repeated
+values without extent metadata; readers require exact cardinality per complete
+decoded owner message. Format-omitted arrays retain schema defaults. Previously
+supported variable arrays and ordinary native formats retain their behavior.
+
+Rebuild C++ consumers for [native branch merging](docs/managed/branch_merging.md).
+Generated traits already supplying `merge_collaboration` provide the typed field
+traversal; stale handwritten traits need that hook before calling the new API.
+Ordinary payload and tree-envelope bytes stay unchanged until a merge is recorded.
+Merge-aware saves use a new wrapper and journals use operation tags 10/11; earlier
+readers reject these optional records. Keep a compatible runtime for recovery.
+Explicit `load_migrated` preserves ancestry; standalone identity/history-policy
+conversion helpers reject the wrapper pending a negotiated conversion contract.
+Schema language remains 1.21.0. Final qualification follows the compilation commit.
+
 ## Compiler/runtime 2.22.0
 
 Activate version-one C++ feature profiles through

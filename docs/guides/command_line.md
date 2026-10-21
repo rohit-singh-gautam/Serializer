@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **2.18.0**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **2.23.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -13,6 +13,8 @@ version; requests for newer releases or a different major version are rejected.
 Use `EXACT` to require a specific release.
 
 For the current package, request `find_package(Serializer 2.0 CONFIG REQUIRED)`;
+require `2.23` for generic `serialize_as` results, native branch merging and generated
+C++ Protobuf fixed arrays;
 require `2.17` for [package policies and application references](../serialization/package_application_contracts.md);
 require `2.16` for [C#/Kotlin ZIP/OPC facades](../languages/csharp_kotlin_packages.md);
 require `2.12` for [generated C++ XML token APIs](../serialization/xml_tokens.md);

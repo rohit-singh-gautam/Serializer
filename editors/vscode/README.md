@@ -1,6 +1,13 @@
 # Rohit Serializer for Visual Studio Code
 
-Version **2.0.10** supports schema language **1.21.0** package envelope policies
+Version 2.0.11 updates usage metadata for compiler/runtime 2.23.0. Ordinary owning
+fixed arrays are available in all eleven codec outputs; generated C++ Protobuf
+also supports fixed arrays with exact reader cardinality. C++ `serialize_as`
+returns an owning string by default; borrowed views require caller-owned storage.
+These runtime changes add no schema syntax or editor navigation behavior. Final
+editor-host qualification follows the compilation commit.
+
+Version **2.0.11** supports schema language **1.21.0** package envelope policies
 and scoped application keys/references. `key` and `reference` field operands
 navigate to direct public string/integer members through qualified model types,
 transitive includes and unsaved edits. Their target-role operands remain package
@@ -8,7 +15,7 @@ metadata and do not claim unrelated type destinations. New snippets cover all
 three declarations. Generated Rust, Swift and C package facades join the existing
 language destinations; ordinary native enums retain their normal identity.
 
-Both local packages share version **2.0.10**. Building and validating these files
+Both local packages share version **2.0.11**. Building and validating these files
 does not install the extensions or update live Marketplace listings.
 
 The existing schema language **1.20.0** authoring support includes XML defaults, field overrides,
@@ -21,7 +28,7 @@ remain prerequisites; editor support does not establish format conformance.
 Typed C++ `managed_ref<T>` tokens navigate to the managed target, including forward
 and included declarations. `class_id(decimal)` preserves explicit class identity;
 its numeric metadata does not become a type reference. VS Code supplies token and
-class-identity snippets. Both local packages share version 2.0.10; building them does
+class-identity snippets. Both local packages share version 2.0.11; building them does
 not install or publish them.
 
 
@@ -428,7 +435,9 @@ expressions, nested generic applications, and optional `instantiate` contracts.
 Navigation resolves dimension/type parameter references and defaults to their
 local declarations, including unsaved text. C++ definitions include native templates
 with no concrete schema uses. Other languages have destinations only for concrete
-contracts; fixed-array output is currently unsupported there. The shared grammar
+contracts; ordinary owning fixed-array codecs are available in all eleven outputs.
+Generated C++ Protobuf uses repeated fields with exact reader cardinality.
+The shared grammar
 highlights dimension arithmetic and the `matrix` snippet inserts a fixed-array
 example. Both packages use the same navigation implementation.
 

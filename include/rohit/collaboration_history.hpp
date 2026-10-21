@@ -189,9 +189,14 @@ public:
     std::forward<Callable>(callback)(*this);
   }
 
-  // Treat switching and payload reversal as one guarded value; never edit a displaced alternative.
+  // Reverse fields within one surviving alternative; never traverse an atomically displaced identity.
   void owned_variant(std::uint64_t entity, std::uint32_t field, auto& current,
                      const auto& expected, const auto& desired) {
+    if (visit_matching_owned_variant(current, expected, desired,
+        [&](auto& live, const auto& old, const auto& incoming) {
+          using child_type = std::remove_cvref_t<decltype(live)>;
+          model_traits<child_type>::merge_collaboration(live, old, incoming, *this);
+        })) { return; }
     value(entity, field, current, expected, desired);
   }
 

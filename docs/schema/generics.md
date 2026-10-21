@@ -283,8 +283,11 @@ The inferred extent is fixed at generation time. Its native C++ storage,
 wire count, cardinality checks, compatibility analysis, and backend limitations
 are the same as `array[N] T`. Compiler 1.11.0 supports explicit fixed extents
 without nonempty initializers in all eleven native codec backends. Collection
-initializers, including inferred extents, remain C++ only; direct Protobuf fixed
-arrays remain unsupported.
+initializers under the legacy language contract remain C++ only. Language 1.14+
+typed aggregate defaults use the portable construction contract in supported
+owning backends. Compiler/runtime 2.23.0 also maps fixed arrays to
+[Protobuf repeated fields](../serialization/protobuf.md#mapping-contract), imposing
+exact cardinality in generated C++ readers without adding wire metadata.
 
 Generic definitions require unpacked owning storage without raw unions,
 recursive ownership, variadics, or user specializations. Inheritance requires

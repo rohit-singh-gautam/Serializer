@@ -1,6 +1,7 @@
 # Managed C++ and proposed language bindings
 
-Remaining native engine work is tracked as **MG01** in
+Remaining native engine work is deferred to
+[GitHub #1](https://github.com/rohit-singh-gautam/Serializer/issues/1), retaining **MG01** in
 [the central pending backlog](../pending.md#managed-state-and-storage).
 
 Current C++ representation: managed schema classes carry `persistent_id` directly

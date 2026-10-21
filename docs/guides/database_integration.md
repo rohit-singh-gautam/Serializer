@@ -163,6 +163,12 @@ the C++ helper name is not a cross-language database interface.
 
 ## Proposed document sink boundary
 
+This new adapter subsystem is deferred as **DB01** in
+[GitHub #4](https://github.com/rohit-singh-gautam/Serializer/issues/4).
+Journal/database-sink migration and rebaseline remain separately deferred as
+**MIG03** in [GitHub #5](https://github.com/rohit-singh-gautam/Serializer/issues/5).
+Both retain their acceptance gates in [the pending backlog](../pending.md).
+
 This section proposes a future design; the names below are operation descriptions,
 not implemented C++ functions, generator switches, or schema syntax.
 

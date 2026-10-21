@@ -2720,6 +2720,92 @@ constexpr void serialize_to(Stream& output, const Value& value) {
   }
 }
 
+namespace detail {
+// Serialization produces octets; wider character containers require an explicit text conversion.
+template <typename Byte>
+inline constexpr bool serialization_byte = std::same_as<Byte, char> ||
+    std::same_as<Byte, char8_t> || std::same_as<Byte, std::uint8_t> || std::same_as<Byte, std::byte>;
+} // namespace detail
+
+// Specialize for additional owning result types; from_bytes must copy and retain no borrowed bytes.
+template <typename Result>
+struct serialization_result_traits {};
+
+template <typename Character, typename Traits, typename Allocator>
+  requires (std::same_as<Character, char> || std::same_as<Character, char8_t>)
+struct serialization_result_traits<std::basic_string<Character, Traits, Allocator>> {
+  // Preserve the encoded octets; char8_t selects UTF-8 storage without performing transcoding.
+  static auto from_bytes(std::span<const std::uint8_t> bytes) {
+    std::basic_string<Character, Traits, Allocator> result(bytes.size(), Character{});
+    if (!bytes.empty()) { std::memcpy(result.data(), bytes.data(), bytes.size()); }
+    return result;
+  }
+};
+
+template <typename Byte, typename Allocator>
+  requires detail::serialization_byte<Byte>
+struct serialization_result_traits<std::vector<Byte, Allocator>> {
+  // A completed byte vector owns its full extent, including zero octets and an empty message.
+  static auto from_bytes(std::span<const std::uint8_t> bytes) {
+    std::vector<Byte, Allocator> result(bytes.size());
+    if (!bytes.empty()) { std::memcpy(result.data(), bytes.data(), bytes.size()); }
+    return result;
+  }
+};
+
+// Borrowed results are deliberately separate from owning conversions and require caller storage.
+template <typename Result>
+struct serialization_view_traits {};
+
+template <typename Traits>
+struct serialization_view_traits<std::basic_string_view<char, Traits>> {
+  // Borrow the exact written character extent; the caller must retain the unchanged buffer.
+  static auto from_buffer(const string_stream& buffer) {
+    const auto view = buffer.view();
+    return std::basic_string_view<char, Traits>{view.data(), view.size()};
+  }
+};
+
+template <typename Byte>
+  requires (std::same_as<Byte, char> || std::same_as<Byte, std::uint8_t> || std::same_as<Byte, std::byte>)
+struct serialization_view_traits<std::span<const Byte>> {
+  // Character, unsigned-byte and std::byte borrows may inspect the buffer's object representation.
+  static auto from_buffer(const string_stream& buffer) {
+    const auto view = buffer.view();
+    return std::span<const Byte>{reinterpret_cast<const Byte*>(view.data()), view.size()};
+  }
+};
+
+// Return one owning encoded object; std::string and compact JSON are the defaults.
+// The string fast path transfers storage. Other result traits copy completed bytes before return.
+// Encoding/allocation failures propagate without returning a partial result.
+template <typename Result = std::string, template <serialize_type> class Protocol = json, typename Value>
+  requires requires(std::span<const std::uint8_t> bytes) {
+    { serialization_result_traits<Result>::from_bytes(bytes) } -> std::same_as<Result>;
+  }
+[[nodiscard]] Result serialize_as(const Value& value) {
+  string_stream output;
+  serialize_to<Protocol>(output, value);
+  if constexpr (std::same_as<Result, std::string>) {
+    return std::move(output).str();
+  } else {
+    return serialization_result_traits<Result>::from_bytes({output.begin(), output.current_offset()});
+  }
+}
+
+// Replace caller-owned storage and borrow the completed bytes; temporary buffers are not accepted.
+// Reset/growth/extraction/destruction invalidates old views; failure may leave a written prefix.
+// The source object must not borrow this destination buffer during serialization.
+template <typename Result, template <serialize_type> class Protocol = json, typename Value>
+  requires requires(const string_stream& buffer) {
+    { serialization_view_traits<Result>::from_buffer(buffer) } -> std::same_as<Result>;
+  }
+[[nodiscard]] Result serialize_as(const Value& value, string_stream& buffer) {
+  buffer.reset();
+  serialize_to<Protocol>(buffer, value);
+  return serialization_view_traits<Result>::from_buffer(buffer);
+}
+
 // Decode from a borrowed buffer cursor, retaining the established partial-update behavior.
 // Byte sources contain one EOF-delimited message and receive an exact-message check.
 template <template <serialize_type> class Protocol, rohit::type_check::input_stream Stream,

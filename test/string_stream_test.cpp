@@ -7,10 +7,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace {
 namespace codec = rohit::serializer;
@@ -23,6 +25,16 @@ template <codec::serialize_type Direction>
 using integer_protocol = codec::binary_integer<Direction>;
 template <codec::serialize_type Direction>
 using string_protocol = codec::binary_string<Direction>;
+
+// Owning conversions never manufacture a view into local serialization storage.
+template <typename Result>
+concept unbuffered_serialization = requires(const test::test1::person& value) {
+  codec::serialize_as<Result>(value);
+};
+static_assert(unbuffered_serialization<std::string>);
+static_assert(unbuffered_serialization<std::vector<std::byte>>);
+static_assert(!unbuffered_serialization<std::string_view>);
+static_assert(!unbuffered_serialization<std::span<const std::uint8_t>>);
 
 static_assert(rohit::type_check::output_buffer<rohit::string_stream>);
 static_assert(rohit::type_check::input_buffer<const rohit::string_stream>);
@@ -210,6 +222,64 @@ TEST(string_stream, round_trips_generated_native_protocols) {
   check_generated_round_trip<positional_protocol>();
   check_generated_round_trip<integer_protocol>();
   check_generated_round_trip<string_protocol>();
+}
+
+// A one-expression result retains existing protocol bytes, owning lifetime and exact binary length.
+TEST(string_stream, serializes_object_to_owning_string_in_one_expression) {
+  const test::test1::person original{"Ada\n\"Lovelace\" \xE2\x82\xAC", 0};
+  // Compare every selected protocol with its established generated buffer API and independent decode.
+  const auto check = [&]<template <codec::serialize_type> class Protocol>() {
+    rohit::full_stream_auto_alloc native;
+    original.serialize_out<Protocol>(native);
+    const std::string expected{reinterpret_cast<const char*>(native.begin()), native.current_offset()};
+    const auto encoded = codec::serialize_as<std::string, Protocol>(original);
+    EXPECT_EQ(encoded, expected);
+    const auto input = rohit::make_constant_stream(encoded.data(), encoded.size());
+    const auto decoded = codec::deserialize_exact<test::test1::person, Protocol>(input);
+    EXPECT_EQ(decoded.name, original.name);
+    EXPECT_EQ(decoded.id, original.id);
+  };
+  check.operator()<json_protocol>();
+  check.operator()<positional_protocol>();
+  check.operator()<integer_protocol>();
+  check.operator()<string_protocol>();
+  const auto text = codec::serialize_as(original);
+  EXPECT_EQ(text, (codec::serialize_as<std::string, json_protocol>(original)));
+  EXPECT_EQ(text.find('\n'), std::string::npos);
+  EXPECT_NE(text.find("\\n"), std::string::npos);
+  const auto binary = codec::serialize_as<std::string, positional_protocol>(original);
+  EXPECT_NE(binary.find('\0'), std::string::npos);
+  EXPECT_EQ(std::string{"inline:"} + codec::serialize_as(original), "inline:" + text);
+}
+
+// Nonstring owning results copy exact completed octets, while views point into explicit live storage.
+TEST(string_stream, serializes_as_owned_bytes_and_explicit_views) {
+  const test::test1::person value{"Ada\n\"Lovelace\"", 0};
+  const auto text = codec::serialize_as(value);
+  const auto utf8 = codec::serialize_as<std::u8string>(value);
+  EXPECT_EQ(std::string(reinterpret_cast<const char*>(utf8.data()), utf8.size()), text);
+  const auto bytes = codec::serialize_as<std::vector<std::uint8_t>, integer_protocol>(value);
+  const auto binary = codec::serialize_as<std::string, integer_protocol>(value);
+  EXPECT_EQ(std::string(reinterpret_cast<const char*>(bytes.data()), bytes.size()), binary);
+  const auto octets = codec::serialize_as<std::vector<std::byte>, integer_protocol>(value);
+  EXPECT_EQ(std::string(reinterpret_cast<const char*>(octets.data()), octets.size()), binary);
+  rohit::string_stream buffer{std::string{"old prefix"}};
+  const auto view = codec::serialize_as<std::string_view>(value, buffer);
+  EXPECT_EQ(view, text);
+  EXPECT_EQ(view.data(), buffer.view().data());
+  const auto span = codec::serialize_as<std::span<const std::uint8_t>, integer_protocol>(value, buffer);
+  EXPECT_EQ(span.data(), buffer.begin());
+  EXPECT_EQ(std::string(reinterpret_cast<const char*>(span.data()), span.size()), binary);
+  const auto byte_span = codec::serialize_as<std::span<const std::byte>, integer_protocol>(value, buffer);
+  EXPECT_EQ(std::string(reinterpret_cast<const char*>(byte_span.data()), byte_span.size()), binary);
+}
+
+// Failed validation returns no partial result and leaves the borrowed object available for retry.
+TEST(string_stream, single_expression_propagates_encoding_failure) {
+  test::test1::person value{std::string(1, static_cast<char>(0xff)), 7};
+  EXPECT_ANY_THROW(static_cast<void>(codec::serialize_as(value)));
+  value.name = "valid";
+  EXPECT_FALSE(codec::serialize_as(value).empty());
 }
 
 // Beautified JSON retains exact whitespace, escaping, and the explicitly appended trailing LF.

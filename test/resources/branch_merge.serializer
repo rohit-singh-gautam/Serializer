@@ -1,0 +1,21 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.6.0;
+include ../../example/managed/ledger/ledger;
+
+namespace branch_example {
+  class base_data stable_ids {
+    public string description (1);
+  }
+  class document_leaf stable_ids managed {
+    public string value (1);
+  }
+  class document stable_ids managed : public base_data (10, "base") {
+    private string title (1);
+    public uint32 count (2);
+    public managed map(uint64) ledger_example::entry entries (3);
+    public managed array ledger_example::entry rows (4);
+    public managed variant(ledger_example::entry = entry, document_leaf = leaf) content (5);
+    public transient uint64 cache {0};
+  }
+}

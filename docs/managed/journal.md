@@ -1,5 +1,10 @@
 # Journal and crash recovery
 
+Compiler/runtime 2.23.0 adds [native branch-merge records](branch_merging.md).
+They persist accepted payloads and both revision parents, binding to the exact
+first-parent envelope; recovery never invokes a conflict resolver. Optional tags
+10/11 require a merge-aware reader. Ordinary operation framing stays compatible.
+
 Current C++ representation: managed schema classes carry `persistent_id` directly
 by default. Separate ID-free values/storage wrappers in the illustrations below
 require `[managed] separate_values = true`; see the [runtime contract](cpp_runtime.md).

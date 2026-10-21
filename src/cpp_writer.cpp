@@ -4470,6 +4470,9 @@ public:
     for (const auto& item : object.member_list) {
       if (item.wire_only) { continue; }
       output.write("    [[maybe_unused]] bool protobuf_seen_", item.id, "{};\n");
+      if (item.modifier == member::modifier_type::array && !item.extent_expression.empty()) {
+        output.write("    [[maybe_unused]] ::std::size_t protobuf_count_", item.id, "{};\n");
+      }
     }
     if (object.has_magic()) {
       output.write("    [[maybe_unused]] bool protobuf_seen_magic{};\n");
@@ -4546,6 +4549,9 @@ public:
                        "              nested.field(", payload, ");\n              continue;\n            }\n");
         }
         output.write("            nested.unknown();\n          }\n        });\n");
+      } else if (item.modifier == member::modifier_type::array && !item.extent_expression.empty()) {
+        output.write("        ", protocol, ".fixed_array(this->", member_name(item),
+                     ", protobuf_count_", item.id, ");\n");
       } else {
         output.write("        ", protocol, ".field(this->", member_name(item), ");\n");
       }
@@ -4555,6 +4561,15 @@ public:
       }
     }
     output.write("      ", protocol, ".unknown();\n    }\n");
+    for (const auto& item : object.member_list) {
+      if (item.wire_only || item.modifier != member::modifier_type::array || item.extent_expression.empty()) { continue; }
+      const auto condition = protobuf_field_condition(item.omitted_formats, "ProtobufProtocol::format");
+      if (!condition.empty()) { output.write("    if constexpr (", condition, ") {\n"); }
+      output.write("    if (protobuf_count_", item.id, " != this->", member_name(item),
+                   ".size()) { throw ::std::invalid_argument{\"Protobuf fixed array requires exact cardinality: ",
+                   item.name, "\"}; }\n");
+      if (!condition.empty()) { output.write("    }\n"); }
+    }
     if (object.has_magic()) {
       const auto condition = protobuf_field_condition(object.magic_omitted_formats, "ProtobufProtocol::format");
       if (!condition.empty()) { output.write("    if constexpr (", condition, ") {\n"); }

@@ -7,8 +7,19 @@ is complete within Serializer; principal binding, policy persistence and policy
 administration belong to the host. See the
 [ownership decisions and remaining mixed requirements](project/application_responsibilities.md).
 The current inventory is **804 implemented/verified, 3 will not fix and 40 pending**
-out of 847 rows. The pending count includes the two held items `DB01` and `MIG03`;
-38 are active. Missing Serializer features remain pending.
+out of 847 rows. **35 are active and five are deferred subsystem requirements**.
+By maintainer direction on 2026-10-21, new non-C++ managed engines (`MG01`),
+the page store/index (`PG01`), lazy model/history storage (`PG02`), database sinks
+(`DB01`) and sink migration/rebaseline (`MIG03`) are deferred to linked GitHub
+issues. The latter two were already held. Deferred means unimplemented and
+outside the current batch, not completed or will not fix.
+
+The 2.23.0 worktree adds the [native branch-merge contract](managed/branch_merging.md)
+under `MG04`: typed three-way merging, two-parent ancestry, current-policy
+validation and native save/journal support. Its collaboration integration remains
+pending. The requested sequence is implementation, successful compilation,
+commit, then platform/language qualification. Qualification rows stay unchecked
+until their actual acceptance evidence exists.
 
 The 2.22.0 batch completes native capability activation/history-policy
 conversion (`MG02`), session/cache fault qualification (`MG05`) and outer Pack-IRI
@@ -162,26 +173,26 @@ and actual SDK checks before the parent requirement can be checked.
 | [x] | MR09 | — | Identical collaborative document/object IDs with authority leases and reserve_ids; durable reservations, nonreuse, exact acceptance and forged/exhausted-range rejection (2.7 native strict-collaboration profiles; [evidence](verification/verification-opc-xsd-2026-10-19.md)). | MR04 |
 | [x] | MIG01 | — | Qualify ID conversion against genuinely rebuilt 2.6.0 compiler/runtime artifacts; all three raw binary formats and supported managed history/identity/allocation profiles convert exactly (Windows direct uint32/separated uint64, 92 conversions; [evidence](verification/verification-managed-legacy-migration-2026-10-20.md)). | — |
 | [-] | MIG02 | — | **Will not fix — application responsibility.** Application-specific historical layouts, custom containers, checkpoint/outbox meaning and epoch transitions require an explicit application migration. Existing supported Serializer-format conversion/compatibility remains a library responsibility. [Decision](project/application_responsibilities.md#disposed-requirements). | — |
-| [ ] | MIG03 | — | Define any journal/database-sink migration/rebaseline adapter separately from managed-save/raw-model conversion and test recovery after interrupted publication. | — |
+| [ ] | MIG03 | — | **Deferred subsystem — [GitHub #5](https://github.com/rohit-singh-gautam/Serializer/issues/5).** Define any journal/database-sink migration/rebaseline adapter separately from managed-save/raw-model conversion and test recovery after interrupted publication. | DB01 for database sinks |
 | [x] | MIG04 | — | Explicit same-schema fixed/compact-varint ID conversion helper/CLI for supported managed saves and raw binary formats; preserve exact identities, allocation marks, history, leases and native layout (2.7 direct uint32/separated uint64 reference profiles; [evidence](verification/verification-opc-xsd-2026-10-19.md)). | Existing same-schema C++ codecs |
 
 ## Managed state and storage
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | MG01 | — | Implement native managed engines for selected non-C++ backends: ownership, immutable reads, transactions, identity, history, journals and collaboration under native lifetime/error/concurrency contracts; [Language bindings](managed/language_bindings.md). | — |
+| [ ] | MG01 | — | **Deferred subsystem — [GitHub #1](https://github.com/rohit-singh-gautam/Serializer/issues/1).** Implement native managed engines for selected non-C++ backends: ownership, immutable reads, transactions, identity, history, journals and collaboration under native lifetime/error/concurrency contracts; [Language bindings](managed/language_bindings.md). | — |
 | [x] | MG02 | — | Version-one native C++ feature activation/exclusions, mandatory identity/authorization, forty actual engine combinations and all ordered history-policy conversions across direct/separated identities; [implemented contract and Windows/Linux checks](verification/verification-managed-capabilities-2026-10-21.md). Proposed schema selectors remain distinct from this native API. | — |
 | [x] | MG03 | — | Inherited entity/field authorization, editable/read-only exceptions and separate content/structure/policy checks are implemented, with native edit/import/history/publication enforcement and the same candidate helper at authority acceptance. Authentication, policy storage/administration and principal binding are host responsibilities, will not fix in Serializer. [Contract and ownership](project/application_responsibilities.md#security-and-authorization), [executed checks](verification/verification-managed-authorization-2026-10-21.md). | — |
-| [ ] | MG04 | — | Define branch merging, conflict/dependency policies and retained-history/collaboration delta integration; qualify retries and invariant validation before publication; [Managed state](managed/managed_state.md#branch-merging), [state enhancements](managed/state_enhancements.md). | — |
+| [ ] | MG04 | — | Native C++ retained-revision three-way merging, explicit conflicts, two-parent ancestry and save/journal integration are implemented in the 2.23.0 worktree; [contract and remaining combinations](managed/branch_merging.md). Complete collaboration merge negotiation/accepted-delta integration and final retry/invariant/fault qualification before closing this parent. | — |
 | [x] | MG05 | — | Native session records exercise uint32/uint64/string keys, failed submission/polling, lost acknowledgement, checkpoint reload and epoch changes; 384 presence/cache cycles preserve strict identity and authority ownership. [Windows/Linux qualification](verification/verification-managed-capabilities-2026-10-21.md); network deployment/authentication and presence UI are application responsibilities. | — |
 | [-] | MG06 | — | **Will not fix — application responsibility.** The application coordinates distributed participants, durable business intents, idempotent external file/network effects and reconciliation. Serializer retains atomic local transactions/journals and does not execute business effects or promise exactly-once service delivery. [Decision](project/application_responsibilities.md#disposed-requirements). | — |
 | [ ] | MG07 | — | Provide allocator-aware payload containers/decoding and hard peak-allocation hooks; distinguish admission estimates from measured process peaks; [Ownership/allocation](managed/history.md#ownership-and-custom-allocation), [state enhancements](managed/state_enhancements.md). | — |
 | [ ] | MG08 | — | Define supported managed packed/view/recursive/Protobuf and broader inheritance/editor contracts, preserving explicit rejection until real code and qualification exist; [C++ runtime](managed/cpp_runtime.md), [generics](schema/generics.md), [state enhancements](managed/state_enhancements.md). | — |
-| [ ] | MG09 | — | Define field-level merging inside managed variants, virtual/abstract/override edit dispatch and portable owned/borrowed method or typed-error contracts; [State enhancements](managed/state_enhancements.md#remaining-work). | — |
+| [ ] | MG09 | — | The 2.23.0 worktree adds field-level merging and selective collaboration Undo/Redo within an unchanged managed variant tag/identity. Complete qualification, virtual/abstract/override edit dispatch and portable owned/borrowed method or typed-error contracts; [State enhancements](managed/state_enhancements.md#remaining-work). | — |
 | [ ] | MG10 | — | Extend projection/dependency notification policies and compact nested identity/history records where proposed; measure retained/deleted-entity costs and edit latency; [Identity/history](managed/history.md), [data structures](managed/data_structures.md). | — |
-| [ ] | PG01 | — | Implement the proposed page store/cache, persistent index keys, dirty-page writeback/recovery, bounded construction and corruption handling before claiming a mostly-disk index; [Paged indexing](design/paged_indexing.md). | — |
-| [ ] | PG02 | — | Add lazy value/storage loading and the proposed paged capability selectors only after index/page lifetime and recovery contracts are implemented and measured; [Paged indexing](design/paged_indexing.md). | — |
-| [ ] | DB01 | — | Implement and qualify an explicit database document/journal sink adapter with ownership, transactions, schema mapping and failure/recovery semantics; [Database integration](guides/database_integration.md#proposed-document-sink-boundary). | — |
+| [ ] | PG01 | — | **Deferred subsystem — [GitHub #2](https://github.com/rohit-singh-gautam/Serializer/issues/2).** Implement the proposed page store/cache, persistent index keys, dirty-page writeback/recovery, bounded construction and corruption handling before claiming a mostly-disk index; [Paged indexing](design/paged_indexing.md). | — |
+| [ ] | PG02 | — | **Deferred subsystem — [GitHub #3](https://github.com/rohit-singh-gautam/Serializer/issues/3).** Add lazy value/storage loading and the proposed paged capability selectors only after index/page lifetime and recovery contracts are implemented and measured; [Paged indexing](design/paged_indexing.md). | PG01 |
+| [ ] | DB01 | — | **Deferred subsystem — [GitHub #4](https://github.com/rohit-singh-gautam/Serializer/issues/4).** Implement and qualify an explicit database document/journal sink adapter with ownership, transactions, schema mapping and failure/recovery semantics; [Database integration](guides/database_integration.md#proposed-document-sink-boundary). | — |
 
 ## Compiler and backend proposals
 
@@ -191,7 +202,7 @@ and actual SDK checks before the parent requirement can be checked.
 | [ ] | SC02 | — | Broaden default-value validation, preserve useful input/member positions in diagnostics and define bit-field support with wire/compatibility tests; [Feature roadmap](project/feature_status.md#other-roadmap-items). | — |
 | [x] | SC02a | — | Diagnose out-of-range canonical decimal/hex integer literals in explicit language 1.14+ defaults and retain original member paths/positions through includes and generic binding. Preserve native expressions and legacy defaults; broader validation and bit fields remain pending; [2.15 scope](verification/verification-pending-xml-2026-10-20.md). | — |
 | [x] | SC02b | — | Explicit language 1.14+ canonical decimal float/double overflow and declared-type-qualified unknown enum defaults diagnose the original member, including included/generic source. Atomic compiler rejection and generated Python four-protocol checks pass; native expressions, numeric Boolean defaults, underflow and legacy spelling remain compatible; [2.16 batch evidence](verification/verification-pending-batch-2026-10-20.md). Bit fields and broader validation remain pending. | — |
-| [ ] | SC03 | — | Extend currently unsupported generic-function calls/defaults and fixed-array initializer/Protobuf combinations with explicit portable contracts and actual SDK checks; [Generics](schema/generics.md). | — |
+| [ ] | SC03 | — | The 2.23.0 worktree adds generated C++ fixed-array Protobuf mapping, exact packed/unpacked/text cardinality and format-specific default retention; [mapping boundary](serialization/protobuf.md#mapping-contract). Complete generic-function calls/defaults and final SDK qualification; [Generics](schema/generics.md). | — |
 | [ ] | BE01 | — | Implement native-backend separate-file layout where currently unavailable; preserve naming, dependency includes/modules and editor navigation; [Native languages](languages/native_languages.md). | — |
 | [ ] | BE02 | — | Define and implement Java packed output and the proposed stream/channel, native-acceleration and output-buffer-reuse APIs, with ownership/resource tests; [Java output](languages/java.md#defaults-and-unsupported-schema-features). | — |
 | [ ] | BE03 | — | Qualify borrowed/mapped-view platform, lifetime, allocation and performance boundaries; broader formats require their own mapping contract; [Views](serialization/views.md). | — |

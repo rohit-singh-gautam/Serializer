@@ -118,8 +118,16 @@ Schema language `1.1.0` also permits typed scalar/enum magic, for example
 corresponding scalar or enum row below, including `char` as unsigned-byte
 `uint32`, enum ordinals in binary and enum names in the text formats. Writers
 always emit the constant; readers require and validate it, then discard it.
-`array[]` remains fixed-array syntax and is explicitly unsupported by direct
-Protobuf generation.
+Compiler/runtime **2.23.0** maps fixed `array[N]` and inferred `array[]` fields
+to standard repeated values, with no extent metadata added to the wire. Generated
+C++ readers require exactly the declared number of elements in each decoded owner
+message, including all packed/unpacked occurrences within that message. Missing,
+null, short and excess fields reject; an excess element rejects before its payload.
+Numeric/Boolean/enum output remains packed. String/record output uses ordinary
+repeated occurrences. Fragmented singular embedded messages must each supply a
+complete fixed-array field; cross-fragment cardinality accumulation is outside
+this mapping. Fully format-omitted arrays retain their schema defaults and have no
+presence/cardinality requirement in that format.
 
 Field-level `omit(protobuf, protojson, textproto)` selects the optional mappings
 to exclude. These are independent selectors; `omit(json)` selects native JSON.
@@ -142,6 +150,7 @@ values, and text field names must match this table:
 | enum | Declared names and zero-based numeric ordinals |
 | class field or parent | Embedded message under its wire name and field ID |
 | `array T` | `repeated T`; numeric/bool/enum output is packed |
+| `array[N] T`, inferred `array[] T` | Same repeated representation; generated C++ imposes exact cardinality |
 | `map(K) V` | Standard map entries: key field 1, value field 2 |
 | union | Embedded message at the union's ID, containing a `oneof`; alternative IDs are index + 1 |
 

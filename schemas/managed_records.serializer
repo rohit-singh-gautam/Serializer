@@ -36,6 +36,18 @@ namespace rohit {
         public array uint8 replacement (8);
       }
 
+      // Additive DAG wrapper; ordinary tree envelopes and their wire identities remain unchanged.
+      class merge_parent stable_ids {
+        public uint64 number (1);
+        public uint64 source (2);
+      }
+
+      class merge_checkpoint stable_ids {
+        public uint32 format_version (1);
+        public array uint8 model (2);
+        public array merge_parent parents (3);
+      }
+
       class revision stable_ids {
         public uint64 number (1);
         public uint64 parent (2);

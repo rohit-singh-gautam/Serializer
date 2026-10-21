@@ -13,6 +13,7 @@
 #include <rohit/managed_editor.hpp>
 #include <rohit/managed_editable.hpp>
 #include <rohit/managed_delta.hpp>
+#include <rohit/managed_merge.hpp>
 #include <rohit/managed_file_journal.hpp>
 #include <rohit/managed_journal.hpp>
 #include <rohit/managed_records.hpp>
@@ -27,10 +28,12 @@
 #include <exception>
 #include <filesystem>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <memory>
 #include <random>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -394,6 +397,8 @@ struct history_storage<history_mode::linear, Labels> : linear_history<Labels> {
 template <history_labels Labels>
 struct history_storage<history_mode::tree, Labels> {
   tree_history<Labels> revisions{};
+  // Additional parent only: existing revision::parent remains the deterministic Undo parent.
+  std::map<std::uint64_t, std::uint64_t> merge_parents{};
   std::size_t bytes{};
   std::uint64_t current_revision{1};
   std::uint64_t revision_high_water{1};
@@ -401,6 +406,7 @@ struct history_storage<history_mode::tree, Labels> {
   // Publish a prepared tree without allocating or moving retained records.
   void swap(history_storage& other) noexcept {
     revisions.swap(other.revisions);
+    merge_parents.swap(other.merge_parents);
     std::swap(bytes, other.bytes);
     std::swap(current_revision, other.current_revision);
     std::swap(revision_high_water, other.revision_high_water);
@@ -470,6 +476,42 @@ private:
       std::conditional_t<Mode == history_mode::tree, tree_envelope_type, state_envelope_type>;
   using identity_table = std::map<id_type, std::string>;
   using history_type = detail::history_storage<Mode, Labels>;
+
+  static constexpr std::array<std::uint8_t, 8> merge_checkpoint_magic{
+      0xff, 'S', 'R', 'M', 'R', 'G', 1, 0};
+  static constexpr std::size_t merge_parent_wire_bytes = 16;
+
+  // Wrap only merge-aware trees; legacy tree and linear envelopes retain their exact encoding.
+  std::vector<std::uint8_t> encode_merge_checkpoint(records::merge_checkpoint checkpoint) const {
+    if (options_.decode.max_input_bytes <= merge_checkpoint_magic.size()) {
+      throw std::length_error{"Managed merge checkpoint byte budget exceeded"};
+    }
+    auto bytes = detail::encode(checkpoint,
+        options_.decode.max_input_bytes - merge_checkpoint_magic.size());
+    bytes.insert(bytes.begin(), merge_checkpoint_magic.begin(), merge_checkpoint_magic.end());
+    return bytes;
+  }
+
+  // Never silently drop DAG ancestry when a reader selects a different history policy.
+  records::merge_checkpoint decode_merge_checkpoint(const std::vector<std::uint8_t>& bytes) const {
+    records::merge_checkpoint result;
+    if (bytes.size() >= merge_checkpoint_magic.size() &&
+        std::equal(merge_checkpoint_magic.begin(), merge_checkpoint_magic.end(), bytes.begin())) {
+      if constexpr (Mode != history_mode::tree) {
+        throw std::invalid_argument{"Managed merge checkpoints require tree history"};
+      }
+      if (bytes.size() > options_.decode.max_input_bytes) {
+        throw std::length_error{"Managed merge checkpoint byte budget exceeded"};
+      }
+      result = detail::decode<records::merge_checkpoint>(
+          std::span{bytes}.subspan(merge_checkpoint_magic.size()), options_.decode);
+      if (result.format_version != 1 || result.parents.empty() ||
+          result.parents.size() > options_.max_revisions) {
+        throw std::invalid_argument{"Invalid managed merge checkpoint"};
+      }
+    }
+    return result;
+  }
 
   document_id document_{};
   detail::store_configuration<has_history> options_{store_options{}};
@@ -561,6 +603,7 @@ private:
         }
       }
     } else if constexpr (Mode == history_mode::tree) {
+      detail::add_memory_estimate(result, detail::estimate_dynamic_memory(history.merge_parents));
       detail::add_memory_estimate(result, detail::multiply_memory_estimate(
           history.revisions.size(), sizeof(typename decltype(history.revisions)::value_type) +
                                         sizeof(revision_type) + 14 * sizeof(void*)));
@@ -747,6 +790,17 @@ private:
       }
     }
     auto bytes = detail::encode(envelope, options_.decode.max_input_bytes);
+    if constexpr (Mode == history_mode::tree) {
+      if (!history.merge_parents.empty()) {
+        records::merge_checkpoint checkpoint;
+        checkpoint.format_version = 1;
+        checkpoint.model = std::move(bytes);
+        for (const auto& [revision, source] : history.merge_parents) {
+          checkpoint.parents.push_back({revision, source});
+        }
+        bytes = encode_merge_checkpoint(std::move(checkpoint));
+      }
+    }
     if constexpr (has_collaboration) {
       if (collaboration_state_.identity_leases &&
           !collaboration_state_.identity_leases->entries().empty()) {
@@ -797,8 +851,10 @@ private:
   // Check that this writer's envelope fits the same decoder budgets used by recovery.
   void check_journal_envelope(const std::vector<std::uint8_t>& bytes) const {
     const auto checkpoint = decode_allocation_checkpoint(bytes);
+    const auto& model = checkpoint.format_version == 0 ? bytes : checkpoint.model;
+    const auto merge = decode_merge_checkpoint(model);
     static_cast<void>(detail::decode<envelope_type>(
-        checkpoint.format_version == 0 ? bytes : checkpoint.model, options_.decode));
+        merge.format_version == 0 ? model : merge.model, options_.decode));
   }
 
   static constexpr std::size_t journal_word_bytes = 8;
@@ -901,6 +957,68 @@ private:
     }
     std::size_t offset = 1;
     const auto kind = static_cast<detail::journal_record_kind>(record.front());
+    if (kind == detail::journal_record_kind::merge_checkpoint ||
+        kind == detail::journal_record_kind::merge_delta) {
+      if constexpr (Mode != history_mode::tree) {
+        throw std::invalid_argument{"Managed merge journal requires tree history"};
+      } else {
+        auto base = encode_state(snapshot_, history_, allocated_id_);
+        auto payload = record.subspan(offset);
+        std::vector<std::uint8_t> bytes;
+        if (kind == detail::journal_record_kind::merge_delta) {
+          if constexpr (has_journal) {
+            if (journal_state_.delta_count >= options_.max_delta_chain) {
+              throw std::length_error{"Managed merge delta chain budget exceeded"};
+            }
+          }
+          auto patch = detail::decode<records::snapshot_patch>(payload, options_.decode);
+          bytes = apply_snapshot_patch(base, patch, options_.decode.max_input_bytes);
+        } else {
+          const auto digest = make_digest<digest_algorithm::sha256>(std::span{base});
+          if (payload.size() < digest.size() ||
+              !std::equal(digest.begin(), digest.end(), payload.begin())) {
+            throw std::invalid_argument{"Managed merge journal has a stale base"};
+          }
+          payload = payload.subspan(digest.size());
+          if (payload.size() > options_.decode.max_input_bytes) {
+            throw std::length_error{"Managed merge journal byte budget exceeded"};
+          }
+          bytes.assign(payload.begin(), payload.end());
+        }
+        model_store receiver{recovery_tag{}, options_, {}};
+        receiver.load(bytes);
+        const auto revision = receiver.history_.current_revision;
+        if (receiver.document_ != document_ || receiver.allocated_id_ != allocated_id_ ||
+            revision != next_revision() || receiver.history_.revision_high_water != revision ||
+            receiver.history_.revisions.size() != history_.revisions.size() + 1 ||
+            receiver.history_.revisions.at(revision)->parent != history_.current_revision ||
+            receiver.history_.merge_parents.size() != history_.merge_parents.size() + 1 ||
+            !receiver.history_.merge_parents.contains(revision) ||
+            !history_.revisions.contains(receiver.history_.merge_parents.at(revision))) {
+          throw std::invalid_argument{"Invalid managed merge journal ancestry"};
+        }
+        for (const auto& [number, node] : history_.revisions) {
+          const auto found = receiver.history_.revisions.find(number);
+          if (found == receiver.history_.revisions.end() ||
+              detail::encode(*node, options_.decode.max_input_bytes) !=
+              detail::encode(*found->second, options_.decode.max_input_bytes)) {
+            throw std::invalid_argument{"Managed merge journal changes retained history"};
+          }
+        }
+        for (const auto& [number, parent] : history_.merge_parents) {
+          if (!receiver.history_.merge_parents.contains(number) ||
+              receiver.history_.merge_parents.at(number) != parent) {
+            throw std::invalid_argument{"Managed merge journal changes retained ancestry"};
+          }
+        }
+        load(bytes);
+        if constexpr (has_journal) {
+          journal_state_.delta_count = kind == detail::journal_record_kind::merge_delta
+              ? journal_state_.delta_count + 1 : 0;
+        }
+        return;
+      }
+    }
     if (kind == detail::journal_record_kind::leased_edit) {
       if constexpr (has_collaboration) {
         const auto first = detail::journal_get_word(record, offset);
@@ -2531,6 +2649,157 @@ public:
   }
 
 private:
+  // Walk numeric topological order once; every admitted parent is older than its child.
+  std::set<std::uint64_t> revision_ancestors(std::uint64_t revision) const
+    requires(Mode == history_mode::tree)
+  {
+    if (!history_.revisions.contains(revision)) {
+      throw std::out_of_range{"Managed merge revision is unavailable"};
+    }
+    std::set<std::uint64_t> result{revision};
+    for (auto it = history_.revisions.upper_bound(revision); it != history_.revisions.begin();) {
+      --it;
+      if (!result.contains(it->first)) { continue; }
+      if (it->second->parent != 0) { result.insert(it->second->parent); }
+      const auto extra = history_.merge_parents.find(it->first);
+      if (extra != history_.merge_parents.end()) { result.insert(extra->second); }
+    }
+    return result;
+  }
+
+  // Reject criss-cross ancestry rather than inventing a virtual base or selecting by timestamp.
+  std::uint64_t find_merge_base(std::uint64_t source) const
+    requires(Mode == history_mode::tree)
+  {
+    const auto target_ancestors = revision_ancestors(history_.current_revision);
+    const auto source_ancestors = revision_ancestors(source);
+    std::set<std::uint64_t> common;
+    std::set_intersection(target_ancestors.begin(), target_ancestors.end(),
+                          source_ancestors.begin(), source_ancestors.end(),
+                          std::inserter(common, common.end()));
+    auto bases = common;
+    for (const auto number : common) {
+      bases.erase(history_.revisions.at(number)->parent);
+      const auto extra = history_.merge_parents.find(number);
+      if (extra != history_.merge_parents.end()) { bases.erase(extra->second); }
+    }
+    if (bases.size() != 1) {
+      throw std::invalid_argument{"Managed merge requires exactly one retained common ancestor"};
+    }
+    return *bases.begin();
+  }
+
+  // Stage the entire merge, authorization and durable decision before changing either input branch.
+  outcome_type merge_revision_impl(std::uint64_t source, const merge_options& options,
+                                   label_type action)
+    requires(Mode == history_mode::tree)
+  {
+    outcome_type outcome;
+    try {
+      require_idle();
+      if (collaboration_state_.attachment) {
+        throw std::logic_error{"Detach collaboration before merging native tree revisions"};
+      }
+      if constexpr (has_collaboration) {
+        if (collaboration_state_.prepare) {
+          throw std::logic_error{"Authority branch-merge negotiation is unavailable"};
+        }
+      }
+      const auto base_number = find_merge_base(source);
+      if (base_number == source) {
+        outcome.status = transaction_status::no_change;
+        outcome.revision = history_.current_revision;
+        return outcome;
+      }
+      const auto base = detail::decode<storage_type>(
+          history_.revisions.at(base_number)->snapshot, options_.decode);
+      const auto incoming = detail::decode<storage_type>(
+          history_.revisions.at(source)->snapshot, options_.decode);
+      auto [candidate, candidate_charge] = make_storage_candidate(*current_);
+      detail::branch_merger merger{options, options_.max_snapshot_bytes};
+      callback_active_ = true;
+      try { Traits::merge_collaboration(*candidate, base, incoming, merger); }
+      catch (...) { callback_active_ = false; throw; }
+      callback_active_ = false;
+      auto identities = inspect(*candidate, allocated_id_);
+      const auto source_identities = inspect(incoming, allocated_id_);
+      if (candidate->persistent_id != current_->persistent_id) {
+        throw std::invalid_argument{"Managed merge changes the root identity"};
+      }
+      for (const auto& [id, type] : identities) {
+        const auto live = identities_.find(id);
+        const auto imported = source_identities.find(id);
+        if ((live != identities_.end() && live->second != type) ||
+            (live == identities_.end() &&
+             (imported == source_identities.end() || imported->second != type))) {
+          throw std::invalid_argument{"Managed merge reuses or retypes an identity"};
+        }
+      }
+      detail::reset_runtime_fields<Traits>(*candidate);
+      validate(*candidate);
+      auto snapshot = detail::encode(*candidate, options_.max_snapshot_bytes);
+      check_snapshot(snapshot);
+      auto event = prepare_publication(publication_kind::durable_edit, identities, candidate.get());
+      candidate_charge->resize(estimate_storage(*candidate));
+      auto history = history_;
+      auto node = std::make_shared<revision_type>();
+      node->number = next_revision();
+      node->parent = history_.current_revision;
+      node->snapshot = snapshot;
+      if constexpr (has_labels) { node->label = std::move(action.label); }
+      history.bytes = tree_append_bytes(history, *node);
+      if (history.bytes > options_.max_history_bytes ||
+          merge_parent_wire_bytes > options_.max_history_bytes - history.bytes) {
+        throw std::length_error{"Managed merge ancestry exceeds history budget"};
+      }
+      history.bytes += merge_parent_wire_bytes;
+      history.revisions.emplace(node->number, node);
+      history.merge_parents.emplace(node->number, source);
+      history.current_revision = node->number;
+      history.revision_high_water = node->number;
+      detail::resident_admission admission{
+          resident_auxiliary_, estimate_auxiliary(snapshot, identities, history)};
+      std::shared_ptr<const storage_type> published{std::move(candidate)};
+      if constexpr (has_journal) {
+        if (journal_state_.sink) {
+          const auto base_bytes = encode_state(snapshot_, history_, allocated_id_);
+          const auto bytes = encode_state(snapshot, history, allocated_id_);
+          check_journal_envelope(bytes);
+          std::vector<std::uint8_t> patch;
+          if (options_.delta_journal && options_.max_delta_chain != 0 &&
+              journal_state_.delta_count < options_.max_delta_chain) {
+            try {
+              patch = detail::encode(make_snapshot_patch(base_bytes, bytes,
+                  options_.decode.max_input_bytes), options_.decode.max_input_bytes);
+            } catch (const std::length_error&) { patch.clear(); }
+            if (patch.size() >= bytes.size()) { patch.clear(); }
+          }
+          const auto digest = make_digest<digest_algorithm::sha256>(std::span{base_bytes});
+          const std::array prefix{static_cast<std::uint8_t>(patch.empty()
+              ? detail::journal_record_kind::merge_checkpoint : detail::journal_record_kind::merge_delta)};
+          journal_operation([&] {
+            journal_state_.sink->append(prefix, patch.empty() ? std::span<const std::uint8_t>{digest}
+                                                              : std::span<const std::uint8_t>{},
+                                       patch.empty() ? std::span{bytes} : std::span{patch});
+          });
+          journal_state_.delta_count = patch.empty() ? 0 : journal_state_.delta_count + 1;
+        }
+      }
+      history_.swap(history);
+      current_.swap(published);
+      snapshot_.swap(snapshot);
+      identities_.swap(identities);
+      admission.commit();
+      outcome.status = transaction_status::committed;
+      outcome.revision = node->number;
+      publish_notification(std::move(event));
+    } catch (...) {
+      outcome.status = failure_status();
+      outcome.error = std::current_exception();
+    }
+    return outcome;
+  }
+
   // Share completion logic without retaining metadata in disabled-label specializations.
   template <typename Callable>
   outcome_type execute_transaction_impl(label_type label, Callable&& callback) {
@@ -2554,6 +2823,48 @@ private:
   }
 
 public:
+  // Inspect a unique retained merge base without decoding payloads or invoking host policy.
+  std::uint64_t merge_base(std::uint64_t source) const
+    requires(Mode == history_mode::tree)
+  {
+    require_idle();
+    return find_merge_base(source);
+  }
+
+  // Return deterministic ancestry: Undo parent first, optional merged source second.
+  std::vector<std::uint64_t> revision_parents(std::uint64_t revision) const
+    requires(Mode == history_mode::tree)
+  {
+    require_idle();
+    const auto& node = history_.revisions.at(revision);
+    std::vector<std::uint64_t> result;
+    if (node->parent != 0) { result.push_back(node->parent); }
+    const auto extra = history_.merge_parents.find(revision);
+    if (extra != history_.merge_parents.end()) { result.push_back(extra->second); }
+    return result;
+  }
+
+  // Merge a retained source into the current target; failures leave model, ancestry and journal intact.
+  [[nodiscard]] outcome_type merge_revision(std::uint64_t source, const merge_options& options = {})
+    requires(Mode == history_mode::tree)
+  {
+    return merge_revision_impl(source, options, {});
+  }
+
+  // Attach an action label without changing conflict, ancestry or publication semantics.
+  [[nodiscard]] outcome_type merge_revision(std::uint64_t source, std::string_view label,
+                                             const merge_options& options = {})
+    requires(Mode == history_mode::tree && has_labels)
+  {
+    try { return merge_revision_impl(source, options, {std::string{label}}); }
+    catch (...) {
+      outcome_type outcome;
+      outcome.status = failure_status();
+      outcome.error = std::current_exception();
+      return outcome;
+    }
+  }
+
   // Execute an unnamed action exactly once and return after completion.
   template <typename Callable>
     requires std::same_as<std::invoke_result_t<Callable, transaction_edit&>, void>
@@ -2968,8 +3279,10 @@ public:
     source_store source{typename source_store::recovery_tag{}, options_, {}, resident_ledger_};
     source.load(bytes); // Validate the original graph and all payloads before invoking conversion.
     auto allocation = decode_allocation_checkpoint(bytes);
+    auto merge = decode_merge_checkpoint(allocation.format_version == 0 ? bytes : allocation.model);
     auto envelope = detail::decode<envelope_type>(
-        allocation.format_version == 0 ? bytes : allocation.model, options_.decode);
+        merge.format_version != 0 ? merge.model : allocation.format_version == 0 ? bytes : allocation.model,
+        options_.decode);
     std::map<std::vector<std::uint8_t>, std::vector<std::uint8_t>> converted;
     callback_active_ = true;
     try {
@@ -3008,6 +3321,10 @@ public:
     }
     // Existing load validates all new states and publishes only after every fallible step succeeds.
     auto migrated = detail::encode(envelope, options_.decode.max_input_bytes);
+    if (merge.format_version != 0) {
+      merge.model = std::move(migrated);
+      migrated = encode_merge_checkpoint(std::move(merge));
+    }
     if (allocation.format_version != 0) {
       allocation.model = std::move(migrated);
       if (options_.decode.max_input_bytes <= allocation_checkpoint_magic.size()) {
@@ -3092,8 +3409,10 @@ public:
       throw std::logic_error{"Cannot replace a journaled document with a memory envelope"};
     }
     auto allocation = decode_allocation_checkpoint(bytes);
+    auto merge = decode_merge_checkpoint(allocation.format_version == 0 ? bytes : allocation.model);
     auto envelope = detail::decode<envelope_type>(
-        allocation.format_version == 0 ? bytes : allocation.model, options_.decode);
+        merge.format_version != 0 ? merge.model : allocation.format_version == 0 ? bytes : allocation.model,
+        options_.decode);
     std::unique_ptr<detail::identity_lease_book> leases;
     if (allocation.format_version != 0) {
       leases = std::make_unique<detail::identity_lease_book>(std::move(allocation.leases));
@@ -3236,6 +3555,19 @@ public:
         }
         if (roots != 1 || !found_current) {
           throw std::invalid_argument{"Invalid managed history cursor"};
+        }
+        for (const auto& edge : merge.parents) {
+          const auto found = history.revisions.find(edge.number);
+          if (found == history.revisions.end() || found->second->parent == 0 ||
+              edge.source == 0 || edge.source >= edge.number ||
+              edge.source == found->second->parent || !history.revisions.contains(edge.source) ||
+              !history.merge_parents.emplace(edge.number, edge.source).second) {
+            throw std::invalid_argument{"Invalid managed merge ancestry"};
+          }
+          if (merge_parent_wire_bytes > remaining_history_bytes) {
+            throw std::length_error{"Managed merge ancestry exceeds history budget"};
+          }
+          remaining_history_bytes -= merge_parent_wire_bytes;
         }
         history.bytes = options_.max_history_bytes - remaining_history_bytes;
         history.current_revision = envelope.current_revision;

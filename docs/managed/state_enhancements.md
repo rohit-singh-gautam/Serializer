@@ -261,8 +261,11 @@ class document_data stable_ids {
 The arrays retain the normal sequence count on the wire. Constructors create
 independent owning defaults; encoders require exact length; binary readers check
 the count before payload allocation; JSON readers reject an excess element
-before reading its payload. Direct Protobuf fixed-array output still rejects.
-Nonempty array initializers remain C++ only. JS/TS expose normal arrays with
+before reading its payload. Compiler/runtime 2.23.0 adds direct C++ Protobuf
+fixed-array output with exact reader cardinality under the
+[repeated-field mapping](../serialization/protobuf.md#mapping-contract).
+Legacy nonempty array initializers remain C++ only; language 1.14+ typed aggregate
+defaults follow the portable construction contract. JS/TS expose normal arrays with
 runtime extent checks rather than fixed-length tuple types.
 
 ## Remaining work
@@ -283,8 +286,10 @@ The authoritative remaining requirements are **MG01–MG10**, **MIG01–MIG03** 
 Generated codecs and standalone patch APIs do not prove those broader engines
 or adapters.
 
-Managed variant collaboration currently merges/replaces the alternative as an
-atomic value.
+The 2.23.0 worktree merges managed variant fields when all compared states retain
+the same active tag and entity identity, including selective collaboration
+Undo/Redo. Tag/identity replacements remain atomic. Final qualification follows
+the compilation commit.
 Alternative handles are conservatively invalidated by a whole-value replacement.
 Managed edit methods support ordinary dispatch; virtual/abstract/override edit
 contracts are rejected. Ordinary behavior interfaces remain available. Method parameters/results use

@@ -1,5 +1,46 @@
 # Wire format and decoding contract
 
+## Native merge ancestry
+
+Compiler/runtime **2.23.0** adds an opt-in C++ tree-history wrapper. Ordinary model,
+linear/tree save, journal and collaboration bytes retain their previous contracts
+when no branch merge is recorded. The schema language stays **1.21.0**.
+The additive `serialize_as<Result, Protocol>` helper returns the same native
+protocol bytes; its defaults are owning `std::string` and compact JSON. Borrowed
+views require explicit caller-owned storage and introduce no wire metadata.
+Generated C++ Protobuf fixed arrays use the existing repeated representation,
+without an extent field. Their additional exact-cardinality requirement is a
+generated model constraint; ordinary variable arrays retain their mapping.
+
+A merge-aware save begins with bytes `FF 53 52 4D 52 47 01 00`, followed by a
+keyed `records::merge_checkpoint`: format version (field 1), complete ordinary
+tree-envelope bytes (field 2), and additional parent records (field 3).
+Each `merge_parent` has revision number (field 1) and source-parent number
+(field 2). The original revision's `parent` is the first/Undo parent. The wrapper
+version is 1. If native allocation-lease metadata is present, its existing wrapper
+remains outermost.
+
+Every additional parent must name a retained nonzero revision older than its
+child, differ from the first parent, and occur once per child. Root edges,
+duplicates, missing/forward/self parents, unsupported versions and incorrect
+history policies reject before publication. Numeric topological ordering rules
+exclude cycles. Earlier tree-only readers reject this prefix.
+
+Merge journal operation tag **10** carries the SHA-256 digest of the exact
+premerge save envelope followed by a complete merge-aware envelope. Tag **11**
+carries a keyed `snapshot_patch` from that same envelope to the complete result.
+Tag 11 is selected only with opt-in delta journaling when smaller and within the
+configured replay-depth bound. Recovery verifies base/target binding, exactly one
+new revision/second parent, unchanged retained revisions/edges and allocation
+marks, and complete model validity. It never reruns a resolver. Full Save retains
+both parents; Undo follows the first. The physical appended/sidecar framing and
+uncertain-write recovery rules remain unchanged.
+
+See the [native merge contract](../managed/branch_merging.md) for supported value
+and conflict policies and the pending collaboration/conversion combinations.
+
+## Earlier additive contracts
+
 Compiler/runtime **2.22.0** adds native C++ capability activation, explicit
 history-policy conversion, Pack-IRI addressing and optional ZIP physical-metadata
 replay. Existing native model, save, journal and collaboration formats remain

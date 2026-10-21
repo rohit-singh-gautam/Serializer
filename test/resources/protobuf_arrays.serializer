@@ -1,0 +1,18 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.14.0;
+
+namespace protobuf_arrays {
+  class scalar_array stable_ids {
+    public array[3] uint32 values (1) {1, 2, 3};
+  }
+  class child stable_ids {
+    public uint32 value (1) {7};
+  }
+  class record stable_ids {
+    public array[2] string names (1) {"left", "right"};
+    public array[2] child children (2) {{1}, {2}};
+    public array[2] bool flags (3) {true, false};
+    public array[3] uint32 omitted (4) {1, 2, 3} omit(protojson);
+  }
+}

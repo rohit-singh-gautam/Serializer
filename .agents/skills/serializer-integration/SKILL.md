@@ -52,7 +52,7 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-The current compiler/runtime release is **2.22.0**, with schema language
+The current compiler/runtime release is **2.23.0**, with schema language
 **1.21.0**. Use [C++ core-property adapters](../../../docs/serialization/core_properties.md)
 for application-supplied OPC metadata, following the selected fifth-edition
 property/date/keyword contract. Use the [managed authorization boundary](../../../docs/managed/authorization.md)
@@ -64,6 +64,35 @@ branch/history-loss decisions when changing native history profiles; see the
 [executed combinations and conversions](../../../docs/verification/verification-managed-capabilities-2026-10-21.md).
 Schema capability selectors remain proposed syntax. The bounded PMR resource caps routed requested bytes; generated standard
 payload containers and decoding allocations retain their existing allocator behavior.
+
+For retained C++ tree revisions, use `merge_base`, `merge_revision` and
+`revision_parents` under the [native merge contract](../../../docs/managed/branch_merging.md).
+Resolve conflicts explicitly and retain complete-candidate validation and current
+authorization. Undo follows the target parent; both parents participate in ancestry.
+Attached collaboration, general history overlays and standalone conversion of the
+new merge wrapper remain gated. Final qualification of this implementation follows
+the requested compilation commit. Do not claim MG04's collaboration gate is closed.
+For selective collaboration Undo/Redo, unchanged managed variant tag/identity
+contributions now merge their child fields independently; tag/identity replacement
+remains atomic. Complete publication, reference and contribution-version checks
+remain mandatory, and this additive worktree behavior still needs final qualification.
+New non-C++ managed engines, paged/lazy storage and database sink/rebaseline adapters
+are deferred in linked GitHub issues, not completed features.
+For one-expression C++ serialization, call `serialize_as(value)` for an owning
+compact-JSON `std::string`, or `serialize_as<Result, Protocol>(value)` for another
+supported owning result/native protocol. Borrowed views require explicit storage:
+`serialize_as<std::string_view>(value, buffer)` borrows a caller-owned `string_stream`.
+Keep that buffer alive and unchanged; unbuffered view results are unavailable.
+Owning and borrowed customization traits have separate lifetime contracts.
+Use the [string-buffer guide](../../../docs/guides/usage.md#string-backed-output-buffers)
+for direct output, embedded-NUL lengths, formatting and buffer reuse. The helper
+transfers default string storage; other owning results copy completed bytes.
+It adds no wire fields or generated API changes and has no `serialize_string` alias.
+For generated C++ Protobuf fixed arrays, use the existing repeated-field mapping
+and retain exact cardinality in every complete decoded owner message. Missing,
+null, short or excess arrays reject; fully format-omitted fields keep their schema
+defaults. See [the mapping boundary](../../../docs/serialization/protobuf.md#mapping-contract)
+before combining fragmented embedded messages or schema default initialization.
 
 Regenerate C++/Python/JavaScript/TypeScript output for [QName-list restrictions](../../../docs/verification/verification-qname-lists-2026-10-21.md):
 enumeration/default/fixed constraints retain ordered schema-scope expanded names,

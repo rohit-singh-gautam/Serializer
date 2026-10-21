@@ -661,6 +661,11 @@ replication are actually implemented and tested.
 
 ## Branch merging
 
+The [native C++ branch-merge API](branch_merging.md) implements retained-revision
+three-way merging, explicit side choices, two-parent ancestry and native journal
+recovery in the 2.23.0 worktree. The broader collaboration/overlay policies below
+remain design requirements. Final qualification follows the compilation commit.
+
 A merge combines changes from two revisions relative to a common ancestor. For
 example, one branch changes a component's name and another changes its height.
 A three-way merge can preserve both. If both change height differently, or one

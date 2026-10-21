@@ -5,6 +5,14 @@ when assigning authentication, policy administration, external effects and custo
 migrations. These are explicit host responsibilities, not missing runtime engines.
 Library-owned compiler, codec, transaction and resource guarantees remain required.
 
+Compiler/runtime **2.23.0** adds [native C++ branch merging](../managed/branch_merging.md).
+Use `merge_revision` only for retained revisions of a generated tree store;
+conflict choices, complete-candidate validation and current authorization precede
+publication. Merge ancestry survives native saves and journals. Collaboration
+negotiation remains pending; final qualification follows the compilation commit.
+It also enables [C++ Protobuf fixed arrays](../serialization/protobuf.md#mapping-contract)
+as standard repeated fields with exact per-owner reader cardinality.
+
 Compiler/runtime **2.22.0** adds native
 [capability activation and history conversion](../managed/capabilities.md),
 [Pack-IRI locators](../serialization/pack_iri.md) and explicit
@@ -1257,6 +1265,45 @@ count is used as an output budget. These are output APIs; decoding retains the
 existing owning destinations.
 
 ### String-backed output buffers
+
+For a single expression returning an owning `std::string`, use the additive
+compiler/runtime 2.23.0 helper:
+
+```cpp
+#include <rohit/serializer.hpp>
+
+std::string text = rohit::serializer::serialize_as(record); // Compact JSON, owning string by default.
+auto binary = rohit::serializer::serialize_as<std::vector<std::byte>,
+    rohit::serializer::binary_integer>(record);
+send_message(rohit::serializer::serialize_as<std::string>(record));
+
+rohit::string_stream buffer;
+std::string_view view = rohit::serializer::serialize_as<std::string_view>(record, buffer);
+```
+
+`serialize_as<Result = std::string, Protocol = json>` selects the result first
+and the existing `serialize_to` protocol second. Built-in owning results include
+`std::string`, `std::u8string` and vectors of `char`, `char8_t`, `uint8_t` or
+`std::byte`, including their allocator variants. These contain encoded octets;
+wider character strings need explicit text conversion. Binary output retains
+embedded NUL bytes; transmit its `.size()`. The `std::string` fast path transfers
+completed buffer storage; other result types copy the completed bytes into their
+own container. Specialize `serialization_result_traits<Result>::from_bytes` for
+another owning type, returning an independent owner without retaining the supplied
+temporary byte span.
+
+Borrowed `std::string_view` and dynamic `std::span<const char/uint8_t/std::byte>`
+results require the second, caller-owned `string_stream&` argument. A temporary
+buffer and an unbuffered view result do not compile. The overload resets the
+buffer before encoding. Keep it alive and unchanged while using the view;
+reset, growth, extraction and destruction invalidate previous views. The source
+object must not borrow this destination buffer. Failure may leave a written
+prefix in caller storage; owning conversions return no partial result.
+`serialization_view_traits<Result>::from_buffer` is the separate customization
+point for other explicit borrows. There is no `serialize_string` alias.
+
+Existing generated schemas and wire bytes remain unchanged. Use the explicit
+buffer API below for appending a prefix or configured JSON formatting.
 
 `rohit::string_stream` in `<rohit/stream.hpp>` owns a `std::string` and satisfies the
 contiguous buffer concepts. Generated serialization and concrete low-level codecs

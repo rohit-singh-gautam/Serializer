@@ -239,7 +239,9 @@ records. `edit_content<0>()` selects a checked active alternative;
 History restores the tag and previous identities. Switching any alternative
 conservatively invalidates every existing alternative editor in that transaction;
 switching back never revives an old handle. A valueless variant is rejected.
-Managed variant contributions currently merge atomically as one owned value.
+Managed variant contributions merge per field in the 2.23.0 worktree when the
+active tag and entity identity survive in all compared states. Tag/identity
+replacements retain atomic whole-value semantics; final qualification is pending.
 
 Fixed managed arrays expose `edit(id)` without append/erase; cardinality is part
 of the schema. Variable arrays retain their existing membership operations.
@@ -496,6 +498,11 @@ See the [complete point example](../../example/managed/labeled_history/README.md
 Linear stores expose `undo()` and parameterless `redo()`. Their entries contain
 only snapshots by default (plus labels when enabled), and the cursor is a deque index. They have no revision
 numbers, revision counters, `checkout()`, or `redo_children()`.
+Tree stores also provide [native branch merging](branch_merging.md) through
+`merge_base`, `merge_revision` and ordered `revision_parents`. The new merge-aware
+save wrapper preserves both parents; Undo retains its first-parent behavior.
+Collaboration merge negotiation remains pending.
+
 Tree stores expose `undo()`, `redo_children()`, `redo(revision)`, and
 `checkout(revision)`; tree entries retain revision IDs and explicit parents.
 Editing after undo discards the redo suffix in linear mode and preserves it in

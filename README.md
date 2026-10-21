@@ -44,6 +44,21 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Release **2.23.0** adds [native C++ branch merging](docs/managed/branch_merging.md)
+for retained tree revisions, with explicit conflict choices, two-parent ancestry
+and native journal recovery. Collaboration merge negotiation remains pending;
+final qualification follows the implementation/compilation commit.
+Unchanged managed variant identities also merge per field during native merging
+and selective collaboration Undo/Redo; tag/identity replacements remain atomic.
+Use `rohit::serializer::serialize_as(object)` for
+[one-expression compact JSON](docs/guides/usage.md#string-backed-output-buffers)
+in a default owning `std::string`. Select another owning result/protocol explicitly;
+borrowed views require caller-owned storage.
+Generated C++ [Protobuf fixed arrays](docs/serialization/protobuf.md#mapping-contract)
+use ordinary repeated fields with exact reader cardinality and existing schema defaults.
+New managed engines and paged/lazy/database storage are
+[deferred to GitHub issues](docs/pending.md), separately from active fixes.
+
 Release **2.22.0** adds native C++
 [capability activation/history conversion and session fault qualification](docs/verification/verification-managed-capabilities-2026-10-21.md),
 [Pack-IRI addressing](docs/serialization/pack_iri.md) and explicit
@@ -72,7 +87,7 @@ Regenerate Python package facades for cancellation checks after Save hooks:
 pre-publication cancellation preserves the old file; a failure after replacement
 reports `publication_uncertain` with the complete new archive retained.
 
-The current compiler and runtime release is **2.22.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.23.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.21.0**;
@@ -151,7 +166,7 @@ Release **2.17.0** adds [generated package policies and application references](
 Generated [C](docs/languages/c_packages.md), [Rust](docs/languages/rust_packages.md)
 and [Swift](docs/languages/swift_packages.md) outputs now provide bounded owning
 ZIP/OPC facades, typed loading, preservation and staged Save. Both editor packages
-are **2.0.10** and recognize language **1.21.0** package declarations.
+are **2.0.11** and recognize language **1.21.0** package declarations.
 C/Rust package graphs requiring XML document companions reject explicitly;
 their ordinary XML document APIs retain those separate contracts.
 Language 1.21 declarations select fixed/default ZIP storage and scoped typed keys
@@ -593,7 +608,7 @@ arithmetic operator mappings with owning constructor calls in portable expressio
 Existing fields, wire formats and managed protocols retain their contracts.
 Run the [four focused examples](example/README.md#owning-record-apis) and consult
 [qualification](docs/verification/verification-owning-api-2026-10-12.md) for tested
-backends and limits. Both current editor packages are **2.0.10**, with separate
+backends and limits. Both current editor packages are **2.0.11**, with separate
 C++ generated-header navigation. See
 [editor verification](docs/editors/editor_extension.md#verification-performed)
 for package checks and navigation qualification.

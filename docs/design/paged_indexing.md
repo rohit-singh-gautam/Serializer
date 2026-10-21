@@ -2,6 +2,9 @@
 
 Implementation work is tracked as **PG01–PG02** in
 [the central pending backlog](../pending.md#managed-state-and-storage).
+These new subsystems are deferred to [the page store/index issue #2](https://github.com/rohit-singh-gautam/Serializer/issues/2)
+and [the lazy model/history issue #3](https://github.com/rohit-singh-gautam/Serializer/issues/3).
+They remain unimplemented; deferral does not establish a storage capability.
 
 Status: research and proposed design, reviewed on **2026-10-11**. Serializer does
 not implement a paged index, lazy managed storage, or a database adapter. The

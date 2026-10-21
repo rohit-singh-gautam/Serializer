@@ -7,14 +7,43 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace rohit::managed {
 template <typename Value> struct model_traits;
 template <typename Value> struct runtime_traits;
 namespace detail {
+
+// Visit one unchanged alternative/identity across three snapshots without a Cartesian variant dispatch.
+// Switching tags or replacing the identified occurrence returns false for the caller's atomic policy.
+template <typename Variant, typename Visitor>
+bool visit_matching_owned_variant(Variant& current, const Variant& base, const Variant& desired,
+                                   Visitor&& visitor) {
+  if (current.valueless_by_exception() || base.valueless_by_exception() || desired.valueless_by_exception()) {
+    throw std::invalid_argument{"Valueless managed variant"};
+  }
+  if (current.index() != base.index() || current.index() != desired.index()) { return false; }
+  bool matched{};
+  // Index dispatch also supports two schema alternatives with the same native payload type.
+  const auto visit = [&](auto index) {
+    constexpr auto selected = decltype(index)::value;
+    if (current.index() != selected) { return; }
+    auto& target = std::get<selected>(current);
+    const auto& old = std::get<selected>(base);
+    const auto& source = std::get<selected>(desired);
+    if (target.persistent_id != old.persistent_id || target.persistent_id != source.persistent_id) { return; }
+    std::forward<Visitor>(visitor)(target, old, source);
+    matched = true;
+  };
+  [&]<std::size_t... Index>(std::index_sequence<Index...>) {
+    (visit(std::integral_constant<std::size_t, Index>{}), ...);
+  }(std::make_index_sequence<std::variant_size_v<Variant>>{});
+  return matched;
+}
 
 // Rebind standard owning wrappers to the generated storage type at their identified leaves.
 template <typename Plain>

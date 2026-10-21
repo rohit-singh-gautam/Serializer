@@ -28,6 +28,7 @@ remains a separate illustrative data model.
 | [Getting started](getting_started.md) | History, journal, collaboration, and authorization concepts, setup, and runnable examples. |
 | [Authorization](authorization.md) | Trusted sessions, writable gates, host policy hooks, and what the application must implement. |
 | [Implemented C++ runtime](cpp_runtime.md) | Optional build target, generated storage and typed editors, all three transaction forms, snapshot history, bounded save/load, and remaining work. |
+| [Native branch merging](branch_merging.md) | Typed conflict policies, two-parent retained ancestry, first-parent Undo and native Save/journal recovery; collaboration integration remains pending. |
 | [Typed state registries](state_registry.md) | Pinned typed lookup, generated field/base paths, custom keys, transactional adoption and optional ordered/hash indexes. |
 | [Typed managed entity references](../design/managed_entity_references.md) | C++ typed tokens/class tags, reference-aware import, editable reconciliation, isolated previews and strict collaborative identity requirements/qualification. |
 | [State-framework examples](state_enhancements.md) | Implemented schema behavior and managed-state features, with concrete application examples and backend limits. |

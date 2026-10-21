@@ -942,6 +942,18 @@ if(SERIALIZER_BUILD_MANAGED)
   endforeach()
   # Exercise snapshot-local registries with both identity widths and storage representations.
   foreach(registry_profile IN ITEMS direct32 separate32 direct64 separate64)
+    add_executable(managed_merge_${registry_profile}_test managed_merge_test.cpp)
+    serializer_generate(TARGET managed_merge_${registry_profile}_test
+      SCHEMAS resources/branch_merge.serializer
+      CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/managed_entity_references_${registry_profile}.ini"
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_merge_${registry_profile}")
+    target_link_libraries(managed_merge_${registry_profile}_test PRIVATE Serializer::managed GTest::gtest_main)
+    if(MSVC)
+      target_compile_options(managed_merge_${registry_profile}_test PRIVATE /W4 /WX)
+    else()
+      target_compile_options(managed_merge_${registry_profile}_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME managed_merge_${registry_profile}_test COMMAND managed_merge_${registry_profile}_test)
     set(registry_config CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/managed_registry_${registry_profile}.ini")
     add_executable(managed_registry_${registry_profile}_test managed_registry_test.cpp)
     serializer_generate(TARGET managed_registry_${registry_profile}_test
@@ -1240,8 +1252,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|C
   add_test(NAME stream_allocation_failure_test COMMAND stream_allocation_failure_test)
 endif()
 
-add_executable(protobuf_codec_test protobuf_codec_test.cpp protobuf_stream_test.cpp typed_magic_protobuf_test.cpp)
+add_executable(protobuf_codec_test protobuf_codec_test.cpp protobuf_stream_test.cpp typed_magic_protobuf_test.cpp
+  protobuf_fixed_array_test.cpp)
 serializer_generate(TARGET protobuf_codec_test SCHEMAS resources/protobuf.serializer resources/typed_magic.serializer
+  resources/protobuf_arrays.serializer
   CONFIG protobuf.ini OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/protobuf")
 # Schema-validation tests call the compiler parser and writer in addition to generated runtime codecs.
 target_link_libraries(protobuf_codec_test PRIVATE Serializer::serializer_lib GTest::gtest_main)

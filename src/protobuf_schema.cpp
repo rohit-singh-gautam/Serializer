@@ -92,10 +92,6 @@ void object(const class_node& value) {
       throw std::invalid_argument{"Protobuf digest mapping is unsupported: " +
                                   value.get_full_name() + "." + item.name};
     }
-    if (!item.extent_expression.empty()) {
-      throw std::invalid_argument{"Protobuf: fixed arrays are unsupported: " +
-                                  value.get_full_name() + "." + item.name};
-    }
     if (item.modifier == member::modifier_type::map &&
         (item.key_node || item.key == "float" || item.key == "double")) {
       throw std::invalid_argument{"Protobuf map keys must be integers, bool, or string: " +

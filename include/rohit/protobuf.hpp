@@ -63,6 +63,8 @@ void protobuf_reset(T& value) {
     value.template serializer_protobuf_reset<SelectedFormat>();
   } else if constexpr (requires { value.serializer_protobuf_reset(); }) {
     value.serializer_protobuf_reset();
+  } else if constexpr (type_check::fixed_array<T>) {
+    for (auto& element : value) { protobuf_reset<SelectedFormat>(element); }
   } else {
     value = T{};
   }
@@ -245,7 +247,7 @@ public:
   // Encode one statically numbered field; arrays and maps retain their native wire shapes.
   template <std::uint32_t Id, typename T>
   void field(std::string_view name, std::string_view json_name, const T& value) {
-    if constexpr (type_check::vector<T>) {
+    if constexpr (type_check::vector<T> || type_check::fixed_array<T>) {
       using Element = typename T::value_type;
       if constexpr (Format == protobuf_format::json) {
         prefix<Id>(name, json_name, 2);
@@ -1012,6 +1014,69 @@ public:
       }
     }
     return false;
+  }
+
+  // Append repeated wire occurrences directly to fixed storage; reject excess before its payload.
+  // Generated readers check the final count after all packed/unpacked occurrences have been merged.
+  template <typename Element, std::size_t Extent>
+  void fixed_array(std::array<Element, Extent>& value, std::size_t& count) {
+    if constexpr (Format == protobuf_format::json) { count = 0; }
+    if (null_value()) {
+      detail::protobuf_reset<format>(value);
+      count = 0;
+      return;
+    }
+    const auto append = [&] {
+      if (count >= value.size()) { fail("Excess Protobuf fixed-array element"); }
+      // Inline slots need element/work admission, but do not allocate a vector payload buffer.
+      collection_entry(0);
+      Element element{};
+      detail::protobuf_reset<format>(element);
+      if constexpr (Format == protobuf_format::json) {
+        whitespace();
+        if (remaining() >= 4 && std::memcmp(in_stream.curr(), "null", 4) == 0) {
+          fail("Null repeated element");
+        }
+      }
+      field(element);
+      value[count++] = std::move(element);
+    };
+    if constexpr (Format == protobuf_format::binary) {
+      if constexpr (detail::protobuf_wire_type<Element>() != 2) {
+        if (wire == 2) {
+          const auto size = length();
+          const auto saved = message_end;
+          message_end = in_stream.curr() + size;
+          wire = detail::protobuf_wire_type<Element>();
+          try {
+            while (remaining() != 0) { append(); }
+          } catch (...) { message_end = saved; throw; }
+          message_end = saved;
+          return;
+        }
+      }
+      append();
+    } else {
+      whitespace();
+      if constexpr (Format == protobuf_format::text) {
+        if (peek() != '[') { append(); return; }
+      }
+      check_and_increase('[');
+      whitespace();
+      if (peek() != ']') {
+        while (true) {
+          append();
+          whitespace();
+          if (peek() == ']') { break; }
+          check_and_increase(',');
+          whitespace();
+          if constexpr (Format == protobuf_format::text) {
+            if (peek() == ']') { break; }
+          }
+        }
+      }
+      check_and_increase(']');
+    }
   }
 
   // Decode a statically typed field, appending binary repetitions and merging nested messages.

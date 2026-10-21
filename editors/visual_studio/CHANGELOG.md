@@ -1,3 +1,10 @@
+# 2.0.11
+
+- Update current compiler/runtime 2.23.0 usage and fixed-array output boundaries.
+- Document generic owning serialization results and explicit caller-buffer views.
+- Correct the older native-template section: fixed-array owning codecs are available across all eleven outputs; generated C++ Protobuf additionally enforces exact cardinality.
+- Keep both package identities/versions synchronized. Editor grammar and navigation behavior are unchanged; host qualification follows the compilation commit.
+
 # 2.0.10
 
 - Support schema language 1.21.0 package `policy`, `key` and `reference` metadata, with focused authoring snippets.
