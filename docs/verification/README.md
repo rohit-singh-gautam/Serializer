@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [XSD contract tooling](verification-xsd-tooling-2026-10-21.md) | Native-enum export/binding, directional comparison and local-bundle limits: 300 decisions per host, eleven-SDK exported-schema follow-ups on Windows/Linux, native regressions and a complete integrated audit. |
 | [XSD authoring and evolution](verification-xsd-evolution-2026-10-21.md) | Staged addition/rename imports, ambiguity/publication guards and two authored native-compatible XML mappings across eleven actual SDKs on Windows/Linux; 44 emissions, 1,452 exchanges and explicit final-guard provenance. |
 | [Package reproducibility](verification-package-reproducibility-2026-10-21.md) | Independently checked ordering, metadata, ZIP64 and provider policies across eleven actual SDKs on Windows/Linux; 2,112 formal archives, conditional compressed-byte comparisons and explicit final-guard replay scope. |
 | [Fixed singleton package relocation](verification-package-relocation-2026-10-21.md) | Simultaneous preserved-link rebinding, opt-in C/Rust/Go APIs, moved-role removal, URI spelling and publication/collision checks across eleven actual SDKs. |

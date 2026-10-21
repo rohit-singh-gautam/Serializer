@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in); SPDX-License-Identifier: 0BSD -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:tooling:enum"
+           targetNamespace="urn:tooling:enum" elementFormDefault="qualified">
+  <xs:simpleType name="state"><xs:restriction base="xs:string">
+    <xs:enumeration value="open"/><xs:enumeration value="in_progress"/><xs:enumeration value="closed"/>
+  </xs:restriction></xs:simpleType>
+  <xs:element name="entry"><xs:complexType><xs:sequence>
+    <xs:element name="value" type="t:state"/><xs:element name="trail" type="t:state" minOccurs="0" maxOccurs="unbounded"/>
+  </xs:sequence><xs:attribute name="selection" type="t:state"/></xs:complexType></xs:element>
+</xs:schema>

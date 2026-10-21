@@ -4,6 +4,17 @@ These tools separate regression tests, performance measurements, and fuzzing.
 The dated [verification record](../docs/verification/verification-2026-09-17.md) ties executed
 checks to a source revision and configurations, and lists outstanding work.
 
+## XSD export, comparison and local bundles
+
+The [tooling inventory](xsd_tooling/README.md) qualifies real compiler exports,
+directional reader comparisons, exact local-bundle boundaries and rejected
+publication. Rich compiler/AST/independent-XSD fixtures and the ordinary
+eleven-output rebound-model runtime profile are separate scopes. The
+[final 2.20.0 Windows/Linux record](../docs/verification/verification-xsd-tooling-2026-10-21.md)
+retains 300 tooling decisions per host, actual eleven-SDK follow-ups and a complete
+cross-host/provenance audit. Missing or subset tooling modules cannot report full
+qualification success.
+
 ## XSD authoring and evolution
 
 The [eleven-output XSD inventory](xsd_evolution/README.md) checks staged declaration

@@ -1,0 +1,24 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.20.0;
+namespace enum_constraints {
+  xml(namespace("urn:tooling:enum-constraints"));
+  using schema "root.xsd";
+  enum state {
+    open,
+    in_progress,
+    closed
+  }
+  class default_entry stable_ids {
+    public state value (37) {state::open};
+  }
+  class fixed_entry stable_ids {
+    public state value (11) {state::closed};
+  }
+  class text_entry stable_ids {
+    public state value (83) {state::open} xml(text);
+  }
+  class fixed_text_entry stable_ids {
+    public state value (91) {state::closed} xml(text);
+  }
+}

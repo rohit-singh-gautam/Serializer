@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in); SPDX-License-Identifier: 0BSD -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:a="urn:audit" targetNamespace="urn:audit" elementFormDefault="qualified"><xs:simpleType name="state"><xs:restriction base="xs:string"><xs:enumeration value="unknown"/></xs:restriction></xs:simpleType><xs:element name="entry"><xs:complexType><xs:attribute name="value" type="a:state" use="required"/></xs:complexType></xs:element></xs:schema>

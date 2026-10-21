@@ -1,11 +1,18 @@
 # Pending requirements across Serializer
 
+Compiler/runtime **2.20.0** completes `XML-B11` and `OPC-R12`: 300 XSD
+compiler-tooling decisions pass on Windows and Linux, including checked bundles,
+UTF-8 paths, directional comparisons, rich exports and protected enum-binding
+failures. All eleven outputs pass the ordinary exported/rebound model matrix on
+both hosts. See the [scope and final audit](verification/verification-xsd-tooling-2026-10-21.md).
+**57 requirements remain unchecked**; 790 of 847 rows are checked.
+
 Compiler/runtime **2.19.2** completes `OPC-R13`: staged XSD imports preserve
 surviving expanded-identity IDs and protect reviewed source, while authored
 models retain native names/IDs/order/defaults/behavior through supported XML
 rename/reorder exceptions. All eleven outputs pass the Windows/Linux
 [actual evolution and interoperability matrix](verification/verification-xsd-evolution-2026-10-21.md).
-**59 requirements remain unchecked**; 788 of 847 rows are checked.
+That checkpoint left 59 unchecked, with 788 of 847 rows checked.
 
 Compiler/runtime **2.19.1** completes `XML-B23`: independent ordering, ZIP/XML
 metadata and provider-qualified byte reproducibility checks across all eleven
@@ -78,7 +85,7 @@ See the [batch dependencies and verification](verification/verification-pending-
 | [ ] | OPC-R09 | — | Measure large-model CPU, peak memory, encoded/generated-code size and cancellation/provider behavior. Qualify supported platforms with the actual XML/compression providers enabled. | — |
 | [ ] | OPC-R10 | — | Broaden value-reference/scoped-projection XML graph, resource and stress qualification in every backend, preserving source lifetime and avoiding owning payload copies; separately define any durable-address XML contract. | — |
 | [ ] | OPC-R11 | — | Carry one cumulative operation context through generated codecs, XML, compression, ZIP, references, preservation and publication; test bounds, cancellation and deadlines across backends/providers. | — |
-| [ ] | OPC-R12 | — | Broaden fixed-XSD association/import/export, local bundle resolution and ambiguity diagnostics while preserving explicit native member IDs and reviewed schema evolution. | — |
+| [x] | OPC-R12 | — | Fixed-XSD association/import/export and checked local bundles pass the rich text/wrapper/enum, namespace/particle and ambiguity/publication inventory. Authored names, IDs, defaults and behavior retain their contracts through all eleven ordinary Windows/Linux export/rebind outputs; imports remain reviewed. [2.20.0 scope and evidence](verification/verification-xsd-tooling-2026-10-21.md). | — |
 | [x] | OPC-R13 | — | One-source XSD/inline exception workflows pass staged new-field/rename imports, protected ambiguity failures and authored native-model XML rename/reorder in all eleven outputs on Windows/Linux. Native names, IDs, defaults, behavior and literal positional/integer/string bytes retain their contracts; imported evolution remains reviewed. [2.19.2 evidence](verification/verification-xsd-evolution-2026-10-21.md). | — |
 
 `OPC-R01` remains open beyond the checked slices: namespace-dependent
@@ -178,7 +185,7 @@ and actual SDK checks before the parent requirement can be checked.
 | [ ] | XML-B08 | — | XML performance: Broaden tree-free token coverage and qualify provider/platform and retained-tree helper costs; measure CPU, memory, encoded size and generated-code size on reproducible workloads. | — |
 | [ ] | XML-B09 | — | XML vocabulary: Extend combinations of presence/nil, ordered fragments, maps/variants and positioned extensions; qualify bounded foreign retention, grouped/repeated heterogeneous choices and broader mixed content. | — |
 | [ ] | XML-B10 | — | XSD compilation: Extend facets/derivations, multiple-typed-branch/grouped choices and scalar/pattern/identity/local-bundle combinations; qualify union/QName boundaries and explicit unsupported-graph capability gates. | — |
-| [ ] | XML-B11 | — | XSD tooling: Expand bundle/tool stress, ambiguous association and platform qualification across text/wrapper/enum, namespace and particle export; preserve reviewed fixed-schema regeneration and protected imported source. | — |
+| [x] | XML-B11 | — | Expanded XSD tooling passes 300 decisions per host: exact bundle/path/identity bounds, directional comparisons, eight rich export families, six invalid enum-binding profiles and protected publication. All eleven ordinary exported/rebound SDK outputs pass Windows/Linux interoperability; rich runtime graphs retain their recorded scope. [2.20.0 evidence](verification/verification-xsd-tooling-2026-10-21.md). | — |
 | [ ] | XML-B12 | — | Schema-first authoring: Extend inline association and declaration import while preserving authored behavior and native ordering through reviewed schema evolution. | — |
 | [ ] | XML-B13 | — | Runtime XSD: Qualify prepared providers, limits and concurrency in every backend; align input/output namespace-declaration accounting, qualify caller-prepared validator interfaces and prohibit automatic remote schema loading. | — |
 | [ ] | XML-B14 | — | Model coverage: Broaden concrete generic, owning inheritance, revision/magic and digest combinations; define supported managed/view and recursive/combined graph contracts. | — |

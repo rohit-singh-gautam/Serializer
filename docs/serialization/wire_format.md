@@ -1,5 +1,14 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.20.0** extends XML contract tooling without changing native
+protocols, enum ordinals/wire names, field IDs or declaration order. Supported
+native enums export to string-space XSD restrictions; binding and validation
+retain the existing native enum values. Default/fixed XML restrictions select
+admitted enum labels rather than introduce native defaults or renumber values.
+The [tooling qualification](../../qualification/xsd_tooling/README.md) passes on
+Windows and Linux; rich compiler cases and ordinary eleven-output runtime
+rebinding retain separate evidence. UTF-8 filesystem handling changes no payload encoding.
+
 Compiler/runtime **2.19.2** qualifies existing XSD import/binding workflows without
 changing native formats. Authored native field names, IDs and declaration order
 remain independent of mapped XML names/order. XML-only rename/reorder fixtures

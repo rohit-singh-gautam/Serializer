@@ -4146,7 +4146,12 @@ public:
         }
       }
       if (field.text) {
-        output.write("    ", reader, std::string_view{field.list ? ".list_text_value(this->" : ".text_value(this->"}, member_name(*field.source));
+        const auto default_value = field.fixed_value ? field.fixed_value : field.default_value;
+        const auto& stored = field.source->type_name_list.front();
+        const bool enum_default = stored.type == object_type::enum_type && default_value.has_value();
+        output.write("    ", reader, std::string_view{field.list ? ".list_text_value(this->" :
+            enum_default ? ".text_value_or(this->" : ".text_value(this->"}, member_name(*field.source));
+        if (enum_default) { output.write(", ::std::string_view{", xml_string(*default_value), "}"); }
         if (raw) { output.write(", ", validator); }
         output.write(");\n");
       } else if (field.wrapper) {

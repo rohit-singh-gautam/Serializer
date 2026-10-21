@@ -38,11 +38,20 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.19.2**. Bug fixes and minor updates
+The current compiler and runtime release is **2.20.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.21.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.20.0** qualifies [XSD contract tooling](qualification/xsd_tooling/README.md),
+including native-enum export/string-space binding, directional comparison and
+checked local bundles. Existing native enum values, names and model layouts stay
+unchanged. The compiler also fixes sequence-to-`all` widening and
+[Windows UTF-8 CLI paths](docs/serialization/xsd_tooling.md#windows-utf-8-cli-paths).
+Windows and Linux each pass 300 compiler-tooling decisions and the ordinary
+eleven-output export/rebind matrix. Rich compiler cases and generated runtime
+profiles retain [separate evidence](docs/verification/verification-xsd-tooling-2026-10-21.md).
 
 Release **2.19.2** qualifies [XSD authoring and native-model evolution](qualification/xsd_evolution/README.md)
 in all eleven outputs. Staged imports retain existing expanded-identity IDs;

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in); SPDX-License-Identifier: 0BSD -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:import namespace="urn:tooling:left" schemaLocation="left.xsd"/>
+  <xs:import namespace="urn:tooling:right" schemaLocation="right.xsd"/>
+</xs:schema>

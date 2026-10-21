@@ -1,0 +1,17 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.20.0;
+namespace tooling {
+  xml(namespace("urn:tooling:enum"));
+  enum state {
+    open,
+    in_progress,
+    closed
+  }
+  class entry stable_ids {
+    public state value (37) {state::open};
+    public optional<state> selection (11) xml(attribute);
+    public array state trail (83);
+    public function bool is_open() readonly expression(value == state::open);
+  }
+}

@@ -1,5 +1,30 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.20.0
+
+Existing schema language 1.21.0, native APIs, enum values and saved formats remain
+unchanged. Native-enum XSD export/string-space binding now passes its supported
+Windows/Linux qualification. Its bounded profile uses `xs:string` with empty/preserve whitespace.
+Preserve declared enum spellings and native values when rebinding;
+default/fixed restrictions must select an admitted native enumerator and the
+restriction must admit at least one native value. Invalid bindings reject before
+generated output changes. An exported
+XML restriction does not renumber enum values or migrate native data. Unsupported
+token/collapsing/normalized spaces, list-lexical enum collections and
+numeric/QName/list enum spaces still reject.
+
+Directional XML comparison now accepts sequence-to-`all` widening independently
+of the `all` declaration order. The reverse direction and reordered sequences
+still reject where their accepted documents differ. Both contracts must bind;
+association/capability preflights are separate from compatibility differences.
+Export/rebind does not infer a renamed application field or merge an import.
+See the [tooling inventory](qualification/xsd_tooling/README.md).
+
+Use the rebuilt compiler for UTF-8 schema locations and
+[Windows UTF-8 CLI paths](docs/serialization/xsd_tooling.md#windows-utf-8-cli-paths).
+Its process manifest avoids requiring a system-locale change on qualified modern
+Windows; it does not change the text/path configuration of consuming applications.
+
 ## Compiler/runtime 2.19.2
 
 No compiler-driven schema, native API or saved-format migration is required.

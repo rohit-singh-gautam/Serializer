@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in); SPDX-License-Identifier: 0BSD -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:tooling:choice" elementFormDefault="qualified">
+  <xs:element name="entry"><xs:complexType><xs:choice>
+    <xs:element name="number" type="xs:int"/><xs:element name="text" type="xs:string"/>
+  </xs:choice></xs:complexType></xs:element>
+</xs:schema>

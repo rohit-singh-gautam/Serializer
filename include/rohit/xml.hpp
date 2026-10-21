@@ -858,6 +858,17 @@ public:
     }
     detail::read_scalar(node_.text, value);
   }
+  // Decode explicit empty simpleContent through a trusted schema default without changing ordinary text reads.
+  template <typename T> void text_value_or(T& value, std::string_view empty_default,
+      lexical_validator validator = nullptr) {
+    if (!node_.text.empty()) { text_value(value, validator); return; }
+    if (!node_.children.empty()) { throw std::invalid_argument{"XML simple content contains children"}; }
+    if (validator) { validator(empty_default, node_, context_); }
+    if constexpr (std::same_as<T, std::string>) {
+      if (context_) { context_->consume(operation_resource::allocation_bytes, empty_default.size()); }
+    }
+    detail::read_scalar(empty_default, value);
+  }
   // Decode an exact typed list from one simple-content value.
   template <typename T> void list_text_value(T& value, lexical_validator validator = nullptr) {
     if (!node_.children.empty()) { throw std::invalid_argument{"XML list text contains children"}; }

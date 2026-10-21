@@ -1,0 +1,16 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.20.0;
+namespace tooling {
+  using schema "root.xsd";
+  class alpha stable_ids {
+    xml(namespace("urn:tooling:alpha"));
+    public uint32 id (37) {7};
+    public function bool has_id(uint32 expected) readonly expression(id == expected);
+  }
+  class beta stable_ids {
+    xml(namespace("urn:tooling:beta"));
+    public uint32 id (83) {9};
+    public function bool has_id(uint32 expected) readonly expression(id == expected);
+  }
+}

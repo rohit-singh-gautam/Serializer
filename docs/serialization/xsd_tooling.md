@@ -1,6 +1,15 @@
 # Fixed XSD bundles and contract tools
 
-Compiler/runtime **2.11.0** retains schema language **1.20.0**. Serializer compiles
+Compiler/runtime **2.20.0** adds native-enum export/string-space binding and
+expanded tooling qualification. The
+[tooling inventory](../../qualification/xsd_tooling/README.md) separates rich
+compiler/AST/XSD proofs from the ordinary eleven-output export/rebind profile.
+Both Windows/Linux scopes pass their
+[final qualification](../verification/verification-xsd-tooling-2026-10-21.md).
+Schema language remains **1.21.0** and both editors remain **2.0.10**.
+
+Compiler/runtime **2.11.0** established the language-**1.20.0** tooling baseline.
+Serializer compiles
 a supported fixed XSD subset into generated XML mappings. The primitive/ordinary
 record baseline generates in all eleven outputs; rich scalar and content
 contracts have C++ and Python implementations. Other outputs reject unsupported
@@ -24,6 +33,23 @@ component instances per adopted namespace; finite legal include/import cycles
 deduplicate by canonical path and effective namespace. Limits cover 64 logical
 instances, 32 reference levels and 16 MiB of aggregate source bytes, including
 repeated chameleon instances. No document-supplied schema hint changes this allowlist.
+
+## Windows UTF-8 CLI paths
+
+The MSVC-built `serializer.exe` embeds an `activeCodePage` UTF-8 process manifest.
+Unicode CLI paths use that process setting on Windows 10 version 1903 and later
+without requiring a system-locale change. Older Windows behavior is not newly
+qualified. Microsoft documents the
+[per-process UTF-8 manifest support](https://learn.microsoft.com/en-us/windows/apps/design/globalizing/use-utf8-code-page).
+This compiler setting does not configure a consuming application's own process.
+
+`schemaLocation` values are interpreted as UTF-8 filesystem paths. Relative
+locations emitted into exported schemas use explicit UTF-8 path bytes rather
+than a locale-dependent narrow conversion. Canonical containment, traversal,
+network/absolute-location rejection and dependency checks retain the same rules.
+These filesystem changes do not alter native payloads or XML document encoding.
+
+## Bundle identity and supported contracts
 
 The bundle identity is SHA-256 over the byte string `Serializer XSD bundle 1\n`
 followed by every logical document instance in lexicographic relative-path and
@@ -57,18 +83,21 @@ C++ and Python enforce supported numeric bounds, Unicode/list lengths,
 whitespace, enumeration/default/fixed values, XSD patterns and union branches,
 singleton choices, and a repeated-choice subset with one typed repeated branch
 plus positioned foreign wildcard content. Exact branch/group occurrence limits
-and interleaving are retained. Multiple known branches in a repeated choice,
-grouped choice branches, unordered content and identity checks still need their
-dependent generated-backend implementations. The shared compiler now retains a
+and interleaving are retained. The shared compiler retains a
 bounded particle model for nested sequence/choice/all and heterogeneous repeated
 choices, checks ambiguity and exact occurrences, and supplies reference trace
-validation. Top-level `all` and global-owner key/unique/keyref contracts also bind
-shared IR and have reference validators. Their generated codecs reject explicitly.
-General mixed child/text content, `complexContent` restriction, dynamic/abstract
-type selection and restricted list item types remain unsupported.
+validation. Singleton `all` and supported global-owner key/unique/keyref contracts
+have generated owning profiles across the outputs; storage combinations retain
+their backend capability gates. A compiled particle model is not a promise of
+generated ordered storage for grouped/repeated heterogeneous content. Supported
+mixed child/text mappings require their explicit ordered native storage;
+association does not infer arbitrary mixed layouts. `complexContent` restriction,
+dynamic/abstract type selection and restricted list item types remain unsupported.
 
 Identity binding accepts a strict namespace-aware child-path XPath subset and
-same-owner key/unique references; nested local identity owners reject. The static
+same-owner key/unique references. Supported global owners used inside nested
+records retain independent identity scopes; identity declarations attached to a
+local XSD element still reject. The static
 bundle cap is 128 identity constraints, in addition to document/byte limits.
 Projected fields carrying `default`/`fixed` declarations reject because the
 reference validator does not augment missing/empty instance values from a schema;
@@ -90,14 +119,17 @@ including underflow-to-zero inputs that XSD can round to zero. Complete floating
 conversion edge parity remains **OPC-R03**, separately from the checked facet
 comparison rules.
 
-Outer union enumeration/fixed constraints and namespace-dependent union defaults
-reject until selected-member/schema-scope identities are represented. QName-list
-enumeration rejects at every union depth; QName-list fixed values also reject.
-C++ union-QName scalar children reject. Existing plain QName child generation
-remains accepted, but child-local/shadowed bindings that cannot be represented
-by the owning record's namespace map reject during loading. Ordinary QName
-attributes/text retain their supported context/default behavior; complete C++
-per-field prefix preservation remains **OPC-R01**.
+Python supports namespace-independent outer union enumeration/fixed constraints;
+other backend and namespace-dependent combinations retain their capability gates.
+Namespace-dependent union defaults and QName-list enumeration/fixed values still
+reject. C++ and Python scalar children retain occurrence-specific namespace scopes
+for QName, QName-list, prefix-list and nested union values, including child-local
+declarations, shadowing and default-namespace resets. Native strings and wire
+codecs remain independent of this XML-only state. Applications editing or
+reordering indistinguishable lexical strings must keep the scope metadata with
+its corresponding occurrence. See the
+[qualified scope checks](../verification/verification-qname-scopes-2026-10-20.md);
+broader backend/restriction combinations remain **OPC-R01/OPC-R03**.
 
 The pinned [official Core 1.4 fixture](../../test/resources/3mf_core_1_4/README.md)
 includes the local W3C XML vocabulary, language-or-empty union, numeric/matrix/color
@@ -124,7 +156,7 @@ the earlier 2.7 subset is recorded in the
 The [2.8 backend record](../verification/verification-opc-backends-2026-10-19.md)
 records the new rich/Core checks and the status of full native qualification.
 Remaining constructs and backend/provider checks are tracked under **OPC-R03–R05**,
-**OPC-R12** and the XSD work units in [the central backlog](../pending.md).
+**XML-B02/B10** and the XSD work units in [the central backlog](../pending.md).
 Historical baseline checks do not qualify later additions.
 
 ## Bind an existing model in its schema
@@ -226,8 +258,9 @@ authored namespace associations require a supported inline namespace exception.
 The qualification verifies exact diagnostics and unchanged source, dependency
 files and existing generated output on these preflight failures. It does not
 promise cross-file atomic replacement after arbitrary filesystem I/O failures.
-Broader XSD constructs, rich export/compare/bundle coverage and OPC/3MF conformance
-retain their separate gates.
+The [2.20.0 tooling inventory](../../qualification/xsd_tooling/README.md) qualifies
+selected rich export/compare/bundle families. Rejected XSD constructs and full
+OPC/3MF conformance retain their separate gates.
 
 ## Export and compare bound contracts
 
@@ -248,6 +281,51 @@ Import/binding support does not imply export parity. Export does
 not infer types from sample XML; declaration import is the separate command
 above. See the [authoring contract](../design/opc_3mf_support.md#schema-first-authoring-and-declaration-import).
 
+### Native enum contract export
+
+The qualified 2.20.0 profile exports a native enum's original declared spellings
+as an XSD string-space enumeration:
+
+```text
+serializer version 1.20.0;
+namespace orders {
+  xml(namespace("urn:orders"));
+  enum state { open, in_progress, closed }
+  class entry stable_ids {
+    public state value (37) {state::open};
+  }
+}
+```
+
+Presentation naming does not change XML labels such as `in_progress`. Native
+enum ordinals, string-key/JSON wire names, field IDs, constructor defaults and
+readonly behavior retain their existing values. This bounded profile admits
+`xs:string` with empty/preserve whitespace; supported facets can narrow the
+admitted labels, and at least one declared native enumerator must remain
+admitted. An XSD default/fixed label must identify an admitted native enumerator;
+generation preflight rejects unknown or facet-excluded values before publication.
+XML decode converts an admitted label to that existing
+value rather than renumbering the enum. A schema default does not rewrite the
+native constructor default. Text-only enum defaults/fixed values are exported on
+the global element where the XSD semantics require them.
+
+Ordinary, optional and repeated enum element members are distinct from one XML
+list-lexical collection. Enum text requires one nonoptional scalar field;
+optional/repeated text still rejects. Attribute occurrence rules are unchanged.
+Token/collapsing/normalized spaces, enum list-lexical export and numeric, QName or
+list binding spaces reject explicitly. Native enum aliases and explicit enum
+ordinals are not schema grammar features. Compiler binding/export support does not imply
+that every backend executes every rich restriction; use the current case-specific
+verification record.
+
+Rebinding the authored native model preserves its enum type, defaults and methods.
+A fresh declaration import of an exported enumeration instead produces a
+constrained native string with independently imported names/IDs. The importer
+does not reconstruct native enums, authored methods or native constructor defaults
+from XSD; that route proves the XML declaration is usable, not native API equality.
+
+### Directional reader comparison
+
 Compare the previous and current fixed contracts against the same model with:
 
 ```powershell
@@ -263,6 +341,16 @@ the supplied model completely; unsupported or conflicting bindings fail instead
 of yielding a compatibility claim. This checks the supported bound XML subset,
 not arbitrary XSD language inclusion or application-level invariants. Use separate
 checks in the opposite direction when both reader directions are required.
+
+Occurrence intervals may widen. A matching sequence can widen to `all`
+independently of the `all` declaration order; the reverse direction remains a
+different check. Reordered sequences still diagnose an incompatibility. Scalar,
+default and fixed-value differences are conservative contract mismatches, not a
+general XSD language-inclusion calculation. A renamed/unmapped required member
+can instead fail association before comparison. Keep that preflight diagnostic
+and backend capability rejection distinct from `XML incompatibility:` output.
+For example, a bound particle can still hit a C++ direct-token or portable
+unordered-storage gate. Neither case is an automatic rename migration.
 
 Both tools require exactly one generator configuration and validate all artifacts
 before replacing outputs. They may accompany ordinary language output flags.

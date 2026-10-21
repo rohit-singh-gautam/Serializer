@@ -3,6 +3,7 @@
 """Reject incomplete, source-mismatched or semantically changed XSD evolution evidence."""
 import importlib.util
 from pathlib import Path
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -115,6 +116,20 @@ class evolution_guards(unittest.TestCase):
             value['languages']['c']['v1']['emission']['native_sha256']['authored-integer.bin'] = 'changed'
         with self.assertRaises(AssertionError):
             self.compare()
+
+    def test_rebound_schema_snapshot_uses_content_and_relative_identity(self):
+        """Relocated rebound inputs compare equally, while any changed XSD byte invalidates the proof."""
+        with tempfile.TemporaryDirectory(prefix='serializer-xsd-rebound-guards-') as temporary:
+            first, second = Path(temporary) / 'first', Path(temporary) / 'second'
+            for directory in (first, second):
+                (directory / 'v1').mkdir(parents=True)
+                (directory / 'v1/order.serializer').write_text('authored native identities', encoding='utf-8')
+                (directory / 'v1/order.xsd').write_text('fixed XML contract', encoding='utf-8')
+            baseline = QUALIFICATION.source_snapshot(first)
+            self.assertEqual(baseline, QUALIFICATION.source_snapshot(second))
+            self.assertIn('schema_override/v1/order.xsd', baseline)
+            (second / 'v1/order.xsd').write_text('changed XML contract', encoding='utf-8')
+            self.assertNotEqual(baseline, QUALIFICATION.source_snapshot(second))
 
 
 if __name__ == '__main__':

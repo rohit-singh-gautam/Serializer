@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.19.2 LANGUAGES CXX)
+project(serializer VERSION 2.20.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.21.0)
@@ -470,6 +470,10 @@ set_target_properties(serializer_lib PROPERTIES EXPORT_NO_SYSTEM TRUE)
 add_library(Serializer::serializer_lib ALIAS serializer_lib)
 
 add_executable(serializer src/serializer.cpp src/command_line.hpp src/compiler_artifact_output.hpp)
+if(MSVC)
+  # The Windows CRT and narrow filesystem conversions must agree on UTF-8 CLI paths.
+  target_sources(serializer PRIVATE src/serializer_utf8.manifest)
+endif()
 if(WIN32)
   # Source-based example generation must find enabled shared compression runtimes.
   add_custom_command(TARGET serializer POST_BUILD

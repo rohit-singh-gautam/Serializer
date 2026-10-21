@@ -1,0 +1,19 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.20.0;
+namespace tooling {
+  using schema "root.xsd";
+  class piece stable_ids {
+    xml(namespace("urn:tooling:piece"));
+    public uint32 id (57) {9};
+    public string label (4) {"native piece"};
+  }
+  class order stable_ids {
+    xml(namespace("urn:tooling:order"));
+    public uint32 revision (37) {7};
+    public piece nested (11);
+    public string foreign (83) {"native foreign"};
+    public string stamp (91) {"native stamp"};
+    public function bool has_revision(uint32 expected) readonly expression(revision == expected);
+  }
+}

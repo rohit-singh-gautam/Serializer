@@ -41,7 +41,7 @@ def build(language, root, compiler, directory, options, run):
     if variant not in ('v1', 'v2'):
         raise ValueError('Unsupported evolution variant: ' + str(variant))
     source_root = root / 'qualification/xsd_evolution'
-    schema = source_root / variant / 'order.serializer'
+    schema = Path(options.get('schema_directory') or source_root) / variant / 'order.serializer'
     directory.mkdir(parents=True, exist_ok=True)
     environment = os.environ.copy()
     artifacts, generated = {}, []

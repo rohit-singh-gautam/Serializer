@@ -1,5 +1,17 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.20.0** qualifies
+[XSD tooling qualification](../../qualification/xsd_tooling/README.md), including
+native-enum export/string-space binding, checked local bundles and directional
+comparison. Retain native enum values/wire names and authored field IDs/order;
+XML defaults/fixed restrictions and mappings remain separate from native layout.
+The [tooling guide](../serialization/xsd_tooling.md#native-enum-contract-export)
+records enum boundaries and the compiler's Windows UTF-8 CLI path scope.
+Rich compiler/AST/XSD cases do not imply that every backend executes every rich
+mapping; the eleven-output runtime follow-up uses an ordinary rebound profile.
+The [final Windows/Linux record](../verification/verification-xsd-tooling-2026-10-21.md)
+retains 300 tooling decisions per host, actual SDK exchanges and their integrated audit.
+
 Compiler/runtime **2.19.2** qualifies
 [XSD authoring and evolution](../serialization/xsd_tooling.md#review-xsd-evolution)
 in all eleven outputs. Stage imports into fresh destinations for review. Retain

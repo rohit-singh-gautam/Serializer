@@ -5,6 +5,7 @@
 #include <rohit/stream.hpp>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -32,7 +33,7 @@ public:
   // Delete the exact directory reserved by this instance; never follow another computed target.
   ~schema_directory() { std::error_code ignored{}; std::filesystem::remove_all(root_, ignored); }
   // Write a fixture inside this instance's reserved directory.
-  std::filesystem::path write(std::string_view filename, std::string_view content) const {
+  std::filesystem::path write(const std::filesystem::path& filename, std::string_view content) const {
     const auto path = root_ / filename;
     std::ofstream output{path, std::ios::binary};
     output << content;
@@ -69,6 +70,26 @@ TEST(xml_schema, imports_are_local_bounded_identified_and_derive_expanded_names)
   EXPECT_NO_THROW((void)binding::schema{options});
   files.write("types.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:types" targetNamespace="urn:types"><xs:simpleType name="Amount"><xs:restriction base="xs:unsignedInt"/></xs:simpleType><xs:element name="amount" type="t:Amount"/></xs:schema> )");
   EXPECT_THROW((void)binding::schema{options}, std::invalid_argument);
+}
+
+TEST(xml_schema, utf8_schema_locations_ignore_the_embedding_process_code_page) {
+  schema_directory files{};
+  const auto child = files.write(std::filesystem::path{u8"caf\u00e9 \u6f22.xsd"},
+      R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="order"><xs:complexType><xs:sequence><xs:element name="amount" type="xs:unsignedInt"/></xs:sequence></xs:complexType></xs:element></xs:schema>)");
+  xml_options options{};
+  options.enabled = true;
+  options.xsd = files.write("root.xsd",
+      "<xs:schema xmlns:xs='http://www.w3.org/2001/XMLSchema'>"
+      "<xs:include schemaLocation='caf\xc3\xa9 \xe6\xbc\xa2.xsd'/></xs:schema>");
+  const binding::schema schema{options};
+  const auto dependencies = schema.dependencies();
+  ASSERT_EQ(dependencies.size(), 2U);
+  EXPECT_NE(std::find(dependencies.begin(), dependencies.end(), std::filesystem::canonical(child)),
+      dependencies.end());
+  const auto model = scalar_model();
+  EXPECT_EQ(schema.bind(record_at(model, 0U)).fields.front().source->name, "amount");
+  options.bundle_sha256 = schema.bundle_identity();
+  EXPECT_NO_THROW((void)binding::schema{options});
 }
 
 TEST(xml_schema, includes_and_named_nested_records_keep_type_document_defaults) {

@@ -14,6 +14,7 @@
 #include <map>
 #include <set>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <system_error>
 #include <tuple>
@@ -79,6 +80,10 @@ xml::name resolve(const xml::element& node, std::string_view value) {
   xml::element check{}; check.qualified_name = {result.local, ""};
   (void)xml::write(check);
   return result;
+}
+// Native enums use complete authored identifier spellings, never numeric, QName or list value spaces.
+bool native_enum_string_kind(std::string_view kind, std::string_view whitespace) {
+  return kind == "string" && (whitespace.empty() || whitespace == "preserve");
 }
 // Parse cardinalities before provider projection so large finite bounds retain exact semantics.
 std::size_t occurrence(std::string_view text, std::size_t fallback);
@@ -468,7 +473,8 @@ std::shared_ptr<const schema_bundle> load_bundle(const std::filesystem::path& pa
       if (location.empty() || location.find_first_of(":\\?#%") != std::string_view::npos) {
         throw std::invalid_argument{"XSD references require explicit relative local schemaLocation paths"};
       }
-      const std::filesystem::path relative{std::string{location}};
+      // XML character data is UTF-8, independent of the embedding process's native code page.
+      const std::filesystem::path relative{std::u8string{location.begin(), location.end()}};
       if (relative.is_absolute() || relative.has_root_name() || relative.has_root_directory()) {
         throw std::invalid_argument{"Absolute XSD schemaLocation is prohibited"};
       }
@@ -1501,8 +1507,13 @@ record schema::bind(const class_node& source) const {
         const auto resolved = resolve_scalar(*bundle_, node);
         const auto primitive = primitive_types.find(field.list && !resolved.facets.list_item_kind.empty()
             ? resolved.facets.list_item_kind : resolved.primitive.local);
+        const bool native_enum = source_type.type == object_type::enum_type;
+        if (native_enum && (field.list || !resolved.facets.list_item_kind.empty() ||
+            !native_enum_string_kind(resolved.primitive.local, resolved.facets.whitespace))) {
+          throw std::invalid_argument{"XSD native enum bindings require xs:string with preserve whitespace"};
+        }
         if (primitive == primitive_types.end() ||
-            (source_type.name != primitive->second &&
+            (!native_enum && source_type.name != primitive->second &&
              !(source_type.name == "float32" && primitive->second == "float") &&
              !(source_type.name == "float64" && primitive->second == "double"))) {
           throw std::invalid_argument{"Optimized XSD field type is unsupported or differs from Serializer: " + field.source->name};
@@ -1887,7 +1898,13 @@ record schema::bind(const class_node& source) const {
           const auto native = text_types.find(value.list && !resolved.facets.list_item_kind.empty() ?
               resolved.facets.list_item_kind : resolved.primitive.local);
           const auto& stored = leaf(*value.source).name;
+          const bool native_enum = leaf(*value.source).type == object_type::enum_type;
+          if (native_enum && (value.list || !resolved.facets.list_item_kind.empty() ||
+              !native_enum_string_kind(resolved.primitive.local, resolved.facets.whitespace))) {
+            throw std::invalid_argument{"XSD native enum bindings require xs:string with preserve whitespace"};
+          }
           if (native == text_types.end() || (stored != native->second &&
+              !native_enum &&
               !(stored == "float32" && native->second == "float") &&
               !(stored == "float64" && native->second == "double"))) {
             throw std::invalid_argument{"XSD simpleContent type differs from its native text member"};
@@ -1972,8 +1989,31 @@ record schema::bind(const class_node& source) const {
   // including inferred attributes/wrappers, rather than the authored approximation.
   if (extensions_requested) { result.extensions = bind_extension_slots(result, mapping.contracts); }
   for (auto& value : result.fields) {
-    if (leaf(*value.source).type != object_type::class_type) {
+    const auto& stored = leaf(*value.source);
+    if (stored.type != object_type::class_type) {
       value.compiled_facets = compile_scalar_contract(value.facets, false);
+    }
+    if (stored.type == object_type::enum_type && !value.list) {
+      // Validate the finite wire inventory before any backend can publish an unusable enum codec.
+      // Schema defaults/fixed values must convert through the same native names as explicit XML.
+      std::vector<std::string_view> permitted_names;
+      for (const auto& name : static_cast<const enum_node&>(*stored.resolved_node).enum_name_list) {
+        try {
+          value.compiled_facets->validate(name);
+          permitted_names.push_back(name);
+        } catch (const std::invalid_argument&) {
+          // Scalar restrictions may exclude some, but never every, native wire name.
+        }
+      }
+      if (permitted_names.empty()) {
+        throw std::invalid_argument{"XSD native enum binding has no permitted wire names"};
+      }
+      for (const auto* constrained : {&value.default_value, &value.fixed_value}) {
+        if (*constrained && std::find(permitted_names.begin(), permitted_names.end(), **constrained) ==
+            permitted_names.end()) {
+          throw std::invalid_argument{"XSD native enum default/fixed value is not a permitted wire name"};
+        }
+      }
     }
   }
   // Reuse writer name checks at generation time, including empty records.
@@ -2403,6 +2443,25 @@ std::vector<compatibility_diagnostic> compare_contracts(const record& previous, 
   std::map<std::string, const field*> previous_fields{};
   const auto normalized_facets = [](const field& value) {
     auto result = value.facets;
+    const auto& stored = leaf(*value.source);
+    if (stored.type == object_type::enum_type && !value.list &&
+        (result.lexical_kind.empty() || native_enum_string_kind(result.lexical_kind, result.whitespace))) {
+      // Implicit native enum conversion and an explicit exported string enumeration accept the same finite names.
+      // Keep patterns, lengths and default/fixed metadata distinct so narrower bound contracts still diagnose.
+      result.enumeration.clear();
+      for (const auto& name : static_cast<const enum_node&>(*stored.resolved_node).enum_name_list) {
+        try {
+          if (value.compiled_facets) { value.compiled_facets->validate(name); }
+          result.enumeration.push_back(name);
+        } catch (const std::invalid_argument&) {
+          // The complete scalar contract excludes this otherwise declared native wire name.
+        }
+      }
+      std::sort(result.enumeration.begin(), result.enumeration.end());
+      result.lexical_kind.clear();
+      if (result.whitespace == "preserve") { result.whitespace.clear(); }
+      return result;
+    }
     const std::map<std::string, std::string> primitives{{"string", "string"}, {"bool", "boolean"},
         {"int8", "byte"}, {"uint8", "unsignedByte"}, {"int16", "short"}, {"uint16", "unsignedShort"},
         {"int32", "int"}, {"uint32", "unsignedInt"}, {"int64", "long"}, {"uint64", "unsignedLong"},
@@ -2476,7 +2535,9 @@ std::vector<compatibility_diagnostic> compare_contracts(const record& previous, 
       current.choices.empty() && current.all_groups.front().alternatives.size() == current_elements.size();
   if (all_names(previous) != all_names(current) && !sequence_widened_to_all) {
     result.push_back({{}, "Unordered all-group membership or occurrence changed"});
-  } else if (previous.all_groups.empty() && previous_elements != current_elements) {
+  // An all reader accepts every permitted sequence order; its declaration order is immaterial.
+  } else if (!sequence_widened_to_all && previous.all_groups.empty() &&
+             previous_elements != current_elements) {
     result.push_back({{}, "Element sequence order changed"});
   }
   const auto same_choices = [&] {
@@ -2621,16 +2682,49 @@ schema_bundle schema::export_xsd_bundle(const std::vector<const class_node*>& so
       set_attribute(declaration, "type", qname(found->second));
       return;
     }
+    const bool native_enum = type.type == object_type::enum_type;
     const auto primitive = primitives.find(type.name);
-    if (type.type == object_type::enum_type || primitive == primitives.end()) {
+    if (!native_enum && primitive == primitives.end()) {
       throw std::invalid_argument{"Unsupported XSD export scalar: " + type.name};
     }
     const auto& facets = value.facets;
     if (!facets.union_members.empty() || !facets.pattern_groups.empty() || !facets.qname_enumeration.empty()) {
       throw std::invalid_argument{"XSD export requires explicit union/inherited-pattern/QName value identities"};
     }
-    const auto lexical = facets.lexical_kind.empty() ? (value.qname ? "QName" : primitive->second) : facets.lexical_kind;
-    const bool restricted = facets.min_inclusive || facets.max_inclusive || facets.min_exclusive ||
+    const auto lexical = facets.lexical_kind.empty() ? (value.qname ? "QName" :
+        native_enum ? std::string{"string"} : primitive->second) : facets.lexical_kind;
+    std::vector<std::string> enum_names;
+    if (native_enum) {
+      if (value.list || !facets.list_item_kind.empty()) {
+        throw std::invalid_argument{"XSD native enum list export requires restricted item types"};
+      }
+      if (!native_enum_string_kind(lexical, facets.whitespace)) {
+        throw std::invalid_argument{"XSD native enum export requires xs:string with preserve whitespace"};
+      }
+      const auto& enumeration = static_cast<const enum_node&>(*type.resolved_node);
+      // Native enum conversion uses authored wire names, independently of generated identifier casing.
+      // Restrict that finite inventory with the already compiled XSD contract instead of widening a bound enum.
+      for (const auto& name : enumeration.enum_name_list) {
+        try {
+          if (value.compiled_facets) { value.compiled_facets->validate(name); }
+          enum_names.push_back(name);
+        } catch (const std::invalid_argument&) {
+          // A declared name outside a scalar restriction remains unavailable in the exported XML contract.
+        }
+      }
+      if (enum_names.empty()) {
+        throw std::invalid_argument{"XSD native enum export has no permitted wire names"};
+      }
+      const auto whitespace = facets.whitespace == "collapse" ? xml::whitespace_policy::collapse :
+          facets.whitespace == "replace" ? xml::whitespace_policy::replace : xml::whitespace_policy::preserve;
+      for (const auto* constrained : {&value.default_value, &value.fixed_value}) {
+        if (*constrained && std::find(enum_names.begin(), enum_names.end(),
+            xml::normalize_whitespace(**constrained, whitespace)) == enum_names.end()) {
+          throw std::invalid_argument{"XSD native enum default/fixed value is not a permitted wire name"};
+        }
+      }
+    }
+    const bool restricted = native_enum || facets.min_inclusive || facets.max_inclusive || facets.min_exclusive ||
         facets.max_exclusive || facets.length || facets.min_length || facets.max_length ||
         !facets.enumeration.empty() || !facets.patterns.empty() || !facets.whitespace.empty() ||
         !facets.list_item_kind.empty();
@@ -2657,7 +2751,7 @@ schema_bundle schema::export_xsd_bundle(const std::vector<const class_node*>& so
     if (facets.length) { append("length", std::to_string(*facets.length)); }
     if (facets.min_length) { append("minLength", std::to_string(*facets.min_length)); }
     if (facets.max_length) { append("maxLength", std::to_string(*facets.max_length)); }
-    for (const auto& item : facets.enumeration) { append("enumeration", item); }
+    for (const auto& item : native_enum ? enum_names : facets.enumeration) { append("enumeration", item); }
     for (const auto& item : facets.patterns) { append("pattern", item); }
     if (!facets.whitespace.empty()) { append("whiteSpace", facets.whitespace); }
     simple.children.push_back(std::move(restriction));
@@ -2687,6 +2781,13 @@ schema_bundle schema::export_xsd_bundle(const std::vector<const class_node*>& so
     auto root = node("element");
     set_attribute(root, "name", root_name.local);
     set_attribute(root, "type", qname(types.at(source)));
+    for (const auto& value : contract.fields) {
+      if (value.text && leaf(*value.source).type == object_type::enum_type) {
+        // Simple-content value constraints belong to the global element, never its extension/type declaration.
+        if (value.default_value) { set_attribute(root, "default", *value.default_value); }
+        if (value.fixed_value) { set_attribute(root, "fixed", *value.fixed_value); }
+      }
+    }
     if (contract.identity) {
       for (const auto& constraint : contract.identity->constraints) {
         auto identity = node(constraint.kind == xml::identity_kind::key ? "key" :

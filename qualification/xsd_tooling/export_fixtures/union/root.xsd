@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in); SPDX-License-Identifier: 0BSD -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:tooling:union" elementFormDefault="qualified">
+  <xs:element name="entry"><xs:complexType><xs:sequence><xs:element name="value">
+    <xs:simpleType><xs:union memberTypes="xs:int xs:string"/></xs:simpleType>
+  </xs:element></xs:sequence></xs:complexType></xs:element>
+</xs:schema>

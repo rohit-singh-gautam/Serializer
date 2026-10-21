@@ -35,7 +35,7 @@ def build(language, root, compiler, directory, options, run):
         raise ValueError('Select variant v1 or v2 in options.variant')
     directory.mkdir(parents=True, exist_ok=True)
     source = root / 'qualification/xsd_evolution'
-    schema = source / variant / 'order.serializer'
+    schema = Path(options.get('schema_directory') or source) / variant / 'order.serializer'
     artifacts = {}
 
     def pin(path):

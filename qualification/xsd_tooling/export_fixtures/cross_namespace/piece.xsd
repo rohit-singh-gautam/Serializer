@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in); SPDX-License-Identifier: 0BSD -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:tooling:piece"
+           elementFormDefault="qualified">
+  <xs:complexType name="piece"><xs:sequence>
+    <xs:element name="id" type="xs:unsignedInt"/><xs:element name="label" type="xs:string"/>
+  </xs:sequence></xs:complexType>
+</xs:schema>

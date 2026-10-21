@@ -32,7 +32,7 @@ def sha(path):
     return checksum.hexdigest()
 
 
-def source_snapshot():
+def source_snapshot(schema_directory=None):
     """Watch the maintained producers, fixed schemas and imported build inputs during execution."""
     paths = [Path(__file__), ROOT / 'test/xsd_import_cli_test.py', ROOT / 'test/xsd_evolution_guard_test.py',
              ROOT / 'test/package_node_dependencies.py',
@@ -41,7 +41,13 @@ def source_snapshot():
              ROOT / 'example/xml/rust/Cargo.toml', ROOT / 'example/xml/rust/Cargo.lock']
     paths += sorted(path for path in ADAPTERS.rglob('*') if path.is_file()
                     and path.suffix != '.md' and '__pycache__' not in path.parts)
-    return {path.relative_to(ROOT).as_posix(): sha(path) for path in paths}
+    result = {path.relative_to(ROOT).as_posix(): sha(path) for path in paths}
+    if schema_directory:
+        selected = Path(schema_directory).resolve(strict=True)
+        result.update({'schema_override/' + path.relative_to(selected).as_posix(): sha(path)
+                       for path in sorted(selected.rglob('*')) if path.is_file()
+                       and path.suffix in ('.serializer', '.xsd', '.ini')})
+    return result
 
 
 def linked_artifacts(path, run, label):
@@ -88,7 +94,8 @@ def build_local(language, compiler, directory, options, run):
         return {'launch': [str(executable)], 'generated': [str(generated)],
                 'tool': 'CMake strict C++20 ' + platform.platform(), 'artifacts': artifacts}
     generated = directory / 'schema.py'
-    run([compiler, '--input', ADAPTERS / variant / 'order.serializer', '--language', 'python',
+    schema_directory = Path(options.get('schema_directory') or ADAPTERS)
+    run([compiler, '--input', schema_directory / variant / 'order.serializer', '--language', 'python',
          '--output', generated], 'python-generation')
     shutil.copyfile(ADAPTERS / 'python_consumer.py', directory / 'main.py')
     artifacts = {str(Path(sys.executable).resolve()): sha(sys.executable)}
@@ -173,6 +180,8 @@ def main():
     parser.add_argument('--jobs', type=int, default=3)
     parser.add_argument('--interop-jobs', type=int, default=6)
     parser.add_argument('--compare-to', type=Path)
+    parser.add_argument('--schema-directory', type=Path,
+                        help='Rebind the same native v1/v2 fixtures to a separately watched XSD directory.')
     for name in ('cpp-v1-producer', 'cpp-v2-producer', 'cpp-v1-generated', 'cpp-v2-generated',
                  'cc', 'provider-prefix', 'cargo', 'go', 'java', 'javac', 'kotlinc', 'node',
                  'node-dependencies', 'typescript-cli', 'dotnet', 'swiftc'):
@@ -184,7 +193,7 @@ def main():
     assert not directory.exists() or not any(directory.iterdir()), 'Use a fresh evidence directory'
     directory.mkdir(parents=True, exist_ok=True)
     compiler = Path(args.compiler).resolve(strict=True)
-    compiler_before, sources_before = sha(compiler), source_snapshot()
+    compiler_before, sources_before = sha(compiler), source_snapshot(args.schema_directory)
     commands, failures = [], []
 
     def run(argv, label, *, cwd=None, env=None, success=True):
@@ -282,7 +291,7 @@ def main():
     artifacts, conflicts = merge_artifacts(captures)
     changed_artifacts = sorted(conflicts | {path for path, digest in artifacts.items()
                                           if not Path(path).is_file() or sha(path) != digest})
-    after = source_snapshot()
+    after = source_snapshot(args.schema_directory)
     result['source_verification'] = {'changed': sorted(name for name in after.keys() | sources_before.keys()
                                                       if after.get(name) != sources_before.get(name)),
                                      'compiler_unchanged': sha(compiler) == compiler_before,

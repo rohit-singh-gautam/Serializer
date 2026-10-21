@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in); SPDX-License-Identifier: 0BSD -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:p="urn:tooling:piece" xmlns:f="urn:tooling:foreign"
+           targetNamespace="urn:tooling:order" elementFormDefault="qualified">
+  <xs:import namespace="urn:tooling:piece" schemaLocation="piece.xsd"/>
+  <xs:import namespace="urn:tooling:foreign" schemaLocation="foreign.xsd"/>
+  <xs:element name="order"><xs:complexType><xs:sequence>
+    <xs:element name="nested" type="p:piece"/>
+    <xs:element ref="f:foreign"/>
+  </xs:sequence><xs:attribute name="revision" type="xs:unsignedInt" use="required"/>
+    <xs:attribute ref="f:stamp" use="required"/>
+  </xs:complexType></xs:element>
+</xs:schema>

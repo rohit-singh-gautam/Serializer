@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in); SPDX-License-Identifier: 0BSD -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:tooling:text"
+           targetNamespace="urn:tooling:text" elementFormDefault="qualified">
+  <xs:simpleType name="state"><xs:restriction base="xs:token">
+    <xs:enumeration value="open"/><xs:enumeration value="closed"/>
+  </xs:restriction></xs:simpleType>
+  <xs:element name="status"><xs:complexType><xs:simpleContent><xs:extension base="t:state">
+    <xs:attribute name="id" type="xs:unsignedInt" use="required"/>
+  </xs:extension></xs:simpleContent></xs:complexType></xs:element>
+</xs:schema>

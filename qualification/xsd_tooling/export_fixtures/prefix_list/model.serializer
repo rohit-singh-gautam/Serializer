@@ -1,0 +1,9 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.20.0;
+namespace tooling {
+  xml(namespace("urn:tooling:prefixes"));
+  class entry stable_ids {
+    public string required (37) xml(attribute, prefix_list);
+  }
+}

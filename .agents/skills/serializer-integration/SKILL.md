@@ -46,7 +46,7 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-The current compiler/runtime release is **2.19.2**, with schema language
+The current compiler/runtime release is **2.20.0**, with schema language
 **1.21.0**. Preserve the supported native managed identity, transaction,
 preview, journal and collaboration contracts when composing those features.
 For local collaboration, attach a fresh placeholder store before editing or
@@ -669,6 +669,27 @@ renamed XML vocabularies interchangeable. Release 2.19.2's
 [actual eleven-output inventory](../../../qualification/xsd_evolution/README.md)
 checks this distinction and protected ambiguity failures without a second INI
 field inventory or automatic rename inference.
+For XSD tooling in 2.20.0, export the actual bound contract before rebinding it,
+and use `--xml.compare-xsd previous.xsd` only for its documented reader direction.
+Both XSDs must bind the same native model; an unavailable association or backend
+capability is not a compatibility verdict. A sequence can widen to a matching
+`all` regardless of declaration order; reverse and sequence-order checks remain
+distinct. Retain native enum values/wire names when exporting supported enum
+fields as `xs:string` restrictions with empty/preserve whitespace. Defaults/fixed
+values must identify admitted enumerators, and the restriction must admit at
+least one native enumerator; invalid bindings reject before generation publishes.
+Token/collapsing/normalized spaces,
+XML list-lexical enum collections and numeric/QName/list bindings remain rejected.
+Enum text requires one nonoptional scalar. Fresh imports of exported enum XSDs
+produce constrained strings; rebind authored models to retain native enums,
+constructor defaults and application methods.
+The [tooling inventory](../../../qualification/xsd_tooling/README.md) and
+[executed Windows/Linux proof](../../../docs/verification/verification-xsd-tooling-2026-10-21.md)
+qualify supported enum/tooling profiles. Its rich compiler/AST/XSD cases differ
+from the ordinary eleven-output export/rebind runtime profile; retain each
+backend's graph gates. See
+[Windows UTF-8 CLI paths](../../../docs/serialization/xsd_tooling.md#windows-utf-8-cli-paths)
+for the compiler manifest's platform scope.
 Without XSD, use namespace/class `xml(namespace("uri"), scalars(attribute));`
 defaults and field `xml(...)` exceptions instead of a second INI field inventory.
 See the [automatic/manual examples for all outputs](../../../example/xsd/README.md)

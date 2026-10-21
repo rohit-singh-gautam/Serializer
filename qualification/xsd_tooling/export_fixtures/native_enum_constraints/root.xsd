@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in); SPDX-License-Identifier: 0BSD -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:tooling:enum-constraints"
+           targetNamespace="urn:tooling:enum-constraints" elementFormDefault="qualified">
+  <xs:simpleType name="state"><xs:restriction base="xs:string">
+    <xs:enumeration value="open"/><xs:enumeration value="in_progress"/><xs:enumeration value="closed"/>
+  </xs:restriction></xs:simpleType>
+  <xs:element name="default_entry"><xs:complexType><xs:attribute name="value" type="t:state" default="in_progress"/></xs:complexType></xs:element>
+  <xs:element name="fixed_entry"><xs:complexType><xs:attribute name="value" type="t:state" fixed="closed"/></xs:complexType></xs:element>
+  <xs:element name="text_entry" default="in_progress"><xs:complexType><xs:simpleContent><xs:extension base="t:state"/></xs:simpleContent></xs:complexType></xs:element>
+  <xs:element name="fixed_text_entry" fixed="closed"><xs:complexType><xs:simpleContent><xs:extension base="t:state"/></xs:simpleContent></xs:complexType></xs:element>
+</xs:schema>

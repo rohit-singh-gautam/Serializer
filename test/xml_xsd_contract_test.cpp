@@ -294,6 +294,14 @@ TEST(xml_xsd_contract, compatibility_is_directional_for_added_retired_required_f
   all_contract.all_groups.push_back({{all_contract.fields[0].source, all_contract.fields[1].source}, 1U});
   EXPECT_TRUE(binding::compare_contracts(optional_contract, all_contract).empty());
   EXPECT_FALSE(binding::compare_contracts(all_contract, optional_contract).empty());
+  auto reordered_all = all_contract;
+  std::swap(reordered_all.fields[0], reordered_all.fields[1]);
+  EXPECT_TRUE(binding::compare_contracts(optional_contract, reordered_all).empty());
+  EXPECT_TRUE(binding::compare_contracts(all_contract, reordered_all).empty());
+  EXPECT_FALSE(binding::compare_contracts(reordered_all, optional_contract).empty());
+  auto reordered_sequence = optional_contract;
+  std::swap(reordered_sequence.fields[0], reordered_sequence.fields[1]);
+  EXPECT_FALSE(binding::compare_contracts(optional_contract, reordered_sequence).empty());
 }
 
 TEST(xml_xsd_contract, identity_constraints_bind_export_and_validate_against_independent_schema) {

@@ -1,0 +1,13 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.20.0;
+namespace audit {
+  using schema "root.xsd";
+  enum state {
+    open,
+    closed
+  }
+  class entry stable_ids {
+    public state value (37) {state::open};
+  }
+}

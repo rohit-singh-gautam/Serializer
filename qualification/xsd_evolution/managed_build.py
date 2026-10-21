@@ -40,7 +40,7 @@ def build(language, root, compiler, directory, options, run):
     root, compiler, directory = Path(root).resolve(), Path(compiler).resolve(), Path(directory).resolve()
     directory.mkdir(parents=True, exist_ok=True)
     resources = root / 'qualification/xsd_evolution'
-    schema = resources / variant / 'order.serializer'
+    schema = Path(options.get('schema_directory') or resources) / variant / 'order.serializer'
     command = [str(compiler), '--input', str(schema), '--language', language, '--output']
     artifacts = []
     if language == 'csharp':

@@ -1,5 +1,17 @@
 # Features and implementation status
 
+Compiler/runtime **2.20.0** completes
+[XSD tooling qualification](../../qualification/xsd_tooling/README.md).
+Native-enum XSD export/string-space binding retains native identities and adds
+explicit enum restriction/default/fixed checks. Directional comparison fixes
+sequence-to-`all` widening without weakening the reverse direction; local bundle
+paths and the Windows compiler CLI use explicit UTF-8 handling. Rich compiler,
+AST and independent-XSD cases remain distinct from the ordinary all-eleven
+export/rebind runtime profile. The
+[final record](../verification/verification-xsd-tooling-2026-10-21.md) retains
+300 decisions per host, actual eleven-SDK matrices and the integrated audit.
+Supported backend gates and remaining broader XSD requirements are unchanged.
+
 Compiler/runtime **2.19.2** qualifies
 [one-source XSD authoring and evolution](../../qualification/xsd_evolution/README.md)
 across eleven outputs, including protected staged imports, explicit ambiguity

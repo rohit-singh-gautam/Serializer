@@ -1585,6 +1585,8 @@ if(SERIALIZER_WITH_XML)
       COMMAND "${Python3_EXECUTABLE}" -B "${PROJECT_SOURCE_DIR}/qualification/xsd_evolution/oracle.py" self-test)
     add_test(NAME serializer_xsd_evolution_guards
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xsd_evolution_guard_test.py")
+    add_test(NAME serializer_xsd_tooling_guards
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xsd_tooling_guard_test.py")
   endif()
 
   foreach(serializer_xsd_evolution_variant IN ITEMS v1 v2)
@@ -1602,6 +1604,28 @@ if(SERIALIZER_WITH_XML)
     endif()
   endforeach()
 
+  if(SERIALIZER_XSD_TOOLING_SCHEMA_DIRECTORY)
+    foreach(serializer_xsd_tooling_variant IN ITEMS v1 v2)
+      set(serializer_xsd_tooling_schema
+        "${SERIALIZER_XSD_TOOLING_SCHEMA_DIRECTORY}/${serializer_xsd_tooling_variant}/order.serializer")
+      if(NOT EXISTS "${serializer_xsd_tooling_schema}")
+        message(FATAL_ERROR "XSD tooling qualification requires ${serializer_xsd_tooling_schema}")
+      endif()
+      set(serializer_xsd_tooling_target "xsd_tooling_cpp_${serializer_xsd_tooling_variant}")
+      add_executable(${serializer_xsd_tooling_target}
+        "${PROJECT_SOURCE_DIR}/qualification/xsd_evolution/cpp_consumer.cpp")
+      serializer_generate(TARGET ${serializer_xsd_tooling_target}
+        SCHEMAS "${serializer_xsd_tooling_schema}"
+        OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xsd_tooling_${serializer_xsd_tooling_variant}")
+      target_link_libraries(${serializer_xsd_tooling_target} PRIVATE Serializer::runtime)
+      if(MSVC)
+        target_compile_options(${serializer_xsd_tooling_target} PRIVATE /W4 /WX)
+      else()
+        target_compile_options(${serializer_xsd_tooling_target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+      endif()
+    endforeach()
+  endif()
+
   add_executable(xml_schema_test xml_schema_test.cpp)
   target_link_libraries(xml_schema_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
   if(MSVC)
@@ -1610,6 +1634,18 @@ if(SERIALIZER_WITH_XML)
     target_compile_options(xml_schema_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME xml_schema_test COMMAND xml_schema_test)
+  add_executable(xsd_enum_export_test xsd_enum_export_test.cpp)
+  serializer_generate(TARGET xsd_enum_export_test SCHEMAS
+    "${PROJECT_SOURCE_DIR}/qualification/xsd_tooling/export_fixtures/native_enum/model.serializer"
+    "${PROJECT_SOURCE_DIR}/qualification/xsd_tooling/export_fixtures/native_enum_constraints/constraints.serializer"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xsd_enum_export")
+  target_link_libraries(xsd_enum_export_test PRIVATE Serializer::serializer_lib Serializer::runtime GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(xsd_enum_export_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xsd_enum_export_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME xsd_enum_export_test COMMAND xsd_enum_export_test)
   if(Python3_Interpreter_FOUND)
     add_test(NAME python_package_test
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_package_test.py"
