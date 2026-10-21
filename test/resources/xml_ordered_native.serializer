@@ -1,0 +1,14 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.21.0;
+
+// The XML-disabled control retains the same native names, IDs and alternative order.
+namespace xml_ordered_native {
+  class move { public uint32 x(1); }
+  class pause { public uint32 milliseconds(1); }
+  class step { public variant(move = move, pause = pause) value(1); }
+  class job {
+    public uint32 id(1);
+    public array<step> steps(2);
+  }
+}

@@ -1,0 +1,22 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.21.0;
+
+namespace xml_ordered {
+  class move { public uint32 x(1) xml(attribute); }
+  class pause { public uint32 milliseconds(1) xml(attribute); }
+  class step { public variant(move = move, pause = pause) value(1); }
+  class job {
+    public uint32 id(1) xml(attribute);
+    public array<step> steps(2);
+  }
+  class fixed_job { public array[3] step steps(1); }
+  class envelope { public job value(1); }
+  class namespaced_job { public array<step> steps(1); }
+  class private_step { private variant(move = move, pause = pause) value(1); }
+  class private_job { public array<private_step> steps(1); }
+  class mixed_step {
+    private variant(string = text, move = move, pause = pause) value(1);
+  }
+  class paragraph { public array<mixed_step> content(1); }
+}

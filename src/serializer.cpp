@@ -693,7 +693,8 @@ int main(const int argc, const char* argv[]) {
       if (mixed_storage_only) {
         for (const auto* record : xml_records) {
           const auto configured = mappings.find(record->get_full_name());
-          if (configured != mappings.end() && configured->second.contracts.contains("mixed")) {
+          if (configured != mappings.end() && (configured->second.contracts.contains("mixed") ||
+              configured->second.contracts.contains("ordered"))) {
             const auto contract = xml_contracts[index].bind(*record);
             if (contract.mixed && !mappings.contains(contract.mixed->fragment->get_full_name())) {
               mixed_fragments.insert(contract.mixed->fragment);

@@ -67,15 +67,17 @@ bool read_xml_contract_option(xml_class_options& mapping, std::string_view key,
       throw std::invalid_argument{"Expected XML contract source identifier"};
     }
   };
-  if (key == "mixed" || key == "mixed.variant" || key == "mixed.text") {
+  if (key == "mixed" || key == "mixed.variant" || key == "mixed.text" ||
+      key == "ordered" || key == "ordered.variant") {
     identifier(value);
   } else if (key.starts_with("presence.")) {
     identifier(key.substr(std::string_view{"presence."}.size()));
     if (value != "required" && value != "absent" && value != "nil" && value != "absent_or_nil") {
       throw std::invalid_argument{"XML presence must be required, absent, nil or absent_or_nil"};
     }
-  } else if (key.starts_with("mixed.child.")) {
-    identifier(key.substr(std::string_view{"mixed.child."}.size()));
+  } else if (key.starts_with("mixed.child.") || key.starts_with("ordered.child.")) {
+    identifier(key.substr(key.starts_with("mixed.") ? std::string_view{"mixed.child."}.size() :
+        std::string_view{"ordered.child."}.size()));
   } else if (key.starts_with("map.") || key.starts_with("variant.")) {
     const bool is_map = key.starts_with("map.");
     auto tail = key.substr(is_map ? std::string_view{"map."}.size() :

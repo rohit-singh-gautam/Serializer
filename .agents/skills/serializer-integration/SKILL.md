@@ -52,8 +52,14 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-The current compiler/runtime release is **2.24.0**, with schema language
-**1.21.0**. Use [C++ core-property adapters](../../../docs/serialization/core_properties.md)
+The current compiler/runtime release is **2.25.0**, with schema language
+**1.21.0**. For new C++ element-only ordered models, select
+[`ordered=member`](../../../docs/serialization/ordered_xml.md) explicitly in the
+owner's XML configuration. Use an array of owning record variants; retain native
+vector edits as the source of order, without a text branch or hidden sidecar.
+Do not migrate existing separate arrays implicitly. Fixed-XSD grouped bindings,
+XSD export and other backends remain gated; this is a slice of OPC-R04.
+Use [C++ core-property adapters](../../../docs/serialization/core_properties.md)
 for application-supplied OPC metadata, following the selected fifth-edition
 property/date/keyword contract. Use the [managed authorization boundary](../../../docs/managed/authorization.md)
 for complete-candidate publication checks, binding the principal and policy

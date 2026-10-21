@@ -993,7 +993,8 @@ void validate_options(const std::vector<std::unique_ptr<syntax_node>>& statement
           } else if (node->type == object_type::class_type) {
             const auto& owner = static_cast<const class_node&>(*node);
             const auto configured = options.classes.find(owner.get_full_name());
-            if (configured != options.classes.end() && configured->second.contracts.contains("mixed")) {
+            if (configured != options.classes.end() && (configured->second.contracts.contains("mixed") ||
+                configured->second.contracts.contains("ordered"))) {
               const auto contract = bindings.bind(owner);
               if (contract.mixed && !options.classes.contains(contract.mixed->fragment->get_full_name())) {
                 mixed_fragments.insert(contract.mixed->fragment);
@@ -1043,7 +1044,9 @@ void validate_options(const std::vector<std::unique_ptr<syntax_node>>& statement
                                             field.source->name};
               }
             }
-            if (language != "xsd") { validate_backend(contract, language); }
+            if (language != "xsd" || (contract.mixed && contract.mixed->element_only)) {
+              validate_backend(contract, language);
+            }
           }
         } else if (node->type == object_type::package_type && language != "cpp" && language != "python" &&
                    language != "js" && language != "typescript" && language != "java" && language != "go" &&
@@ -1150,22 +1153,37 @@ record schema::bind(const class_node& source) const {
       })) {
     throw std::invalid_argument{"Shared XML content contracts cannot override a fixed XSD binding"};
   }
-  if (mapping.contracts.contains("mixed")) {
+  if (mapping.contracts.contains("mixed") && mapping.contracts.contains("ordered")) {
+    throw std::invalid_argument{"XML mixed and ordered content mappings are mutually exclusive"};
+  }
+  if (mapping.contracts.contains("mixed") || mapping.contracts.contains("ordered")) {
     mixed_options content{};
-    content.field = mapping.contracts.at("mixed");
-    if (mapping.contracts.contains("mixed.variant")) { content.variant_member = mapping.contracts.at("mixed.variant"); }
-    if (mapping.contracts.contains("mixed.text")) { content.text_branch = mapping.contracts.at("mixed.text"); }
+    content.element_only = mapping.contracts.contains("ordered");
+    const std::string prefix = content.element_only ? "ordered" : "mixed";
+    content.field = mapping.contracts.at(prefix);
+    if (mapping.contracts.contains(prefix + ".variant")) { content.variant_member = mapping.contracts.at(prefix + ".variant"); }
+    if (mapping.contracts.contains("mixed.text")) {
+      if (content.element_only) { throw std::invalid_argument{"XML ordered content cannot select a mixed text branch"}; }
+      content.text_branch = mapping.contracts.at("mixed.text");
+    }
     for (const auto& [key, value] : mapping.contracts) {
-      if (key.starts_with("mixed.child.")) {
-        content.children.emplace(key.substr(std::string_view{"mixed.child."}.size()),
+      if (key.starts_with(prefix + ".child.")) {
+        content.children.emplace(key.substr(prefix.size() + std::string_view{".child."}.size()),
             contract_name(value, mapping.namespace_uri));
+      } else if (key.starts_with(content.element_only ? "mixed." : "ordered.")) {
+        throw std::invalid_argument{"XML content properties must match the selected mixed or ordered mapping"};
       }
     }
     result.mixed = bind_mixed_content(source, content, !mapping.text.empty(), mapping.namespace_uri);
   } else if (std::any_of(mapping.contracts.begin(), mapping.contracts.end(), [](const auto& item) {
-        return item.first.starts_with("mixed.");
+        return item.first.starts_with("mixed.") || item.first.starts_with("ordered.");
       })) {
-    throw std::invalid_argument{"XML mixed properties require mixed = source_member"};
+    if (std::any_of(mapping.contracts.begin(), mapping.contracts.end(), [](const auto& item) {
+          return item.first.starts_with("mixed.");
+        })) {
+      throw std::invalid_argument{"XML mixed properties require mixed = source_member"};
+    }
+    throw std::invalid_argument{"XML ordered properties require ordered = source_member"};
   }
   for (const auto* options : authored) {
     if (options->unknown) { result.unknown = options->unknown; }
@@ -2094,6 +2112,9 @@ std::string schema::bundle_identity() const {
 
 // Reject unsupported value-space contracts before selecting a backend's implemented XML subset.
 void validate_backend(const record& contract, std::string_view language) {
+  if (contract.mixed && contract.mixed->element_only && language != "cpp") {
+    throw std::invalid_argument{"XML ordered element-only content is currently implemented only for cpp"};
+  }
   if (contract.particles && contract.particles->advanced) {
     throw std::invalid_argument{"Grouped or repeated heterogeneous XSD particles are compiled; ordered storage generation is not implemented for " +
                                 std::string{language}};

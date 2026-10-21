@@ -5,6 +5,12 @@ when assigning authentication, policy administration, external effects and custo
 migrations. These are explicit host responsibilities, not missing runtime engines.
 Library-owned compiler, codec, transaction and resource guarantees remain required.
 
+Compiler/runtime **2.25.0** adds [opt-in C++ ordered XML](../serialization/ordered_xml.md):
+an owning variant array records element order without text slots or auxiliary
+metadata. Existing mappings and native bytes retain their behavior. The guide
+includes the schema, INI selection, generated typed editing API and limits;
+fixed-XSD grouped bindings and other backends remain gated.
+
 Compiler/runtime **2.24.0** adds [collaborative retained-branch merging](../managed/branch_merging.md#collaboration).
 Enable it explicitly on a tree authority, check its advertised capability and
 author a replica `merge_request` against the exact accepted cursor and native

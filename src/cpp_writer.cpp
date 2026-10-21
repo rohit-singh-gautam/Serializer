@@ -3013,11 +3013,13 @@ public:
     output.write("  // Select the active ordered fragment without copying or exposing private variant storage.\n"
         "  [[nodiscard]] ::std::size_t xml_mixed_index() const {\n"
         "    if (", payload, ".valueless_by_exception()) { throw ::std::invalid_argument{\"Valueless XML mixed fragment\"}; }\n"
-        "    return ", payload, ".index();\n  }\n"
-        "  // Borrow text only while this fragment and its selected string remain alive.\n"
+        "    return ", payload, ".index();\n  }\n");
+    if (!mixed.element_only) {
+      output.write("  // Borrow text only while this fragment and its selected string remain alive.\n"
         "  [[nodiscard]] ::std::string_view xml_mixed_text() const { return ::std::get<", mixed.text_alternative,
-        ">(", payload, "); }\n"
-        "  // Write one selected fragment into the XML element opened by its owning mixed mapper.\n"
+        ">(", payload, "); }\n");
+    }
+    output.write("  // Write one selected fragment into the XML element opened by its owning mixed mapper.\n"
         "  void serialize_xml_mixed_tokens_out(::rohit::serializer::xml::token_writer& tokens) const {\n"
         "    switch (xml_mixed_index()) {\n");
     for (std::size_t index{}; index < mixed.variant->type_name_list.size(); ++index) {
@@ -3027,7 +3029,9 @@ public:
     output.write("    default: throw ::std::invalid_argument{\"Invalid XML mixed discriminator\"};\n    }\n  }\n"
         "  // Decode one bounded payload before changing this fragment's active alternative.\n"
         "  void serialize_xml_mixed_tokens_in(::rohit::serializer::xml::token_reader& tokens, ::std::size_t index,\n"
-        "      ::std::size_t& text_bytes) {\n    switch (index) {\n");
+        "      ::std::size_t& text_bytes) {\n");
+    if (mixed.element_only) { output.write("    (void)text_bytes;\n"); }
+    output.write("    switch (index) {\n");
     for (std::size_t index{}; index < mixed.variant->type_name_list.size(); ++index) {
       output.write("    case ", index, "U: {\n      ", generic_default(mixed.variant->type_name_list[index]), " selected{};\n");
       if (index == mixed.text_alternative) {
@@ -3052,7 +3056,8 @@ public:
       } else if (statement->type == object_type::class_type) {
         const auto& owner = static_cast<const class_node&>(*statement);
         const auto configured = xml_options_.classes.find(owner.get_full_name());
-        if (configured == xml_options_.classes.end() || !configured->second.contracts.contains("mixed")) { continue; }
+        if (configured == xml_options_.classes.end() || (!configured->second.contracts.contains("mixed") &&
+            !configured->second.contracts.contains("ordered"))) { continue; }
         const auto contract = xml_schema_.bind(owner);
         if (!contract.mixed) { continue; }
         const auto identity = contract.mixed->fragment->get_full_name();
@@ -3611,18 +3616,21 @@ public:
       }
       if (contract.mixed) {
         const auto& mixed = *contract.mixed;
-        output.write("    if (this->", member_name(*mixed.source), ".size() > srl_tokens.bounds().max_mixed_fragments) { throw ::std::length_error{\"XML mixed fragment limit exceeded\"}; }\n"
-            "    ::std::size_t srl_mixed_text_bytes{};\n"
-            "    for (const auto& srl_fragment : this->", member_name(*mixed.source), ") {\n"
+        output.write("    if (this->", member_name(*mixed.source), ".size() > srl_tokens.bounds().max_mixed_fragments) { throw ::std::length_error{\"XML mixed fragment limit exceeded\"}; }\n");
+        if (!mixed.element_only) { output.write("    ::std::size_t srl_mixed_text_bytes{};\n"); }
+        output.write("    for (const auto& srl_fragment : this->", member_name(*mixed.source), ") {\n"
             "      if (srl_tokens.context()) { srl_tokens.context()->consume(::rohit::serializer::xml::operation_resource::work_units, 1U); }\n"
-            "      const auto srl_index = srl_fragment.xml_mixed_index();\n"
-            "      if (srl_index == ", mixed.text_alternative, "U) {\n"
+            "      const auto srl_index = srl_fragment.xml_mixed_index();\n");
+        if (!mixed.element_only) {
+          output.write("      if (srl_index == ", mixed.text_alternative, "U) {\n"
             "        const auto srl_size = srl_fragment.xml_mixed_text().size();\n"
             "        if (srl_size > srl_tokens.bounds().max_mixed_text_bytes - srl_mixed_text_bytes) { throw ::std::length_error{\"XML mixed text limit exceeded\"}; }\n"
             "        srl_mixed_text_bytes += srl_size;\n"
             "        srl_fragment.serialize_xml_mixed_tokens_out(srl_tokens);\n      }\n");
+        }
         for (const auto& child : mixed.children) {
-          output.write("      else if (srl_index == ", child.alternative, "U) {\n"
+          output.write("      ", std::string_view{mixed.element_only && &child == mixed.children.data() ? "if" : "else if"},
+              " (srl_index == ", child.alternative, "U) {\n"
               "        srl_tokens.open(", qualified(child.qualified_name), ");\n"
               "        srl_fragment.serialize_xml_mixed_tokens_out(srl_tokens);\n"
               "        srl_tokens.close();\n      }\n");
@@ -3987,14 +3995,21 @@ public:
               "      if constexpr (!srl_fixed) { srl_items.clear(); }\n"
               "      else if (srl_items.size() > srl_tokens.bounds().max_mixed_fragments) { throw ::std::length_error{\"XML mixed fragment limit exceeded\"}; }\n"
               "      ::std::size_t srl_count{}, srl_text_bytes{};\n"
-              "      while (srl_tokens.current().kind != ::rohit::serializer::xml::event_kind::end_element) {\n"
-              "        if (srl_tokens.context()) { srl_tokens.context()->consume(::rohit::serializer::xml::operation_resource::work_units, 1U); }\n"
+              "      while (srl_tokens.current().kind != ::rohit::serializer::xml::event_kind::end_element) {\n");
+          if (mixed.element_only) {
+            output.write("        srl_tokens.skip_space();\n"
+                "        if (srl_tokens.current().kind == ::rohit::serializer::xml::event_kind::end_element) { break; }\n");
+          }
+          output.write("        if (srl_tokens.context()) { srl_tokens.context()->consume(::rohit::serializer::xml::operation_resource::work_units, 1U); }\n"
               "        if (srl_count >= srl_tokens.bounds().max_mixed_fragments) { throw ::std::length_error{\"XML mixed fragment limit exceeded\"}; }\n"
               "        if constexpr (srl_fixed) { if (srl_count >= srl_items.size()) { throw ::std::invalid_argument{\"Too many XML mixed fragments\"}; } }\n"
-              "        ::std::size_t srl_alternative{};\n"
-              "        if (srl_tokens.current().kind == ::rohit::serializer::xml::event_kind::text) { srl_alternative = ", mixed.text_alternative, "U; }\n");
+              "        ::std::size_t srl_alternative{};\n");
+          if (!mixed.element_only) {
+            output.write("        if (srl_tokens.current().kind == ::rohit::serializer::xml::event_kind::text) { srl_alternative = ", mixed.text_alternative, "U; }\n");
+          }
           for (const auto& child : mixed.children) {
-            output.write("        else if (srl_tokens.current().kind == ::rohit::serializer::xml::event_kind::start_element && "
+            output.write("        ", std::string_view{mixed.element_only && &child == mixed.children.data() ? "if" : "else if"},
+                " (srl_tokens.current().kind == ::rohit::serializer::xml::event_kind::start_element && "
                 "srl_tokens.current().qualified_name == ", qualified(child.qualified_name), ") { srl_alternative = ", child.alternative, "U; }\n");
           }
           output.write("        else { throw ::std::invalid_argument{\"Unknown XML mixed child\"}; }\n"
@@ -4003,14 +4018,20 @@ public:
               "        srl_fragment.serialize_xml_mixed_tokens_in(srl_tokens, srl_alternative, srl_text_bytes);\n"
               "        if constexpr (srl_fixed) { srl_items[srl_count] = ::std::move(srl_fragment); }\n"
               "        else { srl_items.push_back(::std::move(srl_fragment)); }\n"
-              "        ++srl_count;\n      }\n"
-              "      // Empty and adjacent XML text has no wire boundary; fixed storage pads with empty text.\n"
+              "        ++srl_count;\n      }\n");
+          if (mixed.element_only) {
+            output.write("      if constexpr (srl_fixed) {\n"
+                "        if (srl_count != srl_items.size()) { throw ::std::invalid_argument{\"XML ordered fixed cardinality mismatch\"}; }\n"
+                "      }\n");
+          } else {
+            output.write("      // Empty and adjacent XML text has no wire boundary; fixed storage pads with empty text.\n"
               "      if constexpr (srl_fixed) {\n"
               "        while (srl_count < srl_items.size()) {\n"
               "          if (srl_tokens.context()) { srl_tokens.context()->consume(::rohit::serializer::xml::operation_resource::work_units, 1U); }\n"
               "          srl_items[srl_count++].serialize_xml_mixed_tokens_in(srl_tokens, ", mixed.text_alternative, "U, srl_text_bytes);\n"
-              "        }\n      }\n"
-              "    }(this->", member_name(*mixed.source), ");\n");
+              "        }\n      }\n");
+          }
+          output.write("    }(this->", member_name(*mixed.source), ");\n");
         }
         if (!contract.all_groups.empty()) {
           output.write("    srl_fields.finish_all(", std::string_view{contract.all_groups.front().minimum ? "true" : "false"}, ");\n");

@@ -257,6 +257,12 @@ default until required or explicitly forced. These additions do not change inner
 native codecs, payload revisions, managed history or journal formats. See
 [the XML/package contract](xml_packages.md) and [XSD bundle tools](xsd_tooling.md).
 
+Compiler/runtime **2.25.0** adds [C++ ordered element-only XML](ordered_xml.md)
+without changing native bytes, stored model fields or native variant tags.
+Only an explicit owner mapping activates it. Migrating an existing pair of
+arrays to a variant array changes the schema's native shape and requires an
+intentional migration; the generator does not perform that rewrite.
+
 Compiler/runtime **2.3.0** adds opt-in generated XML entry points with a separate
 expanded-name/attribute/ordered-child mapping. Existing JSON/binary protocol IDs,
 native bytes, default selection and managed journal records are unchanged.

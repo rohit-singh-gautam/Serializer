@@ -1,5 +1,17 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.25.0
+
+Existing schemas, XML mappings and native encodings require no migration.
+For a new C++ element-only sequence, opt in to
+[`ordered=member`](docs/serialization/ordered_xml.md) using an array of owning
+record variants. It adds no text alternative or hidden order metadata; normal
+vector edits determine output order. Fixed arrays require exact XML cardinality.
+Existing mixed-content behavior remains unchanged. Do not automatically replace
+legacy separate arrays: that changes their native API and wire shape and needs
+an explicit application migration. Fixed-XSD grouped bindings, XSD tooling and
+other backends still reject this new mapping; OPC-R04 remains open.
+
 ## Compiler/runtime 2.24.0
 
 Regenerate Go/Java/C# XML codecs for QName scalar/list enumeration, default/fixed

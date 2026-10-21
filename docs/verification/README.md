@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [Opt-in ordered C++ XML](verification-ordered-xml-2026-10-21.md) | Element-only owning variant arrays, native control parity, fixed cardinality and compatibility gates; fixed-XSD grouped bindings remain pending. |
 | [Large readonly XML exports](verification-readonly-xml-stress-2026-10-21.md) | All eleven actual Windows outputs: 25,000 borrowed values, storage identity, exact/one-tight output limits, fresh recovery and bounded interruption controls; broader OPC-R10 graphs remain open. |
 | [QName constraints in five portable codecs](verification-qname-constraints-2026-10-21.md) | Go/Java/C# expanded enumeration/default/fixed/union identities, Kotlin/Swift enumeration and five-codec lexical-pattern checks: 145 new decisions, with independent JAXP/lxml boundaries. |
 | [Collaborative retained-branch merging](verification-collaboration-merging-2026-10-21.md) | MG04: retained authority revisions, capability/session/policy/lock fences, exact retries, accepted deltas and journal faults; 72 tests pass on each Windows/Linux host. |

@@ -44,6 +44,12 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Release **2.25.0** adds opt-in [C++ ordered element-only XML](docs/serialization/ordered_xml.md).
+An array of typed variants preserves child order directly, without a text
+alternative or hidden order metadata. Existing models, mixed content and native
+bytes retain their behavior. Fixed-XSD grouped bindings and other backends remain
+explicitly gated; OPC-R04 remains open.
+
 Release **2.24.0** adds opt-in [collaborative retained-branch merging](docs/managed/branch_merging.md#collaboration).
 Tree authorities advertise `branch_merges_enabled()` after the host enables
 `collaboration_options::allow_branch_merges`. Replica `merge_request` binds both
@@ -104,7 +110,7 @@ Regenerate Python package facades for cancellation checks after Save hooks:
 pre-publication cancellation preserves the old file; a failure after replacement
 reports `publication_uncertain` with the complete new archive retained.
 
-The current compiler and runtime release is **2.24.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.25.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.21.0**;

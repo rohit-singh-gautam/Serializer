@@ -78,6 +78,29 @@ TEST(xml_content_contract, parses_only_exact_presence_policy_tokens) {
   }
 }
 
+// Element-only observation drops formatting before fragment admission and rejects any text payload.
+TEST(xml_content_contract, ordered_element_observation_charges_only_typed_children) {
+  const auto model = mixed_model("private variant(em=first,strong=second) value;");
+  binding::mixed_options options{};
+  options.field = "content";
+  options.element_only = true;
+  const auto contract = binding::bind_mixed_content(record_at(model, 3U), options, false, "urn:mixed");
+  codec::xml::element value{};
+  value.qualified_name = {"paragraph", "urn:mixed"};
+  value.children.push_back({{"em", "urn:mixed"}, {}, {}, "first", {}, {}});
+  value.children.push_back({{"strong", "urn:mixed"}, {}, {}, "second", {}, {}});
+  value.text = " \n\t";
+  value.text_segments = {{0U, " "}, {1U, "\n"}, {2U, "\t"}};
+  const binding::mixed_trace_limits exact{2U, 0U};
+  const auto items = binding::observe_mixed_content(contract, value, exact);
+  ASSERT_EQ(items.size(), 2U);
+  EXPECT_EQ(items[0].child, &value.children[0]);
+  EXPECT_EQ(items[1].child, &value.children[1]);
+  EXPECT_THROW((void)binding::observe_mixed_content(contract, value, {1U, 0U}), std::length_error);
+  value.text_segments.back().value = "unexpected";
+  EXPECT_THROW((void)binding::observe_mixed_content(contract, value, exact), std::invalid_argument);
+}
+
 TEST(xml_content_contract, defaults_preserve_required_and_simple_optional_members) {
   const auto model = parse_model("serializer version 1.20.0; class value { "
       "public string required_text; public optional<string> optional_text; "

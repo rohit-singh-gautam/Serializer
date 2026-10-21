@@ -174,6 +174,47 @@ TEST(xml_shared_contract, ordered_mixed_configuration) {
   EXPECT_NO_THROW(binding::validate_backend(contract, "cpp"));
 }
 
+// The additive C++ mapping has no text payload or metadata and keeps other backends explicitly gated.
+TEST(xml_shared_contract, ordered_element_only_configuration) {
+  const auto model = parse("serializer version 1.21.0; class first { public uint32 id; } "
+      "class second { public uint32 id; } "
+      "class fragment { private variant(first=one,second=two) payload; } "
+      "class root { public array fragment content; }");
+  configuration_file file{"ordered=content\nordered.variant=payload\nordered.child.one={urn:child}item\n"};
+  const auto options = file.read();
+  const auto contract = binding::schema{options.cpp.xml}.bind(root_at(model));
+  ASSERT_TRUE(contract.mixed);
+  EXPECT_TRUE(contract.mixed->element_only);
+  EXPECT_EQ(contract.mixed->text_alternative, contract.mixed->variant->type_name_list.size());
+  EXPECT_EQ(contract.mixed->children.size(), 2U);
+  EXPECT_EQ(contract.mixed->children.front().qualified_name, (rohit::serializer::xml::name{"item", "urn:child"}));
+  EXPECT_NO_THROW((void)writer::cpp::generate(model, options.cpp));
+  for (const auto language : {"python", "js", "typescript", "go", "java", "csharp", "kotlin", "swift", "c", "rust", "xsd"}) {
+    EXPECT_THROW(binding::validate_backend(contract, language), std::invalid_argument) << language;
+  }
+}
+
+// Explicit selection never changes legacy mixed semantics or accepts a partially configured mapping.
+TEST(xml_shared_contract, ordered_configuration_rejects_ambiguous_or_incompatible_shapes) {
+  const auto model = parse("serializer version 1.21.0; class first { public uint32 id; } "
+      "class second { public uint32 id; } "
+      "class fragment { private variant(first=one,second=two) value; } "
+      "class root { public array fragment content; }");
+  for (const auto body : {"mixed=content\n", "mixed=content\nordered=content\n", "ordered.child.one=item\n",
+      "ordered=content\nmixed.child.one=item\n", "ordered=content\nmixed.text=text\n",
+      "ordered=content\nordered.child.missing=item\n", "ordered=content\nordered.child.one=item\nordered.child.two=item\n"}) {
+    configuration_file file{body};
+    const auto options = file.read();
+    EXPECT_THROW((void)binding::schema{options.cpp.xml}.bind(root_at(model)), std::invalid_argument) << body;
+  }
+  const auto text_model = parse("serializer version 1.21.0; class first { public uint32 id; } "
+      "class fragment { private variant(string=text,first=one) value; } "
+      "class root { public array fragment content; }");
+  configuration_file file{"ordered=content\n"};
+  const auto options = file.read();
+  EXPECT_THROW((void)binding::schema{options.cpp.xml}.bind(root_at(text_model)), std::invalid_argument);
+}
+
 // Vocabulary capability and exact wildcard positions survive strict configuration binding.
 TEST(xml_shared_contract, positioned_extension_configuration) {
   const auto model = parse("serializer version 1; class root { public uint32 known; }");

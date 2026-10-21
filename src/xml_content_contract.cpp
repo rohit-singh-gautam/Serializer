@@ -207,7 +207,8 @@ mixed_contract bind_mixed_content(const class_node& source, const mixed_options&
       variant.type_name_list.size() < 2U) {
     throw std::invalid_argument{"XML mixed fragments require exactly one owning text/child variant"};
   }
-  mixed_contract result{&selected, &fragment, &variant, options.text_branch, 0U, {}};
+  mixed_contract result{&selected, &fragment, &variant, options.text_branch,
+      options.element_only ? variant.type_name_list.size() : 0U, {}, options.element_only};
   std::set<std::string> branch_names{};
   std::set<std::pair<std::string, std::string>> child_names{};
   std::size_t text_count{};
@@ -219,6 +220,9 @@ mixed_contract bind_mixed_content(const class_node& source, const mixed_options&
     }
     if (alternative.type == object_type::primitive && alternative.name == "string" &&
         !alternative.application) {
+      if (options.element_only) {
+        throw std::invalid_argument{"XML ordered content accepts only record alternatives, without text"};
+      }
       ++text_count;
       if (branch != options.text_branch) {
         throw std::invalid_argument{"XML mixed text branch selector does not match the string branch"};
@@ -238,7 +242,7 @@ mixed_contract bind_mixed_content(const class_node& source, const mixed_options&
     (void)xml::write(name_check);
     result.children.push_back({branch, std::move(name), index, &alternative});
   }
-  if (text_count != 1U || result.children.empty()) {
+  if ((!options.element_only && text_count != 1U) || result.children.empty()) {
     throw std::invalid_argument{"XML mixed variants require exactly one string branch and record children"};
   }
   for (const auto& [branch, name] : options.children) {
@@ -261,6 +265,9 @@ void validate_mixed_trace(const mixed_contract& contract, std::span<const mixed_
   for (const auto& item : items) {
     if (context) { context->consume(xml::operation_resource::work_units, 1U); }
     if (item.kind == mixed_item_kind::text) {
+      if (contract.element_only) {
+        throw std::invalid_argument{"XML ordered content cannot contain text fragments"};
+      }
       if (item.child) { throw std::invalid_argument{"XML mixed text fragment contains a child"}; }
       add_bounded(text_bytes, item.text.size(), limits.max_text_bytes,
           "XML mixed text limit exceeded");
@@ -282,6 +289,28 @@ void validate_mixed_trace(const mixed_contract& contract, std::span<const mixed_
 // Recover exact segment positions from the normalized tree and reject a lossy unordered text shape.
 std::vector<mixed_item_view> observe_mixed_content(const mixed_contract& contract,
     const xml::element& value, const mixed_trace_limits& limits, xml::operation_context* context) {
+  if (contract.element_only) {
+    // Formatting has no stored occurrence in an element-only grammar. Check it before
+    // charging the child-only sequence so whitespace cannot consume the fragment quota.
+    if (value.text.find_first_not_of(" \t\r\n") != std::string::npos ||
+        std::ranges::any_of(value.text_segments, [](const auto& segment) {
+          return segment.value.find_first_not_of(" \t\r\n") != std::string::npos;
+        })) {
+      throw std::invalid_argument{"XML ordered content cannot contain text fragments"};
+    }
+    if (value.children.size() > limits.max_fragments ||
+        value.children.size() > std::numeric_limits<std::size_t>::max() / sizeof(mixed_item_view)) {
+      throw std::length_error{"XML mixed fragment limit exceeded"};
+    }
+    if (context) {
+      context->consume(xml::operation_resource::allocation_bytes, value.children.size() * sizeof(mixed_item_view));
+    }
+    std::vector<mixed_item_view> result;
+    result.reserve(value.children.size());
+    for (const auto& child : value.children) { result.push_back({mixed_item_kind::child, {}, &child}); }
+    validate_mixed_trace(contract, result, limits, context);
+    return result;
+  }
   std::size_t count{value.children.size()};
   add_bounded(count, value.text_segments.empty() ? (value.text.empty() ? 0U : 1U) :
       value.text_segments.size(), limits.max_fragments, "XML mixed fragment limit exceeded");

@@ -1,5 +1,10 @@
 # Fixed XSD bundles and contract tools
 
+The [2.25 C++ ordered element-only mapping](ordered_xml.md) is an explicit
+non-XSD XML contract. It does not remove fixed-XSD grouped/repeated-particle
+generation gates. Export/compatibility tooling rejects that mapping before
+publication until the complete ordered grammar contract is implemented.
+
 Compiler/runtime **2.20.0** adds native-enum export/string-space binding and
 expanded tooling qualification. The
 [tooling inventory](../../qualification/xsd_tooling/README.md) separates rich

@@ -51,6 +51,8 @@ struct mixed_options {
   std::string variant_member{"value"};
   std::string text_branch{"text"};
   std::map<std::string, xml::name> children{};
+  // Explicit ordered mappings exclude string alternatives and ignore inter-element formatting.
+  bool element_only{};
 };
 
 // One child alternative owns its XML spelling and borrows the stable variant type metadata.
@@ -69,6 +71,8 @@ struct mixed_contract {
   std::string text_branch{};
   std::size_t text_alternative{};
   std::vector<mixed_child_branch> children{};
+  // When set, text_alternative is the one-past-end sentinel and no text bridge is emitted.
+  bool element_only{};
 };
 
 // Validate an ordinary owning fragment shape and unique expanded child names before emission.

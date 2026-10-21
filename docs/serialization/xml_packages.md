@@ -1,5 +1,9 @@
 # XML, compression streams and packages
 
+Compiler/runtime **2.25.0** adds [explicit C++ ordered element-only content](ordered_xml.md)
+for owning record-variant arrays. Existing models and mixed content retain their
+behavior. This does not implement fixed-XSD grouped bindings or other backends.
+
 The package Save contract uses complete archive rewrites. See
 [OPC ZIP records and explicit C++ physical metadata replay](zip_metadata.md) for
 Annex B consumption, metadata ownership, regenerated fields and signature policy.

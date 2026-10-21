@@ -1533,6 +1533,28 @@ if(Python3_Interpreter_FOUND)
 endif()
 
 if(SERIALIZER_WITH_XML)
+  add_executable(xml_ordered_test xml_ordered_test.cpp)
+  serializer_generate(TARGET xml_ordered_test SCHEMAS resources/xml_ordered.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_ordered.ini"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_ordered")
+  serializer_generate_source(TARGET xml_ordered_native_generated
+    SCHEMA resources/xml_ordered_native.serializer LANGUAGE cpp
+    OPTIONS --cpp.format false
+    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/xml_ordered/xml_ordered_native.hpp")
+  add_dependencies(xml_ordered_test xml_ordered_native_generated)
+  target_link_libraries(xml_ordered_test PRIVATE Serializer::runtime GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(xml_ordered_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_ordered_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME xml_ordered_test COMMAND xml_ordered_test)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME xml_ordered_generation_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_ordered_generation_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/xml_ordered_generation")
+  endif()
+
   add_executable(xml_projection_test xml_projection_test.cpp)
   serializer_generate(TARGET xml_projection_test SCHEMAS resources/xml_projection.serializer
     CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_projection.ini"
