@@ -1401,6 +1401,7 @@ model_store<Root, Mode, Labels, Traits, Features>::collaborate(Session session,
   requires(has_collaboration)
 {
   require_idle();
+  if (!collaboration_enabled_) { throw std::logic_error{"Managed collaboration capability is excluded"}; }
   if (collaboration_state_.attachment || journal_state_.sink) {
     throw std::logic_error{"Attach collaboration once, before opening its journal"};
   }

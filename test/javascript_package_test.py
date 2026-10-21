@@ -21,6 +21,11 @@ from python_package_test import (CT, MC, MODEL_MIME, RELS, independent_collectio
                                  independent_zip, wire_descriptor_zip, independent_external_relationships)
 from package_zip64_test import count_fixture, wire_classic, wire_zip64, U32
 from package_node_dependencies import prepare_node_dependencies
+import package_annex_b_corpus as annex_b
+import package_mce_corpus as mce_corpus
+import package_opc_uri_corpus as uri_corpus
+import package_iri_corpus as iri_corpus
+import package_utf16_corpus as utf16_corpus
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -40,6 +45,15 @@ def fixtures(directory):
         (directory / filename).write_bytes(data)
         rows.append({'name': name, 'file': filename, 'expected': expected, 'kind': kind})
 
+    for label, data, accepted in annex_b.cases():
+        add(label, data, 'valid' if accepted else 'invalid_archive', 'descriptor')
+    for label, data, accepted in mce_corpus.cases():
+        add(label, data, 'valid' if accepted else 'invalid_metadata')
+    for module, kind in ((uri_corpus,'profile'),(iri_corpus,'extensions')):
+        for label, data, accepted in module.cases():
+            add(label,data,'valid' if accepted else 'rejected',kind)
+    for label,parts,accepted in utf16_corpus.cases(independent_parts()):
+        add(label,independent_zip(parts),'valid' if accepted else 'rejected')
     for wide in (False, True):
         for descriptor in (False, True):
             add(f'opc-{wide}-{descriptor}', independent_zip(independent_parts(), descriptor, wide))
@@ -240,7 +254,7 @@ for(const row of JSON.parse(await readFile(join(directory,'fixtures.json'),'utf8
    if(row.kind==='collection')assert.equal(result.value.models.length,3);else assert.equal(result.value.main.name,'independent');
   }
  };
- if(row.expected==='valid')await action();else await reject(row.expected,action);++decisions;
+ if(row.expected==='valid')await action();else if(row.expected==='rejected')await assert.rejects(action,error=>error instanceof P.Error,row.name);else await reject(row.expected,action);++decisions;
 }
 for(const row of JSON.parse(await readFile(join(directory,'segmented.json'),'utf8'))){
  const segments=await Promise.all(row.segments.map(async([at,file])=>[at,await bytes(file)]));let maximum=0,calls=0,total=0;

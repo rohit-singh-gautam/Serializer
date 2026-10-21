@@ -312,7 +312,7 @@ func (reader *SerializerPackageZipReader) parse() error {
     compressed,expanded:=int64(srlPackageU32(central,position+20)),int64(srlPackageU32(central,position+24))
     nameSize,extraSize,commentSize:=int(srlPackageU16(central,position+28)),int(srlPackageU16(central,position+30)),int(srlPackageU16(central,position+32))
     local:=int64(srlPackageU32(central,position+42));length:=46+nameSize+extraSize+commentSize
-    if length>len(central)-position { return srlPackageFailure(SerializerPackageInvalidArchive,"Truncated ZIP central fields","") }
+    if length>65535||length>len(central)-position { return srlPackageFailure(SerializerPackageInvalidArchive,"Truncated ZIP central fields","") }
     if srlPackageU16(central,position+34)!=0||flags & ^uint16(0x800|8|6)!=0||method!=0&&method!=8 {
       return srlPackageFailure(SerializerPackageUnsupportedFeature,"Unsupported ZIP entry","")
     }
@@ -331,7 +331,7 @@ func (reader *SerializerPackageZipReader) parse() error {
     if expanded>state.budget.limits.MaxPartBytes { return srlPackageFailure(SerializerPackageResourceLimit,"Expanded part exceeds byte limit",name) }
     if local>offset||offset-local<30 { return srlPackageFailure(SerializerPackageInvalidArchive,"ZIP local header overlaps directory",name) }
     header,err:=reader.readAt(local,30);if err!=nil { return err }
-    if srlPackageU32(header,0)!=0x04034b50||srlPackageU16(header,4)>45||srlPackageU16(header,6)!=flags||srlPackageU16(header,8)!=method {
+    if srlPackageU32(header,0)!=0x04034b50||srlPackageU16(header,4)>45||srlPackageU16(header,10)!=srlPackageU16(central,position+12)||srlPackageU16(header,12)!=srlPackageU16(central,position+14)||srlPackageU16(header,6)!=flags||srlPackageU16(header,8)!=method {
       return srlPackageFailure(SerializerPackageInvalidArchive,"ZIP local and central headers disagree",name)
     }
     localName,localExtra:=int64(srlPackageU16(header,26)),int64(srlPackageU16(header,28))
@@ -378,7 +378,7 @@ func (reader *SerializerPackageZipReader) parse() error {
       CreatorSystem:srlPackageU16(central,position+4)>>8,ExternalAttributes:srlPackageU32(central,position+38)}
     reader.names[name]=len(reader.entries);reader.entries=append(reader.entries,entry);position+=length
   }
-  if position!=len(central) { return srlPackageFailure(SerializerPackageInvalidArchive,"Unexpected ZIP directory records","") }
+  if position!=len(central)&&(len(central)-position<6||srlPackageU32(central,position)!=0x05054b50||int(srlPackageU16(central,position+4))!=len(central)-position-6) { return srlPackageFailure(SerializerPackageInvalidArchive,"Unexpected ZIP directory records","") }
   // Fixed-width offset indexes preserve physical entry order and have an explicit scratch reservation.
   const indexBytes=int64(8)
   if int64(len(reader.entries))>(1<<63-1)/indexBytes { return srlPackageFailure(SerializerPackageResourceLimit,"ZIP index scratch extent overflow","") }

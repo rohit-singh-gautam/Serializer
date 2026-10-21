@@ -13,6 +13,12 @@ Generated codecs support multiple languages. Native history, journaling, and
 collaboration engines currently run in C++; other languages can exchange managed
 wire records but do not have equivalent native managed engines.
 
+The [application responsibility contract](docs/project/application_responsibilities.md)
+separates host authentication, policy administration, business effects and custom
+migration decisions from Serializer's compiler/runtime guarantees. The pending list
+marks those excluded responsibilities **will not fix**, separately from completed
+features and genuine library work.
+
 [Project website](https://www.singh.org.in/serializer.html) ·
 [Documentation index](docs/README.md) ·
 [Pending requirements](docs/pending.md) ·
@@ -38,7 +44,35 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.21.0**. Bug fixes and minor updates
+Release **2.22.0** adds native C++
+[capability activation/history conversion and session fault qualification](docs/verification/verification-managed-capabilities-2026-10-21.md),
+[Pack-IRI addressing](docs/serialization/pack_iri.md) and explicit
+[ZIP physical metadata replay](docs/serialization/zip_metadata.md).
+Package Save follows the documented complete-rewrite contract. Targeted evidence
+does not establish completion of the broader [OPC/3MF backlog](docs/pending.md).
+The [mandatory fifth-edition OPC metadata qualification](docs/verification/verification-opc-metadata-2026-10-21.md)
+covers URI/IRI syntax, infrastructure encodings, Relationships compatibility and
+Annex B consumption across all eleven outputs.
+The selected Core 1.4 C++/Python codecs now pass the
+[official 175-model corpus qualification](docs/verification/verification-core-conformance-2026-10-21.md),
+with explicit schema/resource dispositions. XSD validity does not certify package,
+reference or geometry conformance.
+
+Regenerate affected XML codecs for
+[eleven-output namespace admission and provider completion fixes](docs/verification/verification-runtime-boundaries-2026-10-21.md).
+Physical declarations consume the selected quota; inherited scope copies retain
+their separate work/allocation admission. Prepared-validator cancellation is
+checked before results are published.
+C#/Kotlin/Swift expose copied cancellation policies through `WithCancellation`
+or `withCancellation`, with external-library qualification. The same callback
+can enforce a host-clock deadline. See the [operation context contract](docs/serialization/xml_packages.md#shared-xmlpackage-operation-context).
+The selected [large owning package chain](docs/verification/verification-large-package-operations-2026-10-21.md)
+passes XML/DEFLATE/identity/preservation/atomic Save qualification in all eleven outputs.
+Regenerate Python package facades for cancellation checks after Save hooks:
+pre-publication cancellation preserves the old file; a failure after replacement
+reports `publication_uncertain` with the complete new archive retained.
+
+The current compiler and runtime release is **2.22.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.21.0**;
@@ -262,8 +296,10 @@ covers independent archives, large boundaries and native interchange.
 [Go OPC facades](docs/languages/go_packages.md#typed-opc-facades) add bounded
 metadata/relationship validation, transactional typed XML loading, preservation
 and canonical output. Their [Windows/Linux proof](docs/verification/verification-go-opc-packages-2026-10-20.md)
-includes quota regressions and Save faults. Automatic nested contexts, runtime
-profile dispatch and declarative application references remain separate.
+includes quota regressions and Save faults. Current facades share a cumulative
+ledger with supported generated XML codecs and direct scalar application
+references; see [composition across eleven outputs](docs/verification/verification-native-xml-operations-2026-10-21.md).
+Broader profile/graph combinations retain explicit capability gates.
 Compiler output publication
 [preserves unchanged files](docs/guides/cmake_integration.md#preserve-unchanged-generated-files),
 so Ninja can skip dependent compilation when regeneration produces equal bytes.

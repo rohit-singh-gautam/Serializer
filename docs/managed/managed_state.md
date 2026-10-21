@@ -2,14 +2,19 @@
 
 The current pending implementation/qualification list is consolidated under
 **MG01–MG10** in [the central backlog](../pending.md#managed-state-and-storage).
-This document retains the proposed contracts and rationale.
+This document retains broader proposed contracts and rationale alongside explicit
+current implementation and application-ownership notes.
 
 Implemented collaboration now has a separate [C++ runtime guide](collaboration_runtime.md)
 and [runnable examples](../../example/managed/collaboration/README.md). The broader
-authorization policies, merges, selectors, and distributed commits in this document
-remain proposals. Current collaboration supplies host policy hooks and conditional
+merge and schema-selector contracts in this document remain proposals.
+Inherited [C++ authorization](authorization.md) and versioned
+[native capability profiles](capabilities.md#activate-complete-native-profiles)
+are implemented. Distributed business coordination and effects are
+[application responsibilities](../project/application_responsibilities.md).
+Current collaboration supplies host policy hooks and conditional
 per-session undo/redo. [Store-owned local editing](local_collaboration.md) also supports
-durable pending changes and timed sync; inherited permission policies remain proposed.
+durable pending changes and timed sync.
 
 Current C++ representation: managed schema classes carry `persistent_id` directly
 by default. Separate ID-free values/storage wrappers in the illustrations below
@@ -21,8 +26,10 @@ and undo/deletion never renumber survivors. Explicit member boundaries still app
 Status: broader design direction. The [C++ interface](cpp_runtime.md) implements
 bare `managed` declarations, generated identity and editors, transactions, and
 snapshot history, and [synchronous journaling](journal.md). This document extends
-the [history contract](history.md); authentication, inherited authorization, distributed commits, and
-external-effect adapters remain unimplemented.
+the [history contract](history.md). Authentication, trusted context binding,
+policy administration/persistence and cross-service effects are application-owned
+will-not-fix responsibilities. They must not be confused with the implemented
+inherited rule and complete-candidate enforcement mechanisms.
 
 The [design index](README.md) also links the [data structures](data_structures.md)
 and [language bindings](language_bindings.md). Those define the optional store
@@ -45,7 +52,7 @@ and [storage/performance priorities](history.md#storage-and-performance-prioriti
 
 ## Current capability set and identity contract
 
-The four proposed features are `history`, `collaboration`, `authorization`, and
+The four native C++ features are `history`, `collaboration`, `authorization`, and
 `journal`. Every managed instance has a generated persistent ID,
 `uint32` by default and centrally configurable; opt-in separate ordinary representations remain
 ID-free. See [capabilities](capabilities.md) for selectors, scope, configuration,
@@ -875,9 +882,12 @@ Keep policies and optional adapters composable. Applications that only need loca
 undo should not need a network stack, identity service, distributed coordinator,
 or durable effect dispatcher.
 
-## Future verification requirements
+## Broader verification inventory
 
-These are acceptance scenarios for later implementation, not tests run here:
+This original design inventory spans implemented C++ behavior, remaining language
+and engine work, and application integration responsibilities. Current executed
+coverage is recorded in the linked runtime and verification guides; the list is
+not itself a claim that every scenario below has been run.
 
 - Infer capability from a class's own managed members or its explicit class marker,
   without changing ordinary construction or promoting unmarked child occurrences.
@@ -921,7 +931,12 @@ These are acceptance scenarios for later implementation, not tests run here:
 - Verify that replay does not dispatch effects and pruning does not lose required
   policy, audit, workflow, or delivery records.
 
-Only documentation is added by this proposal. No grammar, generator, runtime,
-network service, policy engine, distributed protocol, or platform adapter has been
-implemented or qualified. Update the main history proposal, usage guide, integration
-skill, and backend support records as each capability becomes available.
+The original proposal did not itself implement these mechanisms. Subsequent
+releases implement the linked C++ identity/history/journal/collaboration and
+authorization contracts, with explicitly recorded tests. Proposed schema selectors,
+branch-merge DAGs and other native engines remain tracked separately. Application
+authentication, policy administration and external business effects are deliberate
+ownership dispositions, not missing runtime implementations. Consult the
+[current responsibility decisions](../project/application_responsibilities.md)
+and central backlog rather than treating historical proposal language as current
+support status.

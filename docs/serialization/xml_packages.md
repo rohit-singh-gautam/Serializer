@@ -1,5 +1,12 @@
 # XML, compression streams and packages
 
+The package Save contract uses complete archive rewrites. See
+[OPC ZIP records and explicit C++ physical metadata replay](zip_metadata.md) for
+Annex B consumption, metadata ownership, regenerated fields and signature policy.
+The [fifth-edition metadata qualification](../verification/verification-opc-metadata-2026-10-21.md)
+records shared URI/content-type/Relationships, UTF-16 and markup-compatibility
+decisions across the actual language SDKs.
+
 Compiler/runtime **2.19.0** extends
 [fixed singleton path canonicalization](#fixed-singleton-path-canonicalization)
 across eleven outputs, with additive opt-in C/Rust writers and Go loaders.
@@ -717,6 +724,11 @@ before publication. Pass retained `loaded.extensions` as `Input.extensions` to
 preserve permitted unknown parts and links after editing. External targets remain
 inert. Save rereads its staged candidate before replacement; a failure after
 replacement reports `publication_uncertain`.
+Save polls caller cancellation/deadline policy immediately after returning
+`before_publish` and `after_publish` hooks. The first boundary retains the old
+destination; the second reports uncertainty while retaining the new complete
+archive. A throwing hook keeps its original error precedence. Use a fresh budget
+for recovery and inspect the committed generation before retrying.
 
 Byte-like input is addressed in bytes, including typed and multidimensional
 memoryviews. Keep borrowed mutable input unchanged through a synchronous call.
@@ -779,6 +791,46 @@ callback runs. The broader automatic diagnostic gate remains open for attributio
 and classification in these phases.
 The borrowed context and callback captures must outlive the synchronous operation.
 
+Release 2.22.0 adds generated completion checks around prepared validators,
+including readonly projections, and moves C ZIP final cancellation polls before
+destination replacement. A provider may finish validation and then signal
+cancellation; no output or input candidate may escape that final check. See the
+[publication regressions](../verification/verification-operation-publication-2026-10-21.md)
+and [physical namespace admission matrix](../verification/verification-runtime-boundaries-2026-10-21.md).
+These cooperative checks do not forcibly preempt opaque provider code or cap its
+internal process memory.
+
+C#/Kotlin/Swift also expose standalone public cancellation policies. Each helper
+returns a copy retaining the original limits and any existing operation ledger:
+
+```csharp
+var policy = new Limits().WithCancellation(checkOperation);
+```
+
+```kotlin
+val policy = XmlLimits().withCancellation(::checkOperation)
+```
+
+```swift
+let policy = XmlLimits().withCancellation(checkOperation)
+```
+
+`checkOperation` is a synchronous caller callback that throws the caller's own
+cancellation or host-clock deadline error. The policy retains its callback state;
+resources captured by the callback must remain valid through the operation.
+Nested captures share the first original failure and forward parent admissions
+once. Construct a fresh wrapper per top-level operation and after failure, and
+do not share one wrapped policy concurrently. Wrapping a failed parent ledger
+does not reset that ledger. These APIs are checked from separately compiled
+assemblies/JARs/Swift modules, not only same-module consumers.
+
+Swift FoundationXML delegate failures retain the first error and stop building
+the XML tree or namespace state. The synchronous provider finishes processing
+the already byte-admitted input; the codec then throws that original error
+before returning a candidate. This avoids a Windows FoundationXML crash caused
+by reentrant parser abort. It does not promise immediate interruption of opaque
+provider CPU or a hard provider-memory ceiling.
+
 Release 2.18.0 adds native C/Rust operation composition and supported XSD identity
 package graphs. C descriptors accept an independent `srl_xml_operation` and optional
 policy selection without extending old native aggregates; Rust provides qualified
@@ -798,11 +850,14 @@ synchronous lifetime and declared model contract. See the backend package guides
 for typed callbacks and collision-selected helper names. Document-companion and
 other explicitly rejected XML graphs remain separate pending work.
 
-Ordinary XML input remains UTF-8. C++ and Python OPC infrastructure metadata additionally
+Ordinary XML input remains UTF-8. C++, Python, C and Rust OPC infrastructure metadata additionally
 accepts BOM-marked UTF-16 in either byte order; its declaration must be absent or
 identify `UTF-16`. Unsupported/conflicting encodings reject, and generated output
 remains UTF-8. C++ direct raw parsing can select
 `operation_context.input_encoding = input_encoding_policy::utf8_or_utf16`.
+The C/Rust owning profiles charge original encoded metadata bytes and qualify
+strict conversion/provider boundaries separately from typed model decoding;
+see the [encoding replay](../verification/verification-opc-utf16-2026-10-21.md).
 Raw parsing can also opt into `allow_mixed_content`; this retains ordered text
 segments for infrastructure processing and does not relax typed field readers.
 

@@ -55,6 +55,34 @@ static int sink(void* context,const uint8_t* bytes,size_t size,size_t* written){
 static bool cancelled(void* context){size_t* polls=(size_t*)context;return ++*polls>=3;}
 /* Return the cancellation state requested by the final pre-publication callback. */
 static bool publication_cancelled(void* context){return *(bool*)context;}
+typedef struct publication_polls {size_t count,cancel_at;} publication_polls;
+/* Reproduce cancellation at the measured final poll without depending on provider timing. */
+static bool cancel_at_poll(void* context){publication_polls* value=(publication_polls*)context;return ++value->count==value->cancel_at;}
+/* A failed ZIP helper must preserve an existing owning result even at its final cancellation fence. */
+static void zip_publication_boundaries(const srl_buffer* bytes){
+  @p@_budget budget=@p@_default_budget();@p@_archive original={0};require(!@p@_archive_open(&original,bytes->data,bytes->size,&budget),"ZIP publication baseline");
+  publication_polls polls={0,SIZE_MAX};@p@_archive measured={0};budget=@p@_default_budget();budget.is_cancelled=cancel_at_poll;budget.context=&polls;
+  require(!@p@_archive_open(&measured,bytes->data,bytes->size,&budget),"measure final ZIP directory poll");@p@_archive_free(&measured);
+  polls.cancel_at=polls.count;polls.count=0;@p@_entry* previous=original.entries;budget=@p@_default_budget();budget.is_cancelled=cancel_at_poll;budget.context=&polls;
+  require(@p@_archive_open(&original,bytes->data,bytes->size,&budget)==@p@_cancelled&&original.entries==previous,"late directory cancellation retains old archive");
+  srl_buffer payload={0};polls.count=0;polls.cancel_at=SIZE_MAX;budget=@p@_default_budget();budget.is_cancelled=cancel_at_poll;budget.context=&polls;
+  require(!@p@_archive_read(&original,0,&payload,&budget),"measure final ZIP payload poll");srl_buffer_free(&payload);
+  require(srl_reserve(&payload,3),"ZIP publication sentinel");memcpy(payload.data,"old",3);payload.size=3;uint8_t* old_bytes=payload.data;
+  polls.cancel_at=polls.count;polls.count=0;budget=@p@_default_budget();budget.is_cancelled=cancel_at_poll;budget.context=&polls;
+  require(@p@_archive_read(&original,0,&payload,&budget)==@p@_cancelled&&payload.data==old_bytes&&payload.size==3&&!memcmp(payload.data,"old",3),"late payload cancellation retains old buffer");
+  srl_buffer_free(&payload);@p@_archive_free(&original);
+}
+/* OPC permits inert URI colons while the ordinary ZIP reader/writer keeps its path policy. */
+static void opc_zip_policy_boundaries(void){
+  uint8_t data[]={0,1,2};@p@_binary_part part={(char*)"folder/a:b.bin",NULL,{data,sizeof(data),0},0,0};
+  srl_buffer bytes={0};@p@_budget budget=@p@_default_budget();
+  require(@p@_zip_write(&part,1,&bytes,&budget)==@p@_invalid_name&&!bytes.data,"generic ZIP writer retains colon rejection");
+  budget=@p@_default_budget();require(!@p@_zip_write_policy(&part,1,&bytes,&budget,true),"OPC writer admits URI colon");
+  @p@_archive archive={0};budget=@p@_default_budget();require(@p@_archive_open(&archive,bytes.data,bytes.size,&budget)!=0&&!archive.entries,"generic ZIP reader retains colon rejection");
+  budget=@p@_default_budget();require(!@p@_archive_open_policy(&archive,bytes.data,bytes.size,&budget,true),"OPC reader admits URI colon");
+  srl_buffer decoded={0};require(!@p@_archive_read(&archive,0,&decoded,&budget)&&decoded.size==sizeof(data)&&!memcmp(decoded.data,data,sizeof(data)),"OPC policy preserves payload bytes");
+  srl_buffer_free(&decoded);@p@_archive_free(&archive);srl_buffer_free(&bytes);
+}
 /* Request cancellation at the publication boundary while returning ordinary callback success. */
 static int cancel_publication(void* context,const char* stage){if(!strcmp(stage,"before_replace")){*(bool*)context=true;}return 0;}
 /* Verify that successful, bounded and canceled memory spools leave their private temp directory empty. */
@@ -77,12 +105,14 @@ static void application_contract(void){size_t cases=0;srl_buffer manifest=load("
 /* Qualify generated native models, complete package ownership, shared bounds and publication faults. */
 int main(int argc,char** argv){require(argc==2,"fixture directory argument");directory=argv[1];
   application_contract();
+  opc_zip_policy_boundaries();
   require(spool_clean(),"private spool temp starts empty");
   profile_model model={0};require(profile_model_init(&model)==srl_ok,"model init");require(srl_string_set_cstr(&model.name,"checked & generated")==srl_ok,"model name");model.points.data=(profile_point*)calloc(1,sizeof(*model.points.data));require(model.points.data!=NULL,"point allocation");model.points.size=model.points.capacity=1;model.points.data[0].x=1;model.points.data[0].y=2;model.points.data[0].z=3;
   uint8_t first[]={0,1,254,255},second[]="bounded opaque";
   @p@_binary_part attachments[2]={{(char*)"/Textures/a.bin",(char*)"application/octet-stream",{first,sizeof(first),0},0,8},{(char*)"/Textures/b.bin",(char*)"application/octet-stream",{second,sizeof(second)-1,0},0,8}};
   profile_archive_input input={0};input.main=&model;input.attachments=attachments;input.attachments_size=2;
   @p@_budget budget=@p@_default_budget();srl_buffer encoded={0};require(!profile_archive_encode(&input,&encoded,&budget),"generated encode");save("generated.opc",&encoded);
+  zip_publication_boundaries(&encoded);
   profile_archive_value value={0};budget=@p@_default_budget();@p@_policy reject={0};require(!profile_archive_load(&value,encoded.data,encoded.size,reject,&budget),"generated load");require(value.main&&srl_string_equal(&value.main->name,"checked & generated")&&value.attachments_size==2,"typed aggregate");
   // Every generated allocation failure rolls back private state and retains the existing destination.
   allocation_calls=0;srl_buffer probe={0};budget=@p@_default_budget();require(!profile_archive_encode(&input,&probe,&budget),"allocation encode baseline");const size_t encode_allocations=allocation_calls;srl_buffer_free(&probe);const size_t baseline=live_allocations;
@@ -100,9 +130,25 @@ int main(int argc,char** argv){require(argc==2,"fixture directory argument");dir
     else if(!strcmp(kind,"collection")){profile_collection_archive_value collection={0};status=profile_collection_archive_load(&collection,bytes.data,bytes.size,reject,&budget);profile_collection_archive_free(&collection);}
     else if(!strcmp(kind,"graph")){selected_graph_value graph={0};status=selected_graph_load(&graph,bytes.data,bytes.size,reject,&budget);selected_graph_free(&graph);}
     else if(!strcmp(kind,"parameters")){selected_parameters_value parameters={0};status=selected_parameters_load(&parameters,bytes.data,bytes.size,reject,&budget);selected_parameters_free(&parameters);}
-    else {profile_archive_value candidate={0};status=profile_archive_load(&candidate,bytes.data,bytes.size,!strcmp(kind,"preserve")?@p@_preserve_policy():reject,&budget);profile_archive_free(&candidate);}
-    if((status==0)!=expected){fprintf(stderr,"Fixture %s status=%d expected=%d part=%s field=%s link=%s\n",line,status,(int)expected,budget.part,budget.field,budget.link);exit(1);}srl_buffer_free(&bytes);++cases;if(!end){break;}line=end+1;
+    else {profile_archive_value candidate={0};status=profile_archive_load(&candidate,bytes.data,bytes.size,!strcmp(kind,"preserve")?@p@_preserve_policy():reject,&budget);if(!status&&(!strncmp(line,"uri-",4)||!strcmp(kind,"preserve"))){const profile_archive_input input_view=profile_archive_as_input(&candidate);srl_buffer replay={0};@p@_budget write_budget=@p@_default_budget();require(!profile_archive_encode(&input_view,&replay,&write_budget),"URI corpus output composition");profile_archive_value again={0};@p@_budget read_budget=@p@_default_budget();require(!profile_archive_load(&again,replay.data,replay.size,!strcmp(kind,"preserve")?@p@_preserve_policy():reject,&read_budget)&&!strcmp(candidate.main_path,again.main_path),"URI corpus output reload preserves part identity");profile_archive_free(&again);srl_buffer_free(&replay);}profile_archive_free(&candidate);}
+    if((status==0)!=expected){fprintf(stderr,"Fixture %s status=%d expected=%d part=%s field=%s link=%s\n",line,status,(int)expected,budget.part,budget.field,budget.link);exit(1);}if(!strncmp(line,"uri-unsupported-unicode-",24)){require(status==@p@_unavailable,"optional Unicode naming has explicit unsupported status");}srl_buffer_free(&bytes);++cases;if(!end){break;}line=end+1;
   }srl_buffer_free(&manifest);
+  // UTF-16 metadata counts original encoded bytes and admits exact operation limits before publication.
+  for(size_t endian=0;endian<2;++endian){
+    const char* label=endian?"be":"le";char path[128];snprintf(path,sizeof(path),"fixtures/utf16-%s-all.opc",label);srl_buffer bytes=load(path);
+    snprintf(path,sizeof(path),"fixtures/utf16-%s-all.metadata-bytes",label);srl_buffer expected=load(path);
+    const size_t metadata_bytes=(size_t)strtoull((const char*)expected.data,NULL,10);srl_buffer_free(&expected);
+    profile_archive_value candidate={0};budget=@p@_default_budget();require(!profile_archive_load(&candidate,bytes.data,bytes.size,reject,&budget),"UTF-16 infrastructure budget baseline");
+    require(budget.used[@p@_metadata_bytes]==metadata_bytes,"UTF-16 original metadata byte accounting");const @p@_budget measured_utf16=budget;
+    const @p@_resource resources[]={@p@_metadata_bytes,@p@_allocation_bytes,@p@_work_units};
+    for(size_t resource=0;resource<sizeof(resources)/sizeof(resources[0]);++resource){
+      const @p@_resource selected=resources[resource];budget=@p@_default_budget();budget.maximum[selected]=measured_utf16.used[selected];
+      require(!profile_archive_load(&candidate,bytes.data,bytes.size,reject,&budget),"Exact UTF-16 resource boundary");
+      profile_model* original_utf16=candidate.main;budget=@p@_default_budget();budget.maximum[selected]=measured_utf16.used[selected]-1;
+      require(profile_archive_load(&candidate,bytes.data,bytes.size,reject,&budget)==@p@_resource_limit&&candidate.main==original_utf16,"UTF-16 boundary failure preserves existing candidate");
+    }
+    profile_archive_free(&candidate);srl_buffer_free(&bytes);
+  }
   // A middle-part failure leaves an existing initialized aggregate untouched.
   srl_buffer bad=load("fixtures/middle-failure.opc");profile_collection_archive_value collection={0};srl_buffer good=load("fixtures/collection.opc");budget=@p@_default_budget();require(!profile_collection_archive_load(&collection,good.data,good.size,reject,&budget),"collection baseline");profile_collection_archive_models_part* original=collection.models;budget=@p@_default_budget();require(profile_collection_archive_load(&collection,bad.data,bad.size,reject,&budget)!=0&&collection.models==original&&collection.models_size==3,"transactional middle part failure");require(budget.native_status!=srl_ok&&budget.part[0]&&budget.field[0],"native codec status and ownership context retained");profile_collection_archive_free(&collection);srl_buffer_free(&bad);srl_buffer_free(&good);
   srl_buffer extensions=load("fixtures/extensions.opc");budget=@p@_default_budget();require(!profile_archive_load(&value,extensions.data,extensions.size,@p@_preserve_policy(),&budget),"preserve unknown resources");require(!strcmp(value.main_path,"/Alternate/root.xml")&&value.extensions.parts_size==1&&value.extensions.links_size==1,"preserved scopes and singleton path");profile_archive_input loaded=profile_archive_as_input(&value);srl_buffer preserved={0};budget=@p@_default_budget();require(!profile_archive_encode(&loaded,&preserved,&budget),"preserved re-encode");save("preserved.opc",&preserved);budget=@p@_default_budget();@p@_policy skip={@p@_skip,@p@_reject,NULL,0};profile_archive_value skipped={0};require(!profile_archive_load(&skipped,extensions.data,extensions.size,skip,&budget)&&skipped.extensions.parts_size==0,"skip optional extension");profile_archive_free(&skipped);

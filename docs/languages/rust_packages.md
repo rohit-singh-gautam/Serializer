@@ -174,7 +174,24 @@ python -B test/rust_package_test.py --compiler out/build/ReleaseWindows/serializ
   --build out/build/rust-packages --cargo-home out/build/cargo-home
 ```
 
+Content-type and Relationships infrastructure accepts strict UTF-8 or BOM-marked
+UTF-16 in either byte order. A declaration must be absent or identify `UTF-16`.
+UTF-16 scalars are checked before bounded conversion to a private UTF-8 string;
+only the initial declaration's encoding value is adjusted. Encoded metadata
+bytes, conversion allocation and work share the package ledger. Ordinary typed
+model XML stays UTF-8; generated infrastructure output is UTF-8. See the actual
+[C/Rust encoding replay](../verification/verification-opc-utf16-2026-10-21.md).
+
+Compiler/runtime 2.22.0 separates inert OPC identifiers from ordinary ZIP path
+validation: package facades accept reserved ASCII URI punctuation, exclude
+nonpart/nonfile physical records after integrity checks, and retain exact
+external IRI spelling. Relationships apply the selected fifth-edition
+namespace-scoped compatibility reference model before core validation. URI/ID
+attributes use XSD whitespace collapse; MIME and TargetMode retain string values.
+The public strict `target` path utility keeps its established above-root failure
+behavior, while OPC consumption follows RFC dot-segment root clamping.
+See the [common metadata qualification](../verification/verification-opc-metadata-2026-10-21.md).
+
 The selected Windows Rust SDK gate covers these package work units. It does not
-close the broader official OPC/3MF corpus, UTF-16 infrastructure, markup
-compatibility, all XML graph combinations or other platform gates in
+close the broader official 3MF corpus, all XML graph combinations or other platform gates in
 [the pending backlog](../pending.md).

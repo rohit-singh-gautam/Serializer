@@ -10,6 +10,12 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 Use the [central pending backlog](../../../docs/pending.md) for every documented
 remaining requirement and proposal. Design guides retain contracts and rationale;
 check the backlog's backend scope and executed evidence before claiming completion.
+Apply the [application ownership contract](../../../docs/project/application_responsibilities.md):
+keep authentication/principal binding, policy storage/administration, business
+side effects, custom historical layout interpretation and authorized publication
+with the host or maintainer. Those responsibilities are explicitly will not fix
+in the library. Missing compiler/runtime mechanisms remain implementation work;
+do not reclassify an unsupported Serializer feature as application responsibility.
 
 Serializer â€” **State Framework** combines multi-language generated codecs and
 schema evolution with C++ application-state management. Choose ordinary generated
@@ -46,22 +52,71 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-The current compiler/runtime release is **2.21.0**, with schema language
+The current compiler/runtime release is **2.22.0**, with schema language
 **1.21.0**. Use [C++ core-property adapters](../../../docs/serialization/core_properties.md)
 for application-supplied OPC metadata, following the selected fifth-edition
 property/date/keyword contract. Use the [managed authorization boundary](../../../docs/managed/authorization.md)
 for complete-candidate publication checks, binding the principal and policy
-administration in the host. Explicit C++ capability profiles validate requirements
-and engine/policy availability; they do not activate engines or implement schema
-selectors. The bounded PMR resource caps routed requested bytes; generated standard
+administration in the host. Use `model_store::configure_capabilities` to activate
+version-one native profiles, enforce exclusions and require authorization without
+an unprotected transition. Use `migration::convert_history_policy` with explicit
+branch/history-loss decisions when changing native history profiles; see the
+[executed combinations and conversions](../../../docs/verification/verification-managed-capabilities-2026-10-21.md).
+Schema capability selectors remain proposed syntax. The bounded PMR resource caps routed requested bytes; generated standard
 payload containers and decoding allocations retain their existing allocator behavior.
 
-Regenerate Python output for [QName-list restrictions](../../../docs/verification/verification-qname-lists-2026-10-21.md):
+Regenerate C++/Python/JavaScript/TypeScript output for [QName-list restrictions](../../../docs/verification/verification-qname-lists-2026-10-21.md):
 enumeration/default/fixed constraints retain ordered schema-scope expanded names,
-including enumerated list union members and global text. Non-Python and
+including enumerated list union members and global text. The other seven backends and
 namespace-dependent outer-union/default/export combinations retain explicit gates.
-Schema default/fixed lists containing no-namespace names reject an active nonempty
-instance default namespace. Native IDs/wire formats and schema language are unchanged.
+Supported private-field projections isolate no-namespace schema defaults from
+an active instance default while retaining other fields' expanded identities.
+Check the linked graph/backend limits before choosing a combination.
+Native IDs/wire formats and schema language are unchanged.
+
+Regenerate affected XML codecs for the
+[eleven-output namespace/provider boundary fixes](../../../docs/verification/verification-runtime-boundaries-2026-10-21.md).
+Select the adapter's documented structural/text policy; physical declarations
+consume that policy while inherited scope copies retain work/allocation costs.
+Pass the same borrowed context through custom codecs and prepared validators.
+Generated completion checks observe cancellation before publishing results;
+opaque provider heap ceilings and hard preemption require external process limits.
+For C#/Kotlin/Swift standalone XML operations, use `Limits.WithCancellation` or
+`XmlLimits.withCancellation`. These return policy copies, retain caller callback
+state and compose the existing ledger without resetting it. Throw the caller's
+own cancellation/deadline error; nested work preserves its original identity.
+Create a fresh policy wrapper for each top-level operation and after failure;
+do not share one wrapped policy concurrently. Swift's synchronous FoundationXML
+failure path retains the first error and rejects after the already byte-admitted
+provider call returns, avoiding unsafe delegate reentry. This is cooperative
+failure handling, not hard provider preemption.
+
+Use the [C++ Pack-IRI API](../../../docs/serialization/pack_iri.md) for an outer
+package locator. Supply the outer scheme's identity/equivalence policy in the host;
+keep internal relationship resolution separate. Address parsing never opens a
+file or network resource. Selected optional non-ASCII part naming, interleaving
+and growth-hint production remain explicitly unsupported.
+
+Package Save builds a complete replacement archive. Follow the
+[ZIP physical metadata contract](../../../docs/serialization/zip_metadata.md)
+when physical attributes matter: logical opaque-part preservation does not imply
+unchanged headers, compressed bytes or signatures. C++ callers may explicitly
+replay inert metadata through `zip_reader::entry_metadata`, `archive_metadata`
+and writer metadata options, using the same operation budget. Regenerate size,
+offset and CRC fields; never apply retained attributes as filesystem permissions.
+Use the [mandatory OPC metadata qualification](../../../docs/verification/verification-opc-metadata-2026-10-21.md)
+for the eleven-output URI/IRI, infrastructure encoding, Relationships compatibility
+and Annex B contract. It does not establish unsupported rich model graphs,
+signature trust or optional Unicode part naming.
+
+For published Core 1.4, use the pinned local Core/XML XSD bundle and the admitted
+C++/Python owning graph. The [official corpus qualification](../../../docs/verification/verification-core-conformance-2026-10-21.md)
+accounts for 175 models, including arbitrary model filename extensions and
+explicit resource/schema rejections. Discover parts from OPC content types and
+relationships. Other nine backend selectors reject this rich graph; ordinary
+XML support does not imply rich Core support. Validate OPC package rules and
+application geometry separately from XSD validity; preserve the recorded
+upstream positive-label/schema disagreements rather than weakening the schema.
 
 Regenerate Java/C#/Kotlin/Swift XML codecs to apply corrected
 namespace-declaration admissions, including qualified attributes, default resets
@@ -134,8 +189,16 @@ Regenerate affected outputs. Preserve existing native model/limit APIs and wire
 identities. Logical admissions cover instrumented generated operations and known
 default construction; provider and opaque authored factory internals do not gain
 hard peak-allocation or preemption guarantees.
+Regenerate Python package facades for the Save callback completion checks.
+Before publication, cancellation preserves the previous file. After replacement,
+handle `publication_uncertain` and inspect/reopen the complete new generation;
+do not retry under the assumption that the previous generation is still present.
 Use the [native operation verification record](../../../docs/verification/verification-native-xml-operations-2026-10-21.md)
 for actual SDK, field-origin, first-failure and publication checks.
+The [large owning package qualification](../../../docs/verification/verification-large-package-operations-2026-10-21.md)
+covers the selected eleven-output XML/DEFLATE/identity/preservation/Save chain.
+Keep each backend's public operation boundary and explicit finite profile;
+cross-call budget parameters and opaque provider preemption differ by backend.
 
 Compiler/runtime **2.17.0** adds language **1.21.0** package `policy(fixed|defaults)`,
 `key("scope", field)` and `reference("scope", field, target_role)` declarations.
@@ -460,8 +523,11 @@ roles use generated XML; validate the complete fresh aggregate before publicatio
 Preserved unknown parts/links are revalidated after edits. Supply the documented
 pinned XML dependencies. See the [package API](../../../docs/languages/javascript_packages.md)
 and [actual proof](../../../docs/verification/verification-javascript-packages-2026-10-20.md).
-Automatic nested cumulative contexts, arbitrary runtime codec dispatch and
-generated application key/reference rules remain pending.
+Use the generated bridge for the same cumulative ledger through supported XML,
+reference, preservation and publication paths. Direct scalar application
+key/reference checks and role-keyed caller codecs are implemented; follow the
+[public composition contract](../../../docs/verification/verification-native-xml-operations-2026-10-21.md).
+Broader selector/profile graphs retain their documented capability gates.
 
 Keep cancellation active through staged input, transport callbacks and fresh
 decoded publication. Callbacks must not operate on or close/dispose the same

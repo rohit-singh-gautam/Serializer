@@ -1,5 +1,24 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.22.0** adds native C++ capability activation, explicit
+history-policy conversion, Pack-IRI addressing and optional ZIP physical-metadata
+replay. Existing native model, save, journal and collaboration formats remain
+unchanged. History conversion is an explicit operation with bounded output and
+documented information-loss policy. ZIP replay regenerates dependent CRCs, sizes
+and offsets; ordinary Save follows the complete-rewrite contract.
+
+QName-list restrictions in C++/Python/JS/TS retain XML-only expanded identities;
+ordinary native strings/lists retain their wire IDs and bytes. Generated XML/OPC
+admission and provider-completion fixes can reject an operation that previously
+escaped a tight quota or cancellation policy. C output omits a redundant
+predefined `xml` declaration. Schema language remains **1.21.0**. Regenerate
+affected codecs and consult the [migration notes](../../migration.md),
+[namespace checks](../verification/verification-runtime-boundaries-2026-10-21.md)
+and [OPC physical-record contract](zip_metadata.md).
+Public C#/Kotlin/Swift cancellation policy copies are runtime configuration and
+add no serialized fields. Failure retains the original caller error; Swift's
+deferred provider rejection publishes no XML/model candidate.
+
 Compiler/runtime **2.21.0** adds optional C++ OPC core-property adapters and managed
 publication authorization without changing existing native payload, managed save,
 journal or collaboration formats. Capability requirement profiles and routed PMR

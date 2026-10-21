@@ -1,0 +1,44 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:qname-lists"
+  xmlns:q="urn:allowed" targetNamespace="urn:qname-lists" elementFormDefault="qualified">
+  <xs:simpleType name="Names"><xs:list itemType="xs:QName"/></xs:simpleType>
+  <xs:simpleType name="Allowed"><xs:restriction base="t:Names">
+    <xs:enumeration value="q:first local q:second"/>
+  </xs:restriction></xs:simpleType>
+  <xs:simpleType name="Choice"><xs:union memberTypes="t:Allowed xs:unsignedShort"/></xs:simpleType>
+  <xs:simpleType name="QNameString"><xs:union memberTypes="xs:QName xs:string"/></xs:simpleType>
+  <xs:element name="sample"><xs:complexType><xs:sequence>
+    <xs:element name="names" type="t:Allowed" default="q:first local q:second"/>
+    <xs:element name="choice" type="t:Choice"/>
+  </xs:sequence><xs:attribute name="fixed_names" type="t:Names" use="required"
+    fixed="q:first local q:second"/></xs:complexType></xs:element>
+  <xs:element name="fixed_list"><xs:complexType><xs:sequence>
+    <xs:element name="names" type="t:Allowed" default="q:first local q:second"/>
+  </xs:sequence></xs:complexType></xs:element>
+  <xs:element name="attribute_default"><xs:complexType>
+    <xs:attribute name="names" type="t:Names" default="q:first q:second"/>
+    <xs:attribute name="fallback" type="t:QNameString"/>
+  </xs:complexType></xs:element>
+  <xs:element name="text_default" default="q:first q:second"><xs:complexType>
+    <xs:simpleContent><xs:extension base="t:Names">
+      <xs:attribute name="fallback" type="t:QNameString"/>
+    </xs:extension></xs:simpleContent>
+  </xs:complexType></xs:element>
+  <xs:element name="early_default"><xs:complexType><xs:sequence>
+    <xs:element name="fallback" type="t:QNameString"/>
+  </xs:sequence><xs:attribute name="names" type="t:Names" default="q:first q:second"/></xs:complexType></xs:element>
+  <xs:element name="root_scope"><xs:complexType>
+    <xs:attribute name="names" type="t:Names" default="q:first local q:second"/>
+    <xs:attribute name="category" type="xs:QName"/>
+    <xs:attribute name="fallback" type="t:QNameString"/>
+  </xs:complexType></xs:element>
+  <xs:element name="empty_default"><xs:complexType>
+    <xs:attribute name="names" type="t:Names" default=""/>
+    <xs:attribute name="category" type="xs:QName"/>
+  </xs:complexType></xs:element>
+  <xs:element name="root_scalar_default"><xs:complexType>
+    <xs:attribute name="names" type="t:Names" default="q:first local q:second"/>
+    <xs:attribute name="category" type="xs:QName" default="local"/>
+    <xs:attribute name="qualified" type="xs:QName" default="q:value"/>
+    <xs:attribute name="fallback" type="t:QNameString"/>
+  </xs:complexType></xs:element>
+</xs:schema>

@@ -137,6 +137,7 @@ public enum @package_name@ {
         public let localOffsetBytes: Swift.Int
         public let zip64: Swift.Bool
         fileprivate let payload: Swift.Int
+        fileprivate let physicalFile: Swift.Bool
     }
     private static let uint32Maximum = Swift.UInt64(Swift.UInt32.max)
     private static let uint16Maximum = Swift.Int(Swift.UInt16.max)
@@ -160,11 +161,11 @@ R"packageswift(    /// Reject nonrepresentable unsigned extents before narrowing
         return Swift.Int(value)
     }
     /// Keep the physical ZIP namespace independent of extraction or OPC URI normalization.
-    private static func physicalName(_ value: Swift.String) throws {
+    private static func physicalName(_ value: Swift.String, opc: Swift.Bool = false) throws {
         let encoded = Swift.Array(value.utf8)
-        guard !encoded.isEmpty, encoded.count <= uint16Maximum, !value.hasPrefix("/"), !value.hasSuffix("/"),
-            !value.contains("\\"), !value.contains(":"), !value.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }),
-            !value.split(separator: "/", omittingEmptySubsequences: false).contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else {
+        guard !encoded.isEmpty, encoded.count <= uint16Maximum, !value.hasPrefix("/"), (opc || !value.hasSuffix("/")),
+            !value.contains("\\"), (opc || !value.contains(":")), !value.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }),
+            !(opc && value.hasSuffix("/") ? Swift.String(value.dropLast()) : value).split(separator: "/", omittingEmptySubsequences: false).contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else {
             throw Failure(.invalidName, "Invalid physical ZIP name")
         }
     }
@@ -199,6 +200,12 @@ R"packageswift(    /// Reject nonrepresentable unsigned extents before narrowing
         }
         /// Read bounded exact chunks; malformed transport counts publish no reader.
         public static func open(_ source: any Source, budget selected: Budget? = nil) throws -> ZipReader {
+            try openPolicy(source,budget:selected,opc:false)
+        }
+        /// Read inert OPC identifiers through an explicit package-only physical naming policy.
+        public static func openOpc(_ bytes: [Swift.UInt8], budget: Budget? = nil) throws -> ZipReader { try openPolicy(MemorySource(bytes),budget:budget,opc:true) }
+        /// Share transport admission while retaining ordinary ZIP path validation by default.
+        private static func openPolicy(_ source: any Source, budget selected: Budget?, opc: Swift.Bool) throws -> ZipReader {
             let budget = try selected ?? Budget(); try budget.check(); let size = source.size
             guard size >= 0, size <= budget.configured.maxArchiveBytes else { throw Failure(.resourceLimit, "ZIP source exceeds limit") }
             try budget.hold(size); var retained = true
@@ -212,7 +219,7 @@ R"packageswift(    /// Reject nonrepresentable unsigned extents before narrowing
                 try budget.check(); guard chunk.count == count else { throw Failure(.invalidArchive, "Short or oversized ZIP source read") }
                 bytes.append(contentsOf: chunk)
             }
-            let entries = try directory(bytes, budget); try budget.check()
+            let entries = try directory(bytes, budget, opc:opc); try budget.check()
             let result = ZipReader(bytes, entries, budget); retained = false; return result
         }
         /// Spool a borrowed unknown-length source into an owned private temporary directory.
@@ -258,7 +265,7 @@ R"packageswift(    /// Reject nonrepresentable unsigned extents before narrowing
             }
         }
         /// Decode exact ZIP32 or ZIP64 directory extents before iterating any central metadata.
-        private static func directory(_ bytes: [Swift.UInt8], _ budget: Budget) throws -> [Entry] {
+        private static func directory(_ bytes: [Swift.UInt8], _ budget: Budget, opc: Swift.Bool) throws -> [Entry] {
             guard bytes.count >= 22 else { throw Failure(.invalidArchive, "Missing ZIP directory") }
             var end: Swift.Int?; let lower = Swift.max(0, bytes.count-22-uint16Maximum)
             for offset in stride(from: bytes.count-22, through: lower, by: -1) {
@@ -269,13 +276,16 @@ R"packageswift(    /// Reject nonrepresentable unsigned extents before narrowing
             guard try number(bytes, end+4, 2) == 0, try number(bytes, end+6, 2) == 0 else { throw Failure(.unsupportedFeature, "Multi-disk ZIP is unsupported") }
             var count = Swift.Int(try number(bytes, end+10, 2)), size = try extent(number(bytes, end+12, 4)), start = try extent(number(bytes, end+16, 4))
             var directoryEnd = end
-            if count == uint16Maximum || Swift.UInt64(size) == uint32Maximum || Swift.UInt64(start) == uint32Maximum {
+            let hasZip64Locator: Swift.Bool
+            if end >= 20 { hasZip64Locator = try number(bytes, end-20, 4) == 0x07064b50 }
+            else { hasZip64Locator = false }
+            if Swift.UInt64(size) == uint32Maximum || Swift.UInt64(start) == uint32Maximum || hasZip64Locator {
                 guard end >= 20, try number(bytes, end-20, 4) == 0x07064b50,
                     try number(bytes, end-16, 4) == 0, try number(bytes, end-4, 4) == 1 else { throw Failure(.invalidArchive, "Missing or invalid ZIP64 locator") }
                 let location = try extent(number(bytes, end-12, 8)); try span(bytes, location, 56)
 )packageswift"
-R"packageswift(                guard location <= end-20, end-20-location == 56, try number(bytes, location, 4) == 0x06064b50,
-                    try number(bytes, location+4, 8) == 44, try number(bytes, location+16, 4) == 0,
+R"packageswift(                guard location <= end-20, end-20-location >= 56, try number(bytes, location, 4) == 0x06064b50,
+                    try number(bytes, location+4, 8) >= 44, try number(bytes, location+4, 8) == Swift.UInt64(end-20-location-12), try number(bytes, location+16, 4) == 0,
                     try number(bytes, location+20, 4) == 0, try number(bytes, location+24, 8) == number(bytes, location+32, 8) else { throw Failure(.invalidArchive, "Invalid ZIP64 end record") }
                 let wideCount = try extent(number(bytes, location+32, 8)), wideSize = try extent(number(bytes, location+40, 8)), wideStart = try extent(number(bytes, location+48, 8))
                 guard (count == uint16Maximum || count == wideCount), (Swift.UInt64(size) == uint32Maximum || size == wideSize), (Swift.UInt64(start) == uint32Maximum || start == wideStart) else { throw Failure(.invalidArchive, "ZIP32/ZIP64 directory extents differ") }
@@ -295,10 +305,10 @@ R"packageswift(                guard location <= end-20, end-20-location == 56, 
                 guard compression == .deflate || flags & 6 == 0 else { throw Failure(.invalidArchive,"DEFLATE flags on stored entry") }
                 let nameLength = Swift.Int(try number(bytes, offset+28, 2)), extraLength = Swift.Int(try number(bytes, offset+30, 2)), commentLength = Swift.Int(try number(bytes, offset+32, 2))
                 let recordLength = 46+nameLength+extraLength+commentLength
-                guard recordLength <= directoryEnd-offset else { throw Failure(.invalidArchive, "ZIP central variable fields exceed directory") }
+                guard recordLength <= 65535, recordLength <= directoryEnd-offset else { throw Failure(.invalidArchive, "ZIP central variable fields exceed directory") }
                 let nameBytes = Swift.Array(bytes[(offset+46)..<(offset+46+nameLength)])
                 guard let name = Swift.String(bytes: nameBytes, encoding: .utf8), flags & 0x800 != 0 || nameBytes.allSatisfy({ $0 < 128 }) else { throw Failure(.unsupportedFeature, "Non-UTF8 ZIP names are unsupported") }
-                try physicalName(name); guard names.insert(WireString(name)).inserted else { throw Failure(.duplicateName, "Duplicate ZIP item", part: name) }
+                try physicalName(name,opc:opc); guard names.insert(WireString(name)).inserted else { throw Failure(.duplicateName, "Duplicate ZIP item", part: name) }
                 guard try number(bytes, offset+34, 2) == 0 else { throw Failure(.unsupportedFeature, "Multi-disk ZIP entry") }
                 let checksum = Swift.UInt32(try number(bytes, offset+16, 4))
                 var compressed = try number(bytes, offset+20, 4), expanded = try number(bytes, offset+24, 4), local = try number(bytes, offset+42, 4)
@@ -329,6 +339,9 @@ R"packageswift(                guard location <= end-20, end-20-location == 56, 
                 guard expandedSize <= budget.configured.maxPartBytes else { throw Failure(.resourceLimit, "ZIP part exceeds limit", part: name) }
                 try span(bytes, localOffset, 30)
                 guard localOffset <= start, start-localOffset >= 30, try number(bytes, localOffset, 4) == 0x04034b50,
+                    try number(bytes, localOffset+4, 2) <= 45, try number(bytes, offset+6, 2) <= 45,
+                    try number(bytes, localOffset+10, 2) == number(bytes, offset+12, 2),
+                    try number(bytes, localOffset+12, 2) == number(bytes, offset+14, 2),
                     try number(bytes, localOffset+6, 2) == flags, try number(bytes, localOffset+8, 2) == method else { throw Failure(.invalidArchive, "Local/central ZIP metadata differs", part: name) }
                 let localName = Swift.Int(try number(bytes, localOffset+26, 2)), localExtra = Swift.Int(try number(bytes, localOffset+28, 2))
                 guard localName == nameLength, localName+localExtra <= start-localOffset-30 else { throw Failure(.invalidArchive, "Invalid ZIP local variable fields") }
@@ -368,9 +381,16 @@ R"packageswift(                    compression != .stored || compressed == expan
                     payloadEnd = cursor+4+2*width
                 }
                 try budget.consume(.metadataBytes, 30+localName+localExtra, part: name)
-                ranges.append((localOffset, payloadEnd)); result.append(Entry(name: name, compression: compression, crc32: checksum, compressedBytes: compressedSize, expandedBytes: expandedSize, localOffsetBytes: localOffset, zip64: wide || localWide, payload: payload)); offset += recordLength
+                let creator = Swift.Int(try number(bytes,offset+5,1)), attributes = try number(bytes,offset+38,4)
+                let physicalFile = !name.hasSuffix("/") && !([0,10,14].contains(creator) && attributes & 0x18 != 0) && !([3,19].contains(creator) && attributes >> 16 & 0xf000 != 0 && attributes >> 16 & 0xf000 != 0x8000)
+                ranges.append((localOffset, payloadEnd)); result.append(Entry(name: name, compression: compression, crc32: checksum, compressedBytes: compressedSize, expandedBytes: expandedSize, localOffsetBytes: localOffset, zip64: wide || localWide, payload: payload, physicalFile: physicalFile)); offset += recordLength
             }
-            guard offset == directoryEnd else { throw Failure(.invalidArchive, "ZIP directory count differs") }
+            if offset != directoryEnd {
+                // Annex B requires consumption, with no cryptographic interpretation, of this optional record.
+                guard directoryEnd-offset >= 6 else { throw Failure(.invalidArchive, "Truncated ZIP directory signature") }
+                let signature = try number(bytes, offset, 4), signatureBytes = try number(bytes, offset+4, 2)
+                guard signature == 0x05054b50, signatureBytes == Swift.UInt64(directoryEnd-offset-6) else { throw Failure(.invalidArchive, "ZIP directory count differs") }
+            }
             ranges.sort { $0.0 < $1.0 }; var previous = 0
             for range in ranges { guard range.0 == previous else { throw Failure(.invalidArchive, "Overlapping, prefixed or unindexed ZIP data") }; previous = range.1 }
             guard previous == start else { throw Failure(.invalidArchive, "Unindexed ZIP local data") }
@@ -410,12 +430,15 @@ R"packageswift(                    compression != .stored || compressed == expan
         public let budget: Budget
         private struct Part { let name: Swift.String; let bytes: [Swift.UInt8]; let compression: Compression }
         private var parts: [Part] = []
+        private let opcNames: Swift.Bool
         private var names: Swift.Set<WireString> = []
         private var reserved = 0
         private var closed = false
         private var busy = false
         /// Construct without accessing a destination or emitting a partial header.
-        public init(budget: Budget? = nil) throws { self.budget = try budget ?? Budget() }
+        public init(budget: Budget? = nil) throws { self.budget = try budget ?? Budget(); opcNames = false }
+        /// Select inert package names without weakening public generic ZIP admission.
+        fileprivate init(opcBudget budget: Budget) { self.budget = budget; opcNames = true }
         /// Release only retained private staging when the writer lifetime ends.
         deinit { budget.release(reserved) }
         /// Fence reentry and prior failures before exposing any operation to callbacks.
@@ -426,7 +449,7 @@ R"packageswift(                    compression != .stored || compressed == expan
         public func add(_ name: Swift.String, _ bytes: [Swift.UInt8], compression: Compression = .stored) throws {
             try begin(); defer { busy = false }
             do {
-                try poll(); try physicalName(name)
+                try poll(); try physicalName(name,opc:opcNames)
                 guard bytes.count <= budget.configured.maxPartBytes else { throw Failure(.resourceLimit, "ZIP part exceeds limit", part: name) }
                 guard !names.contains(WireString(name)) else { throw Failure(.duplicateName, "Duplicate ZIP entry", part: name) }
                 try budget.consume(.entries, 1, part: name); try budget.consume(.expandedBytes, bytes.count, part: name)
@@ -460,6 +483,7 @@ R"packageswift(                    compression != .stored || compressed == expan
                 let wide = budget.configured.forceZip64 || budget.configured.forceZip64Entries || Swift.UInt64(part.bytes.count) >= uint32Maximum || Swift.UInt64(compressed.count) >= uint32Maximum
 )packageswift"
 R"packageswift(                let local = output.count, wideOffset = Swift.UInt64(output.count) >= uint32Maximum
+                guard name.count <= uint16Maximum-46-(wide || wideOffset ? 4+(wide ? 16:0)+(wideOffset ? 8:0):0) else { throw Failure(.invalidName,"ZIP central header exceeds OPC bound",part:part.name) }
                 let descriptor = budget.configured.descriptor, flags: Swift.UInt64 = 0x800 | (descriptor ? 8:0)
                 var header: [Swift.UInt8] = []
                 for (value, width): (Swift.UInt64, Swift.Int) in [(0x04034b50,4),(wide ? 45:20,2),(flags,2),(Swift.UInt64(part.compression.rawValue),2),(0,2),(33,2),(descriptor ? 0:Swift.UInt64(crc),4),(wide ? uint32Maximum:descriptor ? 0:Swift.UInt64(compressed.count),4),(wide ? uint32Maximum:descriptor ? 0:Swift.UInt64(part.bytes.count),4),(Swift.UInt64(name.count),2),(wide ? 20:0,2)] { header += wire(value,width) }
@@ -510,7 +534,7 @@ R"packageswift(                let local = output.count, wideOffset = Swift.UInt
         /// Stage and validate a complete ZIP before Foundation's same-directory atomic replacement.
         public func save(to path: Foundation.URL) throws {
             let bytes = try finish()
-            let validator = try ZipReader.open(bytes, budget: budget); defer { validator.close() }
+            let validator = try opcNames ? ZipReader.openOpc(bytes, budget: budget) : ZipReader.open(bytes, budget: budget); defer { validator.close() }
             for entry in validator.entries { _ = try validator.read(entry.name) }
             try budget.check()
             try Foundation.Data(bytes).write(to: path, options: .atomic)

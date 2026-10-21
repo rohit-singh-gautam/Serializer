@@ -180,6 +180,74 @@ class javascript_xml_scalar_test(unittest.TestCase):
                         '--moduleResolution', 'NodeNext', '--skipLibCheck', 'false', str(source)], check=True)
         subprocess.run(['node', str(source.with_suffix('.mjs'))], check=True)
 
+    def test_qname_list_schema_values_keep_expanded_ordered_identities(self):
+        """Check generated typed lists, nested unions and schema defaults under conflicting input aliases."""
+        source = ROOT / 'test/resources/xml_qname_lists/model.serializer'
+        subprocess.run([str(self.compiler), '--language', 'js,typescript', '--input', str(source),
+                        '--js.output', str(self.directory / 'qnames.mjs'),
+                        '--typescript.output', str(self.directory / 'qnames.d.mts')], check=True)
+        output = self.run_node('''
+        import * as Q from './qnames.mjs';
+        const document='<t:sample xmlns:t="urn:qname-lists" xmlns:p="urn:allowed" xmlns:q="urn:shadow" fixed_names="p:first local p:second"><t:names xmlns:c="urn:allowed">c:first local c:second</t:names><t:choice>p:first local p:second</t:choice></t:sample>';
+        const results=[];
+        for(const size of [1,2,31,65536]){
+          const owner=Q.QnameListsSample.decodeXmlChunks(chunks(document,size));
+          assert.deepEqual(owner.names,['c:first','local','c:second']);
+          assert.equal(owner.choice,'p:first local p:second');
+          const encoded=owner.encodeXml();results.push(encoded);
+          for(const protocol of Object.values(Q.Protocol)){
+            const before=owner.encode(protocol);assert.deepEqual(Q.QnameListsSample.decodeXml(encoded).encode(protocol),before);
+            assert.deepEqual(owner.encode(protocol),before);
+          }
+          owner.fixedNames=['q:first','local','q:second'];assert.throws(()=>owner.encodeXml());
+        }
+        const defaults=Q.QnameListsFixedList.decodeXmlChunks(chunks('<t:fixed_list xmlns:t="urn:qname-lists" xmlns="urn:active" xmlns:q="urn:shadow"><t:names/></t:fixed_list>',1));
+        assert.deepEqual(defaults.names,['q:first','local','q:second']);results.push(defaults.encodeXml());
+        const attributes=Q.QnameListsAttributeDefault.decodeXml('<t:attribute_default xmlns:t="urn:qname-lists" xmlns:q="urn:shadow" fallback="q0:literal"/>');
+        assert.deepEqual(attributes.names,['q:first','q:second']);assert.deepEqual(attributes.fallback,['q0:literal']);results.push(attributes.encodeXml());
+        const text=Q.QnameListsTextDefault.decodeXml('<t:text_default xmlns:t="urn:qname-lists" xmlns:q="urn:shadow" fallback="q0:literal"/>');
+        assert.deepEqual(text.value,['q:first','q:second']);assert.deepEqual(text.fallback,['q0:literal']);results.push(text.encodeXml());
+        const scoped=Q.QnameListsRootScope.decodeXml('<t:root_scope xmlns:t="urn:qname-lists" xmlns="urn:active" xmlns:q="urn:shadow" category="Name" fallback="q0:literal"/>');
+        assert.deepEqual(scoped.names,['q:first','local','q:second']);assert.deepEqual(scoped.category,['Name']);
+        const before=scoped.encode(Q.Protocol.BINARY_NONE);results.push(scoped.encodeXml());assert.deepEqual(scoped.encode(Q.Protocol.BINARY_NONE),before);
+        const scalarDefaults=Q.QnameListsRootScalarDefault.decodeXml('<t:root_scalar_default xmlns:t="urn:qname-lists" xmlns="urn:active" xmlns:q="urn:shadow" fallback="q0:literal"/>');
+        assert.deepEqual(scalarDefaults.category,['local']);assert.deepEqual(scalarDefaults.qualified,['q:value']);
+        assert.deepEqual(scalarDefaults.fallback,['q0:literal']);results.push(scalarDefaults.encodeXml());
+        for(const wrong of ['p:second local p:first','p:first p:local p:second','missing:first local p:second']){
+          assert.throws(()=>Q.QnameListsSample.decodeXml(document.replace('c:first local c:second',wrong)));
+        }
+        console.log(JSON.stringify(results));
+        ''')
+        expected = [('urn:allowed', 'first'), ('', 'local'), ('urn:allowed', 'second')]
+        for index, xml in enumerate(json.loads(output)):
+            root = self.provider.fromstring(xml.encode())
+            node = root[0] if index < 5 else root
+            lexical = node.get('names') if index in (5, 7, 8) else node.text
+            actual = []
+            for token in lexical.split():
+                prefix, separator, local = token.partition(':')
+                actual.append((node.nsmap.get(prefix if separator else None, ''), local if separator else prefix))
+            self.assertEqual(actual, expected if index < 5 or index in (7, 8) else [expected[0], expected[2]])
+            if index >= 5:
+                self.assertNotIn('q0', root.nsmap)
+            if index == 7:
+                prefix, _, local = root.get('category').partition(':')
+                self.assertEqual((root.nsmap[prefix], local), ('urn:active', 'Name'))
+            if index == 8:
+                self.assertEqual(root.get('category'), 'local')
+                self.assertFalse(root.nsmap.get(None, ''))
+                prefix, local = root.get('qualified').split(':')
+                self.assertEqual((root.nsmap[prefix], local), ('urn:allowed', 'value'))
+        typed = self.directory / 'qname-typed.mts'
+        typed.write_text("import {QnameListsSample} from './qnames.mjs';\n"
+                         "const owner=QnameListsSample.decodeXml(" + json.dumps(
+                             '<t:sample xmlns:t="urn:qname-lists" xmlns:p="urn:allowed" fixed_names="p:first local p:second"><t:names>p:first local p:second</t:names><t:choice>7</t:choice></t:sample>') + ");\n"
+                         "const values:string[]=owner.names;if(values.length!==3)throw new Error('typed QName list');\n",
+                         encoding='utf-8')
+        subprocess.run(['node', str(self.typescript), '--strict', '--target', 'ES2020', '--module', 'NodeNext',
+                        '--moduleResolution', 'NodeNext', '--skipLibCheck', 'false', str(typed)], check=True)
+        subprocess.run(['node', str(typed.with_suffix('.mjs'))], check=True)
+
     def test_unsupported_pattern_preflight_preserves_artifacts(self):
         """Keep genuine provider-only expressions explicit until an independent runtime adapter is implemented."""
         for index, expression in enumerate(('\\p{L}+', '[a-z-[aeiou]]+')):

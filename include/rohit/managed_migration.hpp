@@ -55,6 +55,19 @@ struct options {
   std::size_t max_working_bytes{512U * serializer::decode_limits::mebibyte};
 };
 
+// History conversion never discards retained states without an explicit application decision.
+enum class history_loss_policy { reject, discard_unselected };
+struct history_policy_options {
+  history_mode source_mode{history_mode::linear};
+  history_labels source_labels{history_labels::disabled};
+  history_mode target_mode{history_mode::linear};
+  history_labels target_labels{history_labels::disabled};
+  history_loss_policy loss{history_loss_policy::reject};
+  // A complete root-to-leaf path is required when flattening a branching tree.
+  // It must include the current revision; excluded branches require discard_unselected.
+  std::vector<std::uint64_t> retained_tree_path{};
+};
+
 namespace detail {
 inline constexpr char stale_managed_headers_message[]{
     "Managed migration requires identity-policy-aware generated headers; regenerate with the current compiler"};
@@ -484,6 +497,174 @@ std::vector<std::uint8_t> migrate_save(std::span<const std::uint8_t> bytes, cons
       identity_encoding::fixed, serializer::serialize_key_type::integer>(document,
       selected.max_output_bytes), allocation, selected.max_output_bytes);
   }
+}
+
+// Convert explicit native history/label policies without changing model bytes or identity.
+// Every source state is validated even if explicitly discarded. No files or live stores are mutated.
+// Tree-to-linear conversion drops revision-number metadata; linear-to-tree assigns ordinal+1 revisions.
+// Client checkpoints/outboxes and attached journals must use their own application-owned rebaseline.
+// Only selected.storage and byte budgets apply here; identity/codec transcoding uses migrate_save.
+template <typename Root, typename Traits = model_traits<Root>>
+std::vector<std::uint8_t> convert_history_policy(std::span<const std::uint8_t> source,
+    const history_policy_options& policy, const options& selected = {}) {
+  const auto valid_mode = [](history_mode mode) {
+    return mode == history_mode::disabled || mode == history_mode::linear || mode == history_mode::tree;
+  };
+  const auto valid_labels = [](history_labels labels) {
+    return labels == history_labels::disabled || labels == history_labels::enabled;
+  };
+  if (!valid_mode(policy.source_mode) || !valid_mode(policy.target_mode) ||
+      !valid_labels(policy.source_labels) || !valid_labels(policy.target_labels) ||
+      (policy.source_mode == history_mode::disabled && policy.source_labels != history_labels::disabled) ||
+      (policy.target_mode == history_mode::disabled && policy.target_labels != history_labels::disabled) ||
+      (policy.loss != history_loss_policy::reject && policy.loss != history_loss_policy::discard_unselected) ||
+      (!policy.retained_tree_path.empty() &&
+       (policy.source_mode != history_mode::tree || policy.target_mode != history_mode::linear))) {
+    throw std::invalid_argument{"Invalid explicit managed history conversion policy"};
+  }
+  auto limits = detail::input_limits(selected);
+  if (source.size() > limits.max_input_bytes) { throw std::length_error{"History conversion input-byte budget exceeded"}; }
+  std::size_t workspace{};
+  // Source bytes, decoded metadata/snapshots and native validation coexist during conversion.
+  constexpr auto source_validation_staging_copies = 3;
+  for (int copy = 0; copy < source_validation_staging_copies; ++copy) {
+    detail::charge(workspace, source.size(), selected.max_working_bytes);
+  }
+  limits.max_allocation_bytes = std::min(limits.max_allocation_bytes, selected.max_working_bytes - workspace);
+  auto validation_options = selected.storage;
+  validation_options.decode = limits;
+  validation_options.max_resident_bytes = std::min(validation_options.max_resident_bytes,
+      selected.max_working_bytes - workspace);
+  std::optional<records::identity_allocation_checkpoint> allocation;
+  auto payload = source;
+  if (source.size() >= detail::allocation_magic.size() &&
+      std::ranges::equal(source.first(detail::allocation_magic.size()), detail::allocation_magic)) {
+    allocation = ::rohit::managed::detail::decode<records::identity_allocation_checkpoint>(
+        source.subspan(detail::allocation_magic.size()), limits);
+    if (allocation->format_version != 1 || allocation->leases.empty()) {
+      throw std::invalid_argument{"Unsupported history conversion identity checkpoint"};
+    }
+    payload = allocation->model;
+  }
+  auto document = ::rohit::managed::detail::decode<detail::saved_document>(payload, limits);
+  const bool source_labeled = document.validate_shape();
+  if (document.mode != static_cast<std::uint32_t>(policy.source_mode) ||
+      source_labeled != (policy.source_labels == history_labels::enabled) ||
+      document.schema_id != Traits::schema_id ||
+      document.id_bits != std::numeric_limits<typename Traits::id_type>::digits) {
+    throw std::invalid_argument{"History conversion source profile does not match the generated model"};
+  }
+  const std::vector<std::uint8_t> original{source.begin(), source.end()};
+  detail::validate_native<Root, Traits>(original, document, source_labeled, validation_options);
+  const bool target_labeled = policy.target_labels == history_labels::enabled;
+  const auto source_count = policy.source_mode == history_mode::tree ? document.revisions.size()
+      : policy.source_mode == history_mode::linear ? document.entries.size() : std::size_t{1};
+  if (policy.target_mode == history_mode::disabled && source_count > 1 &&
+      policy.loss != history_loss_policy::discard_unselected) {
+    throw std::invalid_argument{"Disabling managed history requires explicit retained-state loss permission"};
+  }
+  if (policy.source_mode == history_mode::tree && policy.target_mode == history_mode::linear) {
+    std::map<std::uint64_t, const detail::saved_revision*> revisions;
+    std::map<std::uint64_t, std::vector<std::uint64_t>> children;
+    for (const auto& revision : document.revisions) {
+      revisions.emplace(revision.number, &revision);
+      children[revision.parent].push_back(revision.number);
+    }
+    auto path = policy.retained_tree_path;
+    if (path.empty()) {
+      auto parent = std::uint64_t{};
+      for (;;) {
+        const auto found = children.find(parent);
+        if (found == children.end()) { break; }
+        if (found->second.size() != 1) {
+          throw std::invalid_argument{"Flattening a branching history requires an explicit retained tree path"};
+        }
+        parent = found->second.front();
+        path.push_back(parent);
+      }
+    }
+    if (path.empty() || (path.size() != document.revisions.size() &&
+        policy.loss != history_loss_policy::discard_unselected)) {
+      throw std::invalid_argument{"Flattening managed history would discard unselected branches"};
+    }
+    document.entries.clear();
+    document.entries.reserve(path.size());
+    auto previous = std::uint64_t{};
+    bool found_current = false;
+    for (const auto number : path) {
+      const auto found = revisions.find(number);
+      if (found == revisions.end() || found->second->parent != previous) {
+        throw std::invalid_argument{"Retained tree path is not a root-to-child history chain"};
+      }
+      const auto& revision = *found->second;
+      if (number == document.current_revision) {
+        document.cursor = document.entries.size();
+        found_current = true;
+      }
+      detail::saved_entry entry;
+      entry.snapshot = revision.snapshot;
+      entry.label = target_labeled ? revision.label : std::string{};
+      entry.labeled = target_labeled;
+      document.entries.push_back(std::move(entry));
+      previous = number;
+    }
+    if (!found_current || children.contains(path.back())) {
+      throw std::invalid_argument{"Retained tree path must include the current revision and end at a leaf"};
+    }
+    document.revisions.clear();
+  } else if (policy.target_mode != policy.source_mode && policy.target_mode != history_mode::disabled) {
+    if (policy.source_mode == history_mode::disabled) {
+      detail::saved_entry baseline;
+      baseline.snapshot = document.current_snapshot;
+      baseline.labeled = target_labeled;
+      document.entries.push_back(std::move(baseline));
+      document.cursor = 0;
+    }
+    if (policy.target_mode == history_mode::tree) {
+      document.revisions.clear();
+      document.revisions.reserve(document.entries.size());
+      std::uint64_t previous{};
+      for (auto& entry : document.entries) {
+        if (previous == std::numeric_limits<std::uint64_t>::max()) {
+          throw std::overflow_error{"History conversion revision identity exhausted"};
+        }
+        detail::saved_revision revision;
+        revision.parent = previous;
+        revision.number = ++previous;
+        revision.snapshot = std::move(entry.snapshot);
+        revision.label = target_labeled ? std::move(entry.label) : std::string{};
+        revision.labeled = target_labeled;
+        document.revisions.push_back(std::move(revision));
+      }
+      document.current_revision = document.cursor + 1;
+      document.revision_high_water = previous;
+      document.entries.clear();
+    }
+  }
+  if (policy.target_mode == history_mode::disabled) {
+    document.entries.clear();
+    document.revisions.clear();
+    document.cursor = 0;
+  }
+  for (auto& entry : document.entries) {
+    if (!target_labeled) { entry.label.clear(); }
+    entry.labeled = target_labeled;
+  }
+  for (auto& revision : document.revisions) {
+    if (!target_labeled) { revision.label.clear(); }
+    revision.labeled = target_labeled;
+  }
+  document.mode = static_cast<std::uint32_t>(policy.target_mode);
+  document.format_version = target_labeled ? (policy.target_mode == history_mode::tree ? 1U : 2U) : 3U;
+  const auto maximum = std::min(selected.max_output_bytes, selected.max_working_bytes - workspace);
+  auto result = detail::wrap(detail::encode_wire<detail::saved_document,
+      identity_encoding::fixed, serializer::serialize_key_type::integer>(document, maximum), allocation, maximum);
+  detail::charge(workspace, result.size(), selected.max_working_bytes);
+  validation_options.decode.max_input_bytes = std::min(selected.storage.decode.max_input_bytes, selected.max_output_bytes);
+  validation_options.max_resident_bytes = std::min(selected.storage.max_resident_bytes,
+      selected.max_working_bytes - workspace);
+  detail::validate_native<Root, Traits>(result, document, target_labeled, validation_options);
+  return result;
 }
 
 namespace detail {

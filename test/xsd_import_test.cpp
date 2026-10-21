@@ -374,6 +374,24 @@ TEST(xsd_import, builtin_nmtokens_supports_lexical_string_and_typed_list_storage
   EXPECT_EQ(scalar_contract.fields.front().facets.min_length, 1U);
 }
 
+// QName lexical lists use the same generated native string arrays as authored schema-bound mappings.
+TEST(xsd_import, builtin_qname_lists_import_with_expanded_namespace_contracts) {
+  import_directory files;
+  const auto path = files.write("model.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:simpleType name="Names"><xs:list itemType="xs:QName"/></xs:simpleType><xs:element name="model"><xs:complexType><xs:sequence><xs:element name="names" type="Names" minOccurs="0"/></xs:sequence><xs:attribute name="attribute_names" type="Names" use="required"/></xs:complexType></xs:element></xs:schema>)");
+  const auto imported = binding::import_xsd(path, {"models", {}, "model.xsd"});
+  const auto parsed = rohit::serializer::parser::parse_file(files.write("model.serializer", imported.schema_text));
+  const auto contract = binding::schema{binding::effective_options(parsed.statements, {})}.bind(*model_classes(parsed).front());
+  ASSERT_EQ(contract.fields.size(), 2U);
+  for (const auto& field : contract.fields) {
+    EXPECT_TRUE(field.list);
+    EXPECT_EQ(field.facets.list_item_kind, "QName");
+    EXPECT_FALSE(field.repeated);
+  }
+  for (const auto language : {"cpp", "python", "js", "typescript", "go", "java", "csharp", "kotlin", "swift", "c", "rust"}) {
+    EXPECT_NO_THROW(binding::validate_backend(contract, language)) << language;
+  }
+}
+
 TEST(xsd_import, annotation_mixed_markup_does_not_relax_structural_schema_text) {
   import_directory files;
   const auto documented = files.write("documented.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:annotation><xs:documentation>Leading <em xmlns="urn:documentation">marked</em> trailing text.</xs:documentation></xs:annotation><xs:element name="model"><xs:complexType><xs:attribute name="id" type="xs:unsignedInt"/></xs:complexType></xs:element></xs:schema>)");
@@ -460,7 +478,7 @@ TEST(xsd_import, outer_union_value_constraints_require_selected_member_identity)
   }
 }
 
-// Python keeps schema-scope list identities inside union members; unimplemented backends reject.
+// C++ and Python retain schema-scope list identities inside independent union members.
 TEST(xsd_import, nested_qname_list_enumeration_selects_supported_backend_contracts) {
   import_directory files;
   const auto path = files.write("model.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:q="urn:allowed"><xs:simpleType name="Names"><xs:list itemType="xs:QName"/></xs:simpleType><xs:simpleType name="Allowed"><xs:restriction base="Names"><xs:enumeration value="q:item"/></xs:restriction></xs:simpleType><xs:simpleType name="Value"><xs:union memberTypes="Allowed xs:int"/></xs:simpleType><xs:element name="model"><xs:complexType><xs:attribute name="value" type="Value"/></xs:complexType></xs:element></xs:schema>)");
@@ -469,7 +487,7 @@ TEST(xsd_import, nested_qname_list_enumeration_selects_supported_backend_contrac
   const auto options = binding::effective_options(parsed.statements, {});
   const auto contract = binding::schema{options}.bind(*model_classes(parsed).front());
   EXPECT_NO_THROW(binding::validate_backend(contract, "python"));
-  EXPECT_THROW(binding::validate_backend(contract, "cpp"), std::invalid_argument);
+  EXPECT_NO_THROW(binding::validate_backend(contract, "cpp"));
   const auto& allowed = contract.fields.front().facets.union_members.front();
   ASSERT_EQ(allowed.qname_list_enumeration.size(), 1U);
   ASSERT_EQ(allowed.qname_list_enumeration.front().size(), 1U);

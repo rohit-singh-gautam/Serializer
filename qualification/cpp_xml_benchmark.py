@@ -15,6 +15,7 @@ import tempfile
 import xml.etree.ElementTree as etree
 
 from python_xml_benchmark import ROOT, SOURCE, WORKLOAD_SEED, XML_NAMESPACE, check_xml
+from python_xml_benchmark import MAX_WORKLOAD_TAGS, suppress_windows_error_dialogs
 
 
 def digest(path):
@@ -29,12 +30,18 @@ def main():
     parser.add_argument('--runtime-library', type=Path, required=True)
     parser.add_argument('--provider-prefix', type=Path, required=True)
     parser.add_argument('--build', type=Path, required=True)
+    parser.add_argument('--tags', type=int, default=20000)
     parser.add_argument('--headers', type=Path, default=ROOT / 'include',
                         help='Public headers matching the supplied immutable runtime library')
     parser.add_argument('--cxx', help='MSVC cl.exe on Windows or a native C++20 compiler on Linux')
     parser.add_argument('--xml-library', type=Path,
                         help='Explicit LibXml2 library; otherwise resolved beneath the provider prefix')
+    parser.add_argument('--link-library', type=Path, action='append', default=[],
+                        help='Additional actual runtime dependency, such as an enabled zlib provider')
     args = parser.parse_args()
+    suppress_windows_error_dialogs()
+    if not 1 <= args.tags <= MAX_WORKLOAD_TAGS:
+        parser.error(f'--tags must be between 1 and {MAX_WORKLOAD_TAGS} for this owning workload')
     windows = os.name == 'nt'
     if not windows and platform.system() != 'Linux':
         parser.error('This orchestrator supports native Windows MSVC and Linux C++20 hosts')
@@ -75,8 +82,8 @@ def main():
     randomizer = random.Random(WORKLOAD_SEED)
     alphabet = 'abcXYZ012 &<>\t\r\n\U0001f600\u03a9'
     workloads = [('small', ['A', 'B']),
-                 ('repeated', ['repeated & <escaped> \U0001f600'] * 20000),
-                 ('fixed_seed', [''.join(randomizer.choices(alphabet, k=32)) for _ in range(20000)])]
+                 ('repeated', ['repeated & <escaped> \U0001f600'] * args.tags),
+                 ('fixed_seed', [''.join(randomizer.choices(alphabet, k=32)) for _ in range(args.tags)])]
     driver = ROOT / 'qualification/cpp_xml_benchmark.cpp'
     protocols = ('JSON', 'BINARY_NONE', 'BINARY_INTEGER', 'BINARY_STRING')
     with tempfile.TemporaryDirectory(prefix='cpp-xml-benchmark-', dir=build) as temporary:
@@ -103,7 +110,7 @@ def main():
                                 '/I' + str(provider / 'include/libxml2')]
                 else:
                     command += ['/DSERIALIZER_XML_BENCHMARK_NATIVE_ONLY']
-                command += [driver, '/link', runtime, 'Psapi.lib']
+                command += [driver, '/link', runtime, *args.link_library, 'Psapi.lib']
             else:
                 command = [cxx, '-std=c++20', '-O2', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
                            '-I' + str(headers), '-I' + str(output)]
@@ -111,7 +118,7 @@ def main():
                     command += ['-I' + str(provider / 'include/libxml2')]
                 else:
                     command += ['-DSERIALIZER_XML_BENCHMARK_NATIVE_ONLY']
-                command += [driver, runtime, '-o', executable]
+                command += [driver, runtime, *args.link_library, '-o', executable]
             if enabled:
                 command += [xml_library]
                 if not windows:
@@ -152,6 +159,10 @@ def main():
             fixture.write_bytes(document)
             workload = {'name': name, 'tags': len(tags), 'input_bytes': len(document),
                         'input_sha256': digest(fixture), 'native_protocols': []}
+            if len(tags) > 2:
+                workload['interruption_controls'] = json.loads(run(
+                    [profiles['xml_enabled']['executable'], 'xml-interruptions', fixture, build / 'unused-output'],
+                    name + '-interruptions'))
             for mode in ('xml-encode', 'xml-decode'):
                 measurement, output = operation('xml_enabled', name, mode, fixture)
                 check_xml(output.read_bytes(), tags)
@@ -196,6 +207,8 @@ def main():
                   'public_headers': {'include/' + path.relative_to(headers).as_posix(): digest(path)
                                      for path in sorted((headers / 'rohit').rglob('*.hpp'))},
                   'provider_library': str(xml_library), 'provider_library_sha256': digest(xml_library),
+                  'additional_link_libraries': [{'path': str(path.resolve(strict=True)), 'sha256': digest(path.resolve(strict=True))}
+                                                for path in args.link_library],
                   'warmup_iterations': 1, 'measured_iterations': 5,
                   'profiles': {name: {key: value for key, value in profile.items() if key != 'executable'}
                                for name, profile in profiles.items()},

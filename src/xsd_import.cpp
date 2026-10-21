@@ -187,8 +187,8 @@ class importer {
       const auto& kind = node.qualified_name.local;
       if (kind == "list") {
         const auto item = resolve(node, attribute(node, "itemType"));
-        if (item.namespace_uri != xsd_namespace || item.local == "QName") {
-          throw std::invalid_argument{"Imported typed lists require builtin non-QName scalar items"};
+        if (item.namespace_uri != xsd_namespace) {
+          throw std::invalid_argument{"Imported typed lists require builtin scalar items"};
         }
         auto item_node = node;
         item_node.attributes = {{{"type", ""}, "xs:" + item.local}};

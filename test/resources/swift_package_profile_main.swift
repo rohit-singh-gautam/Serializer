@@ -27,11 +27,28 @@ func profileChecks(_ directory: URL) throws {
     var collision = preserved; collision.extensions = P.Extensions(parts:preserved.extensions.parts+[P.BinaryPart([],name:"/3D/model.xml",contentType:"application/octet-stream")],relationships:preserved.extensions.relationships)
     rejected(.duplicateName) { _ = try ProfileArchive.encode(collision) }
     let cases = try String(contentsOf:directory.appendingPathComponent("opc-cases.tsv"),encoding:.utf8)
+    var metadataFailures: [String] = []
     for row in cases.split(whereSeparator: \.isNewline) {
         let fields = row.split(separator:"\t").map(String.init); checkLabel = fields[0]
         let input = try bytes(directory.appendingPathComponent(fields[0]).path)
-        rejected { _ = try ProfileArchive.decode(input) }
+        do { if fields.count > 1 && fields[1] == "valid" {
+            let decoded = try ProfileArchive.decode(input)
+            _ = try ProfileArchive.decode(ProfileArchive.encode(decoded))
+        }
+        else if fields.count > 1 && fields[1] == "preserve" {
+            var policy = P.ExtensionPolicy(); policy.parts = .preserve; policy.relationships = .preserve
+            let decoded = try ProfileArchive.decode(input,policy:policy)
+            let roundtrip = try ProfileArchive.decode(ProfileArchive.encode(decoded),policy:policy)
+            require(decoded.extensions.relationships.map(\.target) == roundtrip.extensions.relationships.map(\.target),"External relationship spelling changed")
+        }
+        else {
+            var policy = P.ExtensionPolicy()
+            if fields.count > 1 && fields[1] == "preserve-invalid" { policy.parts = .preserve; policy.relationships = .preserve }
+            do { _ = try ProfileArchive.decode(input,policy:policy); metadataFailures.append(fields[0]+": unexpected acceptance") } catch is P.Failure {}
+        }
+        } catch { metadataFailures.append(fields[0]+": "+String(describing:error)) }
     }
+    if !metadataFailures.isEmpty { throw P.Failure(.semantic,metadataFailures.joined(separator:"; ")) }
     checkLabel = "middle-typed-part"
     rejected(.codec) { _ = try ProfileCollectionArchive.decode(bytes(directory.appendingPathComponent("middle.opc").path)) }
     let role = P.Role("main",name:"/3D/model.xml",contentType:"application/vnd.serializer.test-model+xml",source:"/",relationship:"urn:serializer:main-model",id:nil,compression:.stored,minimum:1,maximum:1)

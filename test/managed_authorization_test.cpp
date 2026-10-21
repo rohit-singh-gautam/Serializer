@@ -83,6 +83,68 @@ public:
   // Address only this owner's journal and its native companions.
   std::filesystem::path document() const { return path_ / "document"; }
 };
+
+// Run every optional mechanism through real native publication and Save/reopen for one history policy.
+template <managed::history_mode Mode, managed::history_labels Labels>
+void check_native_capability_combinations() {
+  using selected_store = managed::model_store<ledger, Mode, Labels>;
+  for (std::uint32_t optional = 0; optional < 8; ++optional) {
+    temporary_journal_directory directory;
+    const bool collaboration = (optional & 1U) != 0;
+    const bool authorization = (optional & 2U) != 0;
+    const bool journal = (optional & 4U) != 0;
+    auto selected = Mode == managed::history_mode::disabled ? managed::managed_capability::none
+        : managed::managed_capability::history;
+    if (collaboration) { selected = selected | managed::managed_capability::collaboration; }
+    if (authorization) { selected = selected | managed::managed_capability::authorization; }
+    if (journal) { selected = selected | managed::managed_capability::journal; }
+    managed::managed_capability_profile profile;
+    profile.selected = managed::managed_capability_profile::version_one_all;
+    profile.excluded = static_cast<managed::managed_capability>(
+        static_cast<std::uint32_t>(profile.selected) & ~static_cast<std::uint32_t>(selected));
+    managed::collaboration_authority<ledger> authority{ledger{"Before"}, 1};
+    authority.open_session(10);
+    managed::collaboration_transport transport{authority, std::uint64_t{10}};
+    std::size_t authorization_calls{};
+    const auto make_store = [&] {
+      auto result = std::make_unique<selected_store>(ledger{"Before"});
+      typename selected_store::authorization_callback callback;
+      if (authorization) {
+        callback = [&](auto, const auto&, const auto&, bool) { ++authorization_calls; return true; };
+      }
+      result->configure_capabilities(profile, std::move(callback));
+      EXPECT_EQ(result->enabled_capabilities(), selected);
+      if (collaboration) { result->collaborate(std::uint64_t{10}).bind(transport); }
+      return result;
+    };
+    auto store = make_store();
+    EXPECT_NE(store->read()->persistent_id, 0U);
+    if (collaboration) { store->synchronize(); }
+    if (journal) { store->create_journal(directory.document()); }
+    else { EXPECT_THROW(store->create_journal(directory.document()), std::logic_error); }
+    store->execute_transaction([](auto& tx) { tx.root().set_name("After"); }).throw_if_failed();
+    if (collaboration) { store->synchronize(); }
+    if constexpr (Mode != managed::history_mode::disabled) {
+      store->undo();
+      if (collaboration) { store->synchronize(); }
+      EXPECT_EQ(store->read()->name, "Before");
+    }
+    const auto expected = store->read()->name;
+    const auto document = store->document();
+    const auto allocated = store->allocated_id();
+    if (journal) { store->save_journal(); }
+    const auto bytes = store->save();
+    store.reset();
+    auto restored = make_store();
+    if (journal) { restored->recover_journal(directory.document()); }
+    else { restored->load(bytes); }
+    EXPECT_EQ(restored->read()->name, expected);
+    EXPECT_EQ(restored->document(), document);
+    EXPECT_EQ(restored->allocated_id(), allocated);
+    EXPECT_EQ(restored->enabled_capabilities(), selected);
+    EXPECT_EQ(authorization_calls != 0, authorization);
+  }
+}
 } // namespace
 
 // Missing grants deny, capabilities stay separate, and a descendant grant cannot override an ancestor denial.
@@ -359,6 +421,62 @@ TEST(managed_authorization, authority_uses_identical_complete_candidate_rules) {
   EXPECT_EQ(authority.read()->entries.at(10).amount_minor_units, 200);
 }
 
+// Bulk editable application and imported identities pass the same content/structure publication rules.
+TEST(managed_authorization, editable_and_import_share_the_complete_candidate_boundary) {
+  store_type store{ledger{"Before", {{10, {"Protected", 100}}}}};
+  const auto root = store.read()->persistent_id;
+  const auto child = store.read()->entries.at(10).persistent_id;
+  auto rules = editable_subtree(root);
+  rules.push_back({{child, {}}, permission::content, decision::deny});
+  managed::authorization_policy policy{std::move(rules)};
+  install_policy(store, policy);
+  const auto baseline = store.read();
+  auto candidate = *baseline;
+  candidate.entries.at(10).memo = "Denied";
+  candidate.persistent_id = 0;
+  EXPECT_EQ(store.execute_transaction([&](auto& tx) {
+    tx.root().apply_editable(std::move(candidate));
+  }).status, managed::transaction_status::failed);
+  EXPECT_EQ(store.read(), baseline);
+  rules = editable_subtree(root);
+  rules.push_back({{root, {2}}, permission::structure, decision::deny});
+  policy = managed::authorization_policy{std::move(rules)};
+  EXPECT_EQ(store.execute_transaction([](auto& tx) {
+    tx.registry().adopt(ledger_example::entry{"Imported", 200}, [](auto& destination, auto value) {
+      destination.entries.emplace(20, std::move(value));
+    });
+  }).status, managed::transaction_status::failed);
+  EXPECT_EQ(store.read(), baseline);
+  const auto burned = store.allocated_id();
+  policy = managed::authorization_policy{editable_subtree(root)};
+  store.execute_transaction([](auto& tx) {
+    tx.registry().adopt(ledger_example::entry{"Imported", 200}, [](auto& destination, auto value) {
+      destination.entries.emplace(20, std::move(value));
+    });
+  }).throw_if_failed();
+  EXPECT_GT(store.read()->entries.at(20).persistent_id, burned);
+}
+
+// Application context revocation is read at commit; an already issued editor is not a permanent grant.
+TEST(managed_authorization, required_provider_checks_current_host_context_at_publication) {
+  store_type store{ledger{"Before"}};
+  bool authenticated = true;
+  managed::managed_capability_profile profile;
+  profile.selected = managed::managed_capability::history | managed::managed_capability::authorization;
+  store.configure_capabilities(profile, [&](auto, const auto&, const auto&, bool) { return authenticated; });
+  const auto before = store.read();
+  store_type::outcome_type outcome;
+  auto transaction = store.begin_transaction(outcome);
+  transaction.root().set_name("Candidate");
+  authenticated = false;
+  EXPECT_THROW(transaction.commit(), managed::authorization_error);
+  EXPECT_EQ(store.read(), before);
+  EXPECT_EQ(outcome.status, managed::transaction_status::failed);
+  EXPECT_THROW(store.reset_history(), managed::authorization_error);
+  authenticated = true;
+  EXPECT_NO_THROW(store.reset_history());
+}
+
 // Explicit profile versions cannot silently expand features or bypass required authorization.
 TEST(managed_capabilities, versioned_selection_and_engine_validation) {
   using capability = managed::managed_capability;
@@ -379,6 +497,64 @@ TEST(managed_capabilities, versioned_selection_and_engine_validation) {
   profile.selected = capability::none;
   profile.excluded = capability::journal;
   EXPECT_THROW(profile.resolve(), std::invalid_argument);
+}
+
+// All forty legal mode/label/mechanism combinations execute real history, journal and session engines.
+TEST(managed_capabilities, exhaustive_native_component_activation_and_recovery) {
+  check_native_capability_combinations<managed::history_mode::disabled, managed::history_labels::disabled>();
+  check_native_capability_combinations<managed::history_mode::linear, managed::history_labels::disabled>();
+  check_native_capability_combinations<managed::history_mode::linear, managed::history_labels::enabled>();
+  check_native_capability_combinations<managed::history_mode::tree, managed::history_labels::disabled>();
+  check_native_capability_combinations<managed::history_mode::tree, managed::history_labels::enabled>();
+}
+
+// Required authorization cannot be cleared or downgraded, and invalid reconfiguration preserves the old gate.
+TEST(managed_capabilities, required_authorization_and_exclusions_cannot_be_bypassed) {
+  store_type store{ledger{"Before"}};
+  managed::managed_capability_profile profile;
+  profile.selected = managed::managed_capability::history | managed::managed_capability::authorization;
+  EXPECT_THROW(store.configure_capabilities(profile), std::invalid_argument);
+  store.configure_capabilities(profile, [](auto, const auto&, const auto&, bool) { return false; });
+  EXPECT_THROW(store.set_authorization_policy({}), std::invalid_argument);
+  auto omitted = profile;
+  omitted.excluded = managed::managed_capability::authorization;
+  EXPECT_THROW(store.configure_capabilities(omitted), std::invalid_argument);
+  EXPECT_EQ(store.execute_transaction([](auto& tx) { tx.root().set_name("Denied"); }).status,
+            managed::transaction_status::failed);
+  EXPECT_EQ(store.read()->name, "Before");
+  EXPECT_THROW(store.collaborate(std::uint64_t{10}), std::logic_error);
+  store.set_authorization_policy([](auto, const auto&, const auto&, bool) { return true; });
+  store.execute_transaction([](auto& tx) { tx.root().set_name("Accepted"); }).throw_if_failed();
+  EXPECT_EQ(store.read()->name, "Accepted");
+  store_type excluded{ledger{}};
+  profile.selected = managed::managed_capability::history;
+  excluded.configure_capabilities(profile);
+  EXPECT_THROW(excluded.set_authorization_policy([](auto, const auto&, const auto&, bool) { return true; }),
+               std::invalid_argument);
+}
+
+// Attached durable/session engines reject exclusion rather than silently dropping recovery/outbox state.
+TEST(managed_capabilities, attached_components_cannot_be_excluded) {
+  temporary_journal_directory directory;
+  store_type journal{ledger{}};
+  journal.create_journal(directory.document());
+  managed::managed_capability_profile profile;
+  profile.selected = managed::managed_capability::history;
+  EXPECT_THROW(journal.configure_capabilities(profile), std::logic_error);
+  store_type client{ledger{}};
+  client.collaborate(std::uint64_t{10});
+  EXPECT_THROW(client.configure_capabilities(profile), std::logic_error);
+  using plain_store = managed::model_store<ledger, managed::history_mode::disabled,
+      managed::history_labels::disabled, managed::model_traits<ledger>, managed::store_features::none>;
+  plain_store plain{ledger{"Before"}};
+  profile.selected = managed::managed_capability::journal;
+  EXPECT_THROW(plain.configure_capabilities(profile), std::invalid_argument);
+  profile.selected = managed::managed_capability::collaboration;
+  EXPECT_THROW(plain.configure_capabilities(profile), std::invalid_argument);
+  profile.selected = managed::managed_capability::none;
+  plain.configure_capabilities(profile);
+  plain.execute_transaction([](auto& tx) { tx.root().set_name("Identified"); }).throw_if_failed();
+  EXPECT_NE(plain.read()->persistent_id, 0U);
 }
 
 // Bounded requests account actual PMR allocation sizes and release capacity for later allocations.

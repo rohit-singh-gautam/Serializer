@@ -1417,7 +1417,9 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
   out += "policy,err:=srlXmlOptions(policies);if err!=nil{return nil,err}\n";
   if (!options.runtime_xsd) { out += "if policy.Validator!=nil{return nil,fmt.Errorf(\"Runtime XSD was not enabled during generation\")}\n"; }
   out += "output:=srlXmlOutputStart(policy.Limits,maps)\noutput.budget.operation=policy.Operation\noutput.mixedLimits=mixed\noutput.identityLimits=identity\noutput.digestLimits=digests\noutput.extensionOptions=extensions\nif err=value.srlXmlEncode(output," + qualified(contract.root) + ");err!=nil{return nil,err}\ndata,err:=output.finish();if err!=nil{return nil,err}\n";
-  if (options.runtime_xsd && options.validation_scope != "input") { out += "if policy.Validator!=nil{if err=policy.Validator.ValidateXML(data);err!=nil{return nil,err}}\n"; }
+  if (options.runtime_xsd && options.validation_scope != "input") {
+    out += "if policy.Validator!=nil{if err=output.budget.charge(\"work\",0);err!=nil{return nil,err};if err=policy.Validator.ValidateXML(data);err!=nil{return nil,err};if err=output.budget.charge(\"work\",0);err!=nil{return nil,err}}\n";
+  }
   out += "return data,nil\n}\n";
   out += operation_encode;
   if (!readonly) {
@@ -1435,7 +1437,9 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
   out += "var extensionErr error;extensions,extensionErr=srlXmlExtensionOptions(extensions);if extensionErr!=nil{return nil,extensionErr}\nif err:=srlXmlMapPolicy(maps);err!=nil{return nil,err}\nif err:=srlXmlMixedPolicy(mixed);err!=nil{return nil,err}\nif err:=srlXmlIdentityPolicy(identity);err!=nil{return nil,err}\nif err:=srlXmlDigestPolicy(digests);err!=nil{return nil,err}\npolicy,err:=srlXmlOptions(policies);if err!=nil{return nil,err}\n";
   if (!options.runtime_xsd) { out += "if policy.Validator!=nil{return nil,fmt.Errorf(\"Runtime XSD was not enabled during generation\")}\n"; }
   out += "input,err:=srlXmlInputStart(data,policy.Limits,maps);if err!=nil{return nil,err}\ninput.budget.operation=policy.Operation\ninput.mixedLimits=mixed\ninput.identityLimits=identity\ninput.digestLimits=digests\ninput.extensionOptions=extensions\nif policy.ExpectedRoot!=\"\"{event,failure:=input.peek();if failure!=nil{return nil,failure};if srlXmlIdentityName(event.name)!=policy.ExpectedRoot{return nil,fmt.Errorf(\"Unexpected package XML root\")}}\nif policy.ExpectedType!=\"\"{expected:=srlxml.Name{Local:policy.ExpectedType};if strings.HasPrefix(policy.ExpectedType,\"{\"){end:=strings.Index(policy.ExpectedType,\"}\");if end<0{return nil,fmt.Errorf(\"Invalid expected XML type\")};expected.Space=policy.ExpectedType[1:end];expected.Local=policy.ExpectedType[end+1:]};if err:=input.expectType(expected,false);err!=nil{return nil,err}}\nvalue,err:=srlXmlDecode" + identifier + "(input," + qualified(contract.root) + ");if err!=nil{return nil,err}\nif err=input.finish();err!=nil{return nil,err}\n";
-  if (options.runtime_xsd && options.validation_scope != "output") { out += "if policy.Validator!=nil{if err=policy.Validator.ValidateXML(data);err!=nil{return nil,err}}\n"; }
+  if (options.runtime_xsd && options.validation_scope != "output") {
+    out += "if policy.Validator!=nil{if err=input.budget.charge(\"work\",0);err!=nil{return nil,err};if err=policy.Validator.ValidateXML(data);err!=nil{return nil,err};if err=input.budget.charge(\"work\",0);err!=nil{return nil,err}}\n";
+  }
   out += "return value,nil\n}\n";
   if(!operation_decoder.empty()){
     out += "// "+std::string{operation_decoder}+" applies additional admission to a fresh candidate.\nfunc "+std::string{operation_decoder}+"(data []byte,operation "+std::string{operation_type}+")(*"+identifier+",error){return Decode"+identifier+"XML(data,operation.Policy())}\n";

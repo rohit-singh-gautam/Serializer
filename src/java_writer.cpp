@@ -439,7 +439,13 @@ class emitter {
     line("xmlWrite(output, " + expanded(contract.root) + ");");
     line("byte[] bytes = output.finish();");
     if (!options.xml.runtime_xsd) { line("if (schema != null) throw new IllegalArgumentException(\"Runtime XSD was not enabled during generation\");"); }
-    else if (options.xml.validation_scope != "input") { line("if (schema != null) schema.validate(bytes, limits);"); }
+    else if (options.xml.validation_scope != "input") {
+      line("if (schema != null) {"); ++level;
+      line("if (limits.xmlOperation != null) limits.xmlOperation.consume(\"work\", 0, \"\");");
+      line("schema.validate(bytes, limits);");
+      line("if (limits.xmlOperation != null) limits.xmlOperation.consume(\"work\", 0, \"\");");
+      --level; line("}");
+    }
     line("return bytes;"); --level; line("}");
     if (!readonly) {
     line("/** Decode exactly one XML document into an unpublished fresh owning value. */");
@@ -465,7 +471,13 @@ class emitter {
       line("throw new IllegalArgumentException(\"Readonly XML projections are export-only; decode the owning target\");");
     } else {
     if (!options.xml.runtime_xsd) { line("if (schema != null) throw new IllegalArgumentException(\"Runtime XSD was not enabled during generation\");"); }
-    else if (options.xml.validation_scope != "output") { line("if (schema != null) schema.validate(bytes, limits);"); }
+    else if (options.xml.validation_scope != "output") {
+      line("if (schema != null) {"); ++level;
+      line("if (limits.xmlOperation != null) limits.xmlOperation.consume(\"work\", 0, \"\");");
+      line("schema.validate(bytes, limits);");
+      line("if (limits.xmlOperation != null) limits.xmlOperation.consume(\"work\", 0, \"\");");
+      --level; line("}");
+    }
     line("try (var input = new SrlXmlInput(bytes, limits, maps, mixed, identity, digests, extensions)) {"); ++level;
     line("if(limits.xmlExpectedRoot!=null&&!limits.xmlExpectedRoot.equals(input.name()))throw new IllegalArgumentException(\"Unexpected package XML root\");if(limits.xmlExpectedType!=null)input.expectType(limits.xmlExpectedType,false);");
     line("var value = xmlRead(input, " + expanded(contract.root) + ");");

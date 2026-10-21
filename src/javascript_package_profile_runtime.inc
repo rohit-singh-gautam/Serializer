@@ -77,7 +77,7 @@ R"packagejs(
       for (const child of metadataRead(await archive.read(entry.name), relNamespace, 'Relationships', budget)) {
         const attrs = child.attrs, keys = Object.keys(attrs);
         if (child.name !== 'Relationship' || !['Id', 'Type', 'Target'].every(key => Object.hasOwn(attrs, key)) || keys.some(key => !['Id', 'Type', 'Target', 'TargetMode'].includes(key))) throw new PackageError(Code.InvalidMetadata, 'Invalid relationship declaration', '/' + entry.name);
-        const mode = collapse(attrs.TargetMode === undefined ? 'Internal' : attrs.TargetMode);
+        const mode = attrs.TargetMode === undefined ? 'Internal' : attrs.TargetMode;
         if (!['Internal', 'External'].includes(mode)) throw new PackageError(Code.InvalidRelationship, 'Invalid relationship TargetMode', source);
         links.push(new Relationship(source, collapse(attrs.Id), collapse(attrs.Type), collapse(attrs.Target), fold(mode)));
       }

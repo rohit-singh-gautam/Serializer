@@ -1038,7 +1038,8 @@ if(SERIALIZER_BUILD_MANAGED)
   add_executable(managed_collaboration_test managed_collaboration_test.cpp
     managed_collaboration_ownership_test.cpp managed_collaboration_proposal_test.cpp
     managed_collaboration_session_test.cpp managed_collaboration_history_test.cpp
-    managed_local_collaboration_test.cpp managed_feature_test.cpp managed_authorization_test.cpp)
+    managed_local_collaboration_test.cpp managed_feature_test.cpp managed_authorization_test.cpp
+    managed_collaboration_fault_matrix_test.cpp)
   serializer_generate(TARGET managed_collaboration_test
     SCHEMAS resources/collaboration_commands.serializer ../example/managed/ledger/ledger.serializer
     resources/collaboration_model.serializer
@@ -1433,7 +1434,7 @@ else()
 endif()
 add_test(NAME compression_stream_test COMMAND compression_stream_test)
 
-add_executable(package_test package_test.cpp core_properties_test.cpp)
+add_executable(package_test package_test.cpp core_properties_test.cpp pack_iri_test.cpp zip_metadata_test.cpp)
 target_link_libraries(package_test PRIVATE Serializer::runtime GTest::gtest_main)
 target_compile_definitions(package_test PRIVATE
   SERIALIZER_TEST_HAS_XML=$<BOOL:${SERIALIZER_WITH_XML}>
@@ -1452,6 +1453,22 @@ if(MSVC)
   target_compile_options(core_properties_probe PRIVATE /W4 /WX)
 else()
   target_compile_options(core_properties_probe PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# Exercise outer package addressing with independent RFC reference/Unicode oracles.
+add_executable(pack_iri_probe "${PROJECT_SOURCE_DIR}/qualification/pack_iri_probe.cpp")
+target_link_libraries(pack_iri_probe PRIVATE Serializer::runtime)
+if(MSVC)
+  target_compile_options(pack_iri_probe PRIVATE /W4 /WX)
+else()
+  target_compile_options(pack_iri_probe PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_executable(zip_metadata_probe "${PROJECT_SOURCE_DIR}/qualification/zip_metadata_probe.cpp")
+target_link_libraries(zip_metadata_probe PRIVATE Serializer::runtime)
+if(MSVC)
+  target_compile_options(zip_metadata_probe PRIVATE /W4 /WX)
+else()
+  target_compile_options(zip_metadata_probe PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
 # Fault substitution needs native static objects, rather than calls inside a shared library.
@@ -1526,6 +1543,19 @@ if(SERIALIZER_WITH_XML)
     target_compile_options(xml_rich_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME xml_rich_test COMMAND xml_rich_test)
+
+  add_executable(xml_qname_list_test xml_qname_list_test.cpp)
+  serializer_generate(TARGET xml_qname_list_test
+    SCHEMAS resources/xml_qname_lists/model.serializer
+    DEPENDS resources/xml_qname_lists/model.xsd
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_qname_lists")
+  target_link_libraries(xml_qname_list_test PRIVATE Serializer::runtime)
+  if(MSVC)
+    target_compile_options(xml_qname_list_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_qname_list_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME xml_qname_list_test COMMAND xml_qname_list_test)
 
   add_executable(opc_profile_test opc_profile_test.cpp)
   serializer_generate(TARGET opc_profile_test SCHEMAS resources/opc_profile.serializer
@@ -1667,6 +1697,13 @@ if(SERIALIZER_WITH_XML)
       add_test(NAME python_xml_rich_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_xml_rich_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_rich")
+      # Keep the combined operation regression quick in CTest; the maintained
+      # harness defaults to 25,000 entries per owner for full qualification.
+      # Like the rich XML suite above, its independent XSD oracle requires lxml.
+      add_test(NAME python_package_operation_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_large_operation_native_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_package_operation"
+          --language python --entries-per-registry 10)
       add_test(NAME python_xml_token_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_xml_token_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_token")
@@ -1771,9 +1808,14 @@ if(SERIALIZER_WITH_XML)
       add_test(NAME portable_xml_lifecycle_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_lifecycle_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_lifecycle")
+      set(portable_xml_projection_provider_args)
+      if(WIN32)
+        list(APPEND portable_xml_projection_provider_args --bridge "$<TARGET_FILE:xml_provider_bridge>")
+      endif()
       add_test(NAME portable_xml_projection_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_projection_test.py"
-          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_projection")
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_projection"
+          ${portable_xml_projection_provider_args})
       add_test(NAME portable_xml_extension_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_extension_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_extension")
@@ -2017,6 +2059,31 @@ if(SERIALIZER_WITH_XML)
     target_compile_options(xml_provider_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME xml_provider_test COMMAND xml_provider_test)
+
+  # Compile generated libraries separately so private operation hooks cannot
+  # accidentally satisfy the public cancellation API qualification.
+  if(Python3_Interpreter_FOUND)
+    if(serializer_compression_dotnet)
+      add_test(NAME xml_public_cancellation_csharp
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_public_cancellation_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --language csharp
+          --build "${CMAKE_CURRENT_BINARY_DIR}/xml_public_cancellation_csharp")
+    endif()
+    if(serializer_compression_kotlinc AND Java_FOUND)
+      add_test(NAME xml_public_cancellation_kotlin
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_public_cancellation_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --language kotlin
+          --kotlinc "${serializer_compression_kotlinc}"
+          --build "${CMAKE_CURRENT_BINARY_DIR}/xml_public_cancellation_kotlin")
+    endif()
+    if(WIN32 AND serializer_compression_swiftc)
+      add_test(NAME xml_public_cancellation_swift
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_public_cancellation_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --language swift
+          --swiftc "${serializer_compression_swiftc}" --bridge "$<TARGET_FILE:xml_provider_bridge>"
+          --build "${CMAKE_CURRENT_BINARY_DIR}/xml_public_cancellation_swift")
+    endif()
+  endif()
 
   add_executable(xml_shapes_cpp xml_shapes_test.cpp)
   serializer_generate(TARGET xml_shapes_cpp SCHEMAS resources/xml_shapes/model.serializer

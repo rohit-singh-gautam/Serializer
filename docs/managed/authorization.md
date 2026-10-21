@@ -98,13 +98,17 @@ loading a client checkpoint uses `replace`. Current permissions apply to Undo/Re
 The durable comparison helper does not inspect transient fields; the application
 must decide `runtime` permission separately.
 
-The policy setter is a **trusted host administration API**, including clearing a
-policy. Principal binding, permission-policy persistence and administration remain
+The policy setter is a **trusted host administration API**. Optional legacy
+policies can be cleared; a profile requiring authorization rejects clearing its
+provider or downgrading authorization on the live store. Principal binding,
+permission-policy persistence and administration remain
 application-owned. The `policy` permission is available to explicit host checks;
 ordinary schema fields are not automatically recognized as administrator policy
 fields. Replacing policies requires the host's current administration gate.
-There is no new schema syntax or persisted policy metadata. This C++ slice does
-not close the broader `MG03` acceptance gate.
+There is no new schema syntax or persisted policy metadata. The application-owned
+parts are explicitly **will not fix in Serializer**, as recorded in
+[application responsibilities](../project/application_responsibilities.md#security-and-authorization).
+They do not require a second policy database or authentication engine inside the runtime.
 
 Use the same candidate helper inside the authority `change_policy` below,
 choosing rules for the separately authenticated session. Local enforcement does
@@ -173,12 +177,13 @@ for the full acceptance contract.
 
 ## Know the implementation boundary
 
-The runtime does not implement these broader policy features:
-
-- User accounts, authentication, or a role-management service.
-- Inherited allow/deny policies or automatic field-path permissions.
-- Built-in operation classification, read filtering, or policy persistence.
-- An authorization gate on every ordinary local `model_store` transaction.
+User accounts, authentication, trusted principal/session binding, read filtering,
+policy storage and application permission administration are application
+responsibilities, with an explicit will-not-fix disposition. Install a policy
+before exposing edit/import APIs and use `configure_capabilities` when enforcement
+must be mandatory. Serializer enforces inherited content/structure rules and
+the complete candidate at local and trusted-authority boundaries; the application
+requests the separate `policy` permission before administering its own rules.
 
 Opening an observer session does not provide filtered reads. If different users
 may see different data, the application must define and enforce that boundary.

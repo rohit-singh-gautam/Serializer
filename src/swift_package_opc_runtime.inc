@@ -140,9 +140,7 @@ R"packageopc(                guard ended else { throw Failure(.invalidMetadata,"
     private static func mimeToken(_ byte: Swift.UInt8) -> Swift.Bool { byte >= 48 && byte <= 57 || byte >= 65 && byte <= 90 || byte >= 97 && byte <= 122 || Swift.Array("!#$%&'*+-.^_`|~".utf8).contains(byte) }
     /// Validate inert absolute relationship type IRIs before any dispatch or publication.
     private static func relationshipType(_ value: Swift.String) throws {
-        try iri(value)
-        guard value.range(of: "^[A-Za-z][A-Za-z0-9+.-]*:", options: .regularExpression) != nil, !value.contains("#"),
-            !value.unicodeScalars.contains(where: { $0.value <= 32 || $0.value == 127 }) else { throw Failure(.invalidRelationship, "Invalid relationship type IRI") }
+        guard validIri(value,absolute:true) else { throw Failure(.invalidRelationship,"Invalid relationship type IRI") }
     }
     /// Find URI syntax by Unicode scalar so combining marks cannot hide ASCII delimiters.
     private static func selectorIndex(_ target: Swift.String) -> Swift.String.Index {
@@ -152,24 +150,18 @@ R"packageopc(                guard ended else { throw Failure(.invalidMetadata,"
     public static func resolve(_ source: Swift.String, _ target: Swift.String) throws -> Swift.String {
         try iri(target)
         let path = target[..<selectorIndex(target)]
-        if path.isEmpty && !target.isEmpty && source != "/" { return try partName(source) }
-        guard !path.isEmpty, !path.contains("\\"), !path.contains("//"), !path.hasSuffix("/"),
+        if path.isEmpty && source != "/" { return try partName(source) }
+        guard !path.isEmpty, !path.contains("\\"), !path.contains("//"), !path.hasSuffix("/"), !path.hasSuffix("/."), !path.hasSuffix("/.."), path != ".", path != "..",
             path.hasPrefix("/") || !(path.split(separator:"/").first?.contains(":") ?? false) else { throw Failure(.invalidRelationship, "Invalid internal relationship target") }
         var result: [Swift.String] = path.hasPrefix("/") ? [] : source.split(separator: "/").dropLast().map(Swift.String.init)
         for piece in path.split(separator: "/", omittingEmptySubsequences: false) {
-            if piece.isEmpty || piece == "." { continue }; if piece == ".." { guard !result.isEmpty else { throw Failure(.invalidRelationship, "Relationship escapes package root") }; result.removeLast() } else { result.append(Swift.String(piece)) }
+            if piece.isEmpty || piece == "." { continue }; if piece == ".." { if !result.isEmpty { result.removeLast() } } else { result.append(Swift.String(piece)) }
         }
         do { return try partName("/"+result.joined(separator: "/")) } catch { throw Failure(.invalidRelationship, "Invalid resolved relationship target") }
     }
     /// Validate inert IRI reference characters and percent escapes without resolution or network access.
     private static func iri(_ value: Swift.String) throws {
-        guard !value.unicodeScalars.contains(where: { $0.value <= 32 || $0.value >= 127 && $0.value < 160 || $0.value & 0xffff >= 0xfffe }) else { throw Failure(.invalidRelationship,"Invalid relationship IRI character") }
-        let bytes = Swift.Array(value.utf8); var index = 0
-        while index < bytes.count {
-            let byte = bytes[index]; index += 1
-            if byte == 37 { guard bytes.count-index >= 2, hex(bytes[index]) != nil, hex(bytes[index+1]) != nil else { throw Failure(.invalidRelationship,"Malformed relationship IRI escape") }; index += 2 }
-            else if byte < 128 { guard unreserved(byte) || Swift.Array(":/?#[]@!$&'()*+,;=".utf8).contains(byte) else { throw Failure(.invalidRelationship,"Invalid relationship IRI syntax") } }
-        }
+        guard validIri(value) else { throw Failure(.invalidRelationship,"Invalid relationship IRI") }
     }
     /// Reject case aliases and ancestor collisions before retaining an OPC identity.
     private static func unique(_ name: Swift.String, _ names: inout Swift.Set<Swift.String>) throws {
@@ -179,17 +171,35 @@ R"packageopc(                guard ended else { throw Failure(.invalidMetadata,"
         names.insert(key)
     }
     /// Bind metadata XML to the same ledger and prohibit external schema/entity access.
-    private static func metadata(_ bytes: [Swift.UInt8], _ budget: Budget) throws -> SrlXmlNode {
+    private static func metadata(_ bytes: [Swift.UInt8], _ budget: Budget, relationships: Swift.Bool = false) throws -> SrlXmlNode {
         try budget.consume(.metadataBytes, bytes.count)
         var limits = xmlLimits(budget)
-        var normalized = bytes
+        let compatibility = relationships ? RelationshipsCompatibility(budget) : nil
+        if let compatibility { limits.srlPackageNamespaceScope = { node, lookup in try compatibility.capture(node,lookup) } }
+        guard bytes.count <= budget.configured.maxPartBytes else { throw Failure(.resourceLimit,"Metadata part byte limit") }
+        var normalized = bytes; var conversionHeld = 0
+        defer { budget.release(conversionHeld) }
         if bytes.starts(with: [0xff,0xfe]) || bytes.starts(with: [0xfe,0xff]) {
+            guard bytes.count % 2 == 0, bytes.count <= Swift.Int.max/3 else { throw Failure(.invalidMetadata,"Truncated UTF16 metadata") }
+            let conversionBytes = bytes.count*3
+            try budget.consume(.decoderAllocationBytes,conversionBytes); try budget.consume(.workUnits,bytes.count); try budget.hold(conversionBytes); conversionHeld = conversionBytes
             let encoding: Swift.String.Encoding = bytes.starts(with: [0xff,0xfe]) ? .utf16LittleEndian : .utf16BigEndian
-            guard let text = Swift.String(data: Foundation.Data(bytes.dropFirst(2)), encoding: encoding) else { throw Failure(.invalidMetadata, "Invalid UTF16 package metadata") }
-            let utf8 = text.replacingOccurrences(of: "UTF-16", with: "UTF-8", options: .caseInsensitive); normalized = Swift.Array(utf8.utf8)
-            limits.maxBytes = budget.configured.maxPartBytes
+            guard var text = Swift.String(data: Foundation.Data(bytes.dropFirst(2)), encoding: encoding) else { throw Failure(.invalidMetadata, "Invalid UTF16 package metadata") }
+            if text.hasPrefix("<?xml"), let end = text.range(of:"?>") {
+                let header = Swift.String(text[..<end.upperBound])
+                if header.range(of:"\\bencoding\\s*=",options:.regularExpression) != nil {
+                    guard let declaration = header.range(of:"\\bencoding\\s*=\\s*(['\"])UTF-16\\1",options:[.regularExpression,.caseInsensitive]),
+                        let label = text.range(of:"UTF-16",options:.caseInsensitive,range:declaration) else { throw Failure(.invalidMetadata,"Conflicting UTF16 metadata encoding") }
+                    text.replaceSubrange(label,with:"UTF-8")
+                }
+            }
+            normalized = Swift.Array(text.utf8); limits.maxBytes = normalized.count
         }
-        do { return try srlXmlParse(normalized, limits) } catch let failure as Failure { throw failure } catch { try budget.check(); throw Failure(.invalidMetadata, "Invalid package metadata XML") }
+        do {
+            let root = try srlXmlParse(normalized, limits)
+            if let compatibility { return try compatibility.apply(root) }
+            return root
+        } catch let failure as Failure { throw failure } catch { try budget.check(); throw Failure(.invalidMetadata, "Invalid package metadata XML") }
     }
     /// Carry typed and metadata tree admission into the cumulative package context.
     public static func xmlLimits(_ budget: Budget) -> XmlLimits {
@@ -225,7 +235,7 @@ R"packageopc(                guard ended else { throw Failure(.invalidMetadata,"
         /// Own a catalog backed by the same bounded reader and no network capability.
         public init(_ archive: ZipReader) throws {
             self.archive = archive; let budget = archive.budget
-            guard archive.entries.contains(where: { $0.name == "[Content_Types].xml" }) else { throw Failure(.invalidMetadata, "Missing exact content-type manifest") }
+            guard archive.entries.contains(where: { $0.name == "[Content_Types].xml" && $0.physicalFile }) else { throw Failure(.invalidMetadata, "Missing exact content-type manifest") }
             let root = try metadata(archive.read("[Content_Types].xml"), budget)
             guard root.name == SrlXmlName(local: "Types", namespace: contentNamespace), root.attributes.isEmpty, srlXmlWhitespace(root.text) else { throw Failure(.invalidMetadata, "Invalid content-type root") }
             var defaults: [Swift.String: Swift.String] = [:], overrides: [Swift.String: Swift.String] = [:]
@@ -234,14 +244,15 @@ R"packageopc(                guard ended else { throw Failure(.invalidMetadata,"
                 let value = try attribute(child,"ContentType"); _ = try media(value)
                 if child.name.local == "Default" {
 )packageopc"
-R"packageopc(                    let ext = try attribute(child,"Extension"); guard !ext.isEmpty, ext.utf8.allSatisfy({ unreserved($0) && $0 != 46 }), defaults[fold(ext)] == nil else { throw Failure(.invalidMetadata, "Duplicate or invalid content-type default") }; defaults[fold(ext)] = value
+R"packageopc(                    let ext = try attribute(child,"Extension"); guard validExtension(ext), defaults[fold(ext)] == nil else { throw Failure(.invalidMetadata, "Duplicate or invalid content-type default") }; defaults[fold(ext)] = value
                 } else if child.name.local == "Override" {
-                    let name = try attribute(child,"PartName"); try partName(name,infrastructure: true); guard overrides[fold(name)] == nil else { throw Failure(.invalidMetadata, "Duplicate content-type override") }; overrides[fold(name)] = value
+                    let name = try uriAttribute(child,"PartName",budget); try partName(name,infrastructure: true); guard overrides[fold(name)] == nil else { throw Failure(.invalidMetadata, "Duplicate content-type override") }; overrides[fold(name)] = value
                 } else { throw Failure(.invalidMetadata, "Unknown core content-type declaration") }
             }
             var names: Swift.Set<Swift.String> = []; var parts: [PartMetadata] = []; var metadataEntries: [(Swift.String,Entry)] = []
             for entry in archive.entries where entry.name != "[Content_Types].xml" {
-                let name = "/"+entry.name; try partName(name,infrastructure: true); try unique(name,&names)
+                guard entry.physicalFile else { _ = try archive.read(entry.name); continue }
+                guard let name = try mappedName("/"+entry.name) else { _ = try archive.read(entry.name); continue }; try unique(name,&names)
                 let ext = entry.name.split(separator: ".").last.map(Swift.String.init) ?? ""
                 guard let type = overrides[fold(name)] ?? defaults[fold(ext)] else { throw Failure(.invalidMetadata, "Missing OPC content type",part:name) }
                 if let owner = relationshipSource(name) {
@@ -252,17 +263,17 @@ R"packageopc(                    let ext = try attribute(child,"Extension"); gua
             var links: [Relationship] = []; var identifiers: Swift.Set<WireString> = []
             for (owner,entry) in metadataEntries {
                 guard owner == "/" || parts.contains(where: { fold($0.name) == fold(owner) }) else { throw Failure(.invalidRelationship, "Relationship owner is missing",part:owner) }
-                let root = try metadata(archive.read(entry.name),budget)
+                let root = try metadata(archive.read(entry.name),budget,relationships:true)
                 guard root.name == SrlXmlName(local:"Relationships",namespace:relationshipNamespace), root.attributes.isEmpty, srlXmlWhitespace(root.text) else { throw Failure(.invalidRelationship,"Invalid relationships root") }
                 for child in root.children {
                     guard child.name == SrlXmlName(local:"Relationship",namespace:relationshipNamespace), child.children.isEmpty, srlXmlWhitespace(child.text), child.attributes.allSatisfy({ $0.name.namespace.isEmpty && ["Id","Type","Target","TargetMode"].contains($0.name.local) }) else { throw Failure(.invalidRelationship,"Unknown core relationship markup") }
-                    let id = try attribute(child,"Id"), type = try attribute(child,"Type"), target = try attribute(child,"Target")
+                    let id = try uriAttribute(child,"Id",budget), type = try uriAttribute(child,"Type",budget), target = try uriAttribute(child,"Target",budget)
                     try budget.consumeAnnotated(.relationships,1,part:owner,field:"relationships",reference:target,relationshipId:id)
                     try budget.consumeAnnotated(.references,1,part:owner,field:"relationships",reference:target,relationshipId:id)
                     guard srlXmlNcName(id), identifiers.insert(WireString(fold(owner)+"\n"+id)).inserted else { throw Failure(.invalidRelationship,"Invalid or duplicate relationship ID") }; try relationshipType(type)
                     let mode = child.attributes.first(where: { $0.name.local == "TargetMode" })?.value ?? "Internal"
                     guard mode == "Internal" || mode == "External" else { throw Failure(.invalidRelationship,"Invalid relationship target mode") }
-                    if mode == "External" { guard !target.isEmpty else { throw Failure(.invalidRelationship,"Empty external relationship target") }; try iri(target) }
+                    if mode == "External" { try iri(target) }
                     else { let resolved = try resolve(owner,target); guard parts.contains(where: { fold($0.name) == fold(resolved) }) else { throw Failure(.invalidRelationship,"Dangling relationship target",part:resolved) } }
                     links.append(Relationship(source:owner,id:id,type:type,target:target,external:mode == "External"))
                 }
@@ -286,11 +297,11 @@ R"packageopc(                    let ext = try attribute(child,"Extension"); gua
             try budget.consumeAnnotated(.references,1,part:link.source,field:"relationships",reference:link.target,relationshipId:link.id); try relationshipType(link.type)
             guard link.source == "/" || names.contains(fold(link.source)), srlXmlNcName(link.id),
                 ids.insert(WireString(fold(link.source)+"\n"+link.id)).inserted else { throw Failure(.invalidRelationship,"Invalid source or relationship ID") }
-            if link.external { guard !link.target.isEmpty else { throw Failure(.invalidRelationship,"Empty external relationship target") }; try iri(link.target) }
+            if link.external { try iri(link.target) }
             else { guard names.contains(fold(try resolve(link.source,link.target))) else { throw Failure(.invalidRelationship,"Dangling edited relationship") } }
             groups[link.source,default:[]].append(link)
         }
-        let writer = try ZipWriter(budget:budget); defer { writer.close() }
+        let writer = ZipWriter(opcBudget:budget); defer { writer.close() }
         var manifest = "<Types xmlns=\""+contentNamespace+"\"><Default Extension=\"rels\" ContentType=\""+relationshipMime+"\"/>"
         for part in parts.sorted(by: { $0.name < $1.name }) { manifest += "<Override PartName=\""+(try escape(part.name))+"\" ContentType=\""+(try escape(part.contentType))+"\"/>"; try writer.add(Swift.String(part.name.dropFirst()),part.data,compression:part.compression) }
         manifest += "</Types>"; try writer.add("[Content_Types].xml",Swift.Array(manifest.utf8))

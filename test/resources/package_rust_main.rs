@@ -93,6 +93,20 @@ fn main() {
         };
         assert_eq!(accepted,expected,"Independent case {}",fields[0]);count+=1;
     }
+    // UTF-16 infrastructure accounts original wire bytes and exact cumulative conversion allowances.
+    for endian in ["le","be"]{
+        let bytes=std::fs::read(directory.join(format!("fixtures/utf16-{endian}-all.opc"))).unwrap();
+        let expected=std::fs::read_to_string(directory.join(format!("fixtures/utf16-{endian}-all.metadata-bytes"))).unwrap().parse::<u64>().unwrap();
+        let mut measured=p::Budget::default();ProfileArchive::load(&bytes,&mut measured,p::ExtensionPolicy::default()).unwrap();
+        assert_eq!(measured.used[p::Resource::MetadataBytes as usize],expected);
+        for resource in [p::Resource::MetadataBytes,p::Resource::DecoderAllocationBytes,p::Resource::WorkUnits]{
+            let index=resource as usize;let mut exact=p::Budget::default();exact.limits.maximum[index]=measured.used[index];
+            ProfileArchive::load(&bytes,&mut exact,p::ExtensionPolicy::default()).unwrap();
+            let mut below=p::Budget::default();below.limits.maximum[index]=measured.used[index]-1;
+            let error=ProfileArchive::load(&bytes,&mut below,p::ExtensionPolicy::default()).err().unwrap();
+            assert_eq!(error.downcast_ref::<p::Failure>().unwrap().code,p::Code::ResourceLimit);
+        }
+    }
     // Loaded singleton paths and source-relative opaque links survive edit/save without retargeting.
     let extensions=std::fs::read(directory.join("fixtures/extensions.opc")).unwrap();
     assert!(ProfileArchive::load(&extensions,&mut p::Budget::default(),p::ExtensionPolicy::default()).is_err());

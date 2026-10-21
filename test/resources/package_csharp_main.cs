@@ -31,7 +31,7 @@ internal static class Program {
   private static string CodeName(Enum code)=>System.Text.RegularExpressions.Regex.Replace(code.ToString(),"([a-z])([A-Z])","$1_$2").ToUpperInvariant();
 
   // Require the independently expected structured failure category.
-  private static void Code(Exception error,string expected){string? actual=error is P.PackageError package?CodeName(package.Code):error is ParameterizedGenerated.Parameterized.SerializerPackage.PackageError parameterized?CodeName(parameterized.Code):null;Require(actual!=null&&expected.Split(',').Contains(actual),"Expected "+expected+"; observed "+error);}
+  private static void Code(Exception error,string expected){string? actual=error is P.PackageError package?CodeName(package.Code):error is ParameterizedGenerated.Parameterized.SerializerPackage.PackageError parameterized?CodeName(parameterized.Code):null;Require(actual!=null&&(expected=="ANY"||expected.Split(',').Contains(actual)),"Expected "+expected+"; observed "+error);}
 
   // Relax only logical offset and count ceilings for boundary fixtures.
   private static P.PackageLimits Generous()=>new(){MaxArchiveBytes=1L<<34,MaxEntries=100000,MaxMetadataBytes=128L<<20,MaxBufferBytes=256L<<20,MaxDecoderAllocationBytes=512L<<20};

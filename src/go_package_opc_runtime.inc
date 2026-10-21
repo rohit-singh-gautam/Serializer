@@ -237,7 +237,7 @@ func srlPackageTarget(source,text string) (string,error) {
   value,err:=srlPackageParseURI(text,false);if err!=nil { return "",err }
   if value.hasScheme||value.hasAuthority { return "",srlPackageFailure(SerializerPackageInvalidRelationship,"Internal target has scheme or authority",source) }
   if value.path=="" { return srlPackagePartName(source,false) }
-  if srlPackageStrings.HasSuffix(value.path,"/")||value.path=="."||value.path==".."||srlPackageStrings.HasSuffix(value.path,"/.")||srlPackageStrings.HasSuffix(value.path,"/..") { return "",srlPackageFailure(SerializerPackageInvalidRelationship,"Relationship targets a directory",source) }
+  if srlPackageStrings.Contains(value.path,"//")||srlPackageStrings.HasSuffix(value.path,"/")||value.path=="."||value.path==".."||srlPackageStrings.HasSuffix(value.path,"/.")||srlPackageStrings.HasSuffix(value.path,"/..") { return "",srlPackageFailure(SerializerPackageInvalidRelationship,"Relationship targets a directory",source) }
   pieces:=[]string{}
   if value.path[0]!='/' { base:=source[1:srlPackageStrings.LastIndexByte(source,'/')+1];for _,piece:=range srlPackageStrings.Split(base,"/") { if piece!="" { pieces=append(pieces,piece) } } }
   for _,piece:=range srlPackageStrings.Split(value.path,"/") { if piece==""||piece=="." { continue };if piece==".." { if len(pieces)>0 { pieces=pieces[:len(pieces)-1] } } else { pieces=append(pieces,piece) } }

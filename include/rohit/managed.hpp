@@ -4,6 +4,7 @@
 #pragma once
 #include <rohit/managed_memory.hpp>
 #include <rohit/managed_authorization.hpp>
+#include <rohit/managed_capabilities.hpp>
 #include <rohit/managed_changes.hpp>
 #include <rohit/managed_resident.hpp>
 #include <rohit/managed_registry.hpp>
@@ -492,6 +493,10 @@ private:
   using event_type = publication_event<storage_type, id_type>;
   std::function<void(const event_type&)> publication_callback_{};
   authorization_callback authorization_callback_{};
+  bool authorization_required_{};
+  bool authorization_enabled_{true};
+  bool journal_enabled_{has_journal};
+  bool collaboration_enabled_{has_collaboration};
   std::exception_ptr notification_error_{};
   const std::thread::id thread_{std::this_thread::get_id()};
   std::function<void(const storage_type&)> validate_{};
@@ -597,6 +602,7 @@ private:
                                  const storage_type* next = nullptr,
                                  bool replaced_namespace = false,
                                  bool trusted_replication = false) {
+    if (authorization_required_ && !authorization_callback_) { throw authorization_error{}; }
     if (authorization_callback_ && current_ && next) {
       const auto operation = trusted_replication ? authorization_operation::replicate
           : kind == publication_kind::durable_edit ? authorization_operation::edit
@@ -1408,6 +1414,7 @@ public:
         : label_type{std::move(label)}, store_{&store}, outcome_{&outcome},
           allocation_base_{store.allocated_id_}, exceptions_{std::uncaught_exceptions()} {
       store.require_idle();
+      if (store.authorization_required_ && !store.authorization_callback_) { throw authorization_error{}; }
       if constexpr (has_collaboration || has_isolated_allocator) {
         if (store.collaboration_state_.attachment || has_isolated_allocator) {
           allocation_state_.context = store.allocation_context();
@@ -1782,6 +1789,7 @@ public:
     // Copy runtime values onto a fresh durable decode so no published pin is mutated.
     explicit runtime_edit(model_store& store) : store_{&store}, expected_{store.stamp_} {
       store.require_idle();
+      if (store.authorization_required_ && !store.authorization_callback_) { throw authorization_error{}; }
       auto candidate = store.make_storage_candidate(
           detail::decode<storage_type>(store.snapshot_, store.options_.decode));
       candidate_ = std::move(candidate.first);
@@ -2340,7 +2348,63 @@ public:
   // need not possess edit permission. Policy lifetime and trusted-principal binding belong to the host.
   void set_authorization_policy(authorization_callback callback) {
     require_idle();
+    if ((!authorization_enabled_ && callback) || (authorization_required_ && !callback)) {
+      throw std::invalid_argument{"Authorization provider conflicts with the active managed capability profile"};
+    }
     authorization_callback_ = std::move(callback);
+  }
+
+  // Atomically activate a versioned native profile; trusted hosts own policy/transport configuration.
+  // History shape is selected by this store's type and requires explicit conversion to change.
+  // Attached journal/collaboration engines cannot be excluded; authorization cannot be removed
+  // through this method once required. Construct a new explicitly unrestricted store for that change.
+  void configure_capabilities(managed_capability_profile profile, authorization_callback callback = {}) {
+    require_idle();
+    const auto selected = static_cast<std::uint32_t>(profile.resolve());
+    const auto has = [selected](managed_capability capability) {
+      return (selected & static_cast<std::uint32_t>(capability)) != 0;
+    };
+    const bool history = has(managed_capability::history);
+    const bool journal = has(managed_capability::journal);
+    const bool collaboration = has(managed_capability::collaboration);
+    const bool authorization = has(managed_capability::authorization);
+    if (history != has_history || (journal && !has_journal) || (collaboration && !has_collaboration) ||
+        (!authorization && authorization_required_) || (!authorization && callback)) {
+      throw std::invalid_argument{"Managed capability profile conflicts with the native store specialization"};
+    }
+    if constexpr (has_journal) {
+      if (!journal && journal_state_.sink) {
+        throw std::logic_error{"Cannot exclude an attached managed journal"};
+      }
+    }
+    if constexpr (has_collaboration) {
+      if (!collaboration && collaboration_state_.attachment) {
+        throw std::logic_error{"Cannot exclude attached managed collaboration"};
+      }
+    }
+    // Copy any retained callback before changing flags, so allocation failure preserves the old gate.
+    auto next_callback = callback ? std::move(callback) : authorization_callback_;
+    if (authorization && !next_callback) {
+      throw std::invalid_argument{"Selected managed authorization requires an installed provider"};
+    }
+    if (!authorization && next_callback) {
+      throw std::invalid_argument{"Remove the optional policy before explicitly excluding authorization"};
+    }
+    authorization_callback_.swap(next_callback);
+    authorization_required_ = authorization;
+    authorization_enabled_ = authorization;
+    journal_enabled_ = journal;
+    collaboration_enabled_ = collaboration;
+  }
+
+  // Report selected native mechanisms, independently from whether journal/transport adapters are attached.
+  managed_capability enabled_capabilities() const {
+    check_thread();
+    auto result = has_history ? managed_capability::history : managed_capability::none;
+    if (journal_enabled_) { result = result | managed_capability::journal; }
+    if (collaboration_enabled_) { result = result | managed_capability::collaboration; }
+    if (authorization_callback_) { result = result | managed_capability::authorization; }
+    return result;
   }
 
   // Report whether this owner-thread store currently enforces a host authorization boundary.
@@ -2650,6 +2714,9 @@ public:
     if (collaboration_state_.attachment) {
       throw std::logic_error{"Collaboration history is retained with pending synchronization"};
     }
+    if (authorization_callback_ || authorization_required_) {
+      static_cast<void>(prepare_publication(publication_kind::history_navigation, identities_, current_.get()));
+    }
     auto history = make_history();
     detail::resident_admission admission{
         resident_auxiliary_, estimate_auxiliary(snapshot_, identities_, history)};
@@ -2685,6 +2752,7 @@ public:
     requires(has_journal)
   {
     require_idle();
+    if (!journal_enabled_) { throw std::logic_error{"Managed journal capability is excluded"}; }
     if (collaboration_state_.attachment) {
       collaboration_state_.attachment->create_journal(path, mode, std::move(options));
       return;
@@ -2713,6 +2781,7 @@ public:
     requires(has_journal)
   {
     require_idle();
+    if (!journal_enabled_) { throw std::logic_error{"Managed journal capability is excluded"}; }
     if (collaboration_state_.attachment) {
       collaboration_state_.attachment->recover_journal(path, std::move(options));
       return;
@@ -2963,6 +3032,7 @@ public:
                                 journal_storage_mode mode = journal_storage_mode::appended,
                                 journal_options options = {}) {
     require_idle();
+    if (!journal_enabled_) { throw std::logic_error{"Managed journal capability is excluded"}; }
     if (journal_state_.sink || collaboration_state_.attachment) {
       throw std::logic_error{"Recover migration into an unattached managed document"};
     }

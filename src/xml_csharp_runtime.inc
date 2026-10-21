@@ -361,6 +361,7 @@ R"xmlcs(
     // Validate current document values after complete bounded and secure parsing.
     public void Validate(byte[] bytes, Limits limits) {
       using (var input = new SrlXmlInput(bytes, limits)) { while (input.Kind != '\0') input.Advance(); input.Finish(); }
+      limits.Operation?.Consume(Limits.OperationResource.WorkUnits,0);
       var settings = new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Prohibit, XmlResolver = null, Schemas = schemas, ValidationType = System.Xml.ValidationType.Schema, MaxCharactersInDocument = limits.MaxBytes };
       settings.ValidationFlags = System.Xml.Schema.XmlSchemaValidationFlags.ProcessIdentityConstraints;
       settings.ValidationEventHandler += (_, args) => throw new System.FormatException("XML does not satisfy the selected XSD", args.Exception);
@@ -374,6 +375,8 @@ R"xmlcs(
           if (!schemas.GlobalElements.Contains(new System.Xml.XmlQualifiedName(reader.LocalName, reader.NamespaceURI))) throw new System.FormatException("XML root is not declared in the selected XSD");
         }
       }
+      // A provider may finish normally after the caller's operation was canceled.
+      limits.Operation?.Consume(Limits.OperationResource.WorkUnits,0);
     }
   }
 )xmlcs"

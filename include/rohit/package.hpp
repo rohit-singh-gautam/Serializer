@@ -148,11 +148,42 @@ public:
 };
 
 enum class zip_method : std::uint16_t { stored = 0, deflate = 8 };
+
+// Optional physical editing metadata is inert data, never filesystem permissions or security policy.
+// ZIP64 size/offset extras are regenerated; other complete TLV fields retain their bytes and order.
+struct zip_entry_metadata {
+  std::uint16_t version_made{20U};
+  std::uint16_t central_version_needed{20U}, local_version_needed{20U};
+  std::uint16_t flags{0x0800U};
+  std::uint16_t central_time{}, central_date{0x0021U};
+  std::uint16_t local_time{}, local_date{0x0021U};
+  std::uint16_t internal_attributes{};
+  std::uint32_t external_attributes{};
+  std::string comment{};
+  std::vector<std::uint8_t> central_extra{}, local_extra{};
+  bool descriptor_signed{};
+  bool local_crc_zero{}, local_compressed_zero{}, local_expanded_zero{};
+  // Compare retained physical metadata independently of payload CRCs, sizes and offsets.
+  bool operator==(const zip_entry_metadata&) const = default;
+};
+
+// Archive comments and ZIP64 extensible bytes survive explicit physical-metadata editing.
+struct zip_archive_metadata {
+  std::string comment{};
+  bool force_zip64{};
+  std::uint16_t zip64_version_made{45U}, zip64_version_needed{45U};
+  std::vector<std::uint8_t> zip64_extensible_data{};
+  // Compare only preserved metadata, excluding regenerated archive offsets/counts.
+  bool operator==(const zip_archive_metadata&) const = default;
+};
+
 struct entry_options {
   zip_method method{zip_method::stored};
   int compression_level{6};
   // Force standard ZIP64 size fields even for small entries (for fixed profile requirements).
   bool force_zip64{};
+  // Borrow through add/write only; the writer copies it after admission. Null retains canonical defaults.
+  const zip_entry_metadata* metadata{};
 };
 struct zip_entry {
   std::string name;
@@ -179,13 +210,17 @@ struct input_options {
 // finish() is required, fallible and never called by a destructor. One complete
 // part is buffered for compression; no incremental model/record API is implied.
 class zip_writer {
+  struct retained_entry : zip_entry {
+    std::shared_ptr<const zip_entry_metadata> metadata{};
+  };
   std::ostream& output_;
   std::shared_ptr<budget> budget_;
-  std::vector<zip_entry> entries_{};
+  std::vector<retained_entry> entries_{};
   std::uint64_t offset_bytes_{};
   bool finished_{};
   bool failed_{};
   bool opc_names_{};
+  std::shared_ptr<const zip_archive_metadata> archive_metadata_{};
   friend class opc_writer;
   // OPC URI segments permit colons; this policy is unavailable to ordinary archive callers.
   zip_writer(std::ostream& output, std::shared_ptr<budget> shared, bool opc_names);
@@ -205,6 +240,8 @@ public:
              entry_options options = {});
   // Complete the central directory; repeated finish succeeds without additional output.
   void finish();
+  // Opt in to archive-level physical metadata before finish; the borrowed shared value must stay immutable.
+  void set_archive_metadata(std::shared_ptr<const zip_archive_metadata> metadata);
   // Inspect the cumulative operation budget for nested codec integrations.
   [[nodiscard]] const std::shared_ptr<budget>& shared_budget() const noexcept;
 };
@@ -218,7 +255,9 @@ class zip_reader {
   std::istream* input_;
   std::shared_ptr<budget> budget_;
   std::vector<zip_entry> entries_{};
+  std::vector<std::shared_ptr<const zip_entry_metadata>> entry_metadata_{};
   std::uint64_t archive_bytes_{};
+  std::shared_ptr<const zip_archive_metadata> archive_metadata_{};
   friend class opc_reader;
   // Apply the OPC part-URI naming policy only while indexing an OPC physical package.
   zip_reader(std::istream& input, std::shared_ptr<budget> shared,
@@ -236,6 +275,10 @@ public:
   zip_reader& operator=(const zip_reader&) = delete;
   // Enumerate borrowed metadata; entries remain valid for the reader lifetime.
   [[nodiscard]] const std::vector<zip_entry>& entries() const noexcept;
+  // Inspect immutable optional physical metadata; null denotes an absent entry or canonical metadata.
+  [[nodiscard]] std::shared_ptr<const zip_entry_metadata> entry_metadata(std::string_view name) const noexcept;
+  // Retain archive comments/ZIP64 extension metadata independently of the reader's source lifetime.
+  [[nodiscard]] const std::shared_ptr<const zip_archive_metadata>& archive_metadata() const noexcept;
   // Find an exact, case-sensitive ZIP identity; return null when absent.
   [[nodiscard]] const zip_entry* find(std::string_view name) const noexcept;
   // Expand one selected entry under the shared budget and verify its size and CRC.
@@ -263,6 +306,44 @@ struct relationship {
 // Resolve one OPC internal URI reference without filesystem access or repeated decoding.
 // Query/fragment components identify the whole part; dot segments follow RFC 3986.
 [[nodiscard]] std::string resolve_target(std::string_view source, std::string_view target);
+
+// An outer package locator is independent of archive opening, filesystem paths and internal targets.
+// Empty part_name addresses the whole package. Outer query is retained but not used for part lookup;
+// fragment identifies a portion of the addressed resource and remains application-defined data.
+struct pack_address {
+  std::string package_iri{};
+  std::string part_name{};
+  std::optional<std::string> query{};
+  std::optional<std::string> fragment{};
+  // Compare stored lexical components; use equivalent_pack_iri for resource identity semantics.
+  bool operator==(const pack_address&) const = default;
+};
+
+// Compose the fifth-edition pack scheme from an absolute package IRI and selected ASCII part name.
+// The package fragment is discarded; nested pack packages and unsupported part names reject.
+// No resolver, file access or network fetch occurs. A supplied budget is borrowed synchronously.
+[[nodiscard]] std::string compose_pack_iri(std::string_view package_iri,
+    std::string_view part_name = {}, budget* shared = nullptr);
+
+// Compose all stored outer components, preserving present-empty query/fragment distinctions.
+[[nodiscard]] std::string compose_pack_iri(const pack_address& address, budget* shared = nullptr);
+
+// Decode exactly one pack IRI once, validate its absolute outer package IRI and selected part name,
+// and retain query/fragment separately. Both missing path and '/' address the complete package.
+[[nodiscard]] pack_address parse_pack_iri(std::string_view value, budget* shared = nullptr);
+
+// Apply RFC3986 reference resolution to a validated pack base; absolute external IRIs remain data.
+// The result may be a directory/non-part IRI. Parse it before part lookup to enforce the part grammar.
+[[nodiscard]] std::string resolve_pack_reference(std::string_view base,
+    std::string_view reference, budget* shared = nullptr);
+
+// The caller supplies scheme-specific package-resource equivalence, without fetching either package.
+using package_iri_equivalence = std::function<bool(std::string_view, std::string_view)>;
+
+// Compare decoded package locators through the required caller policy and ASCII part identities.
+// Outer query/fragment do not change resource identity. Policy exceptions propagate unchanged.
+[[nodiscard]] bool equivalent_pack_iri(std::string_view left, std::string_view right,
+    const package_iri_equivalence& compare_packages, budget* shared = nullptr);
 
 // A standard OPC builder generates infrastructure XML through Serializer's XML
 // provider. Parts can use any codec; no history/journal/session parts are added.

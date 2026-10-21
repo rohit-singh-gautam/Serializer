@@ -21,6 +21,10 @@ class _XmlFieldContext:
             retain = getattr(self.context, '_xml_retain_namespace_at', None)
             if retain is not None:
                 return lambda bindings: retain(bindings, self)
+        if name == 'retain_namespace_addition':
+            retain = getattr(self.context, '_xml_retain_namespace_addition_at', None)
+            if retain is not None:
+                return lambda prefix, uri: retain(prefix, uri, self)
         return getattr(self.context, name)
     def consume(self, resource, amount):
         """Charge through the original operation with this field's logical location."""
@@ -109,6 +113,15 @@ class _XmlBudget:
             self.context.consume('decoder_allocation_bytes', size)
         return value
 
+def _xml_charge_scope_copy(bindings, context):
+    """Account retained scope copies without recounting logical XML declarations as text."""
+    if context is not None:
+        for prefix, uri in bindings.items():
+            size = len(prefix.encode('utf-8')) + len(uri.encode('utf-8'))
+            context.consume('work_units', size)
+            context.consume('decoder_allocation_bytes', size)
+
+
 def _xml_name(uri, local):
     """Construct an expanded name independent of a document prefix."""
     return '{' + uri + '}' + local if uri else local
@@ -151,9 +164,7 @@ def _xml_parse(data, limits=None, context=None, original_size=None):
         budget.element(expanded(name), len(stack) + 1)
         node = [expanded(name), {}, [], '', {}, []]
         inherited = scopes[-1] if scopes else {'xml': 'http://www.w3.org/XML/1998/namespace'}
-        for prefix, uri in inherited.items():
-            budget.text(prefix)
-            budget.text(uri)
+        _xml_charge_scope_copy(inherited, budget.context)
         if context is not None:
             context.consume('decoder_allocation_bytes', 64 * (len(inherited) + len(declarations)))
         scope = dict(inherited)
@@ -1187,9 +1198,7 @@ def _xml_token_decode(model, root, chunks, limits=None, context=None):
         name = expanded(raw_name)
         budget.element(name, len(stack) + 1)
         inherited = stack[-1][0].scope if stack else {'xml': 'http://www.w3.org/XML/1998/namespace'}
-        for selected, uri in inherited.items():
-            budget.text(selected)
-            budget.text(uri)
+        _xml_charge_scope_copy(inherited, budget.context)
         scope = dict(inherited)
         scope.update(declarations)
         declarations.clear()

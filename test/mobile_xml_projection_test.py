@@ -40,6 +40,15 @@ fun main(arguments: Array<String>) {
   check(source.withProject { it.encode(protocol) }.contentEquals(source.current.encode(protocol)))
  }
  check(source.withProject { it.encodeXml() }.contentEquals(source.current.encodeXml()))
+ // A successful provider that signals cancellation cannot publish readonly projection bytes.
+ var completed=false; val canceled=IllegalStateException("Canceled inside projection validator")
+ val operationLimits=XmlLimits().also { it.srlPackageContext=SrlXmlBudget.Operation({if(completed)throw canceled},{_,_,_->}) }
+ val validator=XmlValidator { data, limits ->
+  val candidate=ProjectedPayload.decodeXml(data,limits);check(candidate.number==7u && candidate.label==source.current.label);completed=true
+ }
+ var failure:Throwable?=null
+ try { source.withProject { it.encodeXml(operationLimits,validator=validator) } } catch(error:Throwable){failure=error}
+ check(completed && failure===canceled)
  source.current.number=0u; source.current.label="updated"
  check(ProjectedPayload.decodeXml(envelope.value.encodeXml()).number == 0u)
  rejected { ProjectedEnvelope.decodeXml(envelope.encodeXml()) }
@@ -58,6 +67,17 @@ fun main(arguments: Array<String>) {
 }'''
 
 SWIFT = r'''import Foundation
+// Validate the actual projected fields before making cancellation observable to the caller.
+final class ProjectionValidator: XmlValidator {
+ var completed=false
+ // Keep validation synchronous and use the caller's operation policy for the nested checks.
+ func validate(_ bytes:[UInt8],_ limits:XmlLimits) throws {
+  let value=try ProjectedPayload.decodeXml(bytes,limits)
+  guard value.number==7 && value.label=="A<&\"" else { throw SerializerError.invalid("Projected provider fields differ") }
+  completed=true
+ }
+}
+enum ProjectionCancellation: Error { case canceled }
 // Reject unexpectedly successful operations outside the catch for expected native failures.
 func rejected(_ action: () throws -> Void) throws { do { try action() } catch { return }; throw SerializerError.invalid("Invalid projection accepted") }
 // Preserve throwing checks without nonthrowing assertion autoclosures.
@@ -74,6 +94,12 @@ for (index,protocolValue) in Protocol.allCases.enumerated() {
  try require(source.value.withProject { try $0.encode(protocolValue) } == source.value.current.encode(protocolValue))
 }
 try require(source.value.withProject { try $0.encodeXml() } == source.value.current.encodeXml())
+let projectionValidator=ProjectionValidator();var operationLimits=XmlLimits()
+operationLimits.srlPackageCheck={if projectionValidator.completed {throw ProjectionCancellation.canceled}}
+var canceled=false
+do { _=try source.value.withProject {try $0.encodeXml(operationLimits,validator:projectionValidator)} }
+catch ProjectionCancellation.canceled {canceled=true}
+try require(projectionValidator.completed && canceled)
 source.value.current.number=0; source.value.current.label="updated"
 try require(ProjectedPayload.decodeXml(envelope.value.encodeXml()).number == 0)
 try rejected { _=try ProjectedEnvelope.decodeXml(envelope.encodeXml()) }
@@ -105,7 +131,8 @@ def main():
         parser.error('Scratch must be beneath ignored out/')
     args.build.mkdir(parents=True, exist_ok=True)
     model = args.build / 'model.serializer'; model.write_text(MODEL, encoding='utf-8')
-    command = [args.compiler, '--input', model, '--language', ','.join(languages), '--kotlin.package=']
+    command = [args.compiler, '--input', model, '--language', ','.join(languages), '--kotlin.package=',
+               '--xml.runtime_xsd', 'true', '--xml.validation_scope', 'both']
     for language in languages:
         directory = args.build / language; directory.mkdir(parents=True, exist_ok=True)
         command += [f'--{language}.output', directory / sdk.OUTPUTS[language]]

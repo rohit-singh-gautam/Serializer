@@ -19,6 +19,22 @@ fun main(args: Array<String>) {
     val value = XmlProviderFixtureOrder.decodeXml(bytes, validator = schema)
     check(value.id == 7u && value.customer == "R&D" && value.values.contentEquals(intArrayOf(3)))
     schema.validate(value.encodeXml(validator = schema), limits)
+    // Cancellation activated by a successful real provider must prevent candidate publication.
+    var completed = false
+    val canceled = IllegalStateException("Canceled inside the prepared provider")
+    val operationLimits = XmlLimits().also {
+        it.srlPackageContext = SrlXmlBudget.Operation({ if (completed) throw canceled }, { _, _, _ -> })
+    }
+    val cancelingProvider = XmlValidator { data, policy -> schema.validate(data, policy); completed = true }
+    for (decode in listOf(false, true)) {
+        completed = false
+        var failure: Throwable? = null
+        try {
+            if (decode) XmlProviderFixtureOrder.decodeXml(bytes, operationLimits, validator = cancelingProvider)
+            else value.encodeXml(operationLimits, validator = cancelingProvider)
+        } catch (error: Throwable) { failure = error }
+        check(completed && failure === canceled)
+    }
     for (bad in listOf("<wrong xmlns='urn:serializer:xsd'/>", document.replace("urn:serializer:xsd", "urn:wrong"),
         document + "<extra/>", document.replace("<value>3</value>", ""), "<!DOCTYPE order SYSTEM 'file:///must-not-open'>" + document)) {
         rejected { schema.validate(bad.toByteArray(Charsets.UTF_8), limits) }

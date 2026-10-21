@@ -18,6 +18,47 @@ R"serializer(
       void ResourceLimit(string message);
     }
     internal IOperation? Operation { get; init; }
+    // Share the first callback failure across captured nested owner scopes.
+    private sealed class CancellationState {
+      internal readonly global::System.Action Check;
+      internal global::System.Runtime.ExceptionServices.ExceptionDispatchInfo? Failure;
+      internal CancellationState(global::System.Action check) { Check = check; }
+      internal void Poll() {
+        Failure?.Throw();
+        try { Check(); } catch (global::System.Exception failure) {
+          Failure = global::System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure); throw;
+        }
+      }
+    }
+    // Compose cancellation around one existing admission; never duplicate its primary charge.
+    private sealed class CancellationOperation : IOperation {
+      private readonly CancellationState state;
+      private readonly IOperation? parent;
+      private sealed class EmptyOwner : global::System.IDisposable { public void Dispose() {} }
+      private static readonly global::System.IDisposable emptyOwner = new EmptyOwner();
+      internal CancellationOperation(CancellationState state, IOperation? parent) { this.state = state; this.parent = parent; }
+      public void Consume(OperationResource resource,long amount) {
+        state.Poll();
+        try { parent?.Consume(resource,amount); } catch (global::System.Exception failure) {
+          state.Failure ??= global::System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure); state.Failure.Throw(); throw;
+        }
+        state.Poll();
+      }
+      public global::System.IDisposable EnterOwner() { return parent?.EnterOwner() ?? emptyOwner; }
+      public void SelectField(string member) { parent?.SelectField(member); }
+      public IOperation Capture() { return parent == null ? this : new CancellationOperation(state,parent.Capture()); }
+      public void RethrowFailure() { state.Failure?.Throw(); parent?.RethrowFailure(); }
+      public void ResourceLimit(string message) { RethrowFailure(); parent?.ResourceLimit(message); throw new global::System.FormatException(message); }
+    }
+    /// <summary>Return a policy copy with a synchronous caller cancellation/deadline check.
+    /// The callback and first original failure are shared by nested captures; existing admission
+    /// is forwarded once. Use a fresh wrapper after failure and do not share it concurrently.</summary>
+    public Limits WithCancellation(global::System.Action check) {
+      if (check == null) throw new global::System.ArgumentNullException(nameof(check));
+      return new Limits(MaxBytes,MaxStringBytes,MaxElements,MaxDepth,ReadPolicy) {
+        Operation = new CancellationOperation(new CancellationState(check),Operation), XmlExpectedType = XmlExpectedType
+      };
+    }
     internal string? XmlExpectedType { get; init; }
     public ReadPolicy ReadPolicy { get; }
     public int MaxBytes { get; }

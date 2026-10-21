@@ -145,17 +145,24 @@ class document_writer {
     consume(nodes_, 1U, bounds_.max_nodes, context_);
     consume(text_bytes_, node.text.size(), bounds_.max_text_bytes, context_);
     register_name(node.qualified_name);
-    consume(namespace_bindings_, node.namespace_bindings.size(), bounds_.max_namespace_bindings, context_);
     for (const auto& [prefix, uri] : node.namespace_bindings) {
+      if (context_) {
+        context_->consume(operation_resource::work_units, prefix.size());
+        context_->consume(operation_resource::work_units, uri.size());
+      }
       if (!prefix.empty()) { check_name(prefix); }
-      check_text(uri);
+      check_text(uri, context_);
       if (prefix == "xmlns" || uri == "http://www.w3.org/2000/xmlns/" ||
           (prefix == "xml") != (uri == "http://www.w3.org/XML/1998/namespace")) {
         throw std::invalid_argument{"Invalid retained XML namespace binding"};
       }
-      consume(name_bytes_, prefix.size(), bounds_.max_name_bytes, context_);
-      consume(name_bytes_, uri.size(), bounds_.max_name_bytes, context_);
-      retained_prefixes_.insert(prefix);
+      if (!retained_prefixes_.contains(prefix)) {
+        if (context_) {
+          context_->consume(operation_resource::allocation_bytes, sizeof(std::string));
+          context_->consume(operation_resource::allocation_bytes, prefix.size());
+        }
+        retained_prefixes_.insert(prefix);
+      }
     }
     if (!node.children.empty() && !detail::trim(node.text).empty() && node.text_segments.empty() &&
         !(context_ && context_->allow_mixed_content)) {
@@ -195,6 +202,15 @@ class document_writer {
     if (!value.namespace_uri.empty()) { append(prefixes_.at(value.namespace_uri)); append(":"); }
     append(value.local);
   }
+  // Charge physical declarations once, including generated prefixes and default resets.
+  void emit_namespace(std::string_view prefix, std::string_view uri) {
+    consume(namespace_bindings_, 1U, bounds_.max_namespace_bindings, context_);
+    consume(name_bytes_, prefix.size(), bounds_.max_name_bytes, context_);
+    consume(name_bytes_, uri.size(), bounds_.max_name_bytes, context_);
+    append(" xmlns");
+    if (!prefix.empty()) { append(":"); append(prefix); }
+    append("=\""); escaped(uri, true); append("\"");
+  }
   // Emit one already bounded record, with declarations centralized on the root.
   struct namespace_frame {
     const element& node;
@@ -230,19 +246,17 @@ class document_writer {
     if (root) {
       for (const auto& [uri, prefix] : prefixes_) {
         if (prefix == "xml") { continue; }
-        append(" xmlns:"); append(prefix); append("=\""); escaped(uri, true); append("\"");
+        emit_namespace(prefix, uri);
       }
     }
     // Retain QName-valued attribute/text bindings, using distinct prefixes for expanded element names.
     for (const auto& [prefix, uri] : node.namespace_bindings) {
       if (prefix == "xml") { continue; }
       if (prefix.empty() && reset_default) { continue; }
-      append(" xmlns");
-      if (!prefix.empty()) { append(":"); append(prefix); }
-      append("=\""); escaped(uri, true); append("\"");
+      emit_namespace(prefix, uri);
     }
     if (reset_default) {
-      append(" xmlns=\"\"");
+      emit_namespace({}, {});
       effective_default = {};
     }
     for (const auto& attribute : node.attributes) {
@@ -688,6 +702,11 @@ name resolve_qname(std::string_view lexical, const element& scope) {
 
 // Prefer an existing named binding; generated prefixes never overwrite retained namespace context.
 std::string qualify_qname(const name& value, element& scope) {
+  static const std::set<std::string> empty{};
+  return qualify_qname(value, scope, empty);
+}
+// An authored string fallback must not acquire QName meaning through a generated declaration.
+std::string qualify_qname(const name& value, element& scope, const std::set<std::string>& reserved) {
   check_name(value.local);
   check_text(value.namespace_uri);
   if (value.namespace_uri.empty()) {
@@ -709,7 +728,7 @@ std::string qualify_qname(const name& value, element& scope) {
   std::size_t next_prefix{};
   std::string prefix{};
   do { prefix = "q" + std::to_string(next_prefix++); }
-  while (scope.namespace_bindings.contains(prefix));
+  while (scope.namespace_bindings.contains(prefix) || reserved.contains(prefix));
   scope.namespace_bindings.emplace(prefix, value.namespace_uri);
   return prefix + ":" + value.local;
 }
@@ -1158,11 +1177,13 @@ element parse(std::string_view document, limits bounds, operation_context* conte
       retain(node->qualified_name.local.size());
       retain(node->qualified_name.namespace_uri.size());
       if (!stack.empty()) {
-        // Charge inherited maps before copying; compact nested documents cannot multiply metadata unboundedly.
-        consume(namespace_bindings, stack.back()->namespace_bindings.size(), bounds.max_namespace_bindings, context);
+        // Retained copies consume memory, while namespace/name quotas count physical declarations once.
         for (const auto& [prefix, uri] : stack.back()->namespace_bindings) {
-          consume(name_bytes, prefix.size(), bounds.max_name_bytes, context);
-          consume(name_bytes, uri.size(), bounds.max_name_bytes, context);
+          if (context) {
+            context->consume(operation_resource::work_units, 1U);
+            context->consume(operation_resource::work_units, prefix.size());
+            context->consume(operation_resource::work_units, uri.size());
+          }
           retain(sizeof(std::pair<const std::string, std::string>));
           retain(prefix.size());
           retain(uri.size());
@@ -1778,6 +1799,7 @@ operation_context* token_writer::context() const noexcept { return state_->opera
 const limits& token_writer::bounds() const noexcept { return state_->bounds; }
 
 struct token_reader::implementation {
+  std::string_view original_input;
   std::string_view remaining;
   operation_context* operation;
   std::size_t chunk_bytes;
@@ -1787,12 +1809,41 @@ struct token_reader::implementation {
   std::size_t namespace_snapshot_bytes{};
   std::vector<std::size_t> child_counts{};
   std::vector<token_identity_pass> identities{};
+  bool collect_prefixes{};
+  std::set<std::string> reserved_prefixes{};
+  std::string prefix_candidate{};
+  std::size_t prefix_bytes{};
   event_reader producer;
   bool failed{}, completed{};
 
+  // Track only canonical qN allocator prefixes, including candidates split across input chunks.
+  void inspect_prefixes(std::string_view text, bool continued) {
+    if (!continued) { prefix_candidate.clear(); }
+    constexpr auto maximum_prefix_bytes = std::numeric_limits<std::size_t>::digits10 + 2U;
+    for (const auto character : text) {
+      if (operation) { operation->consume(operation_resource::work_units, 1U); }
+      if (character == 'q') { prefix_candidate = "q"; }
+      else if (character >= '0' && character <= '9' && !prefix_candidate.empty()) {
+        if (prefix_candidate.size() == maximum_prefix_bytes ||
+            (prefix_candidate.size() > 1U && prefix_candidate[1] == '0')) {
+          prefix_candidate.clear();
+        } else { prefix_candidate += character; }
+      } else {
+        if (character == ':' && prefix_candidate.size() > 1U && !reserved_prefixes.contains(prefix_candidate)) {
+          consume(prefix_bytes, sizeof(decltype(reserved_prefixes)::value_type), bounds.max_name_bytes, operation);
+          consume(prefix_bytes, prefix_candidate.size(), bounds.max_name_bytes, operation);
+          if (operation) { operation->consume(operation_resource::allocation_bytes,
+              sizeof(decltype(reserved_prefixes)::value_type) + prefix_candidate.size()); }
+          reserved_prefixes.insert(prefix_candidate);
+        }
+        prefix_candidate.clear();
+      }
+    }
+  }
+
   // Copy only events produced by one bounded input chunk; no parent/child links are retained.
   implementation(std::string_view input, limits selected_bounds, operation_context* context, std::size_t chunk)
-      : remaining{input}, operation{context}, chunk_bytes{std::min(chunk, default_token_chunk_bytes)}, bounds{selected_bounds},
+      : original_input{input}, remaining{input}, operation{context}, chunk_bytes{std::min(chunk, default_token_chunk_bytes)}, bounds{selected_bounds},
         producer{[this](const event_view& event) {
           if (operation) {
             operation->consume(operation_resource::allocation_bytes,
@@ -1880,6 +1931,36 @@ void token_reader::advance() {
     state_->queue.pop_front(); state_->fill();
   }
   catch (...) { state_->failed = true; throw; }
+}
+// Opt in only schema-default graphs; ordinary codecs retain their established traversal cost.
+void token_reader::collect_namespace_prefixes() {
+  (void)current();
+  if (state_->collect_prefixes) { return; }
+  // A default on an early attribute must not bind a later union string's otherwise
+  // unbound prefix. Scan normalized events once, retaining only allocator names;
+  // character references and arbitrary provider chunk boundaries remain meaningful.
+  try {
+    event_reader inventory{[&](const event_view& event) {
+      if (event.kind == event_kind::text) { state_->inspect_prefixes(event.text, true); }
+      else {
+        state_->prefix_candidate.clear();
+        for (const auto& item : event.attributes) { state_->inspect_prefixes(item.value, false); }
+        state_->prefix_candidate.clear();
+      }
+    }, event_limits{state_->bounds}, state_->operation};
+    auto remaining = state_->original_input;
+    while (!remaining.empty()) {
+      const auto count = std::min(state_->chunk_bytes, remaining.size());
+      inventory.feed(remaining.substr(0U, count));
+      remaining.remove_prefix(count);
+    }
+    inventory.finish();
+    state_->collect_prefixes = true;
+  } catch (...) { state_->failed = true; throw; }
+}
+// Borrow the bounded normalized inventory synchronously for this document pass.
+const std::set<std::string>& token_reader::reserved_namespace_prefixes() const noexcept {
+  return state_->reserved_prefixes;
 }
 // Ignore only XML whitespace outside scalar slots.
 void token_reader::skip_space() {

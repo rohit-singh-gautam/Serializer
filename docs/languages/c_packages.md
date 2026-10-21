@@ -96,6 +96,24 @@ reject/skip/preserve policies. Preserved opaque payload bytes and relationship
 scopes are checked again on encode/Save. Dynamic role renames require explicit
 application rebinding.
 
+OPC part names support the required ASCII URI character set, including inert
+colons and permitted percent escapes. Part identity compares ASCII case and
+escape-hex spelling without rewriting stored names. Internal targets resolve dot
+segments and selectors for part lookup; stored relationship spelling remains
+intact. External targets use component-aware RFC 3986/3987 validation, including
+IPv6/IPvFuture authorities and query-only private Unicode characters, and never
+perform network access. Relationship types require a fragment-free absolute IRI.
+The generic ZIP reader/writer retains its existing colon restriction.
+
+Directory/device/link records and physical names that do not map to supported
+OPC part URIs are excluded from the logical part catalog, while their payloads
+still undergo bounded decompression and CRC checks. Exact physical ZIP names and
+case-equivalent logical part identities are checked separately. Optional raw or
+percent-encoded non-ASCII part naming reports the unavailable status. XML schema
+whitespace collapse applies to relationship IDs, types, targets and override part
+names; quoted MIME parameter whitespace remains significant. See the
+[C URI and mapping replay](../verification/verification-c-opc-uri-2026-10-21.md).
+
 Release 2.19.0 adds opt-in canonical fixed-singleton output. Existing `encode`,
 `write`, `save` and their selected-codec forms retain discovered `_path` values
 and their previous output behavior. Use the collision-selected entry point
@@ -203,6 +221,16 @@ The test injects every generated allocation failure during encode/load and check
 complete rollback and released ownership; provider-internal allocations remain
 under their native provider contracts.
 
-This selected owning profile does not close the broader official OPC/3MF corpus,
-UTF-16/MCE infrastructure, all XML graph combinations or other platform gates in
+Content-type and Relationships infrastructure accepts strict UTF-8 or BOM-marked
+UTF-16 in either byte order. A declaration must be absent or identify `UTF-16`;
+conflicting labels, UTF-32, malformed scalars, DTDs and XML1.1 reject. Infrastructure
+output remains UTF-8, and ordinary generated typed XML retains its UTF-8 contract.
+The metadata ledger counts original encoded bytes. See the independent
+[C/Rust encoding replay](../verification/verification-opc-utf16-2026-10-21.md).
+
+Relationships metadata applies fifth-edition namespace-scoped Ignorable,
+ProcessContent, MustUnderstand and ordered Choice/Fallback preprocessing before
+core validation; see the [common metadata corpus](../verification/verification-opc-metadata-2026-10-21.md).
+This selected owning profile does not close the broader official 3MF corpus,
+all XML graph combinations or other platform gates in
 [the backlog](../pending.md).

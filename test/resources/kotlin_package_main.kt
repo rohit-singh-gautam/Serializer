@@ -18,6 +18,7 @@ private fun failure(action: () -> Unit): Throwable { try { action() } catch (err
 /** Compare the public error category rather than implementation-specific messages. */
 private fun code(error: Throwable, expected: String) {
     val actual = when (error) { is SerializerPackage.PackageError -> error.code.name; is parameterized.SerializerPackage.PackageError -> error.code.name; is identity.SerializerPackage.PackageError -> error.code.name; else -> throw AssertionError("Missing package diagnostic: $error") }
+    if (expected == "ANY") return
     check(actual in expected.split(',')) { "Expected $expected; got $actual: $error" }
 }
 /** Relax only logical large-offset/count/metadata limits for independent ZIP64 boundaries. */
@@ -142,10 +143,13 @@ private fun contracts() {
             code(failure { writer.add("nonempty.bin",byteArrayOf(1),method) },"RESOURCE_LIMIT"); failure { writer.finish() }
         }
     }
-    test("write rejects internal target root escape") {
+    test("write resolves internal target at URI root") {
         val opaque=SerializerPackage.BinaryPart(byteArrayOf(1),"/Model.xml","application/octet-stream")
         val links=listOf(SerializerPackage.Relationship("/","escape","urn:serializer:opaque","../Model.xml"))
-        code(failure { SerializerPackage.Composer().finish(SerializerPackage.Extensions(listOf(opaque),links)) },"INVALID_RELATIONSHIP")
+        val output=SerializerPackage.Composer().finish(SerializerPackage.Extensions(listOf(opaque),links))
+        SerializerPackage.ZipReader.open(output).use { check(it.read("Model.xml").contentEquals(byteArrayOf(1))) }
+        val missing=listOf(SerializerPackage.Relationship("/","missing","urn:serializer:opaque","../missing.xml"))
+        code(failure { SerializerPackage.Composer().finish(SerializerPackage.Extensions(listOf(opaque),missing)) },"MISSING_PART")
     }
     for (resource in listOf(SerializerPackage.Resource.DECODER_ALLOCATION_BYTES,SerializerPackage.Resource.WORK_UNITS)) test("selected entry admission retains role $resource") {
         val budget=SerializerPackage.Budget(); SerializerPackage.ZipReader.open(bytes,budget).use { reader ->

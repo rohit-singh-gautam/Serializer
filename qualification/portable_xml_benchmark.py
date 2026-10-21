@@ -17,6 +17,7 @@ import sys
 import xml.etree.ElementTree as etree
 
 from python_xml_benchmark import ROOT, SOURCE, WORKLOAD_SEED, XML_NAMESPACE, check_xml
+from python_xml_benchmark import MAX_WORKLOAD_TAGS, suppress_windows_error_dialogs
 
 LANGUAGES = ('java', 'csharp', 'go', 'javascript', 'typescript')
 DRIVERS = ROOT / 'qualification/xml_performance'
@@ -120,13 +121,14 @@ def main():
                         help='Installed dependencies from the maintained XML TypeScript lockfile')
     parser.add_argument('--tags', type=int, default=20000)
     args = parser.parse_args()
+    suppress_windows_error_dialogs()
     if os.name != 'nt':
         parser.error('This measurement profile requires native Windows process counters; other platforms remain pending')
     languages = args.language.split(',')
     if len(set(languages)) != len(languages) or any(value not in LANGUAGES for value in languages):
         parser.error('Choose distinct supported language names')
-    if not 1 <= args.tags <= 20000:
-        parser.error('--tags must be between 1 and 20000 for this owning workload')
+    if not 1 <= args.tags <= MAX_WORKLOAD_TAGS:
+        parser.error(f'--tags must be between 1 and {MAX_WORKLOAD_TAGS} for this owning workload')
     build, compiler = args.build.resolve(), args.compiler.resolve(strict=True)
     if build == ROOT or ROOT in build.parents and 'out' not in build.relative_to(ROOT).parts:
         parser.error('In-repository output must remain beneath ignored out/')
@@ -318,7 +320,7 @@ def main():
                   'Default generated resource limits are active; owning complete-message measurements do not qualify streaming or hard memory bounds.',
                   'Java sets jdk.xml.maxGeneralEntitySizeLimit=4194304 and jdk.xml.totalEntitySizeLimit=8388608 explicitly for escaped-text fixtures; the JDK 26 defaults reject the larger fixture before typed decoding.',
                   'Concurrent machine work affects timings; there is no speed threshold or earlier-compiler performance regression baseline.',
-                  'Other platforms/providers, additional vocabularies and large-input behavior remain pending.'],
+                  'Other platforms/providers, additional vocabularies and inputs larger than the selected profile remain unqualified.'],
               'workloads': results}
     report_path.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
     print('PASS: retained ' + str(len(languages) * 18) + ' isolated operation measurements in ' + str(report_path))

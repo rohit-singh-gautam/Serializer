@@ -1,0 +1,39 @@
+serializer version 1.20.0;
+namespace qname_lists {
+  using schema "model.xsd";
+  class sample {
+    public array<string> names(1) xml(list);
+    public string choice(2);
+    public array<string> fixed_names(3) xml(attribute,list);
+  }
+  class fixed_list {
+    public array[3] string names xml(list);
+  }
+  class attribute_default {
+    public array<string> names xml(attribute,list);
+    public optional<string> fallback xml(attribute);
+  }
+  class text_default {
+    public array[2] string value xml(text,list);
+    public optional<string> fallback xml(attribute);
+  }
+  class early_default {
+    public array<string> names xml(attribute,list);
+    public string fallback;
+  }
+  class root_scope {
+    public array<string> names xml(attribute,list);
+    public optional<string> category xml(attribute);
+    public optional<string> fallback xml(attribute);
+  }
+  class empty_default {
+    public array<string> names xml(attribute,list);
+    public optional<string> category xml(attribute);
+  }
+  class root_scalar_default {
+    public array<string> names xml(attribute,list);
+    public optional<string> category xml(attribute);
+    public optional<string> qualified xml(attribute);
+    public optional<string> fallback xml(attribute);
+  }
+}

@@ -418,8 +418,10 @@ Synchronous file journals work with each history policy; see
 [journal and recovery](journal.md#using-the-implemented-journal). Store-owned
 [collaboration](local_collaboration.md) composes with these policies. Optional
 [inherited authorization](authorization.md) gates complete publication candidates;
-[versioned C++ capability validation](capabilities.md#implemented-c-profile-validation)
-checks selected profiles. Schema capability selectors remain proposals.
+[versioned C++ capability configuration](capabilities.md#activate-complete-native-profiles)
+activates/excludes native mechanisms, and explicit
+[history-policy conversion](capabilities.md#explicit-history-policy-conversion)
+transfers supported saved states between native policies. Schema capability selectors remain proposals.
 
 ### Independent store features
 
@@ -605,7 +607,7 @@ No benchmarked speedup is claimed.
 See [state enhancements](state_enhancements.md) for delta and budget contracts.
 
 Feature selectors (`managed(...)`), arbitrary `exclude(...)` policies, custom allocator
-propagation, history-policy conversion, fine-grained owned-variant merging,
+propagation, fine-grained owned-variant merging,
 background checkpoints, generated permission-policy fields and other-language managed engines
 remain unimplemented. Packed/view and recursive editors, virtual/repeated-ancestor
 bases and direct managed Protobuf output remain unsupported.

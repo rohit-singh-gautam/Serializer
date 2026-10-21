@@ -121,15 +121,22 @@ comparison rules.
 
 Python supports namespace-independent outer union enumeration/fixed constraints;
 other backend and namespace-dependent combinations retain their capability gates.
-Python also supports QName-list enumeration, defaults and fixed values, including
+C++, Python, JavaScript and TypeScript support QName-list enumeration, defaults and fixed values, including
 an enumerated list inside a union member. Schema values retain ordered expanded
 item identities, so instance prefix aliases and shadowed schema prefixes do not
-change acceptance. Empty lists and no-namespace items are distinct, and defaults
-generate declarations in the field's own scope. Native lexical strings, arrays
-and wire protocols retain their contracts. A schema default/fixed list containing
-no-namespace items rejects when the instance has an active nonempty default
-namespace; this avoids resetting other fields' QName scopes. Other backends keep their existing
-QName-list restriction gates. Namespace-dependent outer union restrictions and
+change acceptance. Empty lists and no-namespace items are distinct. Defaults
+use a private field scope; mixed no-namespace/default-namespace lists coexist with
+other QName attributes and string union fallbacks. Python/JavaScript/TypeScript
+keep the native lexical payload unchanged during output. C++ resolves root
+attribute/text presentation conflicts while constructing the fresh input candidate;
+it keeps existing lexical strings when their original owner scope still represents
+the same expanded identities. Native wire layouts and field IDs remain unchanged.
+C++ graphs using schema-owned QName-list defaults/fixed values use the direct token
+codec. Its bounded normalized-event prefix inventory prevents an early default
+from binding an otherwise unbound string-union prefix occurring later in the document.
+Automatic import supports builtin QName lists as native string arrays; backend
+capability checks still apply to their attached restrictions. Other backends keep
+their existing QName-list restriction gates. Namespace-dependent outer union restrictions and
 union defaults still reject, as does exporting these schema-scope QName-list
 constraints. See the [QName-list qualification](../verification/verification-qname-lists-2026-10-21.md).
 

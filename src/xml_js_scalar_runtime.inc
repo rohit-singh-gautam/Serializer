@@ -147,8 +147,8 @@ function srlXmlScalarRule(rule) {
   let compiled=srlXmlScalarCache.get(rule);
   if(compiled) return compiled;
   const parse=text=>srlXmlScalarValue(srlXmlScalarWhitespace(text,rule),rule);
-  compiled={enumeration:rule.qnames.length ? rule.qnames : rule.enumeration.map(parse),
-    fixed:rule.fixedName!==null ? rule.fixedName : rule.fixed===null ? null : parse(rule.fixed),bounds:[]};
+  compiled={enumeration:rule.qnames.length ? rule.qnames : rule.qnameLists.length ? rule.qnameLists : rule.enumeration.map(parse),
+    fixed:rule.fixedName!==null ? rule.fixedName : rule.fixedNames!==null ? rule.fixedNames : rule.fixed===null ? null : parse(rule.fixed),bounds:[]};
   for(const [name,minimum,inclusive] of [['minInclusive',true,true],['maxInclusive',false,true],['minExclusive',true,false],['maxExclusive',false,false]]) {
     if(rule[name]!==null) compiled.bounds.push([parse(rule[name]),minimum,inclusive]);
   }
@@ -162,7 +162,7 @@ function srlXmlLexicalTokens(text) {const trimmed=srlXmlTrim(text);return trimme
 function srlXmlListRule(rule) {
   let item=srlXmlListRules.get(rule);
   if(!item){item=Object.freeze({...rule,kind:rule.listItem,listItem:'',length:null,minLength:null,maxLength:null,
-    enumeration:Object.freeze([]),qnames:Object.freeze([]),fixed:null,fixedName:null,patterns:Object.freeze([]),prefixList:false});
+    enumeration:Object.freeze([]),qnames:Object.freeze([]),qnameLists:Object.freeze([]),fixed:null,fixedName:null,fixedNames:null,patterns:Object.freeze([]),prefixList:false});
     srlXmlListRules.set(rule,item);}
   return item;
 }

@@ -133,6 +133,34 @@ class javascript_xml_provider_test(unittest.TestCase):
         result=subprocess.run(['node',str(missing/'main.mjs')],capture_output=True,text=True)
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
 
+    def test_provider_completion_polls_operation_before_publication(self):
+        """Preserve late cancellation and the original provider error with a real prepared schema underneath."""
+        self.run_node('''
+        const schema=await Model.XmlSchema.prepare(xsd),owner=Model.ProviderSample.decodeXml(document);
+        const before=owner.encode(Model.Protocol.BINARY_NONE),marker=new Error('late provider cancellation');
+        let cancelled=false,calls=0;
+        const limits=new Model.XmlLimits({operation(){if(cancelled)throw marker;}});
+        const validator={validate(text){schema.validate(text);++calls;cancelled=true;}};
+        assert.throws(()=>owner.encodeXml(limits,validator),error=>error===marker);assert.equal(calls,1);
+        assert.deepEqual(owner.encode(Model.Protocol.BINARY_NONE),before);
+        cancelled=false;const unpublished={};let result=unpublished;
+        assert.throws(()=>{result=Model.ProviderSample.decodeXml(document,limits,validator);},error=>error===marker);
+        assert.equal(result,unpublished);assert.equal(calls,2);
+        cancelled=false;const original=new Error('original provider rejection');
+        assert.throws(()=>owner.encodeXml(limits,{validate(text){schema.validate(text);cancelled=true;throw original;}}),error=>error===original);
+        cancelled=false;schema.validate(owner.encodeXml());schema.dispose();
+        ''')
+        typed=self.directory/'late-provider.mts'
+        typed.write_text("import {XmlSchema,XmlValidator,ProviderSample,XmlLimits} from './schema.mjs';\n"
+                         "const schema=await XmlSchema.prepare("+json.dumps(XSD)+");let cancelled=false;const marker=new Error('late typed cancellation');\n"
+                         "const limits=new XmlLimits({operation(){if(cancelled)throw marker;}});\n"
+                         "const validator:XmlValidator={validate(text:string){schema.validate(text);cancelled=true;}};\n"
+                         "const owner=ProviderSample.decodeXml("+json.dumps(DOCUMENT)+");let rejected=false;\n"
+                         "try{owner.encodeXml(limits,validator);}catch(error){if(error!==marker)throw error;rejected=true;}\n"
+                         "if(!rejected)throw new Error('late provider cancellation published output');schema.dispose();\n",encoding='utf-8')
+        subprocess.run(['node',str(self.typescript),'--strict','--target','ES2022','--module','NodeNext','--moduleResolution','NodeNext','--skipLibCheck','false',str(typed)],check=True)
+        subprocess.run(['node',str(typed.with_suffix('.mjs'))],check=True)
+
 
 def main():
     """Generate actual JS/TS codecs and require the independently pinned real prepared provider installation."""

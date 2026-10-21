@@ -72,7 +72,7 @@ R"packagekotlin(
             for (child in declarations(archive.read(name.substring(1)),RELS,"Relationships",name,state,true)) {
                 if (child.name != Name(RELS,"Relationship")) throw PackageError(Code.INVALID_METADATA,"Invalid relationship declaration",name)
                 attributes(child,name,"Id","Type","Target","TargetMode")
-                val mode = child.attributes[Name("","TargetMode")]?.let { collapse(it) } ?: "Internal"
+                val mode = child.attributes[Name("","TargetMode")] ?: "Internal"
                 if (mode !in listOf("Internal","External")) throw PackageError(Code.INVALID_RELATIONSHIP,"Invalid TargetMode",name)
                 links.add(Relationship(source,attribute(child,"Id",name),attribute(child,"Type",name),attribute(child,"Target",name),fold(mode)))
             }

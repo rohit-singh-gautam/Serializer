@@ -12,6 +12,27 @@ import (
 
 const providerDocument="<order xmlns='urn:serializer:xsd' id='7'><customer>R&amp;D</customer><value>3</value></order>"
 
+type cancelAfterProvider struct { delegate XmlValidator; completed *bool }
+
+// Signal cancellation only after the real prepared provider has accepted the complete document.
+func (provider cancelAfterProvider) ValidateXML(data []byte)error{
+  if err:=provider.delegate.ValidateXML(data);err!=nil{return err}
+  *provider.completed=true
+  return nil
+}
+
+// A provider that returns normally cannot bypass cancellation before publishing bytes or a candidate.
+func checkLateProviderCancellation(value *XmlProviderFixtureOrder,data []byte,provider XmlValidator){
+  completed:=false
+  sentinel:=fmt.Errorf("Operation canceled while the provider was validating")
+  operation:=XmlOperationOptions{Options:XmlOptions{DefaultXmlLimits(),cancelAfterProvider{provider,&completed}},Operation:func(string,int64,string)error{if completed{return sentinel};return nil}}
+  output,err:=value.EncodeXMLWithOperation(operation)
+  if !completed||output!=nil||err!=sentinel{panic("XML output escaped late provider cancellation")}
+  completed=false
+  candidate,err:=DecodeXmlProviderFixtureOrderXMLWithOperation(data,operation)
+  if !completed||candidate!=nil||err!=sentinel{panic("XML candidate escaped late provider cancellation")}
+}
+
 // Require an invalid complete-message operation to fail before publishing candidate XML bytes.
 func rejectedBytes(data []byte,err error){if data!=nil||err==nil{panic("Provider published invalid XML bytes")}}
 
@@ -28,6 +49,7 @@ func main(){
   if value.Id!=7||value.Customer!="R&D"||len(value.Values)!=1||value.Values[0]!=3{panic("Generated provider values differ")}
   output,err:=value.EncodeXML(options);if err!=nil{panic(err)};if err=provider.ValidateXML(output);err!=nil{panic(err)}
   copy,err:=DecodeXmlProviderFixtureOrderXML(output,options);if err!=nil{panic(err)};first,err:=value.Encode(BINARY_NONE);if err!=nil{panic(err)};second,err:=copy.Encode(BINARY_NONE);if err!=nil||!bytes.Equal(first,second){panic("Provider changed native wire bytes")}
+  checkLateProviderCancellation(value,document,provider)
   if provider.state.calls.Load()<4{panic("Generated input/output skipped the real provider")}
   for _,bad:=range []string{"<wrong xmlns='urn:serializer:xsd'/>",strings.ReplaceAll(providerDocument,"urn:serializer:xsd","urn:wrong"),providerDocument+"<extra/>",strings.ReplaceAll(providerDocument,"<value>3</value>",""),"<!DOCTYPE order SYSTEM 'file:///must-not-open'>"+providerDocument,"<?xml version='1.1'?>"+providerDocument}{rejected(provider.ValidateXML([]byte(bad)))}
   rejected(provider.ValidateXML([]byte{0xc3,0x28}))

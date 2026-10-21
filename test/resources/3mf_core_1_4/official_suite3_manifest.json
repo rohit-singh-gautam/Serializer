@@ -1,0 +1,2746 @@
+{
+  "revision": "f483d3beee069e7adbac125d1f7baa36b5b3e5bf",
+  "provider": ".NET XmlSchemaSet",
+  "schema_sha256": "195905e9d3abb084ee9394fdd0bfeb6522d934e6eed9a5f6f6340c9c1e9e29e1",
+  "archives": [
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0202_01.3mf",
+      "sha256": "b5ff97263efaf5fb0158d819b77e6e763abe2b8348ed69cc1d8f00b150b5b89d",
+      "bytes": 1309,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1950,
+          "sha256": "4ff7c59da691468a21a9a9fe7fb315c9db7ad5a8c90f4b8d0fa6e0bf9ba722ef",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0203_01.3mf",
+      "sha256": "d618c254ad831a668357ca8a6e6298862efff0fbb5ff50eef49e237ed31f9796",
+      "bytes": 1310,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1950,
+          "sha256": "4ff7c59da691468a21a9a9fe7fb315c9db7ad5a8c90f4b8d0fa6e0bf9ba722ef",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0204_01.3mf",
+      "sha256": "627e7d873b541a92cfa52e067a114bf86827787b13ea2bfb0e851804ab5585ff",
+      "bytes": 1323,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1950,
+          "sha256": "4ff7c59da691468a21a9a9fe7fb315c9db7ad5a8c90f4b8d0fa6e0bf9ba722ef",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0204_02.3mf",
+      "sha256": "f809c2fbdce42550dfd698eb179882d7b6bcebf98eaa22e9f37f7bcabf24854e",
+      "bytes": 7206,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1936,
+          "sha256": "234035c0e926ce2774d51f0388ea05e30f79ee4e8580a9edee190728c7900171",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0205_01.3mf",
+      "sha256": "a7c11e1eca2d67c8d024437ddd489f26b4c9de744a34c521c0869cc72e5178a4",
+      "bytes": 18043,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2015,
+          "sha256": "542198a59c3dd2c679fd4283217f4b14e27b7a10f7a72426d9aec6c51cf6acbf",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0205_02.3mf",
+      "sha256": "aceb797c47a0d364c149cea26146636ed04a37cd14a07c68fa401ed2e783c30f",
+      "bytes": 18063,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2015,
+          "sha256": "542198a59c3dd2c679fd4283217f4b14e27b7a10f7a72426d9aec6c51cf6acbf",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0206_01.3mf",
+      "sha256": "fe6798a31a0607b973ea7874f74a99c28363226b5c5fa8a7f5f96c8aad66e567",
+      "bytes": 18042,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2015,
+          "sha256": "542198a59c3dd2c679fd4283217f4b14e27b7a10f7a72426d9aec6c51cf6acbf",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0207_01.3mf",
+      "sha256": "f99d3223fbea6395fe7f4adafdb460e174526333e647b0bf8164501fce424d93",
+      "bytes": 18055,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2015,
+          "sha256": "542198a59c3dd2c679fd4283217f4b14e27b7a10f7a72426d9aec6c51cf6acbf",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0208_01.3mf",
+      "sha256": "f7201fc962c5829c1ffd85a9bd5c8fe134861a2658b12eaf61b585fb314ee868",
+      "bytes": 8529,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/\u052a3dmodel.model",
+          "bytes": 1940,
+          "sha256": "ffb299ce44d52bb8bb060df7db3d5b02c381e1aca5a67b1849a9d39fa2d4c3cb",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0402_01.3mf",
+      "sha256": "5b077f6bffcbcb84792e99b994cac749294886443d0dbf75b3b41638606c9860",
+      "bytes": 1291,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1932,
+          "sha256": "6947de664508d7313df02079c0d78c0be424205a957f5dcab6563fd6a1b2a1db",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0402_02.3mf",
+      "sha256": "47706f29d77dad4c5ab2f00738697e6b6559be3af3040ad2b8913d1eafde6dd8",
+      "bytes": 1280,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1932,
+          "sha256": "6947de664508d7313df02079c0d78c0be424205a957f5dcab6563fd6a1b2a1db",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0402_03.3mf",
+      "sha256": "d23dbe5cc955e91a22123b8ba0b6247808fffbe5efe70495c2eefc5ba7751a49",
+      "bytes": 1599,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1932,
+          "sha256": "6947de664508d7313df02079c0d78c0be424205a957f5dcab6563fd6a1b2a1db",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0402_04.3mf",
+      "sha256": "0313e75c7f726bc8bcd13114893c28182f9ac33e43115b68714e6bf18a9f3a72",
+      "bytes": 1293,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1743,
+          "sha256": "7994de20eeca9706bc251c709eadcaf2f06790d5810b0689d308e3cca84233c4",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0403_01.3mf",
+      "sha256": "f72246fec4777e1e818b7914348f12c79ce968682986b3b6fbc44728b6239259",
+      "bytes": 1363,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1950,
+          "sha256": "4ff7c59da691468a21a9a9fe7fb315c9db7ad5a8c90f4b8d0fa6e0bf9ba722ef",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0404_01.3mf",
+      "sha256": "d135e9bbbc1812d87a393614fdd4aef8117c160b2dc1227f9f38d5c8a761fb40",
+      "bytes": 1294,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1950,
+          "sha256": "4ff7c59da691468a21a9a9fe7fb315c9db7ad5a8c90f4b8d0fa6e0bf9ba722ef",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0404_02.3mf",
+      "sha256": "58b8c857e6238a9894c27c5b3004458ffe49bcdb258461ea411625eaa879f758",
+      "bytes": 1286,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1950,
+          "sha256": "4ff7c59da691468a21a9a9fe7fb315c9db7ad5a8c90f4b8d0fa6e0bf9ba722ef",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0404_03.3mf",
+      "sha256": "f4356789229609e48bc98300b58126ab0d42f916fb1311b092945a25ada96e30",
+      "bytes": 1297,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1950,
+          "sha256": "4ff7c59da691468a21a9a9fe7fb315c9db7ad5a8c90f4b8d0fa6e0bf9ba722ef",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0404_04.3mf",
+      "sha256": "5fc7863ec1ca418495f879a926f7cc792f0c023f98b7c58988680bb7ba365391",
+      "bytes": 36992,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1950,
+          "sha256": "4ff7c59da691468a21a9a9fe7fb315c9db7ad5a8c90f4b8d0fa6e0bf9ba722ef",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0405_01.3mf",
+      "sha256": "a25b399b3b8634e6cd776b0089a3d76b4c8a173bdcca5a429ea0f4368762123e",
+      "bytes": 6061,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1950,
+          "sha256": "4ff7c59da691468a21a9a9fe7fb315c9db7ad5a8c90f4b8d0fa6e0bf9ba722ef",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0405_02.3mf",
+      "sha256": "3ced6c467d1900cf525dfc17573686f8efee43eeb2b553f58c3d312ef302ebdd",
+      "bytes": 1313,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1950,
+          "sha256": "4ff7c59da691468a21a9a9fe7fb315c9db7ad5a8c90f4b8d0fa6e0bf9ba722ef",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0405_04.3mf",
+      "sha256": "1e7ca9d0622cd44c7eab3cf68b11c84b78992effb76dd375cc99cef0e8464fc1",
+      "bytes": 1336,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1950,
+          "sha256": "0309fd115a6cfc3601b9b7f378601e342d9b0ed7fc3e3245e2526b3bf91bd45f",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0405_05.3mf",
+      "sha256": "85ea21f3ff36041e258356bb8f94f975e7d1c659ff376f5d5abbd129878230ef",
+      "bytes": 6344,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 4056,
+          "sha256": "21c08095e5c3a5f75162c32d36eb61127ad48d388e51469e320750fcbf61e72f",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0406_01.3mf",
+      "sha256": "0d4f2df860f56c1b59bcf1f6c05416f68078b47c12bfab0b2322a96a2017faea",
+      "bytes": 1300,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1950,
+          "sha256": "4ff7c59da691468a21a9a9fe7fb315c9db7ad5a8c90f4b8d0fa6e0bf9ba722ef",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0407_02.3mf",
+      "sha256": "a3f9f5604812e82ffdf4d1221245f7d9072fe1f2e9464305ad994fc81da85d57",
+      "bytes": 38785,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1933,
+          "sha256": "9597fdc3aaa5fb17ee31b06fbe0e92687dff44cfeb3393c57fca43d058985af9",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0409_01.3mf",
+      "sha256": "13a05363738566c7706928d13beb62eb2d389e64e7b6e4dd0ab1ec10c65327d4",
+      "bytes": 1301,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1971,
+          "sha256": "962afa08b59c56cf4147913d82649b4dcb02c9ae05eba451b37bdff8a224fb24",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0410_01.3mf",
+      "sha256": "5625b14001cfae3cb8e655bdb37bfc5ac66e6451cae25901814400c43a7b2249",
+      "bytes": 1311,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2008,
+          "sha256": "3e49e3cfac80e63636a81b75dd8ad5e104cf7477b9800d1d000273231c5f0dc3",
+          "valid": false,
+          "diagnostic": "The 'name' attribute is invalid - The value 'x:anyname' is invalid according to its datatype 'http://www.w3.org/2001/XMLSchema:QName' - 'x' is an undeclared prefix.",
+          "secondary_valid": false
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0410_03.3mf",
+      "sha256": "4386c7853efcfc8fe0055d06129d81f6bfc90866d8167a341e0ea77fb6a9ba8f",
+      "bytes": 1314,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2066,
+          "sha256": "b8c8353e447a723ff3727c703da5bb7a1449ebe72d8148cfb3c4b54609b6fd91",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0411_01.3mf",
+      "sha256": "3e3e9d4b8a0f47a7869d4cdfc8370f1bd3795b5f7c98620d6a415aac79593684",
+      "bytes": 1293,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1950,
+          "sha256": "557606d920ef01de52edc320977dc43429440250806982038b7f2bd215bd74e3",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0412_01.3mf",
+      "sha256": "1c5bdc5f3a02b63774b5c77c683efb60fe9f6dbc4c0ad0b7dadb8047b6baaa26",
+      "bytes": 1293,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1951,
+          "sha256": "30085a108e43e8a5ec7694a08b72a42de0dc6b96a824672797b97f413b6d01e4",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0413_02.3mf",
+      "sha256": "ea26ff38384bdffd79b21e7e2b9ec7b110b88c9f4fda40b6741c1d0c459f7789",
+      "bytes": 1341,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 3291,
+          "sha256": "e0f356a567f93bda8ce3792e05cc5a568ce7192ee640eb6b5d053aca8bc7bae7",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0416_01.3mf",
+      "sha256": "1c5e913b745a3b85ddb2ece6aeaf44a3d23b6a11d191bef40124a31b5edd38ca",
+      "bytes": 1309,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1950,
+          "sha256": "fe04c7f69927934f6a55eb9ae77183bf8499fbe63eac36cffaba5ac98faedd9e",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0416_02.3mf",
+      "sha256": "2827f6a0de8f7a3c0ed0d611a0a0675bd24f8d74eacd9f5c24a4b6e48b602070",
+      "bytes": 18045,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2017,
+          "sha256": "04b64346021068c16c68940b190c822fd0e1160e4d66c1afb8111d900281ffe6",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0416_03.3mf",
+      "sha256": "d240944b9db125a1d2900b6cb6692d7eb79fb897d09a3ae96e1c2ef3c7bc6a03",
+      "bytes": 18048,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2017,
+          "sha256": "ca4673c420c174df9b54e8cf2fe6fd33805cca5b30db1cf350b67332d5650d50",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0418_01.3mf",
+      "sha256": "c7dd958d8f5bdfaa066e514e173241943dac5d4655b7a0ab4ffb4ef428d8c14a",
+      "bytes": 1494,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 3345,
+          "sha256": "0ff645ef41191699ca254e7b2969e0214b62d4794a02236fe121e5c9ca72adc4",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0419_01.3mf",
+      "sha256": "080f90cc47e7c79efc4ac4cf25f450ea73bc2e9c364f32b754a237b155f0a562",
+      "bytes": 399092,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1648,
+          "sha256": "555f500264a414283eb4bba50072d69d512f8e5347f3ee5097275e58220e91b4",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0420_01.3mf",
+      "sha256": "e3781f62d35896a4fbb9f5313e578dfa95c9884698607067acc4fcf37e831c6b",
+      "bytes": 1298,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1611,
+          "sha256": "b24d25a2b04658b22ba2db1a21fda3987c4ad13c7d9993619e4eeddcbeca35a1",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0421_01.3mf",
+      "sha256": "ec90cc9e2b9bf7e2c54833510e4ee7bede22fbd777dcfbeff0edc503ca610f65",
+      "bytes": 1296,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1613,
+          "sha256": "1179feb9d217355a3ded0a1eea565f6dd97afd8b46ad6bbdc0fbb94d70888f79",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0422_01.3mf",
+      "sha256": "c7b7d9edbf5aaf4edbf662c804f39cf53a8cc0d52f3277e41a8c028c2b2a5764",
+      "bytes": 1308,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1935,
+          "sha256": "796d27660f032442e2e4d41320f5b1a73b30fe2a7cee6cf63d0be810a419de17",
+          "valid": false,
+          "diagnostic": "The 'x' attribute is invalid - The value '20,000' is invalid according to its datatype 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02:ST_Number' - The Pattern constraint failed.",
+          "secondary_valid": false
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0424_01.3mf",
+      "sha256": "50861e9c32acdf11e3c34b38c4464160043b4824e0c1c7514e37deb4d5d98f4b",
+      "bytes": 1390,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2222,
+          "sha256": "ac2abbfee62e981e7f4a205611c55a399583f3fa5aa9450e13de7cdfff9dbcb3",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0426_01.3mf",
+      "sha256": "b25cf97474d31ffb50d91ff980bac4e7f44414265de91d1bfddee4b71b877e9b",
+      "bytes": 1268,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1154,
+          "sha256": "c189cefafa83466ece196b25bc2e9e2821f3d4ba4c19ba6ba16e7e02313ec284",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0427_01.3mf",
+      "sha256": "663f700cdf06e8e5d2c91148fa799bc8d39a61a9d4697946aa9198ab1a364945",
+      "bytes": 1323,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1964,
+          "sha256": "4698b4464fcdc7a8bf5c6624f36c258d9af8a20a79b42415c0c83f72c9e07249",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/negative_test_cases/N_XXX_0428_01.3mf",
+      "sha256": "42f721d260ce7528bde683740c81cecb5c3689962aebc4b688bdac9bcb1b54d7",
+      "bytes": 24498,
+      "upstream": "negative",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2101,
+          "sha256": "46496680bb40dbaf7311b4e5c89818711bf77a384691a2026993d556d6670053",
+          "valid": false,
+          "diagnostic": "The element 'model' in namespace 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02' has invalid child element 'mockelelement' in namespace 'http://schemas.microsoft.com/mock3mfextention'. List of possible elements expected: 'metadata, resources' in namespace 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'.",
+          "secondary_valid": false
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0101_01.3mf",
+      "sha256": "4417c4ea32480ed9af83c7811dd1f099b285ff031b3c92c54b5fd3f99ec4ef1a",
+      "bytes": 23842,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2015,
+          "sha256": "2ae8603d3f9ec0f3424c183a5129015d0366339d937499fa5c0e4a1a3657547f",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0101_02.3mf",
+      "sha256": "2cfa5c9e7ee6bf5d9d29abb1b99d397185288e627418f0b63b51df39531a7e8d",
+      "bytes": 23816,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel",
+          "bytes": 2015,
+          "sha256": "2ae8603d3f9ec0f3424c183a5129015d0366339d937499fa5c0e4a1a3657547f",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0101_03.3mf",
+      "sha256": "b5b1ee2094697a34a4561cd9669cc2a2aff632507266e04b8c917e6faea9bff9",
+      "bytes": 23849,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2015,
+          "sha256": "2ae8603d3f9ec0f3424c183a5129015d0366339d937499fa5c0e4a1a3657547f",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0102_01.3mf",
+      "sha256": "31fdb9575c68ad14ad072915ac45929e950c1c8f8536fb819d2204e19e0b258a",
+      "bytes": 23877,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.moodel",
+          "bytes": 2015,
+          "sha256": "2ae8603d3f9ec0f3424c183a5129015d0366339d937499fa5c0e4a1a3657547f",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0102_02.3mf",
+      "sha256": "06a0a4921e8a6d50fa4901f33ad6333834f3023cdee29b2d15cd8d4112d5d8e9",
+      "bytes": 23855,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.moodel",
+          "bytes": 2015,
+          "sha256": "2ae8603d3f9ec0f3424c183a5129015d0366339d937499fa5c0e4a1a3657547f",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0102_03.3mf",
+      "sha256": "17e4b8f83ca7fa02cdfcf6cf6dd128badfe1b58ae07116ea373c513fd881b12a",
+      "bytes": 7151,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1951,
+          "sha256": "8aa2038a03be296b315fb7553207133523318e884278f0812922fc9c014e9fa6",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0103_01.3mf",
+      "sha256": "623e15e5646adb6eb5cbbef8038859bf6fe33b0be3d11103b9112407b601dedc",
+      "bytes": 7091,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1950,
+          "sha256": "93ec1c43adc003d6174a79f162a32407662a46a968b0ac673b628e09003a67f5",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0104_01.3mf",
+      "sha256": "b369fc351c1dc5ed01d68c8a89f3882828b905e309c218a7e31ed6ad09d77a7e",
+      "bytes": 23843,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3d_mo-de~l.model",
+          "bytes": 2015,
+          "sha256": "2ae8603d3f9ec0f3424c183a5129015d0366339d937499fa5c0e4a1a3657547f",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0104_02.3mf",
+      "sha256": "e8940902cf448a0770ee9478e67e3801a669ac007e6302f7f4ba481c12306a62",
+      "bytes": 5718,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/@!$()+,;=3dmodel.model",
+          "bytes": 1939,
+          "sha256": "304ab2ba5dad4d6ed1f939b56d705396f96ac659149b90ca8fd9b6e004f9793d",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0104_04.3mf",
+      "sha256": "5ba0cf8fd25e83e67b573c89e5e9ccd409e5320f712eb2ad51100aed228593d1",
+      "bytes": 8562,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/%D4%AA3dmodel.model",
+          "bytes": 1966,
+          "sha256": "04997be39a8c13a89ac8e8f46a7beddb471cbf11fb15c91cd8a01290c60775bd",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0106_01.3mf",
+      "sha256": "631d1a800cae9829517c05a7a5f07730049e10d55ba32c88ab7dc7b450558bd8",
+      "bytes": 951012,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1992,
+          "sha256": "d946fbb36333af7b8a639d26a066db7920a35afee224d9b54defbf9e2f988118",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0106_02.3mf",
+      "sha256": "28899164bed08ed8b21741663682e4571d910e3caa3c07dcbb9be3bd2df09a76",
+      "bytes": 8121,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1988,
+          "sha256": "0ebed0f3714fc6eb493d90269da876330c4a986b3c0c234dc9c5e3c95a51645d",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0302_01.3mf",
+      "sha256": "d6b1905384c6950ba7ccb94e2efb82df28cc38f1ae35a4d88f4584daa9a33d40",
+      "bytes": 8539,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3dmodel.model",
+          "bytes": 4048,
+          "sha256": "287801f9798676e6d07b383bd4af571045004e7c1571037610ccb2743aee5e62",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0302_02.3mf",
+      "sha256": "69c617853f1c749be96e3050050489a11958a29bf77939e8333943ac33dea640",
+      "bytes": 8569,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3DD/3DDD/3dmodel.model",
+          "bytes": 4048,
+          "sha256": "287801f9798676e6d07b383bd4af571045004e7c1571037610ccb2743aee5e62",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0302_03.3mf",
+      "sha256": "57da5afd3f4f7cf3b0641f4a0a082ea97953a086c8062ca1eeaa5b9fc6e000b3",
+      "bytes": 8560,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/test3dmodel.model",
+          "bytes": 4056,
+          "sha256": "0db1a6ed087e465b9f7e23daaf799d0af2810dcb76b18913ea73ec63fa2458bd",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0304_02.3mf",
+      "sha256": "334ddce9051f8fa77d5834bbd666601abc4ee11a3e8aeec17f0fce9eb28d1dc5",
+      "bytes": 20078,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1841,
+          "sha256": "8e1694d02b78b817999cc94f663b761ff4842d08cba3e39abdd21a96fc0da13d",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0304_03.3mf",
+      "sha256": "d90837ece5db5eca059d062fa33ee3c28884972bc1a5f0c36d9975a122b4d9c2",
+      "bytes": 7459,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1883,
+          "sha256": "4860515851eb30095579410bbe206f059c78047f63a8a45edf301efab1fe4237",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0304_04.3mf",
+      "sha256": "1ef24d578860edab8ec20bebae5c6fc9df16af22b978fba1e68058c9428b2a1d",
+      "bytes": 7137,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1950,
+          "sha256": "0309fd115a6cfc3601b9b7f378601e342d9b0ed7fc3e3245e2526b3bf91bd45f",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0306_01.3mf",
+      "sha256": "3447477ae137589434444365221eebf72e7e7a129ede133e028e74cb807d9ec5",
+      "bytes": 7209,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1935,
+          "sha256": "18fafae2f85c742cabd3525defeee6fbb7ff93a270270a9a2744c1e1a86120a2",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0306_02.3mf",
+      "sha256": "3b24e99f69dc40484637e50ca8075e79ccc23bcb0f790a1fd5945423da3b4149",
+      "bytes": 7190,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1936,
+          "sha256": "234035c0e926ce2774d51f0388ea05e30f79ee4e8580a9edee190728c7900171",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0306_03.3mf",
+      "sha256": "7fa4cbcb95fb8e90dacf4222d4ff97eb51fc13943d2684fa497ac7915803f909",
+      "bytes": 7178,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1932,
+          "sha256": "e8beebc3b320f3e1ef9f41540f5cb713b57bc3671ba6d702aeb482f94bef4846",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0306_04.3mf",
+      "sha256": "19aef6f5bb34ff9adfc4226074686efc5d6a59170ac0897abc6ee174e65d6707",
+      "bytes": 7122,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1948,
+          "sha256": "0a4147e3a00cd0e703b122ecf04bdef5d00a07eb18f95ebc324d6705a0b08b0f",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0306_05.3mf",
+      "sha256": "347f9eb36e427ea556871035b12e2c39e6fa5b348f0f45f8a2045784a50a3f52",
+      "bytes": 7151,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1939,
+          "sha256": "df8525002116077438ec2f7c85761cf50f52536f3886bbbf92bee7efde8147b3",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0306_06.3mf",
+      "sha256": "91b5b40925e44da1be7e9603f4de9f5adadc9e6a7cc9e6c809f39c1bf92737d1",
+      "bytes": 7163,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1926,
+          "sha256": "fcd80992d8e6b83a982323ea3e6dc0e8b04523e7518b8f6c823a327a806716f7",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0306_07.3mf",
+      "sha256": "a1af213185b8559a15134f6e8b646f1f65f0da4820d8618cc210c866812c1cad",
+      "bytes": 7179,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1918,
+          "sha256": "31d75414db7ea7a1210d4b420af8e80629e56514669ed08cecb65d2e5f36f62a",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0307_01.3mf",
+      "sha256": "3987c54f67c590d43f26c68ef40f2b70289009cca69fdce427e972c7e9942eef",
+      "bytes": 8346,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2688,
+          "sha256": "c61c09232bf45edee8005d18951e549720f7fc39cd15430a3faaee960f692ce1",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0308_01.3mf",
+      "sha256": "357732f01e6035dbdc9d51d9a4f351eb49160126dc62b33ad26e8fc07ccd2187",
+      "bytes": 8309,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2409,
+          "sha256": "baaa4bda3b3ff452519d045fa80957b2a6ff96f69b97b6922c4d87e0047c6b0e",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0309_01.3mf",
+      "sha256": "4a5c0ae6e395cd3aabecb69d48b165f1db087d5e1e717774c8d3dfb9fc23c775",
+      "bytes": 68355,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 498972,
+          "sha256": "5a2ff3f86dab17ccf83bfcd66bb7368c72658dbcd50d542cb42d17008a9bc2ec",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0310_01.3mf",
+      "sha256": "b838081a99ab3e1e80276f8f5d263bb76ce0485f36a52d6189cd71e42ad43919",
+      "bytes": 7225,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 3657,
+          "sha256": "da2454d67d644ec24f288e54b51005bc36c3e4cbe28951b27c82ba1188bd944f",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0311_01.3mf",
+      "sha256": "29956d36d0fd329e85a35cc13dd71a11162c26604cb27a902718ed7061f514b8",
+      "bytes": 7517,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2072,
+          "sha256": "5edfd83ab95867037e5788a94cc28b792a67bb463cc35f78cfaa6cbec38c0663",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0312_01.3mf",
+      "sha256": "5cb8214f62675c8a1417be9df94813021c5824640e49ce643b23eb8eb7b45221",
+      "bytes": 30912,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2872,
+          "sha256": "978be0486504a6b6e0defef0db13e32a11ad008b31d3b93c38afe9ffd0501087",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0313_01.3mf",
+      "sha256": "10e8730e90181c5997f7846521a70e84ff59658b6717289ee41d2c87725353d7",
+      "bytes": 9262,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2294,
+          "sha256": "6722af012ce1eaa53c0a44e5397f119619aa99aaa83caecb54ba56aa53d4895e",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0314_01.3mf",
+      "sha256": "aeac40c0ecf7d649dd1b9bfcf9c5bc29171c0d187ea163635490ca70ab326225",
+      "bytes": 22307,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 17640,
+          "sha256": "b5835d7d1e9022eeb80dc7fc8f9bb651f954bfc17a27ca09d5010966ab6b24d2",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0314_02.3mf",
+      "sha256": "376e0353dc98f7bca54df49789be8b03311b370227649a848dd1fbc5f8d15c21",
+      "bytes": 22116,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 17635,
+          "sha256": "fce005e8151cd7e7dbdfe420c900b9797342db490d84acdbae6f7af87f0e0f23",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0314_03.3mf",
+      "sha256": "7a0b51aa95965b19dc25d3fa962aec43b081e378b063d48ae50e3a3419aacb6e",
+      "bytes": 14085,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 12711,
+          "sha256": "a9e7eac4ee928e8908fd1d15d270f941bc274a4dbf102df93857e724f3939f8f",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0314_04.3mf",
+      "sha256": "a77d384981327e930b90ca02b712a3f32c585f1ee4418c0ce3b27b5b65395d33",
+      "bytes": 22232,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 17639,
+          "sha256": "69256cd10ae0f76bb379e182124e14e0cffae579af6c1eb76cf8830d0201cbdd",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0314_05.3mf",
+      "sha256": "0636c5484e5a4fb5547e5aa62bf161b228914dbbd885172b4e4e589aa7c7c72a",
+      "bytes": 22271,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 17390,
+          "sha256": "814b3bc6f769ee9612a4d2dc9d3dc7d979c379e13a81931e0cfbee19090fce52",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0315_01.3mf",
+      "sha256": "fad88a5b4f3fd3c35adba43273880ebedd3204bcdc3e0597becf6c91f92d38a0",
+      "bytes": 24463,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2017,
+          "sha256": "3d4e4c8d54b70c98d01ed30652da31eefa3fefa02cb16a9339033e6ff5f0fa53",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0316_01.3mf",
+      "sha256": "38df309e23dcc237760f516087824418862e76051ba5df9def6b1d23142bebc6",
+      "bytes": 24443,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1998,
+          "sha256": "c63a9d63beedab0c651ed2f13889e2b68fc203784975f63c2883c79a4ed5d6c6",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0317_01.3mf",
+      "sha256": "bce33b8d1107ca4149e1fee0ca13108e2ca83dbb8364bb1fd034f87bdd36961d",
+      "bytes": 67995,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 21463,
+          "sha256": "103c87139240e8d3dc934180c0917047090f8e2e8b7e4bc5babf740beb55564b",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0318_01.3mf",
+      "sha256": "d78d584dc54b61b0c3baaf1bc95b89b0d829dc22953c07d1f9a8f64d731e4734",
+      "bytes": 42737,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 273456,
+          "sha256": "aa4fa33649e0f8751004730fe21e80ff9a3a9c8f4241b737daefea90c5f446db",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0319_01.3mf",
+      "sha256": "d99851a983b65a09f2e4dc6b91d89d8b70c6c0c15f1bd7fed352f6236e768150",
+      "bytes": 24453,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2013,
+          "sha256": "0fd92cd7af58d00b3f832f4818289e11d6ab628414b5ab4250d608ca863c6a59",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0322_01.3mf",
+      "sha256": "80797ec1dc729e5ad7f42ece5fd4e622df3d17f64153348df1e84af502f161e5",
+      "bytes": 950996,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1993,
+          "sha256": "7e66ba3dafa6714535d2b2ab2610f61cbe458a8ec69ebdceba897fd664674068",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0323_01.3mf",
+      "sha256": "5433361774e7ca36b8388cdb77388261fec2c8bea80d8a73eea2997431e7043c",
+      "bytes": 12056,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1996,
+          "sha256": "2bd4472b4d217968b253380b831d3919bac56a562491f5dc16fa5173a9a4d221",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0323_02.3mf",
+      "sha256": "7ccc23fe9fca2f41f7dc1fa9736abc997d81154811260944f7d90cb09be4a553",
+      "bytes": 30981,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1989,
+          "sha256": "8149b1c6566e6057e419d254bf0899b8b1593357229c5131e855f36c3f6c3604",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0325_01.3mf",
+      "sha256": "1c71cfd304523914ef7257dbced85401f23d2736c9bb70d6716a2f64264686a7",
+      "bytes": 24450,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.part",
+          "bytes": 2015,
+          "sha256": "e24fbd449aab2dc129488894eebd548610adb7f4d9eb3f00cca0a81ace6e2b17",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0326_01.3mf",
+      "sha256": "ec8f36980999cce64621bfb51c16c80d4986c798381fd90d8e03df6af4111f7d",
+      "bytes": 7202,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1903,
+          "sha256": "30c838e9c49061f92805b473932ede9ec7b8f681e80275fc2abfd84528cb6e4e",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0326_02.3mf",
+      "sha256": "e1ff65a6b11cb6edc2cccabfed06636b6f4629f87c9f1bbed8a2382aac917736",
+      "bytes": 7217,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1939,
+          "sha256": "cd83ae86535eafd84de0398c5a28bfe05583480b2a840860ef15fcf5b75bfd38",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0326_03.3mf",
+      "sha256": "5e08af44d2ccf1daac9cd84c2cd00834776476da4e66d68e45b4a5ed9b797d99",
+      "bytes": 13338,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 3271,
+          "sha256": "352985986beff45bbaa8f0296bbd8a18fd0c7ce824c844d85e82de41f8bc0d13",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0327_01.3mf",
+      "sha256": "b700f037a2e358626814150845321af6c3167bde39fd31554d604f6d9d3ae8ca",
+      "bytes": 141853,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 499102,
+          "sha256": "5ff257efd3c212f969742e75297300ae228ddfb8b0329d549a10975d2764ad9b",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0328_01.3mf",
+      "sha256": "c8e9317cdf4352559ba7fb4e884d7b6d283af20d91d2665ec07bbccfad7d11e1",
+      "bytes": 2243993,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 20450770,
+          "sha256": "6fe484d3d436a9a1752099f82c8d8640bb4d604c63e1aa5886b112c4bb86c537",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0328_02.3mf",
+      "sha256": "f078c971e2d033681666cfac51310c7f28e157272948fc55fb4742854b534abc",
+      "bytes": 185596,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 507390,
+          "sha256": "48a2b857b54e7b69614c6703a24a8917a761c06f1abde9b5530bdfa883ce7555",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0329_01.3mf",
+      "sha256": "78f16d64feec7b7613e5624db1dfbec103ca72992dc0e95750843ff5cfe92d76",
+      "bytes": 24652,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2031,
+          "sha256": "fe67eb062efa748a1c7303c0095d640c634b6b0c277e4580e068503bd6baec62",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0330_01.3mf",
+      "sha256": "04f57532e0f1fed1157b734979d437a9d017c14d2c9d913a1279f8d1098eb242",
+      "bytes": 38762,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 50994,
+          "sha256": "36b5bdcf16085cf7d576ad5441d5154e2db6a51a1647915f356560507a33bab4",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0331_01.3mf",
+      "sha256": "87b246a0730b038aa10c736fc47eb1c722b21a67969551c302c665d660f20366",
+      "bytes": 25737,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1436,
+          "sha256": "b5f96720e3de0991a4636753fda258f592065ddd61419848443897eb5f3ed45b",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0333_01.3mf",
+      "sha256": "441d085ce781f4f14c802ac14fdeead9367daebf1292b52bf33ebd55602d189b",
+      "bytes": 7079,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1854,
+          "sha256": "174bf1a1a805e9efa95e41ce8c086d52c107cddf3b5a815cf206a3ab5ce40bc4",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0333_02.3mf",
+      "sha256": "dfa453fde51ca00b01a1c295bc119945dcc0f5c93667b70465f5d15566bb7c55",
+      "bytes": 7090,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2118,
+          "sha256": "adf1eda26143926d3d385aef6c45e528fe24db2bf3ef3e7783821943b68ae67d",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0333_03.3mf",
+      "sha256": "20b1fada95260b6770b1f201697272fe337bb912cda6e91524b1363957c6762a",
+      "bytes": 7086,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1954,
+          "sha256": "f8da0de62da60fe7948a57eef62969551d68f182844875bba277b6f6d437508e",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0334_01.3mf",
+      "sha256": "8e7292b65dd69185bd40e7ca87718c551e2ebe854bdbac28058bb275e4faeeeb",
+      "bytes": 146668,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1643,
+          "sha256": "95bba134c6eb58b3afe66c191ddedf2a1c4864960c0d1380f7b743940d8771b7",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0334_02.3mf",
+      "sha256": "0ff7a327910c08889c2aae9ea33ba40fedfb3eb4c2a413f64473a982c3a2d0fc",
+      "bytes": 57527,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1645,
+          "sha256": "a7315c2d8e940afd58df4e64d00707d736d14c36e3cc889ddd45dcdedf6523b2",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0335_02.3mf",
+      "sha256": "381b9a725f36450b8a670030e4cef0a5594a2cb4966c049df7e450bef0261b27",
+      "bytes": 60837,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1784,
+          "sha256": "0b8561efbacf70ee074f418c58180eaef26b784ce1a2e8db0dff4ad7deb4321c",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0335_03.3mf",
+      "sha256": "bbc6dc439d9262538e92c940e6c7e472d8ea436bc2321c8fb4b20df046540bfd",
+      "bytes": 417116,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 11536,
+          "sha256": "6f8675764615992c0102e34928094cccf3cdf2b7ce4d12d04d3e3544e7a9dc3b",
+          "valid": false,
+          "diagnostic": "The 'thumbnail' attribute is not allowed."
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0335_04.3mf",
+      "sha256": "56af0b02af0c1250dc8c42c7d824b361d6744f88243c8b86cf94af3212f6c338",
+      "bytes": 825570,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1685,
+          "sha256": "c9104f0bd4a5d996f2d593f7c3b0cca89e7aace652e888cb7c9dc1c43d312c05",
+          "valid": false,
+          "diagnostic": "The 'thumbnail' attribute is not allowed.",
+          "secondary_valid": false
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0336_01.3mf",
+      "sha256": "1a3bb0010676d4dcaa3661e18ddae4230726f0cc05ef16e71ac8b795e942d247",
+      "bytes": 1246080,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2265,
+          "sha256": "e0d70611b61f4d55441bd55c7918d45f15e0f053a625259369a20fd753d1bea8",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0336_02.3mf",
+      "sha256": "fd2808bb144944f711c17df2cd328cfc1cd76dd1958876352c0dde56d7d2ce4c",
+      "bytes": 1246117,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2266,
+          "sha256": "527a0047712245f61b274b1da97a94c99f8d15d3afa5680e7b4fe2404e7f0da1",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0337_01.3mf",
+      "sha256": "f96ccd48ed982bc22e97936f8c83d59cc0e7fa598d5b066e9be11c5a4642622d",
+      "bytes": 8419,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 3051,
+          "sha256": "3464e678edb0869070e9d642f78c01a84cdb7873be5a1010ab43cedd1c2ae0c4",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0337_02.3mf",
+      "sha256": "318f67a5e6cb66456623a29e5ffa4b0109a467fe10d6a69a42d92ec75ea5aabf",
+      "bytes": 8390,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2955,
+          "sha256": "23a0ddc70c7a3dda3de28d4e4fadc66fc1ca780937d849ddb4a9789119ea0a60",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0337_03.3mf",
+      "sha256": "70ee927cba5c38674b8c4b717ca87d29de10917ee4236499797ada2c7344542f",
+      "bytes": 8399,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2970,
+          "sha256": "462b7f0f14528d12b4d9082bcabcd6584503ac3464ab0e3e7246f7d0b01f3e1a",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0337_04.3mf",
+      "sha256": "b95b47dc96aaa142bf13750ab2f00488b2e92ad0f03fa71294b62f1718ab0e0c",
+      "bytes": 8353,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2787,
+          "sha256": "e2779a6f669235e268b3721dcebcc10e0b4843642890596f3815a98e6ecad8ec",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0337_05.3mf",
+      "sha256": "259a2ba40bcfcbd97b446c8e219ed46fdaa0300266825b137ac61359f0946a59",
+      "bytes": 8348,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2680,
+          "sha256": "421b90fe87704511b211362e434f162e93be18900c6ea26f3ccb0fa628aeed4c",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0338_01.3mf",
+      "sha256": "f09cb8e6d2ba7539760845d33586bedf48544400170b82fe6856946628a76152",
+      "bytes": 7569,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1596,
+          "sha256": "a7dfaa2f54c2ce1722b26fb8ba98a464494456198a31cbc047406c8311b51814",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0339_01.3mf",
+      "sha256": "76eea0732e8d38af933242bebf3020af284bcea3b3de424b6a44d17e539e9acb",
+      "bytes": 24497,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2100,
+          "sha256": "249265340cbbacc8329d763e46acfff2c07ce014c40ec13a03afea0daa4bac2f",
+          "valid": false,
+          "diagnostic": "The element 'model' in namespace 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02' has invalid child element 'mockelelement' in namespace 'http://schemas.microsoft.com/mock3mfextention'. List of possible elements expected: 'metadata, resources' in namespace 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'.",
+          "secondary_valid": false
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0901_01.3mf",
+      "sha256": "cc63a615e0875afd3f8d3dccd04d120a82e17238f9c437cfa9ed122c4f43af72",
+      "bytes": 24468,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2016,
+          "sha256": "71e07be33167ca9636c6754ae218de3cd73d75bba2e43c50f3fc5203d14c6021",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0901_02.3mf",
+      "sha256": "1f7cd4809de6379b8d502eee9b95127a2736988173d3628f937b725d1d1d45b5",
+      "bytes": 32955,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 8376,
+          "sha256": "235bebcd706a5f5fe45c310282b0e9910d5600c13f84beaf9bcc6d17765442c9",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0901_03.3mf",
+      "sha256": "31a420d429ead5cccad20838d2e4304641aa398d5e0b3c3bf4ba0b9939da7598",
+      "bytes": 21909,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 4147,
+          "sha256": "536bd57045825fba0e1dac64850ae718849a7cc3a9edbb0e8f56e537791daed3",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0901_04.3mf",
+      "sha256": "55b0671aa62d12b4139d97a4aaba6b69dc4a2821eea9b610bd54c2a7ae40fc93",
+      "bytes": 19350,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1841,
+          "sha256": "6bbc280d7cd66e1438b212b81ba2b52dc3338996521f6c3d2e6020eaa578e31f",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0901_05.3mf",
+      "sha256": "3d9cba34a9dbaff1573267b9334c80dfa8c509241ea8542d159f0a1703b8dc04",
+      "bytes": 27642,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1673,
+          "sha256": "c4cf35ce8e56d150016d09314237cb9477d7bad40cc2cf46117b28ce66236aee",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0901_06.3mf",
+      "sha256": "c11b8692cd43d8f9e3807942e29e09b8fb77df1eb93eeb9d7501482e95a23875",
+      "bytes": 19778,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2358,
+          "sha256": "9fc4a5ba29ddc0841d43a89a481c41cd9e728fad927af675397f69eddc93e38b",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0901_07.3mf",
+      "sha256": "60f09d00da46563829265d48b9a9d113a78bb1f96c28fc220bfdffbba69cf1cd",
+      "bytes": 18311,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1676,
+          "sha256": "5e67091fdb04b21a4effb8b226e3e65362f20c2f45f045086d17028e435c371b",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0901_08.3mf",
+      "sha256": "e572c2c7fe561fc0dab52cbb416d18cc759b814457669996ded503acf81e5193",
+      "bytes": 25882,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 6358,
+          "sha256": "075bff6bd4db7b79b9f3da6e30e6891831c2223fa6d53b34c781346dfca20749",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0901_09.3mf",
+      "sha256": "4cb69c2af71b88385ad44f00ef4b6e5c85f569228ee30c9da1471aaf529a40dd",
+      "bytes": 23153,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 11559,
+          "sha256": "14bc24b089fd728922048b4f8d86b1adc7d1dc9be8382482bf0bcd3bfa1454d1",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0901_10.3mf",
+      "sha256": "3d59ee72fd9195b3bd39c99c4589d4a76867a00675edff092107e457abbac6c5",
+      "bytes": 65296,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 233980,
+          "sha256": "4535f0bdf99c1f79f225f4b014697379f71cca2cb39ddd735118f15909e7cbe4",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0901_11.3mf",
+      "sha256": "7b70670d52503351cd255933826458e7cd0f1d62cc1d43c9364fb82c026b4e6a",
+      "bytes": 73570,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 217303,
+          "sha256": "ef411d63cd4222435785c387f1d5234f947197d77520e795c6061f31ae57b343",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0901_12.3mf",
+      "sha256": "b5a9352c809fe112da2989e23add2a5067de01ed5d99781cbe19408df8850412",
+      "bytes": 69730,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 249775,
+          "sha256": "ad8d234e13e5720587d8196e792bb04febbfb1f2347dbc37c5cce4d1acfc8ff5",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0902_01.3mf",
+      "sha256": "0fc38028b32ffafb505395c63a7f29c4c44662774e1eefb6cc98b93f636eb61d",
+      "bytes": 76342,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 192048,
+          "sha256": "937dacd52d2aa4efd4bef7286a332098b7e1635f4713a5d3ed4b35aa1e7e49a0",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0902_02.3mf",
+      "sha256": "6e1122b4e28b0d13877ab12187323798530db4c39e14c908e924b09bd31399b4",
+      "bytes": 65218,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 129038,
+          "sha256": "704cacaa1b2a97d3f2d016e3f86ffee3595a66bed917c638e5239c4691f7508b",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0902_03.3mf",
+      "sha256": "b1e1e114dcbfb3f43cf8d5ef1ed96635e74f1fdc04418cbc15a8cb8185c531d1",
+      "bytes": 61950,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 263898,
+          "sha256": "ee45a2a6ae99f7a7b52e70a1f8aed6defa1fdf89f21c5cb4068b8dbb64ec63ed",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0902_04.3mf",
+      "sha256": "a7035d92a54d9b9eee742a4a169ecffa89c13dbf5b2221d290d0aef87b003054",
+      "bytes": 5956772,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 54306110,
+          "sha256": "2bffb6c9017392305691ce6e2b19119ee8ddbd3da958fe48303b5466f2ec2809",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0902_05.3mf",
+      "sha256": "c97db146e8fda95fc70beb189f7a0f79e51ad65117e4d63269b91e9e297b880a",
+      "bytes": 5778844,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 51458589,
+          "sha256": "2c61a0ab710de30c8dcb1ab7d05795ee05c6ba955013090d0290e241e79d8a95",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0902_06.3mf",
+      "sha256": "5a536c7f303d9919b65b0ad1873db3dcbcbcaad058b49c55c5dc434ef6a41eda",
+      "bytes": 340201,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2536231,
+          "sha256": "41684f501feac480552915d4923bdea29aee5dbdc9c6fe357bb72a567dff2f39",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0903_01.3mf",
+      "sha256": "96c4d026b7ea202a178edb636d6e018f24e9658beeddd90e206ccfe02613707b",
+      "bytes": 177041,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 670201,
+          "sha256": "315c9d44728c034008e3da9457f6516f58ffbac24bc50630c4a004fd14190dd6",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0903_02.3mf",
+      "sha256": "ce57540dc48988bfc50b2a4fac1e05677c7751ae173a0807b13a3f7e7330519c",
+      "bytes": 193544,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 928447,
+          "sha256": "39d449feef7429c44a60eb12fa2039cb9b7244fd910c702b34bb51dd57c80cf3",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0903_03.3mf",
+      "sha256": "db05080c0c8e5135ab4534a0131405f2c642672eb6cfb23cf66a8ee0483ec77f",
+      "bytes": 753858,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 5488223,
+          "sha256": "ea403d033994115aaf429d1e615a5631e11ab2cb6d4dc134953d26ec7167a15b",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0903_04.3mf",
+      "sha256": "2bb63972e828948d6ced9d7c94314af4a76db64c7a03d34290c1d72de9f49c6c",
+      "bytes": 846126,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 6046647,
+          "sha256": "edc3ff236fd5dcac9f7db59edf7e6c39483cfe5588c010f47eff2499a99f6866",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0903_06.3mf",
+      "sha256": "7d034b30b4969cccc89cfe7e2003689c0c755f0b14d3fc2def65ba812606b81e",
+      "bytes": 193645,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1090166,
+          "sha256": "1904e16f45c6e22a77de07913f771208ac70600b1b186499bc8f8760ef83f045",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0904_01.3mf",
+      "sha256": "e8c5731e1914552d146552cd8c1f5c3fd1112e6e538b118b7149e310f412dc45",
+      "bytes": 642456,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 4299336,
+          "sha256": "638b06292978bfb104358d9b34b49a8993e7bb07873e67d85f6fe76e0d6b13ab",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0904_02.3mf",
+      "sha256": "d314c29d7bc1ed53825602fb95b8dcf479402e926e724d8332ddeeeab03c7ad7",
+      "bytes": 682509,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 4753751,
+          "sha256": "0e75ec07e52d1c1f3b131abed75583aba9e556f35287815279d7a844cc76ed5b",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0904_03.3mf",
+      "sha256": "bf0866ced9b74f660235686dfe26519ad04ff933bbe7a80950bf00e0657ee57a",
+      "bytes": 2215368,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 20449188,
+          "sha256": "7305304173650431cfca41122cec308dbbad9dc3f43e00cce58f72e230e02282",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0904_04.3mf",
+      "sha256": "cb3af6d38e8b8743c1b080640fe5d4002ef177afde93415d07934dbd625e6e3c",
+      "bytes": 2964138,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 24575724,
+          "sha256": "879fbda18b54876b4d7794c458b41768f66f15c72ef3ac522cf4ae89056a4245",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0905_01.3mf",
+      "sha256": "0f3fb5964bdf20dc80f1620ac9bcd8744681c04dec9339fa521b4dcba2934ba7",
+      "bytes": 512585,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 3977957,
+          "sha256": "d4a58416aacdc14fd30c39a5ca669222d44d33e6f29eebcc5143ab02454a5e2b",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0905_02.3mf",
+      "sha256": "f820b91f852a3460a56c93f165cc665e22d89f11b7617dc4286ca7becc03eb6b",
+      "bytes": 170692,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 824751,
+          "sha256": "f3c4c5cd1dc91af4f91f0c37cc6f6b754fc719fcdb585e5973e7a74eda1166d7",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0905_03.3mf",
+      "sha256": "c71d6e6a8be18147b6530d99151062c8336552abd8db6b16bf28a1ad9415c142",
+      "bytes": 292076,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1578084,
+          "sha256": "8c451fdfd2ba47263f05c956bc82c92f9c6fac1b067a99b4b6d0e887af25500d",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0905_04.3mf",
+      "sha256": "fda4cbe075728b6f0b2cb29e8364c8267d26bb68a15bb9b51f776fbf19ea60d9",
+      "bytes": 157184,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1166074,
+          "sha256": "b01ea6f09e47ee9801adbffd139c2ca74d0bffe26d4f3549ca7d88e761620f28",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0905_05.3mf",
+      "sha256": "f811b7aa32a705c6376564322472a8df9351acc7869582b326be090401373535",
+      "bytes": 26499,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 72215,
+          "sha256": "bc2f4183db812101e0b033d68d5dd948c0b0f0f4dc7835befb172f59663b6d3a",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0905_06.3mf",
+      "sha256": "65f1737fa2eaeebc460cdfccf17f407a03a258dbfff97ffb97bd1af00555a339",
+      "bytes": 438386,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 3403178,
+          "sha256": "4f29d8f9f904f179559313bb3c72c699ca476a0f60edf3a3659eb11751ca6dae",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0905_07.3mf",
+      "sha256": "80e3e84fcd5b15aa98f63cb774878308792ed2abb9d9f017eb161437130c566a",
+      "bytes": 58209,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 280888,
+          "sha256": "d5a116ef96f3cdcbbd583733dcc77718879c786f8726b9d37658a548dd10582f",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0905_08.3mf",
+      "sha256": "544bb7880c5311fcb948de2723570f227db337388690032356972508269e35e8",
+      "bytes": 106374,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 690493,
+          "sha256": "5d275c4a6d71a728b5524dca7c80b3e70d6b09738fd401db5b264da0b3eece1e",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0905_09.3mf",
+      "sha256": "fc3b57bf507eee3ed170a01555652892b4bceaac4f84fc03624258e44f3f744d",
+      "bytes": 256690,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1372769,
+          "sha256": "d1b04b144ff33ac28152f23f9a6acd8b7ad9560d3da57b028c7d18cda40b84ca",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0905_10.3mf",
+      "sha256": "a7b531e11324d0377734d4a98324f3410fe78cdb72c7aa980f538ea4368604fd",
+      "bytes": 42358,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 166625,
+          "sha256": "c7e894e979415000561dc73a1b1c27380de1b6e701335f26755087184f3d2484",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0905_12.3mf",
+      "sha256": "500ef6e9cfc722c5089ec4ea466216e642d25496a3ddc3dc907f42e728c5f537",
+      "bytes": 256943,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1683309,
+          "sha256": "c97039eb4eefbf44d0b43c5d0efb824001777d7e9d215cbd04d3185871724d03",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0905_13.3mf",
+      "sha256": "8f6702dc2c7acb12132af796fd142ad2d12074930469d2062361b1a75a8cdeb2",
+      "bytes": 602110,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 4571366,
+          "sha256": "3fc46da642609b747abb7842538db1935353cc9166a4d16d11acf5a2f4bdb73a",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0906_01.3mf",
+      "sha256": "c87cc01324ffe76b72e4ff6d94c0888da919717cd935b54093a28aaa896f6357",
+      "bytes": 1197652,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 10163871,
+          "sha256": "c4d01f2f19abb456477806b151f56ac96a470afbaa874d2f9e6e5729104ead8b",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0906_02.3mf",
+      "sha256": "e84a76670051efb9510b71df7047d442fe16822ff73a7a3e88fe96a08f3ffbda",
+      "bytes": 2028805,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 20422776,
+          "sha256": "9c6cec65e5178a499b24bca95452c2ee0f0c5b6be501370e7839cc38a49d590d",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0906_03.3mf",
+      "sha256": "85ee33bfffbd8d5807fc778ba15b4f1fdcc2bb48cc70167a471a6f3e2df7f0c2",
+      "bytes": 233662,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1946805,
+          "sha256": "4a448da76c42ef7613e5455040f1b226c38a3faac812779f0b3b775af349dc09",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0906_04.3mf",
+      "sha256": "873d5d57c52b44f4890669372bf3b0e33d29f9634062c355c84c80c121011106",
+      "bytes": 952006,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 8187106,
+          "sha256": "ed8c3039c4c9551c3abf17b25a6a1b170c766583a54138e7f9e8fa6b27168db5",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0906_05.3mf",
+      "sha256": "27902f59a568982a9559ed1536d4f210147331375094dedb830d38ba86ce3cb7",
+      "bytes": 160487,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1205854,
+          "sha256": "017eeb83d86ebe1fd42c3e7ae1ff6801e0c10c1eba29a88c1faf0e2330234dd5",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0906_06.3mf",
+      "sha256": "3cad97093292f1a57d62ffad48c9febb38d536cfa5c932a4a2d49b16ebcf938c",
+      "bytes": 1937323,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 18418129,
+          "sha256": "6ac98f52ce0f191553b7667eb02506893e0ad139b882bde2729242f46c911b9f",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0907_01.3mf",
+      "sha256": "c94d298be9ead28e5c9641a230385427f700914d8785ed71030c57c135889407",
+      "bytes": 239873,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1235400,
+          "sha256": "b6880d0a83948c14d443cb810e7dece9610058853a4b99fa522ce1a60afca9e4",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0907_02.3mf",
+      "sha256": "907b524258e9cd06119e5b5884a596fda20ba49966554814aab2e7f916a9a972",
+      "bytes": 27869,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 5012,
+          "sha256": "66ff7c60bedbf811157bc86c331a3ba90bdf40b2d2c0f8a9774f426e540e1fc6",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0907_03.3mf",
+      "sha256": "eba53157aa0d1fce7bf7b8c6ecd57b8d9e06a7bdeb2ecf34b457c33c54dd84b2",
+      "bytes": 340566,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2446003,
+          "sha256": "1c8ece3e1889e185bbf618b01e04bad01f450032e9153ddf5d50499eaba20a06",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0907_04.3mf",
+      "sha256": "fdab1baf3fe1e86654f9e4c287d18dddfdc05e64c734848e6f4740f777c12dd4",
+      "bytes": 66831,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 244088,
+          "sha256": "f798fda4902568722fcf61d1ec486e682091416fe61d6b238c530b1e87022152",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0909_01.3mf",
+      "sha256": "1682272b6478448cb27d15ed2e4b085d7ac53674cade8ddf8a0af552b8f3f924",
+      "bytes": 11263912,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 1563843,
+          "sha256": "9e4e0863ecb9f7c9406ce26d112b8da7322a709316350279a2878217a8bdb8f0",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0909_03.3mf",
+      "sha256": "1d6e3207cdb7f760b912bdf80dca4e31fcb301c6510371467ad8735d264961f6",
+      "bytes": 7400,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 2304,
+          "sha256": "85540350709b270deeb9e9f1398f644c656c98450c14f1af50f4c09d57153fe2",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0909_04.3mf",
+      "sha256": "216bbcc96c1ce3037f8b05ead48b8dfd107f306efbca8c831eb6f0a0d2abf7b3",
+      "bytes": 40029560,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 380469865,
+          "sha256": "2051771e4871dd8bdae913b9b2b455472d695e42ad11e2e7bb77aa0e1b3ca3f5",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0909_05.3mf",
+      "sha256": "2460c2b7cb2c6578c9a52e66987c4ef1ec8589d88474a749e962cbb8a6d1b371",
+      "bytes": 1225048,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 15205009,
+          "sha256": "164b84f4113e1f7c54fd4dae1cd1ab2eaa9b39c1595f374d5bb1e4c770337ef3",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0910_01.3mf",
+      "sha256": "702c4efd0c9dd0ef63e07c9f4dd6c29bfeadcc1904ea08245188fe859032aee8",
+      "bytes": 90703,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 690953,
+          "sha256": "d1fb5902746e6a86bfdd6d3b631b411fe8de502d0ae667439b9889a6a69cf0ef",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0910_02.3mf",
+      "sha256": "8019420e2153d6e62d0adc9926c223cc11c3978360746b115f14d54c0e3ecb4a",
+      "bytes": 90758,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 691256,
+          "sha256": "dbb362be8eb292dff11fa45f375564abfb9b4af8d3ec227843b18d6259c5d872",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0910_03.3mf",
+      "sha256": "ee7c122c137ca19a442928973503eaa30d99c56507d687a78fbc7685dc101aaa",
+      "bytes": 85658,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 690439,
+          "sha256": "289d36dd1b3db6afc84cce27075ad5eb5e3d6917e4f754558486a9e68ea61a62",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0910_04.3mf",
+      "sha256": "2ae3680b6b2fdce8ece3cafbedbc383a127bd2695828094ccefb1b43e7d4338e",
+      "bytes": 85755,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 690695,
+          "sha256": "23b256f96a477cb07c37f9bacd26f2f418c2e57f8c17e59f289afade93819bde",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0910_05.3mf",
+      "sha256": "8312458e5653b3ec1fd0370b557e95914ae5cd18f9612c31d64817a80c67820b",
+      "bytes": 86582,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 690494,
+          "sha256": "552b2a944b5b549cc9b51d84212a83c98a61005f83bacfae9d5ee70a21f931e5",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0911_01.3mf",
+      "sha256": "0fe9df98a1c89c61c67bb30f8dc5c0ae708a3f602c375678b081a64a4b2f5d8f",
+      "bytes": 58372,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 124783,
+          "sha256": "946f729d0b2c0ec84d1bc8cab6fa62bf1120b9862da701ec8ddcd13a8f707edd",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0912_01.3mf",
+      "sha256": "130f2b027c04f43fd623e6929acce14d7ec667f92fc423183d2d103c0292fed0",
+      "bytes": 3720208,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 26637986,
+          "sha256": "043b0822db900d9ebf19d86457076d13bf11df1862895937709c672ff3f68c11",
+          "valid": true,
+          "diagnostic": ""
+        }
+      ]
+    },
+    {
+      "path": "suite3_core/positive_test_cases/P_XXX_0913_01.3mf",
+      "sha256": "463b1c43c8395cf2872ac21ff00ddb0012f7b1f139a101e4386b85de344270e6",
+      "bytes": 12898,
+      "upstream": "positive",
+      "models": [
+        {
+          "part": "3D/3dmodel.model",
+          "bytes": 7287,
+          "sha256": "279c96b2a8bbfe96a64e8827303438b0917397b7aa52b105f442cc54f176bc81",
+          "valid": true,
+          "diagnostic": "",
+          "secondary_valid": true
+        }
+      ]
+    }
+  ],
+  "repository": "https://github.com/3MFConsortium/test_suites",
+  "suite": "suite3_core",
+  "xml_schema_sha256": "61960fb3131e38022caad5360e2f33a3382578ab3c80cd58bd74320ede61b20c"
+}

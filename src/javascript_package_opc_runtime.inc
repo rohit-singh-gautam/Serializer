@@ -118,7 +118,7 @@ R"packagejs(
   function targetName(source, target) {
     const parts = uri(target); if (parts.scheme !== null || parts.authority !== null) throw new PackageError(Code.InvalidRelationship, 'Internal target cannot have scheme or authority', source);
     if (!parts.path) return partName(source);
-    if (parts.path.endsWith('/') || ['.', '..'].includes(parts.path.split('/').pop())) throw new PackageError(Code.InvalidRelationship, 'Relationship target identifies a directory', source);
+    if (parts.path.includes('//') || parts.path.endsWith('/') || ['.', '..'].includes(parts.path.split('/').pop())) throw new PackageError(Code.InvalidRelationship, 'Relationship target identifies a directory', source);
     const segments = parts.path.startsWith('/') ? [] : source.split('/').slice(1, -1);
     for (const segment of parts.path.split('/')) { if (!segment || segment === '.') continue; if (segment === '..') segments.pop(); else segments.push(segment); }
     return partName('/' + segments.join('/'));

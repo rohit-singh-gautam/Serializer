@@ -7,6 +7,31 @@ data class XmlLimits(val maxBytes: Int = 16777216, val maxNodes: Int = 100000,
                      val maxDepth: Int = 64, val maxTextBytes: Int = 8388608) {
     internal var srlPackageContext: SrlXmlBudget.Operation? = null
     internal var srlPackageRootType: SrlXmlName? = null
+    // Return a policy copy with one caller-owned synchronous cancellation/deadline callback.
+    // Preserve the first original failure and parent ledger; use a fresh wrapper after failure.
+    // The policy retains callback state; captured external resources must outlive calls.
+    // Do not share one wrapped policy concurrently.
+    fun withCancellation(check: () -> kotlin.Unit): XmlLimits {
+        val parent = srlPackageContext
+        var firstFailure: kotlin.Throwable? = null
+        fun poll() {
+            firstFailure?.let { throw it }
+            try { check() } catch (failure: kotlin.Throwable) { firstFailure = failure; throw failure }
+        }
+        val result = copy()
+        result.srlPackageRootType = srlPackageRootType
+        result.srlPackageContext = SrlXmlBudget.Operation({ poll() }, { kind, count, field ->
+            try { parent?.charge(kind,count,field) } catch (failure: kotlin.Throwable) {
+                if (firstFailure == null) firstFailure = failure
+                throw firstFailure!!
+            }
+        }, { message, field ->
+            poll()
+            if (parent != null) parent.at(field) { parent.limit(message) }
+            throw SrlXmlScalarLimit(message)
+        }).also { it.field = parent?.field ?: "" }
+        return result
+    }
 }
 internal data class SrlXmlName(val local: String, val namespace: String = "")
 internal data class SrlXmlAttribute(val name: SrlXmlName, val value: String)

@@ -100,13 +100,15 @@ fileprivate final class SrlXmlTokenParser: NSObject, XMLParserDelegate {
     init(_ bytes: [UInt8], _ limits: XmlLimits, _ factory: @escaping (SrlXmlName, [SrlXmlAttribute]) throws -> SrlXmlTokenFrame) {
         budget = SrlXmlBudget(limits); lexical = SrlXmlLexicalAttributes(bytes); rootFactory = factory
     }
-    // Preserve the first callback failure and stop the provider without publishing a model.
+    // Stop owning work after the first failure without reentering FoundationXML.abortParsing:
+    // Swift 6.4 Windows can invalidate its input cursor when aborted inside escaped-text callbacks.
+    // The provider finishes its already byte-bounded synchronous parse; no more frames are retained.
     private func checked(_ parser: XMLParser, _ action: () throws -> Void) {
         guard failure == nil else { return }
-        do { try action() } catch { failure = error; parser.abortParsing() }
+        do { try action() } catch { failure = error }
     }
     // Require the provider's complete-document callback as well as its parse return value.
-    func parserDidEndDocument(_ parser: XMLParser) { complete = true }
+    func parserDidEndDocument(_ parser: XMLParser) { if failure == nil { complete = true } }
     // Foundation can finish a root before reporting trailing malformed content.
     func parser(_ parser: XMLParser, parseErrorOccurred error: Error) {
         if failure == nil { failure = srlXmlProviderFailure(error) }

@@ -17,7 +17,32 @@ public struct XmlLimits {
     internal var srlPackageConsume: ((String, Int) throws -> Void)?
     fileprivate var srlPackageLimit: ((String) -> any Swift.Error)?
     fileprivate var srlPackageRootType: SrlXmlName?
+    // A package-only synchronous observer may retain selected resolved bindings, never the borrowed lookup closure.
+    fileprivate var srlPackageNamespaceScope: ((SrlXmlNode, (String) -> String?) throws -> Void)?
     public init() {}
+    /// Return a policy copy with a synchronous caller cancellation/deadline check.
+    /// Nested work shares the first original failure and forwards parent admissions once.
+    /// The policy retains the closure and its captured state; external resources must
+    /// outlive calls. Use a fresh wrapper after failure and do not share it concurrently.
+    public func withCancellation(_ check: @escaping () throws -> Void) -> XmlLimits {
+        var result = self
+        let parentCheck = srlPackageCheck
+        let parentConsume = srlPackageConsume
+        var firstFailure: (any Swift.Error)?
+        let poll: () throws -> Void = {
+            if let failure = firstFailure { throw failure }
+            do { try parentCheck?(); try check() }
+            catch { firstFailure = error; throw error }
+        }
+        result.srlPackageCheck = poll
+        result.srlPackageConsume = { kind, count in
+            try poll()
+            do { try parentConsume?(kind,count) }
+            catch { firstFailure = error; throw error }
+            try poll()
+        }
+        return result
+    }
 }
 // Keep ordinary native quota errors unchanged while package callbacks supply precise resource context.
 fileprivate func srlXmlLimitFailure(_ limits: XmlLimits, _ message: String) -> any Swift.Error {
@@ -110,27 +135,29 @@ fileprivate final class SrlXmlParser: NSObject, XMLParserDelegate {
     let limits: XmlLimits
     var root: SrlXmlNode?
     var stack: [SrlXmlNode] = []
-    var prefixes: [String: [String]] = ["xml": ["http://www.w3.org/XML/1998/namespace"]]
+    var prefixes: [WireString: [String]] = [WireString("xml"): ["http://www.w3.org/XML/1998/namespace"]]
     var nodes = 0
     var textBytes = 0
     var failure: Error?
     init(_ limits: XmlLimits) { self.limits = limits }
-    // Abort SAX parsing with the original shared-context error before retaining tree state.
+    // Preserve the first failure and stop retaining nodes. FoundationXML on Windows can crash
+    // when abortParsing reenters its escaped-text cursor; let the bounded provider call return.
     private func admit(_ parser: XMLParser, _ count: Int, _ kind: String = "work") -> Bool {
+        guard failure == nil else { return false }
         do { try limits.srlPackageCheck?(); try limits.srlPackageConsume?(kind, count); return true }
-        catch { failure = error; parser.abortParsing(); return false }
+        catch { failure = error; return false }
     }
-    func reject(_ parser: XMLParser, _ message: String) { failure = SerializerError.invalid(message); parser.abortParsing() }
+    func reject(_ parser: XMLParser, _ message: String) { if failure == nil { failure = SerializerError.invalid(message) } }
     // Preserve package resource categories only for this runtime's explicit local quota failures.
-    private func rejectLimit(_ parser: XMLParser, _ message: String) { failure = srlXmlLimitFailure(limits,message); parser.abortParsing() }
+    private func rejectLimit(_ parser: XMLParser, _ message: String) { if failure == nil { failure = srlXmlLimitFailure(limits,message) } }
     func parser(_ parser: XMLParser, didStartMappingPrefix prefix: String, toURI namespaceURI: String) {
         guard admit(parser,1), admit(parser,prefix.utf8.count+namespaceURI.utf8.count,"allocation") else { return }
         nodes += 1
         textBytes += prefix.utf8.count + namespaceURI.utf8.count
         guard nodes <= limits.maxNodes && textBytes <= limits.maxTextBytes else { rejectLimit(parser, "XML namespace limit"); return }
-        prefixes[prefix, default: []].append(namespaceURI)
+        prefixes[WireString(prefix), default: []].append(namespaceURI)
     }
-    func parser(_ parser: XMLParser, didEndMappingPrefix prefix: String) { _ = prefixes[prefix]?.popLast() }
+    func parser(_ parser: XMLParser, didEndMappingPrefix prefix: String) { if failure == nil { _ = prefixes[WireString(prefix)]?.popLast() } }
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String: String]) {
         guard admit(parser,1), admit(parser,MemoryLayout<SrlXmlNode>.stride,"allocation") else { return }
         nodes += 1
@@ -142,18 +169,23 @@ fileprivate final class SrlXmlParser: NSObject, XMLParserDelegate {
             nodes += 1
             guard nodes <= limits.maxNodes else { rejectLimit(parser, "XML attribute limit"); return }
             let parts = rawName.split(separator: ":", maxSplits: 1).map(String.init)
-            let uri = parts.count == 2 ? prefixes[parts[0]]?.last ?? "" : ""
+            let uri = parts.count == 2 ? prefixes[WireString(parts[0])]?.last ?? "" : ""
             if parts.count == 2 && uri.isEmpty { reject(parser, "Unbound XML attribute prefix"); return }
             node.attributes.append(SrlXmlAttribute(name: SrlXmlName(local: parts.last!, namespace: uri), value: value))
             textBytes += value.utf8.count
         }
         guard textBytes <= limits.maxTextBytes else { rejectLimit(parser, "XML text limit"); return }
+        if let observe = limits.srlPackageNamespaceScope {
+            do { try observe(node, { self.prefixes[WireString($0)]?.last }) }
+            catch { failure = error; return }
+        }
         if let parent = stack.last { parent.children.append(node) }
         else if root == nil { root = node }
         else { reject(parser, "Multiple XML roots"); return }
         stack.append(node)
     }
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
+        guard failure == nil else { return }
         guard let node = stack.popLast() else { reject(parser, "Unexpected XML closing tag"); return }
         if !node.children.isEmpty && !srlXmlWhitespace(node.text) { reject(parser, "Mixed XML content unsupported") }
     }
@@ -164,6 +196,7 @@ fileprivate final class SrlXmlParser: NSObject, XMLParserDelegate {
         stack.last?.text += string
     }
     func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+        guard failure == nil else { return }
         guard let text = String(data: CDATABlock, encoding: .utf8) else { reject(parser, "Invalid XML CDATA UTF-8"); return }
         self.parser(parser, foundCharacters: text)
     }

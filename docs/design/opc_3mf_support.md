@@ -4,7 +4,7 @@
 [Implemented APIs](../serialization/xml_packages.md) · [Pending work](../pending.md)
 
 Status: implemented subsets and remaining requirements, **21 October 2026**.
-The source release is compiler/runtime **2.21.0**, schema language **1.21.0**.
+The source release is compiler/runtime **2.22.0**, schema language **1.21.0**.
 The C++ OPC builder and declarative package facades in all eleven outputs exist;
 complete 3MF support and broader profile/provider qualification remain pending. Current source qualification
 is separate from the historically checked manual example.
@@ -16,6 +16,13 @@ do **not** need separate Serializer schemas for `[Content_Types].xml` or `.rels`
 C++ and generated Python OPC support generate and parse that infrastructure.
 
 ## Responsibility boundaries
+
+Outer package addressing is supplied separately through the
+[Pack-IRI API](../serialization/pack_iri.md). It handles composition, parsing and
+RFC reference resolution without archive access. Applications supply transport
+and scheme-specific outer resource equivalence; optional non-ASCII part naming,
+interleaving and growth-hint production are explicit selected-profile exclusions.
+These exclusions do not waive mandatory URI/ZIP/OPC behavior.
 
 | Concern | Serializer responsibility | Application responsibility |
 | --- | --- | --- |

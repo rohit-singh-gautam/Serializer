@@ -439,8 +439,11 @@ R"xmljava(  /** Compile once with external schemas and DTDs prohibited. */
   /** Reuse the immutable schema with a separate bounded per-call validator. */
   public void validate(byte[] bytes, Limits limits) {
     try (var input = new SrlXmlInput(bytes, limits)) { while (input.kind != 0) input.advance(); input.finish(); }
+    if(limits.xmlOperation!=null)limits.xmlOperation.consume("work",0,"");
     try { var validator = schema.newValidator(); validator.setProperty(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, ""); validator.setProperty(javax.xml.XMLConstants.ACCESS_EXTERNAL_SCHEMA, ""); validator.validate(new javax.xml.transform.stream.StreamSource(new java.io.ByteArrayInputStream(bytes))); }
     catch (org.xml.sax.SAXException | java.io.IOException failure) { throw new IllegalArgumentException("XML does not satisfy the selected XSD", failure); }
+    // Observe cancellation/deadlines that became active inside the synchronous provider.
+    if(limits.xmlOperation!=null)limits.xmlOperation.consume("work",0,"");
   }
 }
 )xmljava"

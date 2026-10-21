@@ -425,7 +425,7 @@ def _pkg_target(source, target):
     target = path
     if not target:
         return _pkg_name(source)
-    if target.endswith('/') or target.rsplit('/', 1)[-1] in ('.', '..'):
+    if '//' in target or target.endswith('/') or target.rsplit('/', 1)[-1] in ('.', '..'):
         raise PackageError('invalid_relationship', 'Relationship target identifies a directory', source)
     pieces = [] if target.startswith('/') else source.split('/')[1:-1]
     for segment in target.split('/'):
@@ -618,7 +618,7 @@ R"packagepython(class _PackageZip:
             name_size, extra_size, comment_size, disk = fields[10:14]
             local = fields[16]
             length = 46 + name_size + extra_size + comment_size
-            if length > len(central) - position:
+            if length > 65535 or length > len(central) - position:
                 raise PackageError('invalid_archive', 'Truncated ZIP central entry fields')
             if disk or flags & ~(0x800 | 8 | 6) or method not in (0, 8):
                 raise PackageError('unsupported_feature', 'Unsupported ZIP entry')
@@ -643,7 +643,7 @@ R"packagepython(class _PackageZip:
                 raise PackageError('invalid_archive', 'ZIP local header overlaps directory', part_name)
             header = source.read(local, 30)
             values = _struct.unpack('<4s5H3I2H', header)
-            if values[0] != b'PK\x03\x04' or values[2] != flags or values[3] != method:
+            if values[0] != b'PK\x03\x04' or values[1] > 45 or fields[2] > 45 or values[2] != flags or values[3] != method or values[4:6] != fields[5:7]:
                 raise PackageError('invalid_archive', 'ZIP local and central headers disagree', part_name)
             local_name, local_extra = values[9], values[10]
             data = local + 30 + local_name + local_extra
@@ -680,7 +680,8 @@ R"packagepython(class _PackageZip:
             self.physical_entries.append(entry)
             self.entries.setdefault(part_name.lower(), entry)
             position += length
-        if position != len(central):
+        # Annex B.1 requires consuming the optional ZIP directory signature while ignoring its data.
+        if position != len(central) and (len(central) - position < 6 or central[position:position + 4] != b'PK\x05\x05' or _struct.unpack_from('<H', central, position + 4)[0] != len(central) - position - 6):
             raise PackageError('invalid_archive', 'Unexpected ZIP directory records')
         intervals.sort()
         if any(left[1] > right[0] for left, right in zip(intervals, intervals[1:])):
@@ -920,7 +921,7 @@ def _pkg_opc_read(archive, budget):
             attrs = child[1]
             if child[0] != '{' + _PKG_RELS + '}Relationship' or not {'Id', 'Type', 'Target'} <= set(attrs) or set(attrs) - {'Id', 'Type', 'Target', 'TargetMode'}:
                 raise PackageError('invalid_metadata', 'Invalid OPC relationship declaration', name)
-            mode = _xml_normalize(attrs.get('TargetMode', 'Internal'), 'collapse')
+            mode = attrs.get('TargetMode', 'Internal')
             if mode not in ('Internal', 'External'):
                 raise PackageError('invalid_relationship', 'Invalid TargetMode', name)
             links.append(PackageRelationship(source, _xml_normalize(attrs['Id'], 'collapse'),
@@ -1249,9 +1250,11 @@ def _pkg_save(path, data, budget, fault=None):
             _pkg_os.fsync(stream.fileno())
         budget.check()
         if fault is not None: fault('before_publish')
+        budget.check()
         _pkg_os.replace(temporary, path)
         published = True
         if fault is not None: fault('after_publish')
+        budget.check()
         if _pkg_os.name != 'nt':
             directory = _pkg_os.open(_pkg_os.path.dirname(path), _pkg_os.O_RDONLY | getattr(_pkg_os, 'O_DIRECTORY', 0))
             try: _pkg_os.fsync(directory)

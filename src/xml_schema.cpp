@@ -2199,7 +2199,8 @@ void validate_backend(const record& contract, std::string_view language) {
             [&](const auto& member) { return self(self, member); });
   };
   const auto check_unions = [&](auto&& self, const scalar_facets& facets) -> void {
-    if (language != "python" && facets.list_item_kind == "QName" && !facets.enumeration.empty()) {
+    if (language != "python" && language != "cpp" && !javascript_backend &&
+        facets.list_item_kind == "QName" && !facets.enumeration.empty()) {
       throw std::invalid_argument{"XSD QName list enumeration requires expanded item identities"};
     }
     if (!facets.union_members.empty() &&
@@ -2210,7 +2211,7 @@ void validate_backend(const record& contract, std::string_view language) {
     for (const auto& alternative : facets.union_members) { self(self, alternative); }
   };
   for (const auto& field : contract.fields) {
-    if (language != "python" && field.facets.list_item_kind == "QName" && field.default_value &&
+    if (language != "python" && language != "cpp" && !javascript_backend && field.facets.list_item_kind == "QName" && field.default_value &&
         !lexical_words(*field.default_value).empty()) {
       throw std::invalid_argument{"XSD QName list defaults require expanded schema-scope item identities"};
     }
@@ -2315,8 +2316,7 @@ void validate_backend(const record& contract, std::string_view language) {
             std::all_of(selected.union_members.begin(), selected.union_members.end(),
                 [&](const auto& alternative) { return self(self, alternative); });
       };
-      if (!supported(supported, facets) ||
-          (facets.list_item_kind == "QName" && (value.default_value || value.fixed_value || !facets.enumeration.empty()))) {
+      if (!supported(supported, facets)) {
         throw std::invalid_argument{"XML scalar adapter is not implemented for " + std::string{language} + ": " + value.source->name};
       }
       continue;

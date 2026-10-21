@@ -2614,6 +2614,34 @@ public:
     return patterns(patterns, field.facets) && (field.list || leaf->name != "string");
   }
 
+  // Share bounded expanded-name metadata across default, fixed and enumeration checks.
+  std::string write_xml_name_list(rohit::type_check::output_buffer auto& output,
+      const std::vector<xml::name>& values, std::string_view suffix) {
+    const auto name = local_name("xml_names_" + std::string{suffix});
+    output.write("      static const ::std::array<::rohit::serializer::xml::name, ", values.size(), "> ", name, "{{");
+    for (const auto& value : values) {
+      output.write("{", xml_string(value.local), ", ", xml_string(value.namespace_uri), "},");
+    }
+    output.write("}};\n");
+    return name;
+  }
+
+  // Build an absent attribute's schema value in the actual owner scope, avoiding schema-prefix reinterpretation.
+  std::string write_xml_list_attribute_default(rohit::type_check::output_buffer auto& output,
+      const xml_binding::field& field, std::string_view reader, std::string_view scope,
+      std::string_view context) {
+    if (!field.attribute || field.min_occurs || (!field.qname_list_default && !field.qname_list_fixed)) { return {}; }
+    const auto& values = field.qname_list_fixed ? *field.qname_list_fixed : *field.qname_list_default;
+    const auto names = write_xml_name_list(output, values, "attribute_default_" + field.source->name);
+    const auto lexical = names + "_lexical";
+    output.write("    ::std::optional<::std::string> ", lexical, ";\n"
+        "    if (!", reader, ".has_attribute({", xml_string(field.qualified_name.local), ", ",
+        xml_string(field.qualified_name.namespace_uri), "})) {\n");
+    output.write("      ", lexical, " = ::rohit::serializer::xml::qualify_qname_list(", names, ", ", scope, ", ", context,
+        ", &srl_tokens.reserved_namespace_prefixes());\n    }\n");
+    return lexical + " ? ::std::optional<::std::string_view>{*" + lexical + "} : ::std::nullopt";
+  }
+
   // Emit immutable recursive union/pattern metadata once; model instances retain no validation tables.
   std::string write_xml_lexical_contract(rohit::type_check::output_buffer auto& output,
       const xml_binding::scalar_facets& facets, std::string_view suffix = {}) {
@@ -2651,6 +2679,24 @@ public:
         if (index) { output.write(", "); }
         const auto& name = facets.qname_enumeration[index];
         output.write("{", xml_string(name.local), ", ", xml_string(name.namespace_uri), "}");
+      }
+      output.write("}};\n");
+    }
+    const auto qname_lists = contract + "_qname_lists";
+    for (std::size_t index{}; index < facets.qname_list_enumeration.size(); ++index) {
+      const auto& items = facets.qname_list_enumeration[index];
+      output.write("      static const ::std::array<::rohit::serializer::xml::name, ", items.size(),
+          "> ", qname_lists, "_", index, "{{");
+      for (const auto& item : items) {
+        output.write("{", xml_string(item.local), ", ", xml_string(item.namespace_uri), "},");
+      }
+      output.write("}};\n");
+    }
+    if (!facets.qname_list_enumeration.empty()) {
+      output.write("      static const ::std::array<::rohit::serializer::xml::lexical_name_list, ",
+          facets.qname_list_enumeration.size(), "> ", qname_lists, "{{");
+      for (std::size_t index{}; index < facets.qname_list_enumeration.size(); ++index) {
+        output.write("{", qname_lists, "_", index, "},");
       }
       output.write("}};\n");
     }
@@ -2711,6 +2757,7 @@ public:
     if (!members.empty()) { output.write("        rule.union_members = ", union_name, ";\n"); }
     if (!facets.enumeration.empty()) { output.write("        rule.enumeration = ", enumeration, ";\n"); }
     if (!facets.qname_enumeration.empty()) { output.write("        rule.qname_enumeration = ", qnames, ";\n"); }
+    if (!facets.qname_list_enumeration.empty()) { output.write("        rule.qname_list_enumeration = ", qname_lists, ";\n"); }
     if (!groups.empty()) { output.write("        rule.pattern_groups = ", pattern_groups, ";\n"); }
     output.write("        return rule;\n      }();\n");
     return contract;
@@ -2724,7 +2771,7 @@ public:
     if (input && field.value_projection) { return; }
     if (input && xml_needs_raw_validation(field)) { return; }
     const bool advanced = !facets.union_members.empty() || !facets.patterns.empty() ||
-        !facets.pattern_groups.empty();
+        !facets.pattern_groups.empty() || !facets.qname_list_enumeration.empty();
     const bool constraints = facets.min_inclusive || facets.max_inclusive || facets.min_exclusive ||
         facets.max_exclusive || facets.length || facets.min_length || facets.max_length ||
         !facets.enumeration.empty() || facets.finite;
@@ -2851,15 +2898,20 @@ public:
     }
     if (!facets.list_item_kind.empty() && field.fixed_value) {
       if (facets.list_item_kind == "QName") {
-        throw std::invalid_argument{"XSD QName list fixed values require expanded item identities"};
+        output.write("      static const ::std::array<::rohit::serializer::xml::name, ",
+            field.qname_list_fixed->size(), "> srl_xml_fixed_names{{");
+        for (const auto& item : *field.qname_list_fixed) {
+          output.write("{", xml_string(item.local), ", ", xml_string(item.namespace_uri), "},");
+        }
+        output.write("}};\n      if (!::rohit::serializer::xml::lexical_qname_list_equal(", text,
+            ", srl_xml_fixed_names, ", node, ", ", context,
+            ")) { throw ::std::invalid_argument{\"XML fixed QName list value differs\"}; }\n");
+      } else {
+        output.write("      if (!::rohit::serializer::xml::lexical_lists_equal(", text, ", ", xml_string(*field.fixed_value),
+            ", ", xml_string(facets.list_item_kind), ", ", node, ")) { throw ::std::invalid_argument{\"XML fixed list value differs\"}; }\n");
       }
-      output.write("      if (!::rohit::serializer::xml::lexical_lists_equal(", text, ", ", xml_string(*field.fixed_value),
-          ", ", xml_string(facets.list_item_kind), ", ", node, ")) { throw ::std::invalid_argument{\"XML fixed list value differs\"}; }\n");
     }
-    if (!facets.enumeration.empty() && !facets.list_item_kind.empty()) {
-      if (facets.list_item_kind == "QName") {
-        throw std::invalid_argument{"XSD QName list enumeration requires expanded item identities"};
-      }
+    if (!facets.enumeration.empty() && !facets.list_item_kind.empty() && facets.list_item_kind != "QName") {
       output.write("      if (");
       for (std::size_t index{}; index < facets.enumeration.size(); ++index) {
         if (index) { output.write(" && "); }
@@ -3055,7 +3107,7 @@ public:
 
   // Materialize schema-scoped QName defaults using a bound owner prefix, preserving expanded identity.
   void write_xml_qname_default(rohit::type_check::output_buffer auto& output,
-      const xml_binding::field& field, std::string_view scope) {
+      const xml_binding::field& field, std::string_view scope, bool private_scope = false) {
     if (!field.qname || (!field.qname_default && !field.qname_fixed)) { return; }
     const auto& selected = field.qname_fixed ? *field.qname_fixed : *field.qname_default;
     const auto value = "this->" + member_name(*field.source);
@@ -3065,8 +3117,16 @@ public:
     const auto selected_scope = field.attribute || field.text ? std::string{scope} :
         "::rohit::serializer::xml::child_namespace_scope(xml_child_namespace_scopes, " +
         xml_string(field.source->name) + ", 0U, " + std::string{scope} + ")";
-    output.write("    if (", empty, ") { ", value, " = ::rohit::serializer::xml::qualify_qname({",
-        xml_string(selected.local), ", ", xml_string(selected.namespace_uri), "}, ", selected_scope, "); }\n");
+    output.write("    if (", empty, ") {\n");
+    if (private_scope && selected.namespace_uri.empty()) {
+      output.write("      if (srl_tokens.context() && !", selected_scope, ".namespace_bindings.contains(\"\")) {\n"
+          "        srl_tokens.context()->consume(::rohit::serializer::xml::operation_resource::allocation_bytes, sizeof(::std::pair<const ::std::string, ::std::string>));\n      }\n"
+          "      ", selected_scope, ".namespace_bindings[\"\"] = \"\";\n");
+    }
+    output.write("      ", value, " = ::rohit::serializer::xml::qualify_qname({",
+        xml_string(selected.local), ", ", xml_string(selected.namespace_uri), "}, ", selected_scope);
+    if (private_scope) { output.write(", srl_tokens.reserved_namespace_prefixes()"); }
+    output.write(");\n    }\n");
   }
 
   // Match a native specialization to the concrete XML contract selected by its schema alias.
@@ -3259,6 +3319,16 @@ public:
       bool output_only = false, bool reference_binding = false,
       bool* tokens_supported = nullptr, bool* tokens_required = nullptr) {
     const auto contract = xml_schema_.bind(object);
+    const bool root_private_namespaces = std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) {
+      return (field.attribute || field.text) &&
+          ((field.qname_list_default && !field.qname_list_default->empty()) ||
+              (field.qname_list_fixed && !field.qname_list_fixed->empty()));
+    });
+    const bool root_empty_default = std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) {
+      const auto& names = field.qname_list_fixed ? field.qname_list_fixed : field.qname_list_default;
+      return (field.attribute || field.text) && names &&
+          std::any_of(names->begin(), names->end(), [](const auto& name) { return name.namespace_uri.empty(); });
+    });
     // Restore projection naming on every return, including the direct-token-only path.
     struct restore_fields {
       std::map<std::string, std::string>& current;
@@ -3375,7 +3445,9 @@ public:
           selected.model.revision || selected.model.magic) { return true; }
       for (const auto& field : selected.fields) {
         if (field.presence.explicit_policy || field.map_binding || field.variant_binding ||
-            (field.list && !field.attribute && !field.text)) { return true; }
+            (field.list && !field.attribute && !field.text) ||
+            (field.qname_list_default && !field.qname_list_default->empty()) ||
+            (field.qname_list_fixed && !field.qname_list_fixed->empty())) { return true; }
         const auto* leaf = &field.source->type_name_list.front();
         while (leaf->is_optional() || leaf->is_sequence()) { leaf = &leaf->arguments.front(); }
         if (leaf->type == object_type::class_type && leaf->resolved_node) {
@@ -3667,11 +3739,22 @@ public:
           "  void serialize_xml_tokens_in(::rohit::serializer::xml::token_reader& srl_tokens) {\n");
       if (token_mapping) {
         output.write("    ::rohit::serializer::xml::field_scope srl_xml_diagnostic{srl_tokens.context()};\n");
+        if (std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) {
+            return field.qname_default || field.qname_fixed || field.qname_list_default || field.qname_list_fixed;
+          })) { output.write("    srl_tokens.collect_namespace_prefixes();\n"); }
         if (namespaces) { output.write("    xml_child_namespace_scopes.clear();\n"); }
         if (contract.identity) { output.write("    srl_tokens.begin_identity(xml_identity_contract());\n"); }
         if (contract.extensions) { output.write("    ::rohit::serializer::xml::token_extension_input srl_extensions{srl_tokens, xml_extension_contract(), xml_extensions};\n"); }
         output.write("    [[maybe_unused]] ::rohit::serializer::xml::element srl_token_scope{};\n");
         if (namespaces) { output.write("    srl_token_scope.namespace_bindings = srl_tokens.namespace_scope();\n"); }
+        if (root_private_namespaces) {
+          output.write("    auto srl_root_scope = ::rohit::serializer::xml::copy_namespace_scope(srl_token_scope, srl_tokens.context());\n");
+          if (root_empty_default) {
+            output.write("    if (srl_tokens.context() && !srl_root_scope.namespace_bindings.contains(\"\")) {\n"
+                "      srl_tokens.context()->consume(::rohit::serializer::xml::operation_resource::allocation_bytes, sizeof(::std::pair<const ::std::string, ::std::string>));\n    }\n"
+                "    srl_root_scope.namespace_bindings[\"\"] = \"\";\n");
+          }
+        }
         output.write("    ::rohit::serializer::xml::token_fields srl_fields{srl_tokens",
             std::string_view{namespaces ? ", &srl_token_scope" : ""}, "};\n");
         if (contract.model.revision) {
@@ -3701,6 +3784,23 @@ public:
           const auto projection_contract = namespace_child && !field.facets.union_members.empty() ?
               write_xml_lexical_contract(output, field.facets, "_projection_" + std::to_string(token_index)) :
               std::string{};
+          std::string schema_default{};
+          if ((namespace_child || field.text) && (field.qname_list_fixed || field.qname_list_default)) {
+            const auto names = write_xml_name_list(output,
+                field.qname_list_fixed ? *field.qname_list_fixed : *field.qname_list_default,
+                "default_" + field.source->name);
+            schema_default = names + "_list";
+            output.write("    static const ::rohit::serializer::xml::lexical_name_list ", schema_default, "{", names, "};\n");
+          }
+          std::string private_default_scope{};
+          if ((field.attribute || field.text) && ((field.qname_list_default || field.qname_list_fixed) ||
+              (root_private_namespaces && (field.qname_default || field.qname_fixed)))) {
+            private_default_scope = local_name("xml_default_scope_" + field.source->name);
+            output.write("    auto ", private_default_scope,
+                " = ::rohit::serializer::xml::copy_namespace_scope(srl_token_scope, srl_tokens.context());\n");
+          }
+          const auto list_attribute_default = write_xml_list_attribute_default(output, field, "srl_fields",
+              private_default_scope.empty() ? "srl_token_scope" : private_default_scope, "srl_tokens.context()");
           const auto write_namespace_projection = [&] {
             output.write(", {&srl_token_scope, ", std::string_view{field.facets.list_item_kind == "QName" ? "true" : "false"},
                 ", ", std::string_view{field.prefix_list ? "true" : "false"}, ", ",
@@ -3709,6 +3809,7 @@ public:
             else { output.write(", nullptr"); }
             output.write(", &::rohit::serializer::xml::child_namespace_destination(xml_child_namespace_scopes, ",
                 xml_string(field.source->name), ", srl_tokens.context())");
+            if (!schema_default.empty()) { output.write(", &", schema_default); }
             output.write("}");
           };
           if (field.map_binding) {
@@ -3781,10 +3882,16 @@ public:
             output.write("      ::rohit::serializer::xml::validate_lexical_contract(srl_raw_text, ", selected,
                 ", srl_raw_scope, srl_raw_context);\n");
             if (field.fixed_value) {
-              const auto& kind = field.facets.list_item_kind.empty() ? field.facets.lexical_kind : field.facets.list_item_kind;
-              output.write("      if (!::rohit::serializer::xml::lexical_lists_equal(srl_raw_text, ",
-                  xml_string(*field.fixed_value), ", ", xml_string(kind),
-                  ", srl_raw_scope)) { throw ::std::invalid_argument{\"XML fixed value differs\"}; }\n");
+              if (field.qname_list_fixed) {
+                const auto names = write_xml_name_list(output, *field.qname_list_fixed, "raw_fixed");
+                output.write("      if (!::rohit::serializer::xml::lexical_qname_list_equal(srl_raw_text, ", names,
+                    ", srl_raw_scope, srl_raw_context)) { throw ::std::invalid_argument{\"XML fixed QName list value differs\"}; }\n");
+              } else {
+                const auto& kind = field.facets.list_item_kind.empty() ? field.facets.lexical_kind : field.facets.list_item_kind;
+                output.write("      if (!::rohit::serializer::xml::lexical_lists_equal(srl_raw_text, ",
+                    xml_string(*field.fixed_value), ", ", xml_string(kind),
+                    ", srl_raw_scope)) { throw ::std::invalid_argument{\"XML fixed value differs\"}; }\n");
+              }
             }
             output.write("    };\n");
           }
@@ -3816,9 +3923,12 @@ public:
             output.write("    srl_fields.", std::string_view{field.list ? "list_text_value" : "text_value"},
                 "(this->", member_name(*field.source));
             const auto selected_default = field.fixed_value ? field.fixed_value : field.default_value;
-            if (raw) { output.write(", ", validator); }
+            if (!schema_default.empty()) {
+              output.write(", ", raw ? validator : "nullptr", ", {}, &", schema_default, ", &", private_default_scope);
+            }
+            else if (raw) { output.write(", ", validator); }
             else if (selected_default && !field.qname) { output.write(", nullptr"); }
-            if (selected_default && !field.qname) {
+            if (selected_default && !field.qname && schema_default.empty()) {
               output.write(", ::std::string_view{", xml_string(*selected_default), "}");
             }
             output.write(");\n");
@@ -3835,17 +3945,30 @@ public:
                 contract.all_groups.empty() ? "child_value" : "all_child_value"},
                 "(", qualified(field.qualified_name), ", this->", member_name(*field.source));
             const auto default_value = field.fixed_value ? field.fixed_value : field.default_value;
-            if (default_value && !field.qname && (!field.attribute || !field.min_occurs)) { output.write(", ::std::string_view{", xml_string(*default_value), "}"); }
+            if (!list_attribute_default.empty()) { output.write(", ", list_attribute_default); }
+            else if (default_value && !field.qname && schema_default.empty() && (!field.attribute || !field.min_occurs)) { output.write(", ::std::string_view{", xml_string(*default_value), "}"); }
             else if (field.qname && default_value && field.attribute && !field.min_occurs && !field.source->type_name_list.front().is_optional()) { output.write(", ::std::string_view{\"\"}"); }
             else if (raw || namespace_child) { output.write(", {}"); }
             if (raw) { output.write(", ", validator); }
-            else if (namespace_child) { output.write(", nullptr"); }
+            else if (namespace_child || !list_attribute_default.empty()) { output.write(", nullptr"); }
             if (namespace_child) { write_namespace_projection(); }
+            if (!list_attribute_default.empty()) { output.write(", &", private_default_scope); }
             output.write(");\n");
           }
           if (field.attribute || contract.all_groups.empty()) {
-            write_xml_qname_default(output, field, "srl_token_scope");
-            write_xml_value_checks(output, field, "srl_token_scope", "srl_tokens.context()", true);
+            write_xml_qname_default(output, field,
+                private_default_scope.empty() ? "srl_token_scope" : private_default_scope,
+                root_private_namespaces && !private_default_scope.empty());
+            const bool root_namespace = root_private_namespaces && (field.attribute || field.text) &&
+                (field.qname || field.prefix_list || xml_facet_uses_namespace(field.facets));
+            if (root_namespace) {
+              const auto selected = write_xml_lexical_contract(output, field.facets, "_root_" + field.source->name);
+              output.write("    ::rohit::serializer::xml::reproject_namespace_value(this->", member_name(*field.source),
+                  ", ", selected, ", ", private_default_scope.empty() ? "srl_token_scope" : private_default_scope,
+                  ", srl_root_scope, ", std::string_view{field.prefix_list ? "true" : "false"},
+                  ", srl_tokens.reserved_namespace_prefixes(), srl_tokens.context());\n");
+            }
+            write_xml_value_checks(output, field, root_namespace ? "srl_root_scope" : "srl_token_scope", "srl_tokens.context()", true);
           }
           if (field.repeated && (field.min_occurs || field.max_occurs)) {
             output.write("    if (");
@@ -3903,7 +4026,7 @@ public:
         write_choices();
         if (contract.extensions) { output.write("    srl_extensions.finish(", contract.fields.size(), "U);\n"); }
         output.write("    srl_xml_diagnostic.select({});\n    srl_fields.finish();\n");
-        if (namespaces) { output.write("    xml_namespace_bindings = ::std::move(srl_token_scope.namespace_bindings);\n"); }
+        if (namespaces) { output.write("    xml_namespace_bindings = ::std::move(", std::string_view{root_private_namespaces ? "srl_root_scope" : "srl_token_scope"}, ".namespace_bindings);\n"); }
       } else {
         output.write("    (void)srl_tokens;\n    throw ::std::invalid_argument{\"This XML contract has no direct token mapping\"};\n");
       }
@@ -4131,11 +4254,17 @@ public:
         output.write("      ::rohit::serializer::xml::validate_lexical_contract(srl_raw_text, ", selected,
             ", srl_raw_scope, srl_raw_context);\n");
         if (field.fixed_value) {
-          const auto& kind = field.facets.list_item_kind.empty() ?
-              field.facets.lexical_kind : field.facets.list_item_kind;
-          output.write("      if (!::rohit::serializer::xml::lexical_lists_equal(srl_raw_text, ",
-              xml_string(*field.fixed_value), ", ", xml_string(kind),
-              ", srl_raw_scope)) { throw ::std::invalid_argument{\"XML fixed value differs\"}; }\n");
+          if (field.qname_list_fixed) {
+            const auto names = write_xml_name_list(output, *field.qname_list_fixed, "raw_fixed");
+            output.write("      if (!::rohit::serializer::xml::lexical_qname_list_equal(srl_raw_text, ", names,
+                ", srl_raw_scope, srl_raw_context)) { throw ::std::invalid_argument{\"XML fixed QName list value differs\"}; }\n");
+          } else {
+            const auto& kind = field.facets.list_item_kind.empty() ?
+                field.facets.lexical_kind : field.facets.list_item_kind;
+            output.write("      if (!::rohit::serializer::xml::lexical_lists_equal(srl_raw_text, ",
+                xml_string(*field.fixed_value), ", ", xml_string(kind),
+                ", srl_raw_scope)) { throw ::std::invalid_argument{\"XML fixed value differs\"}; }\n");
+          }
         }
         output.write("    };\n");
       }

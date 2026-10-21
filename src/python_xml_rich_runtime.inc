@@ -49,6 +49,18 @@ class _XmlNamespaceContext:
         context.consume('decoder_allocation_bytes', size)
         self.namespace_entries += count
         self.namespace_bytes += size
+    def retain_namespace_addition(self, prefix, uri):
+        """Admit a generated declaration before adding it to an already charged private scope."""
+        self._xml_retain_namespace_addition_at(prefix, uri, self)
+    def _xml_retain_namespace_addition_at(self, prefix, uri, context):
+        """Share cumulative field-local admission without counting the snapshot's reserved empty binding twice."""
+        size = _XML_NAMESPACE_BINDING_ALLOCATION_BYTES + len(prefix.encode('utf-8')) + len(uri.encode('utf-8'))
+        if self.namespace_entries >= self.limits.max_elements or size > self.limits.max_string_bytes - self.namespace_bytes:
+            _xml_limit(context, 'XML scalar namespace retention limit exceeded')
+        context.consume('work_units', 1)
+        context.consume('decoder_allocation_bytes', size)
+        self.namespace_entries += 1
+        self.namespace_bytes += size
 
 
 def _xml_namespace_context(limits, context):
@@ -94,7 +106,7 @@ def _xml_resolve_qname(value, bindings):
         return (bindings[pieces[0]], pieces[1])
     raise _XmlLexicalError('Invalid or unbound XML QName')
 
-def _xml_qualify_qname(value, bindings, reserved=()):
+def _xml_qualify_qname(value, bindings, reserved=(), admit=None):
     """Allocate a collision-free declaration when a schema default uses another presentation prefix."""
     uri, local = value
     if not uri:
@@ -106,19 +118,18 @@ def _xml_qualify_qname(value, bindings, reserved=()):
     index = 0
     while 'q' + str(index) in bindings or 'q' + str(index) in reserved: index += 1
     prefix = 'q' + str(index)
+    if admit is not None: admit(prefix, uri)
     bindings[prefix] = uri
     return prefix + ':' + local
 
 
-def _xml_qualify_qname_list(values, bindings, reserved=()):
+def _xml_qualify_qname_list(values, bindings, reserved=(), admit=None):
     """Render schema-owned list identities while preserving input scopes and prefix collisions."""
     # A no-namespace token resets the default before any namespaced token is rendered.
     # Otherwise an earlier unprefixed token could silently acquire the later reset.
     if any(not uri for uri, local in values):
-        if bindings.get(''):
-            raise _XmlLexicalError('QName list schema no-namespace items require an absent default namespace')
         bindings[''] = ''
-    return ' '.join(_xml_qualify_qname(value, bindings, reserved) for value in values)
+    return ' '.join(_xml_qualify_qname(value, bindings, reserved, admit) for value in values)
 
 
 def _xml_qname_list_identity(value, bindings, context=None):
@@ -475,6 +486,8 @@ class _XmlFieldsRich(_XmlFields):
         return self.qname_prefixes
     def scalar_scope(self, field, item, node):
         """Retain child-local union bindings without rewriting text that selects its first member."""
+        if (field, item) in self.scalar_scopes:
+            return self.scalar_scopes[(field, item)][0]
         source = node[4]
         retain = getattr(self.context, 'retain_namespace', None)
         if retain is not None:
@@ -488,6 +501,22 @@ class _XmlFieldsRich(_XmlFields):
         retained.setdefault('', '')
         self.scalar_scopes[(field, item)] = (retained, node[3])
         return source
+    def value_scope(self, field, node):
+        """Borrow a schema-default field's private scope or the unchanged explicit input scope."""
+        selected = self.scalar_scopes.get((field, 0))
+        return selected[0] if selected is not None else node[4]
+    def list_default(self, field, item, node, values):
+        """Materialize schema identities without changing another attribute or text field's scope."""
+        source = node[4]
+        retain = getattr(self.context, 'retain_namespace', None)
+        if retain is not None: retain(source)
+        elif self.context is not None:
+            self.context.consume('decoder_allocation_bytes', (len(source) + 1) * _XML_NAMESPACE_BINDING_ALLOCATION_BYTES)
+        scope = dict(source)
+        lexical = _xml_qualify_qname_list(values, scope, self.reserved_prefixes(),
+                                        getattr(self.context, 'retain_namespace_addition', None))
+        self.scalar_scopes[(field, item)] = (scope, lexical)
+        return lexical
     def unknown(self, name, node=None):
         """Apply namespace, position, processContents and optional extension policy before skipping anything."""
         uri = _xml_namespace(name)
@@ -582,6 +611,8 @@ class _XmlFieldsRich(_XmlFields):
         scope = dict(self.node[4])
         scope.setdefault('', '')
         state = (scope, self.attributes, self.children_kept)
+        if self.qname_prefixes is not None:
+            return state + (self.scalar_scopes, tuple(self.qname_prefixes))
         return state + (self.scalar_scopes,) if self.scalar_scopes else state
 
 )richpython"
@@ -672,6 +703,33 @@ R"richpython(def _xml_promote_lexical(value, rule, source, target):
             result.append(chosen)
         return ' '.join(result)
     return value
+
+
+def _xml_root_scoped_lexical(value, rule, state, field, target, budget):
+    """Rewrite a known root scalar into a common empty-default scope while keeping native strings intact."""
+    original = state[0] if state is not None else target
+    scope = _xml_scalar_scope_open(state, field, 0, original, budget, rule, value)
+    value = _xml_checked(value, rule, scope, budget.context)
+    selected = rule
+    if rule['union']:
+        value, selected = _xml_union_member(value, rule, scope, budget.context)
+    reserved = state[4] if state is not None and len(state) > 4 else ()
+    def qualify(item):
+        """Retain existing lexical prefixes before allocating a schema-default presentation alias."""
+        expanded = _xml_resolve_qname(item, scope)
+        if ':' in item:
+            prefix = item.split(':', 1)[0]
+            if prefix not in target or target[prefix] == expanded[0]:
+                target[prefix] = expanded[0]
+                return item
+        return _xml_qualify_qname(expanded, target, reserved)
+    if selected['qname'] or selected['kind'] == 'QName':
+        value = qualify(value)
+    elif selected['list_item'] == 'QName':
+        value = ' '.join(qualify(item) for item in _xml_tokens(value))
+    elif selected['prefix_list']:
+        value = _xml_promote_lexical(value, selected, scope, target)
+    return _xml_checked(value, rule, target, budget.context)
 
 def _xml_choices(model, groups, active_fields=None):
     """Validate singleton choice presence from the actual optional fields before publication or emission."""

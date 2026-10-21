@@ -200,10 +200,10 @@ R"packagekotlin(        return left >= 0 && right >= 0 && left+right < 8
         val value = uri(text)
         if (value.scheme != null || value.authority != null) throw PackageError(Code.INVALID_RELATIONSHIP,"Internal target has scheme or authority",source)
         if (value.path.isEmpty()) return partName(source)
-        if (value.path.endsWith('/') || value.path.substringAfterLast('/') in listOf(".","..")) throw PackageError(Code.INVALID_RELATIONSHIP,"Relationship targets a directory",source)
+        if (value.path.contains("//") || value.path.endsWith('/') || value.path.substringAfterLast('/') in listOf(".","..")) throw PackageError(Code.INVALID_RELATIONSHIP,"Relationship targets a directory",source)
         val pieces = mutableListOf<String>()
         if (!value.path.startsWith('/')) pieces.addAll(source.substring(1,source.lastIndexOf('/')+1).split('/').filter { it.isNotEmpty() })
-        for (piece in value.path.split('/')) when (piece) { "", "." -> {}; ".." -> { if (pieces.isEmpty()) throw PackageError(Code.INVALID_RELATIONSHIP,"Relationship target escapes package root",source); pieces.removeAt(pieces.lastIndex) }; else -> pieces.add(piece) }
+        for (piece in value.path.split('/')) when (piece) { "", "." -> {}; ".." -> { if (pieces.isNotEmpty()) pieces.removeAt(pieces.lastIndex) }; else -> pieces.add(piece) }
         return partName("/"+pieces.joinToString("/"))
     }
     /** XML metadata tokens use only the four XML whitespace characters. */

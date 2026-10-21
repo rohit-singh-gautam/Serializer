@@ -11,7 +11,8 @@ R"serializer(
 #include <inttypes.h>
 
 /* Share one bounded output operation across provider callbacks and nested generated records. */
-typedef struct srl_xml_output { srl_writer writer; srl_limits limits; srl_xml_map_limits map_limits; srl_xml_mixed_limits mixed_limits; srl_xml_digest_limits digest_limits; size_t nodes; size_t text_bytes; const char* pending_type_uri; const char* pending_type_local; size_t framing_bytes; } srl_xml_output;
+typedef struct srl_xml_output_binding { const char* prefix; const char* uri; } srl_xml_output_binding;
+typedef struct srl_xml_output { srl_writer writer; srl_limits limits; srl_xml_map_limits map_limits; srl_xml_mixed_limits mixed_limits; srl_xml_digest_limits digest_limits; size_t nodes; size_t text_bytes; const char* pending_type_uri; const char* pending_type_local; size_t framing_bytes; srl_xml_output_binding* bindings; size_t binding_count; size_t binding_capacity; srl_xml_operation* operation; } srl_xml_output;
 /* Optional trusted prepared validator; emitted model APIs accept it only when configured. */
 typedef struct srl_xml_validation {
   srl_status (*validate)(const uint8_t* bytes, size_t size, const srl_limits* limits, void* context);
@@ -196,12 +197,52 @@ static inline const char* srl_xml_namespace_prefix(const char* uri, const char* 
   static const char xml_namespace_uri[] = "http://www.w3.org/XML/1998/namespace";
   return strcmp(uri, xml_namespace_uri) == 0 ? "xml" : fallback;
 }
+/* The xml prefix is predefined; avoid a redundant declaration that the input provider omits. */
+static inline const xmlChar* srl_xml_namespace_uri(const char* uri) {
+  static const char xml_namespace_uri[] = "http://www.w3.org/XML/1998/namespace";
+  return *uri&&strcmp(uri,xml_namespace_uri)!=0?BAD_CAST uri:NULL;
+}
+/* Match the provider's current-tag declaration reuse; names remain borrowed until the next start tag. */
+static inline bool srl_xml_output_namespace(srl_xml_output* output,const char* prefix,const char* uri) {
+  if(!prefix){prefix="";}
+  for(size_t index=0;index<output->binding_count;++index){
+    if(!srl_xml_operation_charge(output->operation,srl_xml_operation_work,1u)){output->writer.status=srl_invalid;return false;}
+    if(strcmp(output->bindings[index].prefix,prefix)==0){if(strcmp(output->bindings[index].uri,uri)==0){return true;}output->writer.status=srl_invalid;return false;}
+  }
+  const size_t size=strlen(uri);
+  if(output->nodes>=output->limits.max_elements||size>output->limits.max_string_bytes||output->text_bytes>output->limits.max_bytes||size>output->limits.max_bytes-output->text_bytes){output->writer.status=srl_limit;return false;}
+  if(output->binding_count==output->binding_capacity){
+    const size_t initial_capacity=4u;
+    size_t capacity=output->binding_capacity?output->binding_capacity:initial_capacity;
+    if(output->binding_capacity){if(capacity>SIZE_MAX/2u){output->writer.status=srl_limit;return false;}capacity*=2u;}
+    if(capacity>SIZE_MAX/sizeof(*output->bindings)){output->writer.status=srl_limit;return false;}
+    const size_t bytes=capacity*sizeof(*output->bindings);
+    if(!srl_xml_operation_charge(output->operation,srl_xml_operation_allocation,bytes)){output->writer.status=srl_invalid;return false;}
+    void* fresh=realloc(output->bindings,bytes);if(!fresh){output->writer.status=srl_allocation;return false;}
+    output->bindings=(srl_xml_output_binding*)fresh;output->binding_capacity=capacity;
+  }
+  output->bindings[output->binding_count++]=(srl_xml_output_binding){prefix,uri};output->nodes++;output->text_bytes+=size;return true;
+}
+/* Admit provider-generated declarations without changing emitted namespace prefixes or document bytes. */
+static inline int srl_xml_start_element(xmlTextWriterPtr writer,srl_xml_output* output,const xmlChar* prefix,const xmlChar* local,const xmlChar* uri) {
+  output->binding_count=0;
+  if(uri){prefix=BAD_CAST srl_xml_namespace_prefix((const char*)uri,(const char*)prefix);uri=srl_xml_namespace_uri((const char*)uri);}
+  if(uri&&!srl_xml_output_namespace(output,(const char*)prefix,(const char*)uri)){return -1;}
+  return xmlTextWriterStartElementNS(writer,prefix,local,uri);
+}
+/* Count attributes and only declarations that the provider will physically add to this start tag. */
+static inline bool srl_xml_output_attribute(srl_xml_output* output,const char* local,const char* uri,const char* prefix) {
+  if(!local){return true;}
+  if(output->nodes>=output->limits.max_elements){output->writer.status=srl_limit;return false;}output->nodes++;
+  return !srl_xml_namespace_uri(uri)||srl_xml_output_namespace(output,srl_xml_namespace_prefix(uri,prefix),uri);
+}
 /* Write scalar text or an attribute after complete-message string accounting. */
 )serializer"
 R"serializer(static inline bool srl_xml_emit_text(xmlTextWriterPtr writer, srl_xml_output* output, const char* local, const char* uri, const char* prefix, const char* text, size_t size) {
+  if(!srl_xml_output_attribute(output,local,uri,prefix)){return false;}
   if (size > output->limits.max_string_bytes || output->text_bytes > output->limits.max_bytes || size > output->limits.max_bytes-output->text_bytes || !srl_xml_characters(text,size) || strlen(text) != size) { output->writer.status = srl_invalid; return false; }
   output->text_bytes += size;
-  const int result = local ? xmlTextWriterWriteAttributeNS(writer, *uri ? BAD_CAST srl_xml_namespace_prefix(uri, prefix) : NULL, BAD_CAST local, *uri ? BAD_CAST uri : NULL, BAD_CAST text) : xmlTextWriterWriteString(writer, BAD_CAST text);
+  const int result = local ? xmlTextWriterWriteAttributeNS(writer, *uri ? BAD_CAST srl_xml_namespace_prefix(uri, prefix) : NULL, BAD_CAST local, srl_xml_namespace_uri(uri), BAD_CAST text) : xmlTextWriterWriteString(writer, BAD_CAST text);
   return result >= 0;
 }
 /* Own a trusted standalone prepared XSD 1.0 schema; no document borrows its source bytes. */

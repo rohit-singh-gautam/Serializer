@@ -15,6 +15,11 @@ import zipfile
 import xml.etree.ElementTree as etree
 
 import python_package_test as independent
+import package_annex_b_corpus as annex_b
+import package_mce_corpus as mce_corpus
+import package_opc_uri_corpus as uri_corpus
+import package_iri_corpus as iri_corpus
+import package_utf16_corpus as utf16_corpus
 from package_application_contract_test import build_fixtures as application_fixtures
 from package_shared_codec_budget_test import fixtures as shared_fixtures
 
@@ -30,7 +35,7 @@ def fixtures(build):
         (build / (name + '.zip')).write_bytes(data)
         rows.append((name + '.zip', 'valid' if valid else 'invalid'))
         if valid:
-            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            with zipfile.ZipFile(io.BytesIO(annex_b.provider_bytes(data))) as archive:
                 for item in archive.infolist():
                     archive.read(item)
         return data
@@ -78,6 +83,8 @@ def fixtures(build):
         data=stream.getvalue()
         if '\\' in name: data=data.replace(b'a/data.bin',b'a\\data.bin')
         add('invalid-name-'+str(len(rows)),data,False)
+    for label, data, accepted in annex_b.cases():
+        add(label, data, accepted)
     (build/'cases.tsv').write_text(''.join('\t'.join(row)+'\n' for row in rows),encoding='utf-8')
     return rows
 
@@ -122,6 +129,15 @@ def opc_fixtures(build):
         '[Content_Types].xml':f'<Types xmlns="{independent.CT}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/target.xml" ContentType="application/vnd.target+xml"/><Override PartName="/holder.xml" ContentType="application/vnd.holder+xml"/></Types>'.encode()}
     add('linked-missing.opc',parts)
     parts=dict(parts);parts['holder.xml']=parts['holder.xml'].replace(b'ref="missing"',b'ref="one"');add('linked-single-valid.opc',parts)
+    for label, data, accepted in list(mce_corpus.cases()) + list(uri_corpus.cases()):
+        filename = label + '.opc'; (build/filename).write_bytes(data)
+        rows.append((filename,'valid' if accepted else 'invalid'))
+    for label, data, accepted in list(iri_corpus.cases()) + list(iri_corpus.scalar_delimiter_cases()):
+        filename = label + '.opc'; (build/filename).write_bytes(data)
+        rows.append((filename,'preserve' if accepted else 'preserve-invalid'))
+    for label,parts,accepted in utf16_corpus.cases(independent.independent_parts()):
+        filename = label + '.opc'; (build/filename).write_bytes(independent.independent_zip(parts))
+        rows.append((filename,'valid' if accepted else 'invalid'))
     (build/'opc-cases.tsv').write_text(''.join('\t'.join(row)+'\n' for row in rows),encoding='utf-8')
     return rows,vendor
 
@@ -214,7 +230,7 @@ _ = try SerializerPackage().encode(.BINARY_NONE);_ = try SerializerCompression()
     run([identity/'main.exe',identity/'fixtures'],'execute-identity')
     for name,status in rows:
         if status != 'valid': continue
-        with zipfile.ZipFile(build/name) as archive:
+        with zipfile.ZipFile(io.BytesIO(annex_b.provider_bytes((build/name).read_bytes()))) as archive:
             for index,item in enumerate(archive.infolist()): assert (build/(name+f'.{index}.decoded')).read_bytes()==archive.read(item)
     for index in range(8):
         data=(build/f'swift-{index}.zip').read_bytes()

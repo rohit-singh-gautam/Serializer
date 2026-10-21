@@ -1,5 +1,40 @@
 # Using Serializer in a C++ application
 
+Read the [application responsibility contract](../project/application_responsibilities.md)
+when assigning authentication, policy administration, external effects and custom
+migrations. These are explicit host responsibilities, not missing runtime engines.
+Library-owned compiler, codec, transaction and resource guarantees remain required.
+
+Compiler/runtime **2.22.0** adds native
+[capability activation and history conversion](../managed/capabilities.md),
+[Pack-IRI locators](../serialization/pack_iri.md) and explicit
+[C++ ZIP physical metadata replay](../serialization/zip_metadata.md).
+Ordinary Save rewrites a complete archive; logical part preservation does not
+promise identical physical records. Use explicit replay only when the application
+needs the documented inert metadata fields, within the same operation budget.
+The selected Core 1.4 C++/Python owning graph has an
+[official 175-model corpus inventory](../verification/verification-core-conformance-2026-10-21.md),
+including explicit schema/resource boundaries. Package/reference rules and host
+geometry validation remain distinct from XSD validity.
+
+Regenerate XML output for the
+[eleven-output namespace/provider fixes](../verification/verification-runtime-boundaries-2026-10-21.md).
+Physical declarations consume the selected adapter's quotas. Inherited scope
+copies retain work/allocation costs, and prepared-provider completion checks
+reject cancellation before returning output or publishing an input candidate.
+C#/Kotlin/Swift standalone callers can use copied `WithCancellation` /
+`withCancellation` policies, including host-clock checks. The callback retains
+its original failure identity; create a fresh wrapper per operation and after
+failure, without concurrent sharing. See the
+[public policy examples and provider boundary](../serialization/xml_packages.md#shared-xmlpackage-operation-context).
+Regenerate Python package facades for Save hook completion checks: cancellation
+after a returning pre-publication hook leaves the old destination intact.
+Cancellation after replacement reports `publication_uncertain` with the complete
+new archive and its original cause; reopen it before deciding whether to retry.
+The selected [large owning package qualification](../verification/verification-large-package-operations-2026-10-21.md)
+covers all eleven outputs through XML, DEFLATE, scoped identities, preservation,
+atomic Save and recovery under explicit finite policies.
+
 Compiler/runtime **2.21.0** adds application-supplied
 [OPC core properties](../serialization/core_properties.md) and
 [complete-candidate authorization](../managed/authorization.md) for C++ stores,
@@ -239,7 +274,7 @@ wrappers in every output, [pinned XSD bundle tools](../serialization/xsd_tooling
 and shared [native format selection](../languages/output_configuration.md).
 The [XML/package guide](../serialization/xml_packages.md) documents C++ ZIP64,
 explicit bounded spooling and transactional caller-authored OPC profiles.
-Selected whole-message compression framing/error/limit parity is [qualified across all eleven outputs](../verification/verification-compression-parity-2026-10-20.md). The C++ managed document-state bridge is implemented; native managed engines for other outputs and broader nested XML/package operation contexts remain pending.
+Selected whole-message compression framing/error/limit parity is [qualified across all eleven outputs](../verification/verification-compression-parity-2026-10-20.md). The C++ managed document-state bridge is implemented. Supported generated package/XML graphs share the [public cumulative operation bridges](../verification/verification-native-xml-operations-2026-10-21.md); native managed engines for other outputs and broader XML graphs retain separate capability gates.
 
 For an OPC-based application, the runtime generates `[Content_Types].xml` and
 `.rels` from registered parts and relationships; application schemas describe
@@ -2427,8 +2462,10 @@ Preserved source/target context is revalidated after edits; rebind links explici
 when authored writer names differ from loaded names. See the
 [API and bounded source/Save contracts](../languages/java_packages.md) and
 [actual Java SDK/Linux runtime proof](../verification/verification-java-packages-2026-10-20.md).
-Automatic nested cumulative contexts, arbitrary runtime codecs and generated
-application key/reference rules remain pending.
+Current generated role codecs share the cumulative package/XML operation ledger;
+direct scalar key/reference selectors and caller-owned codecs are supported.
+See [public composition](../verification/verification-native-xml-operations-2026-10-21.md)
+and [profile/reference boundaries](../serialization/package_application_contracts.md).
 
 ### JavaScript and TypeScript ZIP/OPC
 
@@ -2442,8 +2479,10 @@ pinned XML dependencies, explicit shared package limits and a validator for the
 complete fresh typed aggregate. Preserved unknown parts/links are revalidated
 after edits. See the [package API and examples](../languages/javascript_packages.md)
 and [executed profile](../verification/verification-javascript-packages-2026-10-20.md).
-Automatic nested cumulative contexts, arbitrary runtime codec selection and
-generated application key/reference rules remain pending.
+Current facades bridge XML into the cumulative package ledger, accept role-keyed
+caller codecs and enforce supported direct scalar application references. See
+[public composition](../verification/verification-native-xml-operations-2026-10-21.md)
+and [profile/reference boundaries](../serialization/package_application_contracts.md).
 
 ### C# and Kotlin/JVM ZIP/OPC
 

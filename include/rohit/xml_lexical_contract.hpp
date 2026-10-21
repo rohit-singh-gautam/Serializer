@@ -24,6 +24,11 @@ struct lexical_pattern_group {
   std::span<const lexical_pattern_matcher> alternatives{};
 };
 
+// One ordered schema-owned QName list borrows immutable generated expanded identities.
+struct lexical_name_list {
+  std::span<const name> items{};
+};
+
 // Static lexical metadata for an XSD union branch; spans borrow generated immutable arrays.
 // Empty union_members selects the built-in kind, while nested unions retain independent restrictions.
 struct lexical_contract {
@@ -34,7 +39,56 @@ struct lexical_contract {
   std::span<const name> qname_enumeration{};
   std::span<const lexical_pattern_group> pattern_groups{};
   std::span<const lexical_contract> union_members{};
+  std::span<const lexical_name_list> qname_list_enumeration{};
 };
+
+// Compare a lexical list through its instance scope without constructing an owning payload list.
+inline bool lexical_qname_list_equal(std::string_view lexical, std::span<const name> expected,
+    const element& scope, operation_context* context = nullptr) {
+  for (const auto& item : expected) {
+    lexical = detail::trim(lexical);
+    if (lexical.empty()) { return false; }
+    const auto end = lexical.find_first_of(" \t\r\n");
+    const auto token = lexical.substr(0U, end);
+    if (context) {
+      context->consume(operation_resource::work_units, token.size() + 1U);
+      context->consume(operation_resource::allocation_bytes, token.size());
+      const auto colon = token.find(':');
+      const auto prefix = colon == std::string_view::npos ? std::string_view{} : token.substr(0U, colon);
+      const auto found = scope.namespace_bindings.find(std::string{prefix});
+      if (found != scope.namespace_bindings.end()) {
+        context->consume(operation_resource::allocation_bytes, found->second.size());
+      }
+    }
+    if (resolve_qname(token, scope) != item) { return false; }
+    lexical.remove_prefix(token.size());
+  }
+  return detail::trim(lexical).empty();
+}
+
+// Render schema identities into one private field scope before exposing its lexical native value.
+inline std::string qualify_qname_list(std::span<const name> values, element& scope,
+    operation_context* context = nullptr, const std::set<std::string>* reserved = nullptr) {
+  if (std::any_of(values.begin(), values.end(), [](const auto& value) { return value.namespace_uri.empty(); })) {
+    if (context && !scope.namespace_bindings.contains("")) {
+      context->consume(operation_resource::allocation_bytes, sizeof(decltype(scope.namespace_bindings)::value_type));
+    }
+    scope.namespace_bindings[""] = "";
+  }
+  std::string result{};
+  for (const auto& value : values) {
+    if (context) {
+      context->consume(operation_resource::work_units, value.local.size() + value.namespace_uri.size() + 1U);
+      context->consume(operation_resource::allocation_bytes,
+          sizeof(decltype(scope.namespace_bindings)::value_type) + value.local.size() + value.namespace_uri.size());
+    }
+    const auto item = reserved ? qualify_qname(value, scope, *reserved) : qualify_qname(value, scope);
+    if (context) { context->consume(operation_resource::allocation_bytes, item.size() + !result.empty()); }
+    if (!result.empty()) { result += ' '; }
+    result += item;
+  }
+  return result;
+}
 
 // XML-only child scopes follow field occurrence order; native codecs never serialize this state.
 using child_namespace_store = std::map<std::string, std::vector<element>, std::less<>>;
@@ -172,7 +226,8 @@ inline void validate_lexical_contract_member(std::string_view text, const lexica
       (!contract.enumeration.empty() || !contract.qname_enumeration.empty())) {
     throw std::logic_error{"XSD union enumeration requires selected-member value identities"};
   }
-  if (contract.list_item_kind == "QName" && !contract.enumeration.empty()) {
+  if (contract.list_item_kind == "QName" && !contract.enumeration.empty() &&
+      contract.qname_list_enumeration.empty()) {
     throw std::logic_error{"XSD QName list enumeration requires expanded item identities"};
   }
   if (context) {
@@ -252,9 +307,15 @@ inline void validate_lexical_contract_member(std::string_view text, const lexica
       throw std::invalid_argument{"XML QName enumeration facet failed"};
     }
   }
+  if (!contract.qname_list_enumeration.empty() &&
+      std::none_of(contract.qname_list_enumeration.begin(), contract.qname_list_enumeration.end(),
+          [&](const auto& allowed) { return lexical_qname_list_equal(lexical, allowed.items, scope, context); })) {
+    throw std::invalid_argument{"XML QName list enumeration facet failed"};
+  }
   // Expanded QName restrictions already retain their schema scope; lexical prefixes belong to it.
   if (!contract.enumeration.empty() &&
-      !(contract.kind == "QName" && !contract.qname_enumeration.empty())) {
+      !(contract.kind == "QName" && !contract.qname_enumeration.empty()) &&
+      contract.qname_list_enumeration.empty()) {
     const auto matches = [&](std::string_view allowed) {
       if (context) {
         context->consume(operation_resource::work_units, lexical.size());
@@ -284,6 +345,98 @@ inline void validate_lexical_contract_member(std::string_view text, const lexica
 inline void validate_lexical_contract(std::string_view text, const lexical_contract& contract,
     const element& scope, operation_context* context = nullptr) {
   validate_lexical_contract_member(text, contract, scope, context, nullptr);
+}
+
+// Copy namespace-only state with admission before allocation; no XML descendants are retained.
+inline element copy_namespace_scope(const element& source, operation_context* context = nullptr) {
+  if (context) {
+    for (const auto& [prefix, uri] : source.namespace_bindings) {
+      context->consume(operation_resource::work_units, 1U);
+      context->consume(operation_resource::allocation_bytes,
+          sizeof(decltype(source.namespace_bindings)::value_type) + prefix.size() + uri.size());
+    }
+  }
+  element result{};
+  result.namespace_bindings = source.namespace_bindings;
+  return result;
+}
+
+// Re-present one namespace-sensitive value after schema defaults require a different owner default.
+// Only the first successful namespace-dependent union member is rewritten; other strings stay lexical.
+inline std::string reproject_namespace_lexical(std::string_view text, const lexical_contract& contract,
+    const element& original, element& destination, bool prefixes,
+    const std::set<std::string>& reserved, operation_context* context = nullptr) {
+  const lexical_contract* selected{};
+  validate_lexical_contract_member(text, contract, original, context, &selected);
+  if (prefixes) {
+    const auto values = resolve_prefix_list(text, original);
+    if (resolve_prefix_list(text, destination) == values) {
+      if (context) { context->consume(operation_resource::allocation_bytes, text.size()); }
+      return std::string{text};
+    }
+    std::string result{};
+    for (const auto& uri : values) {
+      const auto lexical = qualify_qname({"value", uri}, destination, reserved);
+      const auto colon = lexical.find(':');
+      if (colon == std::string::npos) { throw std::invalid_argument{"XML prefix list requires a namespace"}; }
+      if (context) { context->consume(operation_resource::allocation_bytes, colon + !result.empty()); }
+      if (!result.empty()) { result += ' '; }
+      result += lexical.substr(0U, colon);
+    }
+    return result;
+  }
+  if (selected->kind != "QName" && selected->list_item_kind != "QName") {
+    if (context) { context->consume(operation_resource::allocation_bytes, text.size()); }
+    return std::string{text};
+  }
+  const bool list = selected->list_item_kind == "QName";
+  std::vector<name> names{};
+  bool unchanged = true;
+  auto remaining = detail::trim(text);
+  while (!remaining.empty()) {
+    const auto end = list ? remaining.find_first_of(" \t\r\n") : std::string_view::npos;
+    const auto token = remaining.substr(0U, end);
+    if (context) {
+      context->consume(operation_resource::work_units, token.size());
+      context->consume(operation_resource::allocation_bytes, sizeof(name) + token.size());
+      const auto colon = token.find(':');
+      const auto prefix = colon == std::string_view::npos ? std::string_view{} : token.substr(0U, colon);
+      const auto found = original.namespace_bindings.find(std::string{prefix});
+      if (found != original.namespace_bindings.end()) {
+        context->consume(operation_resource::allocation_bytes, found->second.size());
+      } else if (prefix == "xml") {
+        context->consume(operation_resource::allocation_bytes, std::string_view{"http://www.w3.org/XML/1998/namespace"}.size());
+      }
+    }
+    names.push_back(resolve_qname(token, original));
+    const auto colon = token.find(':');
+    const auto prefix = colon == std::string_view::npos ? std::string_view{} : token.substr(0U, colon);
+    const auto found = destination.namespace_bindings.find(std::string{prefix});
+    const auto uri = prefix == "xml" ? std::string_view{"http://www.w3.org/XML/1998/namespace"} :
+        found == destination.namespace_bindings.end() ? std::string_view{} : std::string_view{found->second};
+    unchanged = unchanged && (prefix.empty() || prefix == "xml" || found != destination.namespace_bindings.end()) &&
+        uri == names.back().namespace_uri;
+    remaining = end == std::string_view::npos ? std::string_view{} : detail::trim(remaining.substr(end));
+  }
+  if (unchanged) {
+    if (context) { context->consume(operation_resource::allocation_bytes, text.size()); }
+    return std::string{text};
+  }
+  return qualify_qname_list(names, destination, context, &reserved);
+}
+
+// Preserve optional/list native storage while adopting one compatible owner presentation vocabulary.
+template <typename T> void reproject_namespace_value(T& value, const lexical_contract& contract,
+    const element& original, element& destination, bool prefixes,
+    const std::set<std::string>& reserved, operation_context* context = nullptr) {
+  if constexpr (detail::optional_traits<T>::value) {
+    if (value) { reproject_namespace_value(*value, contract, original, destination, prefixes, reserved, context); }
+  } else if constexpr (detail::collection_traits<T>::value) {
+    value = parse_list<T>(reproject_namespace_lexical(format_list(value, context), contract,
+        original, destination, prefixes, reserved, context), context);
+  } else {
+    value = reproject_namespace_lexical(value, contract, original, destination, prefixes, reserved, context);
+  }
 }
 
 // Materialize only lexical-token prefixes needed by a union's namespace-dependent alternatives.

@@ -376,7 +376,7 @@ R"packagejava(
         long crc=number(central,position+16,4),compressed=number(central,position+20,4),expanded=number(central,position+24,4);
         int nameSize=(int)number(central,position+28,2),extraSize=(int)number(central,position+30,2),commentSize=(int)number(central,position+32,2);
         long local=number(central,position+42,4);int length=46+nameSize+extraSize+commentSize;
-        if(length>central.length-position)throw new PackageError(Code.INVALID_ARCHIVE,"Truncated ZIP central fields");
+        if(length>65535||length>central.length-position)throw new PackageError(Code.INVALID_ARCHIVE,"Truncated ZIP central fields");
         if(number(central,position+34,2)!=0 || (flags&~(0x800|8|6))!=0 || method!=0 && method!=8)
           throw new PackageError(Code.UNSUPPORTED_FEATURE,"Unsupported ZIP entry");
         byte[] encoded=java.util.Arrays.copyOfRange(central,position+46,position+46+nameSize);
@@ -388,7 +388,7 @@ R"packagejava(
         if(expanded>state.budget.limits.maxPartBytes)throw error(Code.RESOURCE_LIMIT,"Expanded part exceeds limit",name);
         if(local>offset || offset-local<30)throw error(Code.INVALID_ARCHIVE,"ZIP local header overlaps directory",name);
         byte[] header=readAt(local,30);
-        if(number(header,0,4)!=0x04034b50L || number(header,6,2)!=flags || number(header,8,2)!=method)
+        if(number(header,0,4)!=0x04034b50L || number(header,4,2)>45 || number(central,position+6,2)>45 || number(header,10,2)!=number(central,position+12,2) || number(header,12,2)!=number(central,position+14,2) || number(header,6,2)!=flags || number(header,8,2)!=method)
           throw error(Code.INVALID_ARCHIVE,"ZIP local and central headers disagree",name);
         int localName=(int)number(header,26,2),localExtra=(int)number(header,28,2);
         long data=local+30+localName+localExtra;
@@ -414,7 +414,7 @@ R"packagejava(
         var entry=new Entry(name,method,flags,crc,compressed,expanded,data,local,finish,(int)(number(central,position+4,2)>>>8),number(central,position+38,4));
         state.consume(Resource.DECODER_ALLOCATION_BYTES,256L+encoded.length,name);entries.add(entry);names.put(name,entry);position+=length;
       }
-      if(position!=central.length)throw new PackageError(Code.INVALID_ARCHIVE,"Unexpected ZIP directory records");
+      if(position!=central.length && (central.length-position<6 || number(central,position,4)!=0x05054b50L || number(central,position+4,2)!=central.length-position-6))throw new PackageError(Code.INVALID_ARCHIVE,"Unexpected ZIP directory records");
       var intervals=new java.util.ArrayList<>(entries);intervals.sort(java.util.Comparator.comparingLong(entry->entry.localOffset));
       for(int index=1;index<intervals.size();++index)if(intervals.get(index-1).recordEnd>intervals.get(index).localOffset)
         throw new PackageError(Code.INVALID_ARCHIVE,"Overlapping ZIP local records");

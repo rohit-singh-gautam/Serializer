@@ -104,6 +104,22 @@ class javascript_xml_projection_test(unittest.TestCase):
         self.assertEqual(nil[0][0].attrib['{http://www.w3.org/2001/XMLSchema-instance}nil'],'true')
         self.assertNotIn('{http://www.w3.org/2001/XMLSchema-instance}nil',empty[0][0].attrib)
 
+    def test_prepared_provider_completion_rejects_late_projection_cancellation(self):
+        """A real prepared XSD may return after cancellation became observable to the readonly caller."""
+        self.run_node('''
+        const schema=await Model.XmlSchema.prepare(`<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:serializer:xml-projection">
+          <xs:element name="payload"><xs:complexType><xs:attribute name="number" type="xs:unsignedInt" use="required"/>
+          <xs:attribute name="label" type="xs:string" use="required"/></xs:complexType></xs:element></xs:schema>`);
+        try {
+          const source=new Model.XmlProjectionSource();source.current.number=7;source.current.label='checked';
+          let canceled=false;const marker=new Error('late readonly provider cancellation');
+          const limits=new Model.XmlLimits({operation(){if(canceled)throw marker;}});
+          const validator={validate(text){schema.validate(text);canceled=true;}};
+          assert.throws(()=>source.withProject(view=>view.encodeXml(limits,validator)),error=>error===marker);
+          assert.equal(canceled,true);
+        } finally {schema.dispose();}
+        ''')
+
     def test_actual_typescript_scoped_view_exports(self):
         """Compile a strict consumer with unchanged native getter/array/reference types and the XML view API."""
         source=self.directory/'typed.mts'
@@ -111,7 +127,10 @@ class javascript_xml_projection_test(unittest.TestCase):
                           "const source=new XmlProjectionSource();source.current.number=7;source.current.label='typed';\n"
                           "const output:string=source.withProject(view=>{const value:number=view.getNumber();return view.xmlBindNamespace('p','urn:typed').encodeXml(new XmlLimits());});\n"
                           "const owner=new XmlProjectionEnvelope();owner.value.bind(source);owner.label.bind(source);const selected:XmlProjectionPayload=owner.value.readValue();\n"
-                          "if(selected.number!==7||XmlProjectionPayload.decodeXml(output).number!==7)throw new Error('typed projection');\n",encoding='utf-8')
+                          "if(selected.number!==7||XmlProjectionPayload.decodeXml(output).number!==7)throw new Error('typed projection');\n"
+                          "let canceled=false;let failed=false;const marker=new Error('typed late projection cancellation');\n"
+                          "try{source.withProject(view=>view.encodeXml(new XmlLimits({operation(){if(canceled)throw marker;}}),{validate(){canceled=true;}}));}\n"
+                          "catch(error){if(error!==marker)throw error;failed=true;}if(!canceled||!failed)throw new Error('typed projection escaped cancellation');\n",encoding='utf-8')
         subprocess.run(['node',str(self.typescript),'--strict','--target','ES2020','--module','NodeNext','--moduleResolution','NodeNext','--skipLibCheck','false',str(source)],check=True)
         subprocess.run(['node',str(source.with_suffix('.mjs'))],check=True)
 

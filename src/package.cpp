@@ -25,6 +25,7 @@ constexpr std::uint32_t local_signature = 0x04034b50;
 constexpr std::uint32_t central_signature = 0x02014b50;
 constexpr std::uint32_t end_signature = 0x06054b50;
 constexpr std::uint32_t descriptor_signature = 0x08074b50;
+constexpr std::uint32_t directory_signature = 0x05054b50;
 constexpr std::uint32_t zip64_locator_signature = 0x07064b50;
 constexpr std::uint32_t zip64_end_signature = 0x06064b50;
 constexpr std::uint16_t zip64_extra_id = 1;
@@ -44,6 +45,8 @@ constexpr std::size_t zip64_locator_bytes = 20;
 constexpr std::size_t io_chunk_bytes = 64 * 1024;
 constexpr auto zip16_limit = std::numeric_limits<std::uint16_t>::max();
 constexpr auto zip32_limit = std::numeric_limits<std::uint32_t>::max();
+constexpr auto zip64_limit = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+constexpr auto zip_entry_limit = static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max());
 
 // Read a little-endian ZIP integer only after the containing fixed record is bounded.
 template <typename UInt>
@@ -171,6 +174,87 @@ std::uint64_t expanded_integer(std::span<const std::uint8_t>& extra, std::uint32
   }
   const auto result = read_integer<std::uint64_t>(extra, 0);
   extra = extra.subspan(sizeof(std::uint64_t));
+  return result;
+}
+
+// Retain uninterpreted complete extra fields; ZIP64 records are regenerated from their actual output sizes.
+std::vector<std::uint8_t> preserved_extra(std::span<const std::uint8_t> bytes) {
+  static_cast<void>(zip64_extra(bytes));
+  std::vector<std::uint8_t> result{};
+  while (!bytes.empty()) {
+    const auto id = read_integer<std::uint16_t>(bytes, 0U);
+    const auto length = static_cast<std::size_t>(read_integer<std::uint16_t>(bytes, 2U)) + 4U;
+    if (id != zip64_extra_id) { result.insert(result.end(), bytes.begin(), bytes.begin() + length); }
+    bytes = bytes.subspan(length);
+  }
+  return result;
+}
+
+// Append validated extras without allowing the resulting narrow ZIP field to overflow.
+void append_extra(std::vector<std::uint8_t>& output, std::span<const std::uint8_t> preserved) {
+  static_cast<void>(zip64_extra(preserved));
+  while (!preserved.empty()) {
+    const auto id = read_integer<std::uint16_t>(preserved, 0U);
+    const auto length = static_cast<std::size_t>(read_integer<std::uint16_t>(preserved, 2U)) + 4U;
+    if (id != zip64_extra_id) {
+      if (length > zip16_limit - output.size()) {
+        throw error{error_code::resource_limit, "ZIP extra fields exceed their wire length"};
+      }
+      output.insert(output.end(), preserved.begin(), preserved.begin() + length);
+    }
+    preserved = preserved.subspan(length);
+  }
+}
+
+// Check explicitly supplied physical metadata before any local header is published.
+void validate_entry_metadata(const zip_entry_metadata& metadata, zip_method method) {
+  validate_features(metadata.flags, static_cast<std::uint16_t>(method));
+  constexpr auto minimum = 10U;
+  if (metadata.central_version_needed < minimum || metadata.local_version_needed < minimum ||
+      metadata.central_version_needed > zip64_version || metadata.local_version_needed > zip64_version) {
+    throw error{error_code::unsupported_feature, "Unsupported ZIP metadata extraction version"};
+  }
+  if (metadata.comment.size() > zip16_limit || metadata.central_extra.size() > zip16_limit ||
+      metadata.local_extra.size() > zip16_limit) {
+    throw error{error_code::resource_limit, "ZIP physical metadata exceeds its wire length"};
+  }
+  if ((metadata.flags & descriptor_flag) == 0U &&
+      (metadata.descriptor_signed || metadata.local_crc_zero || metadata.local_compressed_zero ||
+       metadata.local_expanded_zero)) {
+    throw error{error_code::invalid_metadata, "ZIP descriptor metadata requires the descriptor flag"};
+  }
+  static_cast<void>(zip64_extra(metadata.central_extra));
+  static_cast<void>(zip64_extra(metadata.local_extra));
+}
+
+// Allocate retained physical metadata only for noncanonical source entries or explicit editing options.
+std::shared_ptr<zip_entry_metadata> retain_entry_metadata(const zip_entry& entry, budget& shared,
+    std::shared_ptr<const zip_entry_metadata>& selected) {
+  if (selected) { return std::const_pointer_cast<zip_entry_metadata>(selected); }
+  shared.consume(resource::metadata_bytes, sizeof(zip_entry_metadata), entry.name);
+  auto value = std::make_shared<zip_entry_metadata>();
+  selected = value;
+  return value;
+}
+
+// Allocate archive-level metadata lazily; constructor-only mutation precedes every public reader access.
+std::shared_ptr<zip_archive_metadata> retain_archive_metadata(
+    std::shared_ptr<const zip_archive_metadata>& selected, budget& shared) {
+  if (selected) { return std::const_pointer_cast<zip_archive_metadata>(selected); }
+  shared.consume(resource::metadata_bytes, sizeof(zip_archive_metadata));
+  auto value = std::make_shared<zip_archive_metadata>();
+  selected = value;
+  return value;
+}
+
+// Count opaque extra bytes before allocating a retained copy; every input TLV was validated by zip64_extra.
+std::size_t preserved_extra_bytes(std::span<const std::uint8_t> bytes) {
+  std::size_t result{};
+  while (!bytes.empty()) {
+    const auto length = static_cast<std::size_t>(read_integer<std::uint16_t>(bytes, 2U)) + 4U;
+    if (read_integer<std::uint16_t>(bytes, 0U) != zip64_extra_id) { result += length; }
+    bytes = bytes.subspan(length);
+  }
   return result;
 }
 
@@ -445,8 +529,15 @@ void zip_writer::add(std::string_view name, std::span<const std::uint8_t> bytes,
   if (finished_ || failed_) {
     throw error{error_code::invalid_state, "ZIP writer is finished or failed"};
   }
-  validate_zip_name(name, true, opc_names_);
-  validate_features(utf8_flag, static_cast<std::uint16_t>(options.method));
+  const auto flags = options.metadata ? options.metadata->flags : utf8_flag;
+  validate_zip_name(name, (flags & utf8_flag) != 0U, opc_names_);
+  validate_features(flags, static_cast<std::uint16_t>(options.method));
+  if (options.metadata) { validate_entry_metadata(*options.metadata, options.method); }
+  if (opc_names_ && options.metadata &&
+      (options.metadata->local_time != options.metadata->central_time ||
+       options.metadata->local_date != options.metadata->central_date)) {
+    throw error{error_code::invalid_metadata, "OPC duplicate ZIP metadata must agree", std::string{name}};
+  }
   if (std::any_of(entries_.begin(), entries_.end(), [name](const auto& item) {
         return item.name == name;
       })) {
@@ -456,10 +547,19 @@ void zip_writer::add(std::string_view name, std::span<const std::uint8_t> bytes,
     throw error{error_code::resource_limit, "ZIP part exceeds limit", std::string{name}};
   }
   budget_->consume(resource::entries, 1, name);
-  budget_->consume(resource::metadata_bytes, sizeof(zip_entry) + name.size(), name);
+  budget_->consume(resource::metadata_bytes, sizeof(retained_entry) + name.size(), name);
   budget_->consume(resource::expanded_bytes, bytes.size(), name);
-  zip_entry entry{std::string{name}, options.method, bytes.size(), bytes.size(),
-                  calculate_crc(bytes, *budget_), utf8_flag, offset_bytes_, 0};
+  retained_entry entry{{std::string{name}, options.method, bytes.size(), bytes.size(),
+                  calculate_crc(bytes, *budget_), flags, offset_bytes_, 0}, {}};
+  if (options.metadata) {
+    budget_->consume(resource::metadata_bytes, sizeof(zip_entry_metadata), name);
+    budget_->consume(resource::metadata_bytes, options.metadata->comment.size(), name);
+    budget_->consume(resource::metadata_bytes, options.metadata->central_extra.size(), name);
+    budget_->consume(resource::metadata_bytes, options.metadata->local_extra.size(), name);
+    entry.metadata = std::make_shared<zip_entry_metadata>(*options.metadata);
+    entry.creator_system = static_cast<std::uint8_t>(options.metadata->version_made >> 8U);
+    entry.external_attributes = options.metadata->external_attributes;
+  }
   std::vector<std::uint8_t> compressed;
   auto payload = bytes;
   if (options.method == zip_method::deflate) {
@@ -492,17 +592,24 @@ void zip_writer::add(std::string_view name, std::span<const std::uint8_t> bytes,
     write_integer(extra, entry.expanded_bytes);
     write_integer(extra, entry.compressed_bytes);
   }
+  if (entry.metadata) { append_extra(extra, entry.metadata->local_extra); }
+  const bool descriptor = (entry.flags & descriptor_flag) != 0U;
+  const auto needed = entry.zip64_sizes ? zip64_version : zip_version;
+  const auto local_version = entry.metadata ? std::max(entry.metadata->local_version_needed,
+      entry.zip64_sizes ? zip64_version : entry.method == zip_method::stored ? std::uint16_t{10U} : zip_version) : needed;
   std::vector<std::uint8_t> header;
   header.reserve(local_header_bytes + name.size());
   write_integer(header, local_signature);
-  write_integer(header, entry.zip64_sizes ? zip64_version : zip_version);
-  write_integer(header, utf8_flag);
+  write_integer(header, local_version);
+  write_integer(header, entry.flags);
   write_integer(header, static_cast<std::uint16_t>(options.method));
-  write_integer(header, std::uint16_t{});
-  write_integer(header, dos_epoch_date);
-  write_integer(header, entry.crc32);
-  write_integer(header, compressed_size);
-  write_integer(header, expanded_size);
+  write_integer(header, entry.metadata ? entry.metadata->local_time : std::uint16_t{});
+  write_integer(header, entry.metadata ? entry.metadata->local_date : dos_epoch_date);
+  write_integer(header, descriptor && entry.metadata->local_crc_zero ? std::uint32_t{} : entry.crc32);
+  write_integer(header, descriptor && entry.metadata->local_compressed_zero && !entry.zip64_sizes
+      ? std::uint32_t{} : compressed_size);
+  write_integer(header, descriptor && entry.metadata->local_expanded_zero && !entry.zip64_sizes
+      ? std::uint32_t{} : expanded_size);
   write_integer(header, static_cast<std::uint16_t>(name.size()));
   write_integer(header, static_cast<std::uint16_t>(extra.size()));
   header.insert(header.end(), name.begin(), name.end());
@@ -512,6 +619,19 @@ void zip_writer::add(std::string_view name, std::span<const std::uint8_t> bytes,
     append(header);
     entries_.back().data_offset_bytes = offset_bytes_;
     append(payload);
+    if (descriptor) {
+      std::vector<std::uint8_t> values{};
+      if (entries_.back().metadata->descriptor_signed) { write_integer(values, descriptor_signature); }
+      write_integer(values, entries_.back().crc32);
+      if (entries_.back().zip64_sizes) {
+        write_integer(values, entries_.back().compressed_bytes);
+        write_integer(values, entries_.back().expanded_bytes);
+      } else {
+        write_integer(values, zip32(entries_.back().compressed_bytes));
+        write_integer(values, zip32(entries_.back().expanded_bytes));
+      }
+      append(values);
+    }
   } catch (...) {
     failed_ = true;
     throw;
@@ -543,7 +663,11 @@ void zip_writer::finish() {
     return;
   }
   const auto directory_offset = offset_bytes_;
-  bool needs_zip64 = entries_.size() >= zip16_limit || directory_offset >= zip32_limit;
+  bool needs_zip64 = entries_.size() >= zip16_limit || directory_offset >= zip32_limit ||
+      (archive_metadata_ && archive_metadata_->force_zip64);
+  if (opc_names_ && (entries_.size() > zip_entry_limit || directory_offset > zip64_limit)) {
+    throw error{error_code::resource_limit, "ZIP count/offset exceeds OPC's signed bounds"};
+  }
   try {
     for (const auto& entry : entries_) {
       std::vector<std::uint8_t> extra_values;
@@ -561,28 +685,39 @@ void zip_writer::finish() {
         write_integer(extra, static_cast<std::uint16_t>(extra_values.size()));
         extra.insert(extra.end(), extra_values.begin(), extra_values.end());
       }
+      if (entry.metadata) { append_extra(extra, entry.metadata->central_extra); }
+      if (opc_names_ && central_header_bytes + entry.name.size() + extra.size() +
+          (entry.metadata ? entry.metadata->comment.size() : 0U) > zip16_limit) {
+        throw error{error_code::resource_limit, "OPC central header exceeds 65535 bytes", entry.name};
+      }
       std::vector<std::uint8_t> header;
       header.reserve(central_header_bytes + entry.name.size());
       write_integer(header, central_signature);
-      const auto version = extra.empty() ? zip_version : zip64_version;
-      write_integer(header, version);
-      write_integer(header, version);
+      const auto version = extra_values.empty() ? zip_version : zip64_version;
+      const auto required = extra_values.empty() ?
+          (entry.method == zip_method::stored ? std::uint16_t{10U} : zip_version) : zip64_version;
+      const auto made = entry.metadata ? static_cast<std::uint16_t>(
+          (entry.metadata->version_made & 0xff00U) |
+          std::max<std::uint16_t>(entry.metadata->version_made & 0xffU, required)) : version;
+      write_integer(header, made);
+      write_integer(header, entry.metadata ? std::max(entry.metadata->central_version_needed, required) : version);
       write_integer(header, entry.flags);
       write_integer(header, static_cast<std::uint16_t>(entry.method));
-      write_integer(header, std::uint16_t{});
-      write_integer(header, dos_epoch_date);
+      write_integer(header, entry.metadata ? entry.metadata->central_time : std::uint16_t{});
+      write_integer(header, entry.metadata ? entry.metadata->central_date : dos_epoch_date);
       write_integer(header, entry.crc32);
       write_integer(header, entry.zip64_sizes ? zip32_limit : zip32(entry.compressed_bytes));
       write_integer(header, entry.zip64_sizes ? zip32_limit : zip32(entry.expanded_bytes));
       write_integer(header, static_cast<std::uint16_t>(entry.name.size()));
       write_integer(header, static_cast<std::uint16_t>(extra.size()));
+      write_integer(header, static_cast<std::uint16_t>(entry.metadata ? entry.metadata->comment.size() : 0U));
       write_integer(header, std::uint16_t{});
-      write_integer(header, std::uint16_t{});
-      write_integer(header, std::uint16_t{});
-      write_integer(header, std::uint32_t{});
+      write_integer(header, entry.metadata ? entry.metadata->internal_attributes : std::uint16_t{});
+      write_integer(header, entry.metadata ? entry.metadata->external_attributes : std::uint32_t{});
       write_integer(header, zip32(entry.header_offset_bytes));
       header.insert(header.end(), entry.name.begin(), entry.name.end());
       header.insert(header.end(), extra.begin(), extra.end());
+      if (entry.metadata) { header.insert(header.end(), entry.metadata->comment.begin(), entry.metadata->comment.end()); }
       append(header);
     }
     const auto directory_bytes = offset_bytes_ - directory_offset;
@@ -591,15 +726,20 @@ void zip_writer::finish() {
       const auto zip64_offset = offset_bytes_;
       std::vector<std::uint8_t> extended;
       write_integer(extended, zip64_end_signature);
-      write_integer(extended, std::uint64_t{zip64_end_bytes - 12});
-      write_integer(extended, zip64_version);
-      write_integer(extended, zip64_version);
+      write_integer(extended, std::uint64_t{zip64_end_bytes - 12} +
+          (archive_metadata_ ? archive_metadata_->zip64_extensible_data.size() : 0U));
+      write_integer(extended, archive_metadata_ ? archive_metadata_->zip64_version_made : zip64_version);
+      write_integer(extended, archive_metadata_ ? archive_metadata_->zip64_version_needed : zip64_version);
       write_integer(extended, std::uint32_t{});
       write_integer(extended, std::uint32_t{});
       write_integer(extended, static_cast<std::uint64_t>(entries_.size()));
       write_integer(extended, static_cast<std::uint64_t>(entries_.size()));
       write_integer(extended, directory_bytes);
       write_integer(extended, directory_offset);
+      if (archive_metadata_) {
+        extended.insert(extended.end(), archive_metadata_->zip64_extensible_data.begin(),
+            archive_metadata_->zip64_extensible_data.end());
+      }
       write_integer(extended, zip64_locator_signature);
       write_integer(extended, std::uint32_t{});
       write_integer(extended, zip64_offset);
@@ -616,13 +756,35 @@ void zip_writer::finish() {
     write_integer(end, count);
     write_integer(end, zip32(directory_bytes));
     write_integer(end, zip32(directory_offset));
-    write_integer(end, std::uint16_t{});
+    write_integer(end, static_cast<std::uint16_t>(archive_metadata_ ? archive_metadata_->comment.size() : 0U));
+    if (archive_metadata_) {
+      end.insert(end.end(), archive_metadata_->comment.begin(), archive_metadata_->comment.end());
+    }
     append(end);
     finished_ = true;
   } catch (...) {
     failed_ = true;
     throw;
   }
+}
+
+// Capture immutable archive editing metadata only after its wire/resource bounds have passed.
+void zip_writer::set_archive_metadata(std::shared_ptr<const zip_archive_metadata> metadata) {
+  if (finished_ || failed_) { throw error{error_code::invalid_state, "ZIP writer is finished or failed"}; }
+  if (metadata) {
+    if (metadata->comment.size() > zip16_limit) {
+      throw error{error_code::resource_limit, "ZIP archive comment exceeds its wire length"};
+    }
+    if (metadata->zip64_version_needed != zip64_version ||
+        (!metadata->force_zip64 && !metadata->zip64_extensible_data.empty())) {
+      throw error{error_code::unsupported_feature, "Unsupported ZIP64 archive metadata policy"};
+    }
+    budget_->consume(resource::metadata_bytes, sizeof(zip_archive_metadata));
+    budget_->consume(resource::metadata_bytes, metadata->comment.size());
+    budget_->consume(resource::metadata_bytes, metadata->zip64_extensible_data.size());
+    budget_->check_buffer(metadata->zip64_extensible_data.size());
+  }
+  archive_metadata_ = std::move(metadata);
 }
 
 // Expose the same budget to caller-selected codec checks.
@@ -809,6 +971,12 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
       read_integer<std::uint16_t>(end_record, 8) != count) {
     throw error{error_code::unsupported_feature, "Split ZIP archives are unsupported"};
   }
+  const auto archive_comment_bytes = read_integer<std::uint16_t>(end_record, 20U);
+  if (archive_comment_bytes != 0U) {
+    auto metadata = retain_archive_metadata(archive_metadata_, *budget_);
+    budget_->consume(resource::metadata_bytes, archive_comment_bytes);
+    metadata->comment.assign(reinterpret_cast<const char*>(end_record.data() + end_header_bytes), archive_comment_bytes);
+  }
   // End-record fields are copied above; release the tail before allocating the directory.
   std::vector<std::uint8_t>{}.swap(tail);
   if (directory_end >= zip64_locator_bytes) {
@@ -819,18 +987,19 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
         throw error{error_code::unsupported_feature, "Split ZIP64 archives are unsupported"};
       }
       const auto extended_offset = read_integer<std::uint64_t>(locator, 8);
-      if (extended_offset > directory_end - zip64_locator_bytes ||
+      if ((opc_names && extended_offset > zip64_limit) || extended_offset > directory_end - zip64_locator_bytes ||
           zip64_end_bytes > directory_end - zip64_locator_bytes - extended_offset) {
         throw error{error_code::invalid_archive, "Invalid ZIP64 end record offset"};
       }
       const auto extended = read_at(extended_offset, zip64_end_bytes);
       const auto record_bytes = read_integer<std::uint64_t>(extended, 4);
       if (read_integer<std::uint32_t>(extended, 0) != zip64_end_signature ||
-          record_bytes < zip64_end_bytes - 12 ||
+          (opc_names && record_bytes > zip64_limit) || record_bytes < zip64_end_bytes - 12 ||
           record_bytes != directory_end - zip64_locator_bytes - extended_offset - 12) {
         throw error{error_code::invalid_archive, "Invalid ZIP64 end record extent"};
       }
       if (read_integer<std::uint16_t>(extended, 14) > zip64_version ||
+          (opc_names && read_integer<std::uint16_t>(extended, 14) != zip64_version) ||
           read_integer<std::uint32_t>(extended, 16) != 0 ||
           read_integer<std::uint32_t>(extended, 20) != 0 ||
           read_integer<std::uint64_t>(extended, 24) != read_integer<std::uint64_t>(extended, 32)) {
@@ -839,6 +1008,9 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
       const auto extended_count = read_integer<std::uint64_t>(extended, 32);
       const auto extended_bytes = read_integer<std::uint64_t>(extended, 40);
       const auto extended_directory = read_integer<std::uint64_t>(extended, 48);
+      if (opc_names && (extended_count > zip_entry_limit || extended_bytes > zip64_limit || extended_directory > zip64_limit)) {
+        throw error{error_code::invalid_archive, "ZIP64 count/extent exceeds OPC's signed bounds"};
+      }
       if ((count != zip16_limit && count != extended_count) ||
           (directory_bytes != zip32_limit && directory_bytes != extended_bytes) ||
           (directory_offset != zip32_limit && directory_offset != extended_directory)) {
@@ -848,12 +1020,26 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
       directory_bytes = extended_bytes;
       directory_offset = extended_directory;
       directory_end = extended_offset;
+      auto metadata = retain_archive_metadata(archive_metadata_, *budget_);
+      metadata->force_zip64 = true;
+      metadata->zip64_version_made = read_integer<std::uint16_t>(extended, 12U);
+      metadata->zip64_version_needed = read_integer<std::uint16_t>(extended, 14U);
+      const auto extension_bytes = record_bytes - (zip64_end_bytes - 12U);
+      if (extension_bytes > std::numeric_limits<std::size_t>::max()) {
+        throw error{error_code::resource_limit, "ZIP64 extensible data exceeds addressable storage"};
+      }
+      budget_->consume(resource::metadata_bytes, extension_bytes);
+      metadata->zip64_extensible_data = read_at(extended_offset + zip64_end_bytes,
+          static_cast<std::size_t>(extension_bytes));
     }
   }
   // Without a locator, classic fields retain their full unsigned range, including their maximum.
   // Exact extents below reject missing ZIP64 data without excluding representable ZIP32 boundaries.
   if (directory_offset > directory_end || directory_bytes != directory_end - directory_offset) {
     throw error{error_code::invalid_archive, "Invalid ZIP central directory extent"};
+  }
+  if (opc_names && count > zip_entry_limit) {
+    throw error{error_code::invalid_archive, "ZIP entry count exceeds OPC's signed bound"};
   }
   budget_->consume(resource::entries, count);
   if (count > entries_.max_size()) {
@@ -869,6 +1055,14 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
       count * entry_metadata_bytes + directory_bytes);
   budget_->check_buffer(directory_bytes);
   entries_.reserve(static_cast<std::size_t>(count));
+  // Canonical archives allocate no side table. Noncanonical metadata is retained outside the stable public entry ABI.
+  const auto retain_metadata = [this, count](const zip_entry& entry, std::size_t index) {
+    if (entry_metadata_.empty()) {
+      budget_->consume(resource::metadata_bytes, count * sizeof(entry_metadata_.front()));
+      entry_metadata_.resize(static_cast<std::size_t>(count));
+    }
+    return retain_entry_metadata(entry, *budget_, entry_metadata_[index]);
+  };
   auto directory = read_at(directory_offset, static_cast<std::size_t>(directory_bytes));
   std::size_t position{};
   for (std::size_t index = 0; index < count; ++index) {
@@ -896,6 +1090,9 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
       throw error{error_code::unsupported_feature, "Split ZIP entry is unsupported"};
     }
     const auto variable_size = static_cast<std::size_t>(name_size) + extra_size + comment_size;
+    if (opc_names && variable_size > zip16_limit - central_header_bytes) {
+      throw error{error_code::invalid_archive, "OPC central header exceeds 65535 bytes"};
+    }
     if (variable_size > header.size() - central_header_bytes) {
       throw error{error_code::invalid_archive, "Truncated ZIP central names/extra fields"};
     }
@@ -906,6 +1103,9 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
     const auto expanded = expanded_integer(extra, expanded_narrow);
     const auto compressed = expanded_integer(extra, compressed_narrow);
     const auto header_offset = expanded_integer(extra, offset_narrow);
+    if (opc_names && (expanded > zip64_limit || compressed > zip64_limit || header_offset > zip64_limit)) {
+      throw error{error_code::invalid_archive, "OPC ZIP64 size/offset has its high-order bit set"};
+    }
     if (expanded > budget_->configured().max_part_bytes) {
       throw error{error_code::resource_limit, "Declared ZIP part exceeds limit", name};
     }
@@ -917,10 +1117,33 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
         compressed_narrow == zip32_limit || expanded_narrow == zip32_limit,
         static_cast<std::uint8_t>(read_integer<std::uint16_t>(header, 4) >> 8U),
         read_integer<std::uint32_t>(header, 38)});
+    zip_entry_metadata metadata{};
+    metadata.version_made = read_integer<std::uint16_t>(header, 4U);
+    metadata.central_version_needed = read_integer<std::uint16_t>(header, 6U);
+    metadata.flags = flags;
+    metadata.central_time = read_integer<std::uint16_t>(header, 12U);
+    metadata.central_date = read_integer<std::uint16_t>(header, 14U);
+    metadata.internal_attributes = read_integer<std::uint16_t>(header, 36U);
+    metadata.external_attributes = entries_.back().external_attributes;
+    metadata.comment.assign(reinterpret_cast<const char*>(header.data() + central_header_bytes + name_size + extra_size),
+        comment_size);
+    metadata.central_extra = preserved_extra(header.subspan(central_header_bytes + name_size, extra_size));
+    if (metadata != zip_entry_metadata{}) {
+      *retain_metadata(entries_.back(), index) = std::move(metadata);
+    }
     position += central_header_bytes + variable_size;
   }
   if (position != directory.size()) {
-    throw error{error_code::invalid_archive, "Unexpected ZIP central directory records"};
+    // Annex B.1 requires consumption of this optional ZIP record while ignoring signature data.
+    // It is distinct from an OPC XML signature and confers no trust on package contents.
+    constexpr auto signature_header_bytes = sizeof(std::uint32_t) + sizeof(std::uint16_t);
+    const auto remainder = std::span{directory}.subspan(position);
+    if (remainder.size() < signature_header_bytes ||
+        read_integer<std::uint32_t>(remainder, 0U) != directory_signature ||
+        read_integer<std::uint16_t>(remainder, sizeof(std::uint32_t)) !=
+            remainder.size() - signature_header_bytes) {
+      throw error{error_code::invalid_archive, "Unexpected ZIP central directory records"};
+    }
   }
   // Names/metadata are now owned by entries_; do not retain a second directory-sized buffer.
   std::vector<std::uint8_t>{}.swap(directory);
@@ -942,7 +1165,9 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
     }
   }
   extents.clear();
-  for (auto& entry : entries_) {
+  for (std::size_t entry_index{}; entry_index < entries_.size(); ++entry_index) {
+    auto& entry = entries_[entry_index];
+    const auto metadata_pointer = entry_metadata_.empty() ? nullptr : entry_metadata_[entry_index];
     const auto header = read_at(entry.header_offset_bytes, local_header_bytes);
     if (read_integer<std::uint32_t>(header, 0) != local_signature ||
         read_integer<std::uint16_t>(header, 4) > zip64_version ||
@@ -973,11 +1198,35 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
     auto extra = zip64_extra(std::span{local_names}.subspan(name_size));
     const auto local_expanded = expanded_integer(extra, expanded_narrow);
     const auto local_compressed = expanded_integer(extra, compressed_narrow);
+    if (opc_names && (local_expanded > zip64_limit || local_compressed > zip64_limit)) {
+      throw error{error_code::invalid_archive, "OPC local ZIP64 size has its high-order bit set", entry.name};
+    }
     if (((!descriptor || local_compressed != 0) && local_compressed != entry.compressed_bytes) ||
         ((!descriptor || local_expanded != 0) && local_expanded != entry.expanded_bytes)) {
       throw error{error_code::invalid_archive, "ZIP local sizes disagree", entry.name};
     }
     const bool local_zip64 = compressed_narrow == zip32_limit || expanded_narrow == zip32_limit;
+    const auto local_extra = std::span{local_names}.subspan(name_size);
+    const auto retained_extra_bytes = preserved_extra_bytes(local_extra);
+    const auto local_version = read_integer<std::uint16_t>(header, 4U);
+    const auto local_time = read_integer<std::uint16_t>(header, 10U);
+    const auto local_date = read_integer<std::uint16_t>(header, 12U);
+    if (opc_names && (local_time != (metadata_pointer ? metadata_pointer->central_time : 0U) ||
+        local_date != (metadata_pointer ? metadata_pointer->central_date : dos_epoch_date))) {
+      throw error{error_code::invalid_archive, "OPC duplicate ZIP header fields disagree", entry.name};
+    }
+    if (metadata_pointer || local_version != zip_version || local_time != 0U || local_date != dos_epoch_date ||
+        retained_extra_bytes != 0U || descriptor) {
+      auto metadata = retain_metadata(entry, entry_index);
+      metadata->local_version_needed = local_version;
+      metadata->local_time = local_time;
+      metadata->local_date = local_date;
+      metadata->local_crc_zero = descriptor && local_crc == 0U;
+      metadata->local_compressed_zero = descriptor && compressed_narrow == 0U;
+      metadata->local_expanded_zero = descriptor && expanded_narrow == 0U;
+      budget_->consume(resource::metadata_bytes, retained_extra_bytes, entry.name);
+      metadata->local_extra = preserved_extra(local_extra);
+    }
     auto extent_end = entry.data_offset_bytes + entry.compressed_bytes;
     if (descriptor) {
       const auto size_bytes = local_zip64 || entry.zip64_sizes
@@ -1003,6 +1252,7 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
         }
         values = read_at(extent_end + 4, size_bytes);
         extent_end += 4;
+        retain_metadata(entry, entry_index)->descriptor_signed = true;
       }
       if (!matches(values)) {
         throw error{error_code::integrity, "ZIP descriptor disagrees", entry.name};
@@ -1024,6 +1274,21 @@ zip_reader::zip_reader(std::istream& input, std::shared_ptr<budget> shared,
 
 // Return immutable, reader-owned central-directory metadata.
 const std::vector<zip_entry>& zip_reader::entries() const noexcept { return entries_; }
+
+// Keep optional replay data out of zip_entry's established public object layout.
+std::shared_ptr<const zip_entry_metadata> zip_reader::entry_metadata(std::string_view name) const noexcept {
+  if (entry_metadata_.empty()) { return {}; }
+  const auto found = std::find_if(entries_.begin(), entries_.end(), [name](const auto& entry) {
+    return entry.name == name;
+  });
+  if (found == entries_.end()) { return {}; }
+  return entry_metadata_[static_cast<std::size_t>(found - entries_.begin())];
+}
+
+// Metadata owners outlive the borrowed archive stream and can be replayed by an explicit editing writer.
+const std::shared_ptr<const zip_archive_metadata>& zip_reader::archive_metadata() const noexcept {
+  return archive_metadata_;
+}
 
 // Preserve ZIP's exact case-sensitive logical filename identity.
 const zip_entry* zip_reader::find(std::string_view name) const noexcept {

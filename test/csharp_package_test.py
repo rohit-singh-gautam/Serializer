@@ -159,7 +159,7 @@ def main():
         parts[key] = parts[key].replace(old, target.encode())
         path = label + '.zip'
         (build / 'fixtures' / path).write_bytes(independent.independent_zip(parts))
-        row = (label, 'package', path, 'INVALID_RELATIONSHIP', '', '')
+        row = (label, 'package', path, 'OK', '', 'independent')
         rows.append(row)
         with (build / 'fixtures/cases.tsv').open('a', encoding='utf-8') as output:
             output.write('\t'.join(row) + '\n')

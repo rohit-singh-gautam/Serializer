@@ -216,6 +216,52 @@ void native_measurement(const model& value, bool decoding, const char* output) {
   }
   write_output(output, encoded);
 }
+
+#if !defined(SERIALIZER_XML_BENCHMARK_NATIVE_ONLY)
+// Interrupt complete owning operations before/mid traversal and on deadline, then verify fresh recovery.
+void interruption_controls(const model& value, std::string_view document) {
+  const auto canonical = encode_native<codec::binary_none>(value);
+  constexpr std::array<std::size_t, 2> thresholds{1U, 1000U};
+  std::size_t verified{};
+  for (const bool writing : {false, true}) {
+    for (const auto threshold : thresholds) {
+      xml::operation_context context{};
+      std::size_t polls{};
+      context.is_cancelled = [&] { return ++polls >= threshold; };
+      bool cancelled{};
+      try {
+        if (writing) { (void)xml::serialize(value, {}, nullptr, &context); }
+        else { (void)xml::deserialize<model>(document, {}, nullptr, &context); }
+      } catch (const std::runtime_error& error) {
+        cancelled = std::string_view{error.what()} == "XML operation cancelled";
+      }
+      if (!cancelled || polls != threshold) {
+        throw std::runtime_error{"XML cancellation returned a candidate or changed its failure"};
+      }
+      ++verified;
+    }
+    xml::operation_context expired{};
+    expired.set_timeout(std::chrono::steady_clock::duration::zero());
+    bool timed_out{};
+    try {
+      if (writing) { (void)xml::serialize(value, {}, nullptr, &expired); }
+      else { (void)xml::deserialize<model>(document, {}, nullptr, &expired); }
+    } catch (const std::runtime_error& error) {
+      timed_out = std::string_view{error.what()} == "XML operation deadline exceeded";
+    }
+    if (!timed_out) { throw std::runtime_error{"Expired XML operation returned a candidate"}; }
+    ++verified;
+  }
+  if (canonical != encode_native<codec::binary_none>(value)) {
+    throw std::runtime_error{"Interrupted XML encoding changed its source"};
+  }
+  require_equal(value, xml::deserialize<model>(document));
+  require_equal(value, xml::deserialize<model>(xml::serialize(value)));
+  std::cout << "{\"verified_interruptions\":" << verified
+            << ",\"mid_operation_poll\":" << thresholds.back()
+            << ",\"fresh_decode_and_encode_recovered\":true}\n";
+}
+#endif
 } // namespace
 
 // Run one isolated operation per process so peak residency is not inherited from another profile.
@@ -230,6 +276,10 @@ int main(int argc, char** argv) {
     const auto value = decode_native<codec::binary_none>(bytes{document.begin(), document.end()});
 #else
     const auto value = xml::deserialize<model>(document);
+    if (mode == "xml-interruptions") {
+      interruption_controls(value, document);
+      return 0;
+    }
     if (mode == "xml-encode" || mode == "xml-decode") {
       const auto encoded = xml::serialize(value);
       require_equal(value, xml::deserialize<model>(encoded));

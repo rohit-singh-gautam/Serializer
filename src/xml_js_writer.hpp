@@ -437,6 +437,13 @@ inline std::string js_methods(const class_node& owner, const record& contract,
     const auto qualified = [](const xml::name& name) {
       return "srlXmlTokenName(" + native::quote(name.namespace_uri) + ',' + native::quote(name.local) + ')';
     };
+    std::string default_names{"null"};
+    const auto& selected_names = field.qname_list_fixed ? field.qname_list_fixed : field.qname_list_default;
+    if (selected_names) {
+      default_names = "Object.freeze([";
+      for (const auto& name : *selected_names) { default_names += qualified(name) + ','; }
+      default_names += "])";
+    }
     const auto minimum = source.fixed_extent && !field.list ? source.fixed_extent : field.min_occurs;
     const auto maximum = source.fixed_extent && !field.list ? std::optional<std::size_t>{source.fixed_extent} : field.max_occurs;
     const auto inherited = js_inherited_access(owner, source, field_name, type_identifier);
@@ -461,6 +468,7 @@ inline std::string js_methods(const class_node& owner, const record& contract,
         ",variant:" + (field.variant_binding ? js_variant_metadata(*field.variant_binding, type_identifier) : "null") +
         ",default:" + (field.fixed_value ? quote(*field.fixed_value) : field.default_value ? quote(*field.default_value) : "null") +
         ",defaultName:" + (field.qname_fixed ? qualified(*field.qname_fixed) : field.qname_default ? qualified(*field.qname_default) : "null") +
+        ",defaultNames:" + default_names +
         ",rule:" + (leaf->type == object_type::class_type || field.map_binding || field.variant_binding ? "null" : js_scalar_metadata(field, *leaf)) +
         ",repeated:" + (field.repeated ? "true" : "false") + ",get:" + access.get +
         ",set:" + access.set + ",model:" +
@@ -496,7 +504,7 @@ inline std::string js_methods(const class_node& owner, const record& contract,
   line("limits = new XmlLimits(limits); const output=new SrlXmlWriter(limits);");
   line("this._srlXmlWrite(output," + quote(contract.root.local) + "," + quote(contract.root.namespace_uri) + "); const text=output.text;");
   if (options.runtime_xsd && options.validation_scope != "input") {
-    line("if (validator) validator.validate(text);");
+    line("if (validator) { if(limits.operation)limits.operation('work',0,''); validator.validate(text); if(limits.operation)limits.operation('work',0,''); }");
   } else if (!options.runtime_xsd) {
     line("if (validator) throw new Error('Runtime XSD was not enabled during generation');");
   }
@@ -507,7 +515,7 @@ inline std::string js_methods(const class_node& owner, const record& contract,
   line("limits = new XmlLimits(limits);");
   line("const value = srlXmlTokenDecode(this._srlXmlToken,[text],limits,true);");
   if (options.runtime_xsd && options.validation_scope != "output") {
-    line("if (validator) validator.validate(text);");
+    line("if (validator) { if(limits.operation)limits.operation('work',0,''); validator.validate(text); if(limits.operation)limits.operation('work',0,''); }");
   } else if (!options.runtime_xsd) {
     line("if (validator) throw new Error('Runtime XSD was not enabled during generation');");
   }

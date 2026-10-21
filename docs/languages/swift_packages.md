@@ -153,8 +153,16 @@ new file becomes visible. This API does not promise durable directory syncing.
 Borrowed sink writes may leave a prefix on transport failure and do not provide
 the file replacement guarantee.
 
+Compiler/runtime 2.22.0 package facades select an OPC-specific inert-name policy;
+ordinary `ZipReader.open`, `ZipWriter` and generic `save` retain their path checks.
+Direct OPC consumers can select `ZipReader.openOpc` and then validate `Opc`;
+generated aggregate publication selects `saveOpc` automatically. Relationship
+targets remain authored IRI text, with no URL normalization or network access.
+Fifth-edition namespace-scoped compatibility preprocessing precedes Relationships
+core validation. See the [common metadata qualification](../verification/verification-opc-metadata-2026-10-21.md).
+
 Encryption, multidisk archives, unsupported ZIP methods, self-extracting prefixes
-and unindexed local data reject explicitly. Broader OPC/Markup Compatibility,
+and unindexed local data reject explicitly. Broader
 3MF conformance, signatures, lexical metadata preservation, streaming without
 owning archive buffers and hard provider peak/preemption contracts remain
 separate pending requirements. Qualification records distinguish actual SDK

@@ -25,6 +25,17 @@ establish all 3MF package, geometry, resource, or extension application rules.
 `minimal.model` is a Serializer-authored tetrahedron model used for generated
 codec qualification; it is not an upstream fixture or a complete 3MF package.
 
+`official_suite3_manifest.json` pins all 175 official Core-only test-suite archives
+at revision `f483d3beee069e7adbac125d1f7baa36b5b3e5bf`, including archive/model
+SHA-256 values and independent unchanged-XSD verdicts. The 98 MB upstream archive
+corpus is fetched explicitly into ignored build storage rather than vendored.
+Its license is retained in `LICENSE.test_suites`. See the
+[replay instructions](../../../qualification/core_conformance/README.md) and
+[qualification record](../../../docs/verification/verification-core-conformance-2026-10-21.md).
+Upstream positive/negative labels cover application and package semantics; they
+are distinct from XSD validity. The record identifies three upstream positive
+cases that disagree with the pinned published XSD.
+
 The compiler's closed grammar projection works around two provider limits.
 libxml2 rejects the valid finite `maxOccurs="2147483647"` used by Core, so only
 provider-unrepresentable finite maxima become `unbounded` in that temporary

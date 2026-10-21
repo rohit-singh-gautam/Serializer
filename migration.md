@@ -1,5 +1,69 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.22.0
+
+Activate version-one C++ feature profiles through
+`model_store::configure_capabilities`; requirement inspection alone does not
+activate exclusions or mandatory authorization. Attached engines and mandatory
+identity/authorization cannot be silently removed. For native history-policy
+conversion, use `migration::convert_history_policy` with explicit branch selection
+and permission for history loss. Payload identities/bytes, allocation high-water
+marks and lease wrappers retain their contracts; see the
+[executed profile conversions](docs/verification/verification-managed-capabilities-2026-10-21.md).
+
+The new [Pack-IRI API](docs/serialization/pack_iri.md) addresses outer packages
+without changing internal part/relationship resolution. Supply scheme-specific
+outer equivalence in the application. It performs no file or network access.
+These additions do not change schema language 1.21.0 or existing native formats.
+
+Regenerate affected XML codecs for corrected namespace admission and cancellation
+checks around prepared validators. C++ namespace limits count physical declarations;
+inherited map copies retain separate tree/allocation admission. C output also
+counts ordinary attributes, generated declarations and namespace URI values,
+and omits redundant declarations of the predefined `xml` namespace.
+Go accounts expanded attribute names and binding prefix/URI bytes consistently;
+qualified attributes now use writer-owned aliases with the existing namespace
+basename preference and inherited reuse, preserving their expanded identities.
+Python scope copies retain work/allocation charges without duplicating
+the logical XML text count. Applications must compare QName identities rather
+than depend on a provider-selected prefix spelling. New checks can reject output
+that previously escaped a tight resource or canceled-operation policy.
+
+C#/Kotlin/Swift standalone XML callers can now attach cancellation or a host-clock
+deadline through `Limits.WithCancellation` / `XmlLimits.withCancellation`.
+The returned policy copy retains callback state and the existing ledger; use a
+fresh wrapper per operation and after failure, without concurrent sharing.
+Swift retains delegate failures and throws after the byte-admitted synchronous
+FoundationXML call returns, avoiding unsafe parser-abort reentry. Existing
+constructors and native wire representations remain unchanged.
+
+Regenerate Python package facades for Save publication-hook checks. A hook that
+arms cancellation and returns now triggers the caller's policy immediately.
+Before replacement, the old file remains unchanged. After replacement,
+`publication_uncertain` retains the cancellation cause and the complete new
+archive; reopen that generation before deciding whether to retry. Throwing hook
+exceptions retain their existing precedence.
+
+## Compiler/runtime 2.21.0
+
+The optional [C++ OPC core-property adapter](docs/serialization/core_properties.md)
+supplies package metadata from application values. Complete-candidate managed
+authorization covers inherited entities, owner-local edits and replacement/import
+publication; bind the principal and policy administration in the host.
+The routed PMR resource caps only allocations that pass through it, without
+replacing generated payload/decoder containers. Python QName-list restrictions
+retain schema-scope expanded enumeration/default/fixed identities in the supported
+graphs. Regenerate affected output; native field IDs, wire bytes and schema
+language 1.21.0 stay compatible.
+
+## Compiler/runtime 2.20.1
+
+Regenerate Java/C#/Kotlin/Swift XML output to count generated namespace
+declarations, qualified attributes, default resets and type declarations against
+the selected structural/text policy. Tight bounds can reject output earlier;
+existing native APIs, IDs, payload bytes and XML expanded identities remain intact.
+See the [original namespace-boundary checks](docs/verification/verification-namespace-budgets-2026-10-21.md).
+
 ## Compiler/runtime 2.20.0
 
 Existing schema language 1.21.0, native APIs, enum values and saved formats remain

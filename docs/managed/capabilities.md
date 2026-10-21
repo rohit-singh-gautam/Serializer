@@ -1,6 +1,6 @@
 # Managed capabilities and mandatory identity
 
-Remaining capability/engine work is tracked under **MG01–MG02** in
+Remaining native-engine work is tracked under **MG01** in
 [the central pending backlog](../pending.md#managed-state-and-storage).
 
 Current C++ representation: managed schema classes carry `persistent_id` directly
@@ -13,9 +13,11 @@ and undo/deletion never renumber survivors. Explicit member boundaries still app
 Status: revised design proposal with implemented C++ identity/history and
 [synchronous file journaling](journal.md), and [snapshot collaboration with conditional per-session undo/redo](collaboration_runtime.md).
 The [C++ interface](cpp_runtime.md) accepts bare `managed` declarations and centrally
-configured uint32/uint64 IDs. Schema selectors and the complete four-capability
-runtime remain unimplemented. Explicit versioned C++ profile validation and a
-host-installed [authorization publication gate](authorization.md) are implemented.
+configured uint32/uint64 IDs. Versioned C++ profiles select all four native
+mechanisms, with explicit history-policy conversion and a required
+[authorization publication gate](authorization.md). The `managed(...)` schema
+syntax illustrated later remains a proposal; native C++ profile selection is
+the implemented configuration interface.
 This document defines their shared contracts and supersedes
 earlier suggestions that map keys alone provide identity or uint64 is the default.
 
@@ -40,7 +42,73 @@ is a requirement/availability check: excluding a mechanism does not detach an
 existing journal/transport or remove an installed authorization gate. It
 does not attach a journal/transport, prevent later trusted host reconfiguration,
 convert a saved history policy or provide schema selector syntax. Hosts must
-revalidate after reconfiguration. Those broader requirements remain `MG02`.
+revalidate after reconfiguration. Use the activation API below when actual
+selection/exclusion is required rather than a requirement/availability check.
+
+## Activate complete native profiles
+
+`store.configure_capabilities(profile, optional_authorization_callback)` atomically
+applies an explicit version-one profile. History must match the store type;
+journal/collaboration must be compiled into its specialization. Excluded journal
+creation/recovery and collaboration attachment reject. Adapter attachment remains
+explicit and independent from selecting its capability.
+
+Selected authorization requires a supplied or already installed callback and
+becomes mandatory. The live store rejects clearing that callback, excluding
+authorization later, or installing a callback while authorization is explicitly
+excluded. Replacing a required callback is a trusted host administration operation
+and has no intermediate unprotected state. A missing/throwing/denying provider
+cannot turn into unrestricted operation. Explicitly unrestricted local stores
+retain the existing default workflow.
+
+An attached journal or collaboration engine cannot be excluded: its recovery,
+pending outbox and ownership state must not disappear through reconfiguration.
+Invalid versions, unknown bits, unavailable engines, allocation failures while
+copying a retained callback, and incompatible history leave the prior selection
+and gate intact. Configuration and policy changes require an idle owner-thread
+store; derived transaction/editor handles cannot reconfigure it.
+
+`enabled_capabilities()` reports the active selection; selecting an engine does
+not mean its adapter is attached. Identity, typed-reference validation, isolated
+edits and atomic publication always remain active, including when all optional
+bits are excluded. Profiles and providers are trusted host configuration, not
+serialized permission grants; reapply them before exposing a reopened store.
+
+The supported native matrix has forty combinations: disabled history, linear
+history with/without labels, and tree history with/without labels, each with the
+eight collaboration/authorization/journal selections. Compile-time `store_features`
+still removes unavailable engines entirely; runtime profiles cannot enable an
+engine omitted from the specialization.
+
+The [current verification record](../verification/verification-managed-capabilities-2026-10-21.md)
+records the complete native matrix and history-conversion results on Windows and Linux.
+
+## Explicit history-policy conversion
+
+`<rohit/managed_migration.hpp>` provides
+`migration::convert_history_policy<Root>(bytes, history_policy_options, limits)`.
+The source and target history/label policies are explicit. All five native
+profiles convert in every direction without changing payload snapshot bytes,
+document namespace, entity IDs, allocation high-water marks or native identity
+leases. Current cursors and retained redo survive conversions that retain history.
+Adding labels supplies empty labels; excluding labels deliberately removes them.
+
+Linear-to-tree conversion assigns ordered revisions `1..N`; tree-to-linear
+conversion retains ordered snapshots and removes tree revision-number metadata.
+A nonbranching tree flattens without guessing. A branching tree requires an
+explicit root-to-leaf `retained_tree_path` containing the current revision, plus
+`history_loss_policy::discard_unselected` if other branches are removed. Disabling
+nontrivial history also requires that explicit loss policy. Enabling history on a
+history-free source creates exactly one current baseline. No conversion promises
+to recreate previously discarded revisions or reuse old collaboration sessions.
+
+Every retained source state is validated even when explicitly discarded. Bounds,
+malformed metadata, invalid paths and incompatible source declarations fail before
+returning any output. The destination is also validated through its real native
+store policy before bytes are returned; the function does not mutate files or a
+live store. Load the result into a store of the target specialization. Journal
+and client-checkpoint/outbox rebasing need the application's explicit workflow;
+the helper never guesses their epochs or side effects.
 
 ## Four managed features
 

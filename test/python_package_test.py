@@ -502,6 +502,40 @@ class python_package_test(unittest.TestCase):
                         remaining = list(Path(private).iterdir())
                     self.assertEqual(remaining, [], f'private spool cleanup after {mode}')
 
+    def test_save_callback_cancellation_fences(self):
+        """Fence callbacks that return after cancellation, preserving precommit and uncertain postcommit state."""
+        destination = self.directory / 'callback-cancellation.opc'
+        previous = b'previous complete generation'
+        for checkpoint in ('before_publish', 'after_publish'):
+            with self.subTest(checkpoint=checkpoint):
+                destination.write_bytes(previous)
+                state = {'cancelled': False}
+
+                def cancelled():
+                    """Expose cancellation armed by the caller's publication callback."""
+                    return state['cancelled']
+
+                def arm(stage):
+                    """Return normally after changing caller policy at the exact publication boundary."""
+                    if stage == checkpoint:
+                        state['cancelled'] = True
+
+                budget = self.module.PackageBudget(self.module.PackageLimits(is_cancelled=cancelled))
+                with self.assertRaises(self.module.PackageError) as caught:
+                    self.module.ProfileArchive.save(destination, self.fixture(), budget=budget, fault=arm)
+                if checkpoint == 'before_publish':
+                    self.assertEqual(caught.exception.code, 'cancelled')
+                    self.assertEqual(destination.read_bytes(), previous)
+                else:
+                    self.assertEqual(caught.exception.code, 'publication_uncertain')
+                    self.assertEqual(caught.exception.__cause__.code, 'cancelled')
+                    self.assertEqual(self.module.ProfileArchive.load(destination).value.main.name,
+                                     'generated & checked')
+                self.assertFalse(list(self.directory.glob('.serializer-opc-*')))
+                self.module.ProfileArchive.save(destination, self.fixture())
+                self.assertEqual(self.module.ProfileArchive.load(destination).value.main.name,
+                                 'generated & checked')
+
     def test_save_fault_matrix_keeps_complete_publication(self):
         """Inject creation/ownership/write/sync/replace faults and independently inspect any published file."""
         destination = self.directory / 'fault-matrix.opc'
@@ -910,6 +944,60 @@ class python_package_test(unittest.TestCase):
                         self.module._PackageZip(source, shared).read('/data.bin')
                 finally:
                     source.close()
+
+    def test_fifth_edition_annex_b_records(self):
+        """Consume required physical records and reject conflicting duplicate fields/oversized central headers."""
+        import package_annex_b_corpus as annex_b
+        for label, data, accepted in annex_b.cases():
+            with self.subTest(case=label):
+                shared = self.module.PackageBudget()
+                source = self.module._PackageSource(data, shared)
+                try:
+                    if accepted:
+                        self.assertEqual(self.module._PackageZip(source, shared).read('/data.bin'), annex_b.PAYLOAD)
+                    else:
+                        with self.assertRaises(self.module.PackageError):
+                            self.module._PackageZip(source, shared)
+                finally:
+                    source.close()
+
+    def test_fifth_edition_relationships_compatibility(self):
+        """Apply the shared independently authored reference-processing decisions before typed publication."""
+        import package_mce_corpus as mce_corpus
+        for label, data, accepted in mce_corpus.cases():
+            with self.subTest(case=label):
+                if accepted:
+                    self.module.ProfileArchive.load(data)
+                else:
+                    with self.assertRaises(ValueError):
+                        self.module.ProfileArchive.load(data)
+
+    def test_fifth_edition_uri_component_corpus(self):
+        """Apply independently authored URI, physical mapping and external IRI decisions."""
+        import package_opc_uri_corpus as uri_corpus
+        import package_iri_corpus as iri_corpus
+        for module in (uri_corpus,iri_corpus):
+            for label,data,accepted in module.cases():
+                with self.subTest(case=label):
+                    if accepted:
+                        result = self.module.ProfileArchive.load(data,policy=self.module.ExtensionPolicy(parts='preserve',relationships='preserve'))
+                        value = self.module.ProfileArchive.Input(result.value.main,result.value.attachments,result.extensions)
+                        self.module.ProfileArchive.load(self.module.ProfileArchive.encode(value),policy=self.module.ExtensionPolicy(parts='preserve',relationships='preserve'))
+                    else:
+                        with self.assertRaises(ValueError):
+                            self.module.ProfileArchive.load(data,policy=self.module.ExtensionPolicy(parts='preserve',relationships='preserve'))
+
+    def test_fifth_edition_infrastructure_encoding_corpus(self):
+        """Require the selected UTF-8/UTF-16 labels, scalar integrity and XML1.0/no-DTD contract."""
+        import package_utf16_corpus as utf16_corpus
+        for label,parts,accepted in utf16_corpus.cases(independent_parts()):
+            with self.subTest(case=label):
+                data = independent_zip(parts)
+                if accepted:
+                    self.module.ProfileArchive.load(data)
+                else:
+                    with self.assertRaises(ValueError):
+                        self.module.ProfileArchive.load(data)
 
     def test_shared_independent_descriptor_fixtures(self):
         """Consume the same twelve width/signature/CRC controls and four corrupt descriptors as C++."""

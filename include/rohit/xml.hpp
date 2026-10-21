@@ -16,6 +16,7 @@
 #include <memory>
 #include <map>
 #include <optional>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -281,6 +282,9 @@ void validate_scalar_constraints(std::string_view text, const scalar_constraints
 [[nodiscard]] name resolve_qname(std::string_view lexical, const element& scope);
 // Generate a stable QName and retain its declaration, avoiding conflicting prefix bindings.
 [[nodiscard]] std::string qualify_qname(const name& value, element& scope);
+// Avoid prefixes found in namespace-independent string values while adding schema defaults.
+[[nodiscard]] std::string qualify_qname(const name& value, element& scope,
+    const std::set<std::string>& reserved);
 // Resolve whitespace-separated namespace prefixes to URI identities, rejecting unbound prefixes.
 [[nodiscard]] std::vector<std::string> resolve_prefix_list(std::string_view lexical,
     const element& scope);
@@ -309,6 +313,7 @@ struct limits {
   std::size_t max_depth{128U};
   std::size_t max_attributes{100000U};
   std::size_t max_name_bytes{8U * 1024U * 1024U};
+  // Physical declarations; inherited scope copies consume retained-tree/allocation budgets.
   std::size_t max_namespace_bindings{100000U};
   // Logical retained tree storage, excluding provider buffers and allocator bookkeeping/capacity.
   std::size_t max_tree_bytes{64U * 1024U * 1024U};
@@ -827,6 +832,11 @@ public:
   field_reader& operator=(field_reader&&) = delete;
   // Report the next borrowed child offset without advancing decoding or allocating state.
   [[nodiscard]] std::size_t child_position() const noexcept { return next_child_; }
+  // Distinguish a present empty attribute from schema-defaulted absence without consuming it.
+  [[nodiscard]] bool has_attribute(const name& selected) const noexcept {
+    return std::any_of(node_.attributes.begin(), node_.attributes.end(),
+        [&](const auto& item) { return item.qualified_name == selected; });
+  }
   // Bind one record; indentation whitespace is accepted but mixed scalar text is rejected.
   explicit field_reader(const element& node, bool has_text = false,
       operation_context* context = nullptr, extension_store* extensions = nullptr,

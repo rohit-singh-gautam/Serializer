@@ -70,6 +70,15 @@ function srlXmlReadField(field,text,limits,scope,bindings,defaulted=false) {
     const colon=text.indexOf(':'),prefix=colon<0 ? '' : text.slice(0,colon),separator=field.defaultName.indexOf('\0');
     scope={parent:scope,bindings:new Map([[prefix,field.defaultName.slice(0,separator)]])};
   }
+  if(defaulted && field.defaultNames!==null && field.defaultNames!==undefined){
+    const tokens=srlXmlLexicalTokens(text),schemaBindings=new Map();
+    if(tokens.length!==field.defaultNames.length)throw new Error('Invalid generated QName list default');
+    for(let index=0;index<tokens.length;++index){
+      const colon=tokens[index].indexOf(':'),prefix=colon<0 ? '' : tokens[index].slice(0,colon);
+      const name=field.defaultNames[index];schemaBindings.set(prefix,name.slice(0,name.indexOf('\0')));
+    }
+    scope={parent:scope,bindings:schemaBindings};
+  }
   return field.read(text,limits,field,scope,bindings);
 }
 
@@ -98,6 +107,50 @@ function srlXmlMergeBindings(target,source) {
   for(const [prefix,uri] of source){
     if(target.has(prefix) && target.get(prefix)!==uri)throw new Error('Conflicting XML scalar namespace bindings');
     target.set(prefix,uri);
+  }
+}
+
+// Reconcile conflicting field-private aliases only when the old shared-head projection cannot represent them.
+// Native lexical values and their first selected union members remain unchanged.
+function srlXmlReconcilePrepared(prepared,bindings,limits) {
+  const charge=(resource,amount)=>{if(limits.operation)limits.operation(resource,amount,limits.operationField||'');};
+  let conflict=false;
+  charge('allocation',128+bindings.size*128);
+  const combined=new Map(bindings);
+  for(const scalar of prepared.values())for(const [prefix,uri] of scalar.bindings){
+    charge('work',prefix.length+uri.length+1);
+    if(combined.has(prefix) && combined.get(prefix)!==uri)conflict=true;
+    else if(!combined.has(prefix)){charge('allocation',128);combined.set(prefix,uri);}
+  }
+  if(!conflict){srlXmlMergeBindings(bindings,combined);return;}
+  const reserved=new Set();
+  for(const scalar of prepared.values()){
+    charge('work',scalar.text.length);
+    for(const match of scalar.text.matchAll(/(q[0-9]+):/g))if(!reserved.has(match[1])){
+      charge('allocation',128+2*match[1].length);reserved.add(match[1]);
+    }
+  }
+  const values=scalar=>Array.isArray(scalar.selection.value) ? scalar.selection.value : [scalar.selection.value];
+  const namespaced=scalar=>scalar.selection && (scalar.selection.rule.kind==='QName' ||
+    scalar.selection.rule.listItem==='QName' || scalar.selection.rule.prefixList);
+  for(const scalar of prepared.values())if(namespaced(scalar) && !scalar.selection.rule.prefixList &&
+      values(scalar).some(name=>name.startsWith('\0'))){
+    if(bindings.has('') && bindings.get('')!=='')throw new Error('Opaque default namespace conflicts with QName value');
+    bindings.set('','');
+  }
+  for(const scalar of prepared.values()){
+    if(!namespaced(scalar)){srlXmlMergeBindings(bindings,scalar.bindings);continue;}
+    const prefixes=scalar.selection.rule.prefixList;
+    charge('allocation',128+2*scalar.text.length+values(scalar).length*128);
+    scalar.text=values(scalar).map(name=>{
+      charge('work',name.length);
+      const separator=name.indexOf('\0'),uri=name.slice(0,separator),local=name.slice(separator+1);
+      if(!uri){if(prefixes)throw new Error('XML prefix list requires a namespace');return local;}
+      let selected=null;
+      for(const [prefix,bound] of bindings)if(bound===uri && (!prefixes || prefix)){selected=prefix;break;}
+      if(selected===null){let index=0;do{charge('work',1);selected='q'+index++;}while(bindings.has(selected) || reserved.has(selected));charge('allocation',128+2*(selected.length+uri.length));bindings.set(selected,uri);}
+      return selected ? selected+(prefixes ? '' : ':'+local) : local;
+    }).join(' ');
   }
 }
 )jsnamespace"

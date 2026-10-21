@@ -148,7 +148,7 @@ R"packagekotlin(
                     val crc = number(central,position+16,4); var compressed = number(central,position+20,4); var expanded = number(central,position+24,4)
                     val nameSize = number(central,position+28,2).toInt(); val extraSize = number(central,position+30,2).toInt(); val commentSize = number(central,position+32,2).toInt()
                     var local = number(central,position+42,4); val length = 46+nameSize+extraSize+commentSize
-                    if (length > central.size-position) throw PackageError(Code.INVALID_ARCHIVE,"Truncated ZIP central fields")
+                    if (length > 65535 || length > central.size-position) throw PackageError(Code.INVALID_ARCHIVE,"Truncated ZIP central fields")
                     if (number(central,position+34,2) != 0L || flags and (0x800 or 8 or 6).inv() != 0 || method != 0 && method != 8) throw PackageError(Code.UNSUPPORTED_FEATURE,"Unsupported ZIP entry")
                     val encoded = central.copyOfRange(position+46,position+46+nameSize); val name = physicalName(text(encoded,flags and 0x800 != 0))
 )packagekotlin"
@@ -159,7 +159,7 @@ R"packagekotlin(                    if (names.containsKey(name)) throw PackageEr
                     if (expanded > state.budget.limits.maxPartBytes) throw PackageError(Code.RESOURCE_LIMIT,"Expanded part exceeds limit",name)
                     if (local > offset || offset-local < 30) throw PackageError(Code.INVALID_ARCHIVE,"ZIP local header overlaps directory",name)
                     val header = readAt(local,30)
-                    if (number(header,0,4) != 0x04034b50L || number(header,6,2).toInt() != flags || number(header,8,2).toInt() != method) throw PackageError(Code.INVALID_ARCHIVE,"ZIP headers disagree",name)
+                    if (number(header,0,4) != 0x04034b50L || number(header,4,2) > 45 || number(central,position+6,2) > 45 || number(header,10,2) != number(central,position+12,2) || number(header,12,2) != number(central,position+14,2) || number(header,6,2).toInt() != flags || number(header,8,2).toInt() != method) throw PackageError(Code.INVALID_ARCHIVE,"ZIP headers disagree",name)
                     val localName = number(header,26,2); val localExtra = number(header,28,2); val data = local+30+localName+localExtra
                     if (data > offset || compressed > offset-data) throw PackageError(Code.INVALID_ARCHIVE,"ZIP payload overlaps directory",name)
                     if (!readAt(local+30,localName).contentEquals(encoded)) throw PackageError(Code.INVALID_ARCHIVE,"ZIP local filename mismatch",name)
@@ -179,7 +179,7 @@ R"packagekotlin(                    if (names.containsKey(name)) throw PackageEr
                     val entry = Entry(name,method,flags,crc,compressed,expanded,data,local,finish,(number(central,position+4,2) ushr 8).toInt(),number(central,position+38,4))
                     state.consume(Resource.DECODER_ALLOCATION_BYTES,256L+encoded.size,name); items.add(entry); names[name] = entry; position += length
                 }
-                if (position != central.size) throw PackageError(Code.INVALID_ARCHIVE,"Unexpected ZIP directory records")
+                if (position != central.size && (central.size-position < 6 || number(central,position,4) != 0x05054b50L || number(central,position+4,2) != (central.size-position-6).toLong())) throw PackageError(Code.INVALID_ARCHIVE,"Unexpected ZIP directory records")
                 val intervals = items.sortedBy { it.localOffset }
                 for (index in 1 until intervals.size) if (intervals[index-1].recordEnd > intervals[index].localOffset) throw PackageError(Code.INVALID_ARCHIVE,"Overlapping ZIP local records")
             } finally { state.budget.release(centralHeld+tail.size) }

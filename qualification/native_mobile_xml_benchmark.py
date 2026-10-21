@@ -15,6 +15,7 @@ import xml.etree.ElementTree as etree
 
 from portable_xml_benchmark import digest, process_counters
 from python_xml_benchmark import ROOT, SOURCE, WORKLOAD_SEED, XML_NAMESPACE, check_xml
+from python_xml_benchmark import MAX_WORKLOAD_TAGS, suppress_windows_error_dialogs
 
 LANGUAGES = ('c', 'rust', 'kotlin', 'swift')
 DRIVERS = ROOT / 'qualification/xml_performance'
@@ -22,7 +23,7 @@ OUTPUTS = {'c': 'schema.h', 'rust': 'schema.rs', 'kotlin': 'Schema.kt', 'swift':
 DRIVER_NAMES = {'c': 'main.c', 'rust': 'main.rs', 'kotlin': 'Main.kt', 'swift': 'main.swift'}
 
 
-def driver(language, enabled):
+def driver(language, enabled, maximum_xml_entries=100000, maximum_xml_text_bytes=8 * 1024 * 1024):
     """Select public XML or native-only operations without changing the maintained measurement loop."""
     native_decode = 'require(xml_example_order_decode(&checked, retained.bytes.data, retained.bytes.size, srl_binary_none, NULL) == srl_ok, "Result native decode failed");'
     setup = {
@@ -74,6 +75,23 @@ def driver(language, enabled):
         if source.count('// BENCHMARK_' + marker) != 1:
             raise AssertionError('Expected exactly one maintained driver marker: ' + marker)
         source = source.replace('// BENCHMARK_' + marker, replacement)
+    if enabled and language == 'kotlin':
+        source = source.replace('val value = XmlExampleOrder.decodeXml(input)',
+            f'val xmlLimits = XmlLimits(maxBytes=16777216,maxNodes={maximum_xml_entries},maxTextBytes={maximum_xml_text_bytes})\n'
+            '    val value = XmlExampleOrder.decodeXml(input,xmlLimits)')
+        source = source.replace('.encodeXml()', '.encodeXml(xmlLimits)')
+        for argument in ('input', 'selected'):
+            source = source.replace('XmlExampleOrder.decodeXml(' + argument + ')',
+                                    'XmlExampleOrder.decodeXml(' + argument + ',xmlLimits)')
+    if enabled and language == 'swift':
+        source = source.replace('let value = try XmlExampleOrder.decodeXml(input)',
+            f'let xmlLimits: XmlLimits = {{ var limits=XmlLimits();limits.maxNodes={maximum_xml_entries};'
+            f'limits.maxTextBytes={maximum_xml_text_bytes};return limits }}()\n'
+            'let value = try XmlExampleOrder.decodeXml(input,xmlLimits)')
+        source = source.replace('.encodeXml()', '.encodeXml(xmlLimits)')
+        for argument in ('input', 'encoded'):
+            source = source.replace('XmlExampleOrder.decodeXml(' + argument + ')',
+                                    'XmlExampleOrder.decodeXml(' + argument + ',xmlLimits)')
     return source
 
 
@@ -87,14 +105,21 @@ def main():
     parser.add_argument('--kotlin-home', type=Path)
     parser.add_argument('--cargo-home', type=Path)
     parser.add_argument('--tags', type=int, default=20000)
+    parser.add_argument('--xml-entries', type=int, default=100000,
+                        help='Kotlin/Swift XML cumulative element/namespace-entry budget')
+    parser.add_argument('--xml-text-bytes', type=int, default=8 * 1024 * 1024,
+                        help='Kotlin/Swift cumulative XML text budget; input remains bounded to 16 MiB')
     args = parser.parse_args()
+    suppress_windows_error_dialogs()
     if os.name != 'nt':
         parser.error('This profile requires native Windows CPU/peak-residency counters; other platforms remain pending')
     languages = args.language.split(',')
     if not languages or len(set(languages)) != len(languages) or any(item not in LANGUAGES for item in languages):
         parser.error('Choose distinct supported language names')
-    if not 1 <= args.tags <= 20000:
-        parser.error('--tags must be between 1 and 20000 for this selected owning profile')
+    if not 1 <= args.tags <= MAX_WORKLOAD_TAGS:
+        parser.error(f'--tags must be between 1 and {MAX_WORKLOAD_TAGS} for this selected owning profile')
+    if not 1 <= args.xml_entries <= 200000 or not 1 <= args.xml_text_bytes <= 16 * 1024 * 1024:
+        parser.error('Selected Kotlin/Swift XML bounds allow at most 200000 entries and 16 MiB text')
     build, compiler = args.build.resolve(), args.compiler.resolve(strict=True)
     if build == ROOT or ROOT in build.parents and 'out' not in build.relative_to(ROOT).parts:
         parser.error('In-repository output must remain beneath ignored out/')
@@ -168,7 +193,7 @@ def main():
             run(command, profile + '-generate')
             sources = [{'name': generated.name, 'bytes': generated.stat().st_size, 'sha256': digest(generated)}]
             source = directory / DRIVER_NAMES[language]
-            source.write_text(driver(language, enabled), encoding='utf-8')
+            source.write_text(driver(language, enabled, args.xml_entries, args.xml_text_bytes), encoding='utf-8')
             dependencies = []
             if language in ('c', 'swift'):
                 for name in ('benchmark_sink.c', 'benchmark_sink.h', 'module.modulemap'):
@@ -292,6 +317,8 @@ def main():
               'compiler_sha256': compiler_hash, 'platform': platform.platform(), 'python': sys.version,
               'tools': tools, 'sdk_identities': identities, 'workload_seed': WORKLOAD_SEED,
               'schema_sha256': digest(SOURCE / 'model.serializer'),
+              'kotlin_swift_xml_policy': {'max_bytes': 16 * 1024 * 1024, 'max_nodes_and_namespace_entries': args.xml_entries,
+                                          'max_text_bytes': args.xml_text_bytes},
               'mapping_sha256': digest(SOURCE / 'codegen.ini'),
               'driver_hashes': {DRIVER_NAMES[language]: digest(DRIVERS / DRIVER_NAMES[language]) for language in languages},
               'runner_sha256': digest(Path(__file__)), 'warmup_batches': 3, 'measured_batches': 5,
@@ -307,10 +334,10 @@ def main():
                   'C/Rust/Swift owning replacement drops the preceding result during timing; JVM collection behavior belongs to the selected warmed process.',
                   'C/Swift pass every result through a separately compiled opaque C sink without LTO; its call overhead is included. Rust uses black_box; Kotlin uses a volatile result sink.',
                   'XML-disabled BINARY_NONE controls preserve identical native values/wire bytes; this different format is not equivalent XML provider work.',
-                  'Default generated bounds remain active; owning measurements do not qualify streaming or hard process-memory caps.',
+                  'C/Rust default generated bounds remain active; Kotlin/Swift use the explicitly recorded XML policy. Owning measurements do not qualify streaming or hard process-memory caps.',
                   'Kotlin uses finite JAXP general/total entity bounds 4194304/8388608 for escaped-text workloads.',
                   'Concurrent machine work affects timing; no speed threshold or earlier-compiler performance regression baseline is claimed.',
-                  'Other platforms/providers, broader vocabularies and large-input behavior remain pending.'],
+                  'Other platforms/providers, broader vocabularies and inputs larger than the selected profile remain unqualified.'],
               'workloads': results}
     (build / 'verification.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
     print('PASS: retained ' + str(len(languages) * 18) + ' isolated operation measurements', flush=True)

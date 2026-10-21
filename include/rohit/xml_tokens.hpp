@@ -108,6 +108,10 @@ public:
       bool retain_child_scope) const;
   // Count already consumed direct children of the current open owner, excluding nested descendants.
   [[nodiscard]] std::size_t child_position() const;
+  // Collect allocator-family prefixes before schema defaults can declare a previously unbound alias.
+  void collect_namespace_prefixes();
+  // Borrow the normalized document inventory after opting in; it remains owned by this reader.
+  [[nodiscard]] const std::set<std::string>& reserved_namespace_prefixes() const noexcept;
   // Observe this current start token and its descendants through exact local-scope completion.
   void begin_identity(const identity_scope& scope);
   // Select explicit local bounds instead of the optional operation-context identity policy.
@@ -160,6 +164,7 @@ struct token_namespace_projection {
   bool list{}, prefixes{}, allow_empty{};
   const lexical_contract* contract{};
   std::vector<element>* retained{};
+  const lexical_name_list* schema_default{};
 };
 
 // Borrow per-occurrence scopes while recursively traversing one optional/repeated scalar field.
@@ -530,6 +535,10 @@ template <typename T> void read_token_value(token_reader& reader, T& value,
     }
     if (projection.owner) {
       scalar_scope.text = std::move(lexical);
+      if (scalar_scope.text.empty() && projection.schema_default) {
+        scalar_scope.text = qualify_qname_list(projection.schema_default->items, scalar_scope, reader.context(),
+            &reader.reserved_namespace_prefixes());
+      }
       if (projection.retained) {
         retain_child_namespace_scope(*projection.retained, scalar_scope, reader.context());
       } else if (projection.contract) {
@@ -575,9 +584,15 @@ public:
   token_fields& operator=(const token_fields&) = delete;
   token_fields(token_fields&&) = delete;
   token_fields& operator=(token_fields&&) = delete;
+  // Inspect original attribute presence independently of its empty value or a materialized default.
+  [[nodiscard]] bool has_attribute(const name& selected) const noexcept {
+    return std::any_of(attributes_.begin(), attributes_.end(),
+        [&](const auto& item) { return item.qualified_name == selected; });
+  }
   // Decode one mapped attribute and account exact membership and optional absence.
   template <typename T> void attribute_value(const name& selected, T& value,
-      std::optional<std::string_view> absent_default = {}, lexical_validator validator = nullptr) {
+      std::optional<std::string_view> absent_default = {}, lexical_validator validator = nullptr,
+      const element* default_scope = nullptr) {
     for (std::size_t index{}; index < attributes_.size(); ++index) {
       if (attributes_[index].qualified_name == selected) {
         if (used_[index]) { throw std::invalid_argument{"XML attribute mapped more than once"}; }
@@ -596,7 +611,7 @@ public:
       }
     }
     if (absent_default) {
-      if (validator) { validator(*absent_default, lexical_scope(), reader_.context()); }
+      if (validator) { validator(*absent_default, default_scope ? *default_scope : lexical_scope(), reader_.context()); }
       if constexpr (detail::optional_traits<T>::value) {
         typename detail::optional_traits<T>::type item{};
         detail::charge_token_scalar<typename detail::optional_traits<T>::type>(reader_.context(), absent_default->size());
@@ -728,13 +743,22 @@ public:
   }
   // Decode simpleContent while separately retaining mapped attributes.
   template <typename T> void text_value(T& value, lexical_validator validator = nullptr,
-      std::optional<std::string_view> empty_default = {}) {
+      std::optional<std::string_view> empty_default = {}, const lexical_name_list* schema_default = nullptr,
+      element* schema_scope = nullptr) {
     std::string lexical{};
     while (reader_.current().kind == event_kind::text) {
       const auto& part = reader_.current().text;
       if (reader_.context()) { reader_.context()->consume(operation_resource::allocation_bytes, part.size()); }
       lexical += part;
       reader_.advance();
+    }
+    if (lexical.empty() && schema_default && schema_scope) {
+      lexical = qualify_qname_list(schema_default->items, *schema_scope, reader_.context(),
+          &reader_.reserved_namespace_prefixes());
+      if (validator) { validator(lexical, *schema_scope, reader_.context()); }
+      detail::charge_token_scalar<T>(reader_.context(), lexical.size());
+      detail::read_scalar(lexical, value);
+      return;
     }
     const auto selected = lexical.empty() && empty_default ? *empty_default : std::string_view{lexical};
     if (validator) { validator(selected, lexical_scope(), reader_.context()); }
@@ -743,23 +767,25 @@ public:
   }
   // Decode a lexical scalar list from simpleContent with the same authoritative facets.
   template <typename T> void list_text_value(T& value, lexical_validator validator = nullptr,
-      std::optional<std::string_view> empty_default = {}) {
+      std::optional<std::string_view> empty_default = {}, const lexical_name_list* schema_default = nullptr,
+      element* schema_scope = nullptr) {
     std::string lexical{};
-    text_value(lexical, validator, empty_default);
+    text_value(lexical, validator, empty_default, schema_default, schema_scope);
     detail::check_token_list(lexical, reader_.bounds(), reader_.context());
     value = parse_list<T>(lexical, reader_.context());
   }
   // Decode one present or defaulted scalar-list attribute without retaining any XML nodes.
   template <typename T> void list_attribute_value(const name& selected, T& value,
-      std::optional<std::string_view> absent_default = {}, lexical_validator validator = nullptr) {
+      std::optional<std::string_view> absent_default = {}, lexical_validator validator = nullptr,
+      const element* default_scope = nullptr) {
     if constexpr (detail::optional_traits<T>::value) {
       std::optional<std::string> lexical{};
-      attribute_value(selected, lexical, absent_default, validator);
+      attribute_value(selected, lexical, absent_default, validator, default_scope);
       if (lexical) { detail::check_token_list(*lexical, reader_.bounds(), reader_.context()); value = parse_list<T>(*lexical, reader_.context()); }
       else { value.reset(); }
     } else {
       std::string lexical{};
-      attribute_value(selected, lexical, absent_default, validator);
+      attribute_value(selected, lexical, absent_default, validator, default_scope);
       detail::check_token_list(lexical, reader_.bounds(), reader_.context());
       value = parse_list<T>(lexical, reader_.context());
     }

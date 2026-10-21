@@ -1238,6 +1238,307 @@ std::string resolve_target(std::string_view source, std::string_view target) {
   return result;
 }
 
+namespace {
+constexpr std::size_t pack_poll_bytes = 4096U;
+constexpr std::string_view pack_prefix = "pack://";
+constexpr std::string_view pack_field = "pack_iri";
+
+struct iri_components {
+  std::string_view scheme{}, authority{}, path{};
+  std::optional<std::string_view> query{}, fragment{};
+  bool has_authority{};
+};
+
+// Split already validated IRI references without decoding escapes or losing empty selectors.
+iri_components split_iri(std::string_view value) {
+  iri_components result{};
+  if (const auto position = value.find('#'); position != std::string_view::npos) {
+    result.fragment = value.substr(position + 1U);
+    value = value.substr(0U, position);
+  }
+  if (const auto position = value.find('?'); position != std::string_view::npos) {
+    result.query = value.substr(position + 1U);
+    value = value.substr(0U, position);
+  }
+  const auto colon = value.find(':');
+  const auto slash = value.find('/');
+  if (colon != std::string_view::npos && (slash == std::string_view::npos || colon < slash)) {
+    result.scheme = value.substr(0U, colon);
+    value.remove_prefix(colon + 1U);
+  }
+  if (value.starts_with("//")) {
+    result.has_authority = true;
+    value.remove_prefix(2U);
+    const auto separator = value.find('/');
+    result.authority = value.substr(0U, separator);
+    value = separator == std::string_view::npos ? std::string_view{} : value.substr(separator);
+  }
+  result.path = value;
+  return result;
+}
+
+// Bound a borrowed addressing input before validating it; no input bytes are copied or fetched.
+void admit_pack_input(budget& shared, std::string_view value) {
+  shared.check_buffer(value.size());
+  shared.consume_at(resource::work_units, value.size(), {{}, pack_field});
+}
+
+// Admit each retained locator component before its string allocation, sharing cumulative metadata limits.
+void admit_pack_copy(budget& shared, std::size_t bytes) {
+  shared.check_buffer(bytes);
+  shared.consume_at(resource::metadata_bytes, bytes, {{}, pack_field});
+  shared.consume_at(resource::decoder_allocation_bytes, bytes, {{}, pack_field});
+}
+
+// Check additions before constructing escaped locators, including on narrow size_t targets.
+void add_pack_size(std::size_t& total, std::size_t amount) {
+  if (amount > std::numeric_limits<std::size_t>::max() - total) {
+    throw error{error_code::resource_limit, "Pack IRI length overflows the target size"};
+  }
+  total += amount;
+}
+
+// Validate an entire package locator; embedded packages require an explicit different addressing contract.
+void validate_package_iri(std::string_view value) {
+  validate_uri(value, true);
+  if (equal_identity(split_iri(value).scheme, "pack")) {
+    throw error{error_code::unsupported_feature, "Nested pack package locators are not permitted"};
+  }
+}
+
+// Keep optional I18N part support separate from mandatory syntax and ordinary outer IRI support.
+void validate_pack_part(std::string_view value) {
+  if (value.empty() || value == "/") { return; }
+  for (std::size_t index{}; index < value.size(); ++index) {
+    if (static_cast<unsigned char>(value[index]) >= 0x80U ||
+        (value[index] == '%' && value.size() - index >= 3U && hex_digit(value[index + 1U]) >= 8 &&
+         hex_digit(value[index + 2U]) >= 0)) {
+      throw error{error_code::unsupported_feature, "Non-ASCII OPC part names are unsupported"};
+    }
+  }
+  validate_part_name(value);
+}
+
+// Transform the package IRI into the pack authority, percent-encoding delimiters before replacing slashes.
+// RFC percent encoding uses %3A for colon; the published fifth-edition %3c examples are inconsistent.
+template <typename Emit>
+void encode_pack_authority(std::string_view value, budget& shared, Emit emit) {
+  constexpr std::string_view hexadecimal = "0123456789ABCDEF";
+  shared.consume_at(resource::work_units, value.size(), {{}, pack_field});
+  const auto escaped = [&](unsigned char byte) {
+    emit('%');
+    emit(hexadecimal[byte >> 4U]);
+    emit(hexadecimal[byte & 0x0fU]);
+  };
+  for (std::size_t index{}; index < value.size();) {
+    if (index % pack_poll_bytes == 0U) { shared.check_cancelled(); }
+    const auto byte = static_cast<unsigned char>(value[index]);
+    if (byte >= 0x80U) {
+      const auto begin = index;
+      const auto scalar = iri_scalar(value, index);
+      for (const auto character : value.substr(begin, index - begin)) {
+        if (iri_character(scalar, false)) { emit(character); }
+        else { escaped(static_cast<unsigned char>(character)); }
+      }
+    } else {
+      ++index;
+      if (byte == '/') { emit(','); }
+      else if (std::string_view{"%?@:,"}.find(static_cast<char>(byte)) != std::string_view::npos ||
+          (!unreserved(static_cast<char>(byte)) && !sub_delimiter(static_cast<char>(byte)))) {
+        escaped(byte);
+      } else { emit(static_cast<char>(byte)); }
+    }
+  }
+}
+
+// Decode ASCII percent triplets once, after converting raw commas; encoded commas remain literal commas.
+template <typename Emit>
+void decode_pack_authority(std::string_view value, budget& shared, Emit emit) {
+  shared.consume_at(resource::work_units, value.size(), {{}, pack_field});
+  for (std::size_t index{}; index < value.size(); ++index) {
+    if (index % pack_poll_bytes == 0U) { shared.check_cancelled(); }
+    if (value[index] == ',') { emit('/'); }
+    else if (value[index] == '%') {
+      const auto decoded = static_cast<unsigned>((hex_digit(value[index + 1U]) << 4) |
+          hex_digit(value[index + 2U]));
+      if (decoded < 0x80U) { emit(static_cast<char>(decoded)); }
+      else { emit('%'); emit(value[index + 1U]); emit(value[index + 2U]); }
+      index += 2U;
+    } else { emit(value[index]); }
+  }
+}
+
+// Compose exact component lengths before allocation; package fragments are removed by the standard algorithm.
+std::string compose_pack(std::string_view package_iri, std::string_view part_name,
+    std::optional<std::string_view> query, std::optional<std::string_view> fragment, budget& shared) {
+  admit_pack_input(shared, package_iri);
+  admit_pack_input(shared, part_name);
+  validate_uri(package_iri, false);
+  package_iri = package_iri.substr(0U, package_iri.find('#'));
+  validate_package_iri(package_iri);
+  validate_pack_part(part_name);
+  if (part_name.empty()) { part_name = "/"; }
+  if (query) { admit_pack_input(shared, *query); validate_uri_component(*query, ":@/?", true); }
+  if (fragment) { admit_pack_input(shared, *fragment); validate_uri_component(*fragment, ":@/?"); }
+  std::size_t size = pack_prefix.size();
+  encode_pack_authority(package_iri, shared, [&](char) { add_pack_size(size, 1U); });
+  add_pack_size(size, part_name.size());
+  if (query) { add_pack_size(size, 1U); add_pack_size(size, query->size()); }
+  if (fragment) { add_pack_size(size, 1U); add_pack_size(size, fragment->size()); }
+  admit_pack_copy(shared, size);
+  std::string result{};
+  result.reserve(size);
+  result += pack_prefix;
+  encode_pack_authority(package_iri, shared, [&](char value) { result += value; });
+  result += part_name;
+  if (query) { result += '?'; result += *query; }
+  if (fragment) { result += '#'; result += *fragment; }
+  return result;
+}
+
+// Perform RFC3986 section5.2.4 literally, with views and amortized-linear output-segment removal.
+std::string remove_iri_dot_segments(std::string_view input, budget& shared) {
+  admit_pack_copy(shared, input.size());
+  std::string result{};
+  result.reserve(input.size());
+  while (!input.empty()) {
+    shared.check_cancelled();
+    if (input.starts_with("../")) { input.remove_prefix(3U); }
+    else if (input.starts_with("./")) { input.remove_prefix(2U); }
+    else if (input.starts_with("/./")) { input.remove_prefix(2U); }
+    else if (input == "/.") { input = "/"; }
+    else if (input.starts_with("/../") || input == "/..") {
+      input = input == "/.." ? std::string_view{"/"} : input.substr(3U);
+      const auto separator = result.rfind('/');
+      result.resize(separator == std::string::npos ? 0U : separator);
+    } else if (input == "." || input == "..") { input = {}; }
+    else {
+      const auto separator = input.find('/', input.front() == '/' ? 1U : 0U);
+      result += input.substr(0U, separator);
+      input = separator == std::string_view::npos ? std::string_view{} : input.substr(separator);
+    }
+  }
+  return result;
+}
+} // namespace
+
+// Keep the concise authoring overload allocation-free until the checked formatter allocates its output.
+std::string compose_pack_iri(std::string_view package_iri, std::string_view part_name, budget* shared) {
+  budget local{};
+  return compose_pack(package_iri, part_name, {}, {}, shared ? *shared : local);
+}
+
+// Preserve outer query/fragment presence separately from the embedded package's own query.
+std::string compose_pack_iri(const pack_address& address, budget* shared) {
+  budget local{};
+  return compose_pack(address.package_iri, address.part_name,
+      address.query ? std::optional<std::string_view>{*address.query} : std::nullopt,
+      address.fragment ? std::optional<std::string_view>{*address.fragment} : std::nullopt,
+      shared ? *shared : local);
+}
+
+// Decode the external addressing layer independently of archive metadata or internal URI resolution.
+pack_address parse_pack_iri(std::string_view value, budget* shared) {
+  budget local{};
+  auto& operation = shared ? *shared : local;
+  admit_pack_input(operation, value);
+  const auto components = split_iri(value);
+  if (!equal_identity(components.scheme, "pack") || !components.has_authority || components.authority.empty()) {
+    throw error{error_code::invalid_relationship, "Expected an absolute pack IRI with an authority"};
+  }
+  validate_uri_component(components.authority, {});
+  validate_pack_part(components.path);
+  if (components.query) { validate_uri_component(*components.query, ":@/?", true); }
+  if (components.fragment) { validate_uri_component(*components.fragment, ":@/?"); }
+  std::size_t package_bytes{};
+  decode_pack_authority(components.authority, operation, [&](char) { add_pack_size(package_bytes, 1U); });
+  admit_pack_copy(operation, sizeof(pack_address));
+  admit_pack_copy(operation, package_bytes);
+  pack_address result{};
+  result.package_iri.reserve(package_bytes);
+  decode_pack_authority(components.authority, operation, [&](char character) { result.package_iri += character; });
+  validate_package_iri(result.package_iri);
+  if (components.path != "/") {
+    admit_pack_copy(operation, components.path.size());
+    result.part_name = components.path;
+  }
+  if (components.query) {
+    admit_pack_copy(operation, components.query->size());
+    result.query = *components.query;
+  }
+  if (components.fragment) {
+    admit_pack_copy(operation, components.fragment->size());
+    result.fragment = *components.fragment;
+  }
+  return result;
+}
+
+// Resolve generic relative IRIs through RFC3986 while retaining authored percent encodings and selectors.
+std::string resolve_pack_reference(std::string_view base, std::string_view reference, budget* shared) {
+  budget local{};
+  auto& operation = shared ? *shared : local;
+  static_cast<void>(parse_pack_iri(base, &operation));
+  admit_pack_input(operation, reference);
+  validate_uri(reference, false);
+  const auto original = split_iri(base);
+  const auto relative = split_iri(reference);
+  auto target = relative;
+  std::string path{};
+  if (!relative.scheme.empty()) { path = remove_iri_dot_segments(relative.path, operation); }
+  else {
+    target.scheme = original.scheme;
+    if (relative.has_authority) { path = remove_iri_dot_segments(relative.path, operation); }
+    else {
+      target.authority = original.authority;
+      target.has_authority = original.has_authority;
+      if (relative.path.empty()) {
+        admit_pack_copy(operation, original.path.size());
+        path = original.path;
+        target.query = relative.query ? relative.query : original.query;
+      } else if (relative.path.starts_with('/')) { path = remove_iri_dot_segments(relative.path, operation); }
+      else {
+        const auto separator = original.path.rfind('/');
+        const auto prefix = original.path.substr(0U, separator == std::string_view::npos ? 0U : separator + 1U);
+        std::size_t merged_size = prefix.empty() ? 1U : prefix.size();
+        add_pack_size(merged_size, relative.path.size());
+        admit_pack_copy(operation, merged_size);
+        std::string merged{prefix.empty() ? std::string_view{"/"} : prefix};
+        merged += relative.path;
+        path = remove_iri_dot_segments(merged, operation);
+      }
+    }
+  }
+  std::size_t size = target.scheme.size();
+  add_pack_size(size, 1U);
+  if (target.has_authority) { add_pack_size(size, 2U); add_pack_size(size, target.authority.size()); }
+  add_pack_size(size, path.size());
+  if (target.query) { add_pack_size(size, 1U); add_pack_size(size, target.query->size()); }
+  if (target.fragment) { add_pack_size(size, 1U); add_pack_size(size, target.fragment->size()); }
+  admit_pack_copy(operation, size);
+  std::string result{};
+  result.reserve(size);
+  result += target.scheme;
+  result += ':';
+  if (target.has_authority) { result += "//"; result += target.authority; }
+  result += path;
+  if (target.query) { result += '?'; result += *target.query; }
+  if (target.fragment) { result += '#'; result += *target.fragment; }
+  return result;
+}
+
+// Application schemes define outer package identity; OPC itself supplies case-insensitive part identity.
+bool equivalent_pack_iri(std::string_view left, std::string_view right,
+    const package_iri_equivalence& compare_packages, budget* shared) {
+  if (!compare_packages) { throw error{error_code::invalid_state, "Package IRI equivalence policy is required"}; }
+  budget local{};
+  auto& operation = shared ? *shared : local;
+  const auto first = parse_pack_iri(left, &operation);
+  const auto second = parse_pack_iri(right, &operation);
+  operation.check_cancelled();
+  return equal_identity(first.part_name, second.part_name) &&
+      compare_packages(first.package_iri, second.package_iri);
+}
+
 // Check optional XML dependencies before the first package byte is written.
 opc_writer::opc_writer(std::ostream& output, std::shared_ptr<budget> shared)
     : archive_{output, std::move(shared), true} { require_xml(); }

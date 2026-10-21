@@ -18,6 +18,8 @@ inline std::string swift_runtime(const std::string& helper, const std::string& c
 #include "swift_package_runtime.inc"
       ;
   constexpr std::string_view opc_source =
+#include "swift_package_uri_runtime.inc"
+#include "swift_package_mce_runtime.inc"
 #include "swift_package_opc_runtime.inc"
 #include "swift_package_profile_runtime.inc"
       ;
@@ -156,7 +158,7 @@ inline std::string swift(const package_node& package, const std::string& name,
   line("    }");
   line("    /// Validate and stage a complete package before same-directory atomic replacement.");
   line("    public static func save(_ value: " + input + ", to path: Foundation.URL, budget selected: " + api("Budget") + "? = nil) throws {");
-  line("        let budget = try selected ?? " + api("Budget") + "(); let bytes = try encode(value,budget:budget); try " + api("save") + "(bytes,to:path,budget:budget)");
+  line("        let budget = try selected ?? " + api("Budget") + "(); let bytes = try encode(value,budget:budget); try " + api("saveOpc") + "(bytes,to:path,budget:budget)");
   line("    }");
   line("}");
   return output;

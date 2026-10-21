@@ -33,7 +33,8 @@ inline std::string js_pattern_metadata(const xml::portable_pattern& program) {
 // Retain recursive list/union restrictions and exact expanded QName facet identities.
 inline std::string js_scalar_facets(const scalar_facets& facets, const std::string& fallback,
     const std::optional<std::string>& fixed = {}, const std::optional<xml::name>& fixed_name = {},
-    bool qname = false, bool prefix_list = false) {
+    bool qname = false, bool prefix_list = false,
+    const std::optional<std::vector<xml::name>>& fixed_names = {}) {
   const auto kind = qname ? std::string{"QName"} : facets.lexical_kind.empty() ? fallback : facets.lexical_kind;
   std::string result = "Object.freeze({kind:" + native::quote(kind) + ",whitespace:" + native::quote(facets.whitespace) +
       ",finite:" + (facets.finite ? "true" : "false");
@@ -53,7 +54,23 @@ inline std::string js_scalar_facets(const scalar_facets& facets, const std::stri
   for (const auto& name : facets.qname_enumeration) {
     result += "srlXmlTokenName(" + native::quote(name.namespace_uri) + ',' + native::quote(name.local) + "),";
   }
-  result += "]),union:Object.freeze([";
+  result += "]),qnameLists:Object.freeze([";
+  for (const auto& names : facets.qname_list_enumeration) {
+    result += "Object.freeze([";
+    for (const auto& name : names) {
+      result += "srlXmlTokenName(" + native::quote(name.namespace_uri) + ',' + native::quote(name.local) + "),";
+    }
+    result += "]),";
+  }
+  result += "]),fixedNames:";
+  if (fixed_names) {
+    result += "Object.freeze([";
+    for (const auto& name : *fixed_names) {
+      result += "srlXmlTokenName(" + native::quote(name.namespace_uri) + ',' + native::quote(name.local) + "),";
+    }
+    result += "])";
+  } else { result += "null"; }
+  result += ",union:Object.freeze([";
   for (const auto& alternative : facets.union_members) {
     result += js_scalar_facets(alternative, "string") + ',';
   }
@@ -81,7 +98,8 @@ inline std::string js_scalar_metadata(const field& value, const type_name& leaf)
   const auto found = kinds.find(leaf.name);
   const auto fallback = leaf.type == object_type::enum_type ? std::string{"string"} :
       found == kinds.end() ? leaf.name : found->second;
-  return js_scalar_facets(value.facets, fallback, value.fixed_value, value.qname_fixed, value.qname, value.prefix_list);
+  return js_scalar_facets(value.facets, fallback, value.fixed_value, value.qname_fixed, value.qname,
+      value.prefix_list, value.qname_list_fixed);
 }
 
 } // namespace rohit::serializer::writer::xml_binding

@@ -2,13 +2,13 @@
 
 [Pending requirements](../pending.md) · [XSD tooling contract](../serialization/xsd_tooling.md)
 
-The pending implementation batch adds Python XML QName-list enumeration,
+The implementation batches add C++, Python, JavaScript and TypeScript XML QName-list enumeration,
 default and fixed constraints, including an enumerated list inside a union
 member. Compiler binding owns each schema item's expanded name and original
 order. Instance prefixes never reinterpret schema-owned lexical values.
 Scalar attributes, typed list children and global simple-content text are
-qualified. Native lexical strings/arrays, field IDs and wire formats are
-unchanged; affected Python modules must be regenerated.
+qualified. Native field IDs and wire layouts are unchanged; affected generated
+modules must be regenerated.
 
 ## Implemented boundaries
 
@@ -21,14 +21,19 @@ publishing a partial or misleading schema.
 
 Defaults allocate collision-free prefixes in the corresponding XML scope.
 List order, duplicate items, empty lists, Unicode local names and no-namespace
-items remain meaningful. A schema default/fixed list with no-namespace items
-rejects an active nonempty instance default namespace: resetting that scope
-could change another field's QName identity. This combination requires further
-per-attribute scope work. Existing non-Python gates, namespace-dependent outer
+items remain meaningful. Private field scopes preserve schema-owned defaults
+even under an active nonempty input default namespace. Root attribute/text
+presentation reconciles conflicting declarations while preserving other QName
+identities and the first selected union member. C++ normalizes a root lexical
+value only when the destination namespace scope cannot preserve its original
+expanded identity; this happens while constructing a fresh input candidate.
+Python/JavaScript/TypeScript output leaves native payloads unchanged.
+Existing seven-backend gates, namespace-dependent outer
 union restrictions and union defaults remain in place. These Python graphs keep
-the existing whole-document decoding path. Direct automatic import of typed
-QName lists retains its existing capability gate; authored XSD-bound list fields
-are the newly qualified route. Existing empty QName-list defaults still export
+the existing whole-document decoding path. Automatic import now maps builtin
+QName lists to string arrays and preserves their list metadata; attached
+constraints still pass through each selected backend's capability checks.
+Existing empty QName-list defaults still export
 because an empty list requires no schema namespace identities.
 
 Schema identity expansion charges each retained name object and its local/URI
@@ -38,7 +43,7 @@ bound. These bounds prevent small lexical lists from duplicating a long
 namespace URI without admission. They are not measured process-memory ceilings
 or guarantees about allocations inside an optional XML provider.
 
-## Actual verification
+## Initial Python verification
 
 The actual Release compiler was built through the root Windows configure
 wrapper and CMake's native build pipeline in
@@ -51,7 +56,7 @@ inherit Windows error-dialog suppression and capture diagnostics to logs.
 | --- | --- |
 | `python_xml_rich_test.py` | 19/19 tests pass |
 | QName-list positive combinations in that suite | 12 list/union/default/optional-fixed combinations plus a standalone child default and two global-text defaults/fixed cases |
-| Negative list checks | Four independent wrong-order/length/namespace/unbound controls; edited fixed attribute/text output; active-default guard; exact caller-exception identity |
+| Negative list checks | Four independent wrong-order/length/namespace/unbound controls; edited fixed attribute/text output; exact caller-exception identity |
 | Protected generation/export | Three URI-amplification rejections preserve existing Python output and dependency files; unsupported XSD export preserves its destination |
 | `xml_scalar_contract_test` | 18/18 GTests pass, including owned schema list identity, empty enumeration value and callback failure |
 | `xsd_import_test` | 24/24 GTests pass, including nested-list backend selection, changed expanded-default compatibility diagnostics and compatible empty-default export |
@@ -85,6 +90,37 @@ and `schema-tools-cli.log` in the same ignored build directory. No Linux replay,
 cross-backend QName-list restriction matrix, broad corpus or performance claim
 is made by this record.
 
+## C++ and JavaScript/TypeScript completion replay
+
+The subsequent real Release compiler in
+`out/build/pending-xml-completion-2026-10-21/` has SHA-256
+`65e031d533f6c21c7bc4223fb48f76ade284bacdc04ff065e41c115051dae7c2`.
+It was rebuilt through the Windows wrapper/CMake pipeline with the installed
+Release provider libraries. All native launches inherited Windows error-dialog
+suppression. These executed results supersede the initial active-default guard:
+
+| Inventory | Actual result |
+| --- | --- |
+| `xml_qname_list_test` | Generated C++ list enums/fixed/defaults, fixed arrays, nested union members, root/child default resets and alias shadowing pass. Chunk sizes 1/65536 cover an early attribute default followed by a character-reference-encoded unbound union prefix. Four native protocols remain unchanged across XML output/reload. |
+| `xml_test`, `xsd_import_test`, `xml_scalar_contract_test` | All three native targets pass, alongside the new generated test. Import now preserves plain builtin QName-list metadata and passes all eleven backend capability checks; compatible empty defaults retain their tree API/export path. |
+| `python_xml_rich_test.py` | 20/20 tests pass, including independent root scalar/list defaults, inherited nonempty defaults, Unicode/list identity controls and cumulative namespace admission. |
+| `javascript_xml_scalar_test.py` | 7/7 tests pass with actual Node 22.23.1 and strict TypeScript 5.9.3 consumers. The shared schema fixture covers all generated list constraints, ordered expanded identities, root scalar/list defaults, alias conflicts, untouched union fallback/native payloads and invalid output mutations. DOM readers are disabled. |
+| `javascript_xml_provider_test.py` | 6/6 actual libxml2-wasm 0.7.1 provider tests pass. Generated JS/TS APIs poll the caller operation before and after validation; late cancellation prevents input/output publication, while an original provider exception remains unchanged. Four worker isolates retain independent prepared handles. |
+
+Output identities are inspected with independent lxml per-element namespace
+maps. The JS/TS output normalizer runs only when private fields require
+conflicting declarations; ordinary output keeps its previous presentation.
+C++ keeps existing lexical strings when their current scope still represents
+the same expanded names, including a compatibility control for an empty-list
+default under an inherited nonempty namespace. Prefix inventory and generated
+private-scope storage have explicit cumulative work/allocation admission.
+
+Final logs are `qname-native.log`, `xml-runtime.log`, `python-rich.log`,
+`js-scalars.log` and `js-provider.log` in that ignored build directory.
+Useful SDK installations/build outputs and final logs are retained; failed
+initial dependency-copy scratch is removed. No eleven-backend QName-constraint
+parity, Linux replay or performance claim is made by these four-backend checks.
+
 ## Assigned XML requirement audit
 
 This implementation is a slice of the broader pending requirements. The audit
@@ -92,7 +128,7 @@ does not count a new slice as completion of an eleven-backend parent.
 
 | Requirements | Outcome and remaining acceptance gate |
 | --- | --- |
-| `OPC-R01`, `OPC-R03`, `XML-B03`, `XML-B10` | Python QName-list constraints above are implemented and tested. Other backend restrictions, namespace-dependent outer unions/defaults, richer grouped particles and broader numerical/provider boundaries remain. |
+| `OPC-R01`, `OPC-R03`, `XML-B03`, `XML-B10` | C++/Python/JavaScript/TypeScript QName-list constraints above are implemented. Other backend restrictions, namespace-dependent outer unions/defaults, richer grouped particles and broader numerical/provider boundaries remain. |
 | `OPC-R02`, `XML-B09` | Existing positioned-extension and content contracts remain intact. Broader mixed/all/presence combinations, typed foreign dispatch and required vocabulary capabilities require additional implementations. |
 | `OPC-R04` | Multiple typed repeated branches and grouped heterogeneous storage remain gated where native storage cannot preserve occurrence order. |
 | `OPC-R05` | Existing pinned Core 1.4/XML schema fixtures do not replace an independent complete official 3MF corpus or package/application conformance inventory. |

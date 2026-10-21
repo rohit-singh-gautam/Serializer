@@ -487,7 +487,13 @@ and exact retry; new-epoch uncertainty; thread/reentry rejection; persistence fa
 boundaries; and encode/recovery budgets. Generated-model tests also exercise local
 synchronization with separated storage and Google-profile uint64 IDs.
 
-Collaboration-specific sanitizer qualification, allocation-fault injection,
-network/partition integration, cross-language engines, and performance measurements
-remain outstanding. The runtime remains independent of a transport; these local
-tests do not establish distributed failover or network interoperability guarantees.
+The [current fault/cache qualification](../verification/verification-managed-capabilities-2026-10-21.md)
+adds public-codec transport failures, checkpoint retry, lost acknowledgements,
+epoch-fenced reconnect and authority/cache oracles for uint32, uint64 and string
+sessions on Windows and Linux. Host-operated network transport, authentication,
+service deployment and presence UI are
+[application responsibilities](../project/application_responsibilities.md).
+Collaboration-specific sanitizer qualification, exhaustive allocation-fault
+injection, cross-language engines and performance measurements remain separate
+qualification work. These deterministic native transport faults do not establish
+distributed failover or deployed-network interoperability guarantees.

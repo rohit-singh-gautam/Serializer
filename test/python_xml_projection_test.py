@@ -122,6 +122,54 @@ class python_xml_projection_test(unittest.TestCase):
             source.with_project(lambda view:view.encode_xml(schema=validator()))
         self.assertIs(failure.exception,marker)
 
+    def test_prepared_provider_completion_preserves_operation_fences(self):
+        """Reject late cancellation before owning/projected output or input candidates can escape."""
+        module=self.module;source=module.XmlProjectionSource();source.current.number=7;source.current.label='checked'
+        schema=b'''<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:serializer:xml-projection">
+          <xs:element name="payload"><xs:complexType><xs:attribute name="number" type="xs:unsignedInt" use="required"/>
+          <xs:attribute name="label" type="xs:string" use="required"/></xs:complexType></xs:element></xs:schema>'''
+        marker=RuntimeError('late prepared provider cancellation');cancelled=[False];calls=[0]
+        class operation:
+            """Model a caller deadline/cancellation becoming observable during the external provider call."""
+            def check(self):
+                """Keep the original caller error rather than translate it into an XML failure."""
+                if cancelled[0]:raise marker
+            def consume(self,resource,count):
+                """Admit the fixture's ordinary accounting while polling the same operation."""
+                self.check()
+            def check_buffer(self,amount):
+                """Apply the same caller interruption fence to temporary output reservations."""
+                self.check()
+        context=operation()
+        class completing_schema(module.XmlSchema):
+            """Use the real prepared lxml validator, then signal a cancellation before returning."""
+            def validate(self,data,limits=None,context=None):
+                """Finish actual validation before changing the borrowed operation's cancellation state."""
+                super().validate(data,limits,context);calls[0]+=1;cancelled[0]=True
+        validator=completing_schema(schema);data=source.current.encode_xml()
+        before=[source.encode(protocol) for protocol in module.Protocol]
+        for action in (lambda:source.current.encode_xml(schema=validator,context=context),
+                       lambda:source.with_project(lambda view:view.encode_xml(schema=validator,context=context))):
+            cancelled[0]=False
+            with self.assertRaises(RuntimeError) as failure:action()
+            self.assertIs(failure.exception,marker)
+        cancelled[0]=False
+        with mock.patch.object(module.XmlProjectionPayload,'__init__',side_effect=AssertionError('input candidate constructed after late cancellation')):
+            with self.assertRaises(RuntimeError) as failure:
+                module.XmlProjectionPayload.decode_xml(data,schema=validator,context=context)
+        self.assertIs(failure.exception,marker)
+        self.assertEqual(calls[0],3)
+        self.assertEqual([source.encode(protocol) for protocol in module.Protocol],before)
+        original=ValueError('original prepared provider rejection')
+        class failing_schema(module.XmlSchema):
+            """Preserve a provider failure even when cancellation also becomes true during validation."""
+            def validate(self,data,limits=None,context=None):
+                """Return the provider's own failure without replacing it by a later poll."""
+                super().validate(data,limits,context);cancelled[0]=True;raise original
+        cancelled[0]=False
+        with self.assertRaises(ValueError) as failure:source.current.encode_xml(schema=failing_schema(schema),context=context)
+        self.assertIs(failure.exception,original)
+
 
 def main():
     """Generate actual projection XML/native controls and require a real independent QName-capable XML provider."""

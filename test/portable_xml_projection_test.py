@@ -2,8 +2,12 @@
 # SPDX-License-Identifier: 0BSD
 """Qualify Java/C#/Go live readonly XML exports with independent XSD and constructor tripwires."""
 import argparse
+import hashlib
+import json
+import os
 from pathlib import Path
 import re
+import shutil
 from lxml import etree
 import mobile_xml_projection_test as shared
 from native_xml_projection_test import XSD as BASE_XSD
@@ -33,6 +37,24 @@ public final class Main {
   private static Schema.Projected.WeakEnvelope weak(){var source=new Schema.Projected.Source();var value=new Schema.Projected.WeakEnvelope();value.value.bind(source);value.encodeXml();return value;}
   /** Compare logical arrays without relying on XML or reflection implementations. */
   private static void same(byte[] first,byte[] second){if(!Arrays.equals(first,second))throw new AssertionError("Native bytes changed");}
+  /** Signal cancellation at the sealed prepared provider's measured final callback, then require the readonly completion fence. */
+  private static void lateProvider(Path directory,Schema.Projected.Source source)throws Exception{
+    var provider=new Schema.XmlSchema(Files.readAllBytes(directory.resolve("projection-provider.xsd")));
+    byte[] bytes=source.current.encodeXml();var defaults=Schema.Limits.defaults();int[] providerPolls={0};
+    provider.validate(bytes,new Schema.Limits(defaults.maxBytes,defaults.maxStringBytes,defaults.maxElements,defaults.maxDepth,defaults.readPolicy,(resource,amount,field)->++providerPolls[0]));
+    if(providerPolls[0]==0)throw new AssertionError("Prepared provider never observed caller operation");
+    var marker=new IllegalStateException("Readonly cancellation after real JAXP validation");int[] observed={0};boolean[] completed={false};
+    var limits=new Schema.Limits(defaults.maxBytes,defaults.maxStringBytes,defaults.maxElements,defaults.maxDepth,defaults.readPolicy,(resource,amount,field)->{
+      if(completed[0])throw marker;
+      boolean providerFrame=StackWalker.getInstance().walk(frames->frames.anyMatch(frame->frame.getClassName().equals(Schema.XmlSchema.class.getName())&&frame.getMethodName().equals("validate")));
+      if(providerFrame&&++observed[0]==providerPolls[0])completed[0]=true;
+    });
+    byte[] sentinel={17};byte[][] published={sentinel};RuntimeException failure=null;
+    try{source.withProject(view->{published[0]=view.encodeXml(limits,provider);return null;});}catch(RuntimeException error){failure=error;}
+    if(!completed[0]||observed[0]!=providerPolls[0]||failure!=marker||published[0]!=sentinel)throw new AssertionError("Readonly XML escaped late prepared-provider cancellation");
+    same(bytes,source.withProject(view->view.encodeXml()));
+    System.out.println("Java readonly real JAXP late-success cancellation preserves original error and publishes no XML");
+  }
   /** Borrow native getters, preserve fresh defaults and verify all established wire protocols. */
   public static void main(String[] arguments)throws Exception{
     Path directory=Path.of(arguments[0]);var source=new Schema.Projected.Source();source.current.number=7;source.current.label="A<&\"";var owner=new Schema.Projected.Envelope();owner.value.bind(source);owner.label.bind(source);if(owner.value.readValue()!=source.current)throw new AssertionError("Selected target copied");
@@ -43,6 +65,7 @@ public final class Main {
     byte[] direct=owner.value.encodeXml();same(direct,source.current.encodeXml());Files.write(directory.resolve("reference.java.xml"),owner.encodeXml());
     for(int index=0;index<Schema.Protocol.values().length;++index){var protocol=Schema.Protocol.values()[index];same(before.get(index),owner.encode(protocol));same(source.current.encode(protocol),source.withProject(view->view.encode(protocol)));final int selected=index;large.withProject(view->{same(expected.get(selected),view.encode(protocol));return null;});inherited.withProject(view->{same(inheritedExpected.get(selected),view.encode(protocol));return null;});}
     same(source.current.encodeXml(),source.withProject(view->view.encodeXml()));byte[] output=large.withProject(view->{if(view.getValues()!=large.values||view.getNested()!=large.nested)throw new AssertionError("Readonly getter copied owned storage");return view.encodeXml();});Files.write(directory.resolve("translator.java.xml"),output);byte[] inheritedOutput=inherited.withProject(view->view.encodeXml());Files.write(directory.resolve("inherited.java.xml"),inheritedOutput);
+    lateProvider(directory,source);
     input(()->Schema.Projected.Envelope.decodeXml(new byte[]{(byte)0xff},Schema.Limits.defaults(),schema));input(()->Schema.Projected.NestedEnvelope.decodeXml(new byte[]{(byte)0xff},Schema.Limits.defaults(),schema));input(()->Schema.Projected.OptionalEnvelope.decodeXml(new byte[]{(byte)0xff},Schema.Limits.defaults(),schema));input(()->Schema.Projected.EnvelopeValueValueReference.decodeXml(direct));rejected(()->owner.label.encodeXml());rejected(()->large.withProject(view->view.encodeXml(Schema.Limits.defaults(),schema)));
     source.current.number=0;source.current.label="updated";byte[] changed=owner.value.encodeXml();Schema.srlProjectionTripwire=false;if(Schema.Projected.Payload.decodeXml(changed).number!=0)throw new AssertionError("Live owner mutation hidden");Schema.srlProjectionTripwire=true;
     byte[] exact=source.withProject(view->view.encodeXml());same(exact,source.withProject(view->view.encodeXml(new Schema.Limits(exact.length,16*1024*1024,1000000,64),null)));rejected(()->source.withProject(view->view.encodeXml(new Schema.Limits(exact.length-1,16*1024*1024,1000000,64),null)));
@@ -88,6 +111,7 @@ func (value *projectionValidator)ValidateXML(data []byte)error{value.calls++;ret
 func rejected(data []byte,err error){if data!=nil||err==nil{panic("Invalid projection published")}}
 // Compare ordinary wire bytes without relying on XML equality implementations.
 func same(first,second []byte){if !bytes.Equal(first,second){panic("Native bytes changed")}}
+@prepared_provider_helpers@
 // Exercise live source aliases, explicit borrowed/weak scopes and scoped target getters.
 func main(){directory:=os.Args[1];source:=NewProjectedSource();source.Current.Number=7;source.Current.Label="A<&\"";owner:=NewProjectedEnvelope();if err:=owner.Value.Bind(source);err!=nil{panic(err)};scope:=NewProjectedEnvelopeLabelValueReferenceScope(source);if err:=owner.Label.Bind(scope);err!=nil{panic(err)};selected,err:=owner.Value.ReadValue();if err!=nil||selected!=source.Current{panic("Selected target copied")}
   large:=NewProjectedLargerSource();large.Values=[]uint32{1,2};large.Nested.Number=3;target:=NewProjectedLarger();target.Values=large.Values;target.Nested=large.Nested;inherited:=NewProjectedInheritedSource();inherited.Child.Number=11;inheritedTarget:=NewProjectedInherited();inheritedTarget.Nested=inherited.Child
@@ -98,8 +122,28 @@ func main(){directory:=os.Args[1];source:=NewProjectedSource();source.Current.Nu
   large.WithProject(func(view ProjectedLargerSourceProjectTranslator){values:=view.GetValues();if &values[0]!=&large.Values[0]||view.GetNested()!=large.Nested{panic("Getter copied owned storage")};output,err=view.EncodeXML();if err!=nil{panic(err)}});if err=os.WriteFile(filepath.Join(directory,"translator.go.xml"),output,0600);err!=nil{panic(err)};inherited.WithProject(func(view ProjectedInheritedSourceProjectTranslator){output,err=view.EncodeXML();if err!=nil{panic(err)}});if err=os.WriteFile(filepath.Join(directory,"inherited.go.xml"),output,0600);err!=nil{panic(err)}
   marker:=fmt.Errorf("application projection provider marker");validator:=&projectionValidator{failure:marker};candidate,err:=DecodeProjectedEnvelopeXML([]byte{255},XmlOptions{DefaultXmlLimits(),validator});if candidate!=nil||err==nil||!strings.Contains(err.Error(),"export-only")||validator.calls!=0{panic("Input provider/candidate ran before readonly barrier")};nested,err:=DecodeProjectedNestedEnvelopeXML([]byte{255},XmlOptions{DefaultXmlLimits(),validator});if nested!=nil||err==nil||!strings.Contains(err.Error(),"export-only")||validator.calls!=0{panic("Nested graph input ran before readonly barrier")};optional,err:=DecodeProjectedOptionalEnvelopeXML([]byte{255},XmlOptions{DefaultXmlLimits(),validator});if optional!=nil||err==nil||!strings.Contains(err.Error(),"export-only")||validator.calls!=0{panic("Optional graph input ran before readonly barrier")};reference,err:=DecodeProjectedEnvelopeValueValueReferenceXML(direct);if reference!=nil||err==nil||!strings.Contains(err.Error(),"export-only"){panic("Readonly reference input published")};rejected(owner.Label.EncodeXML());large.WithProject(func(view ProjectedLargerSourceProjectTranslator){data,err:=view.EncodeXML(XmlOptions{DefaultXmlLimits(),validator});if data!=nil||err!=marker{panic("Projection changed provider error")}})
   source.Current.Number=0;source.Current.Label="updated";changed,err:=owner.Value.EncodeXML();if err!=nil{panic(err)};srlProjectionTripwire=false;copy,err:=DecodeProjectedPayloadXML(changed);if err!=nil||copy.Number!=0{panic("Live mutation hidden")};srlProjectionTripwire=true;source.WithProject(func(view ProjectedSourceProjectTranslator){data,err:=view.EncodeXML();if err!=nil{panic(err)};limits:=DefaultXmlLimits();limits.MaxBytes=len(data);exact,err:=view.EncodeXML(XmlOptions{limits,nil});if err!=nil{panic(err)};same(data,exact);limits.MaxBytes--;rejected(view.EncodeXML(XmlOptions{limits,nil}))});saved:=source.Current;source.Current=nil;rejected(owner.Value.EncodeXML());source.Current=saved;scope.Close();rejected(owner.EncodeXML());weakScope.Close();rejected(weak.EncodeXML());owner.Value.Unbind();rejected(owner.Value.EncodeXML());srlProjectionTripwire=false
-  large.Values=append(large.Values,4);large.Nested.Number=5;large.WithProject(func(view ProjectedLargerSourceProjectTranslator){data,err:=view.EncodeXML();if err!=nil{panic(err)};copy,err:=DecodeProjectedLargerXML(data);if err!=nil||len(copy.Values)!=3||copy.Nested.Number!=5||copy.Fallback!="default"{panic("Live getters/defaults changed")}});fmt.Println("Go live readonly XML references, recursive input barriers, explicit owner scopes, fresh inherited bases and constructor tripwires pass")
+  large.Values=append(large.Values,4);large.Nested.Number=5;large.WithProject(func(view ProjectedLargerSourceProjectTranslator){data,err:=view.EncodeXML();if err!=nil{panic(err)};copy,err:=DecodeProjectedLargerXML(data);if err!=nil||len(copy.Values)!=3||copy.Nested.Number!=5||copy.Fallback!="default"{panic("Live getters/defaults changed")}});@prepared_provider_call@;fmt.Println("Go live readonly XML references, recursive input barriers, explicit owner scopes, fresh inherited bases and constructor tripwires pass")
 }'''
+
+GO_PREPARED=r'''
+// Return the real provider's error before the operation's post-completion cancellation fence.
+type projectionCompletingProvider struct{delegate XmlValidator;completed *bool;failure error}
+func(value projectionCompletingProvider)ValidateXML(data []byte)error{if err:=value.delegate.ValidateXML(data);err!=nil{return err};*value.completed=true;return value.failure}
+// Validate through a genuine prepared libxml2 bridge, then reject readonly output without replacing caller/provider errors.
+func latePreparedProjection(directory string){
+  bridge,err:=loadProviderBridge(os.Args[2]);if err!=nil{panic(err)};defer func(){if err:=bridge.Close();err!=nil{panic(err)}}()
+  schema,err:=os.ReadFile(filepath.Join(directory,"projection-provider.xsd"));if err!=nil{panic(err)};provider,err:=newPreparedProvider(bridge,schema);if err!=nil{panic(err)};defer provider.Close()
+  source:=NewProjectedSource();source.Current.Number=7;source.Current.Label="prepared";before,err:=source.Current.Encode(BINARY_NONE);if err!=nil{panic(err)}
+  srlProjectionTripwire=true;defer func(){srlProjectionTripwire=false}()
+  completed:=false;marker:=fmt.Errorf("Readonly cancellation after real libxml2 validation")
+  selected:=projectionCompletingProvider{provider,&completed,nil};operation:=XmlOperationOptions{Options:XmlOptions{DefaultXmlLimits(),selected},Operation:func(string,int64,string)error{if completed{return marker};return nil}}
+  invoked:=false;source.WithProject(func(view ProjectedSourceProjectTranslator){invoked=true;data,failure:=view.EncodeXMLWithOperation(operation);if !completed||data!=nil||failure!=marker{panic("Readonly XML escaped late prepared-provider cancellation")}});if !invoked{panic("Readonly provider control not invoked")}
+  completed=false;original:=fmt.Errorf("Original readonly prepared-provider rejection");operation.Options.Validator=projectionCompletingProvider{provider,&completed,original}
+  source.WithProject(func(view ProjectedSourceProjectTranslator){data,failure:=view.EncodeXMLWithOperation(operation);if !completed||data!=nil||failure!=original{panic("Readonly provider failure was replaced by cancellation")}})
+  after,err:=source.Current.Encode(BINARY_NONE);if err!=nil{panic(err)};same(before,after);source.WithProject(func(view ProjectedSourceProjectTranslator){data,failure:=view.EncodeXML();if failure!=nil||len(data)==0{panic("Fresh readonly output did not recover")}})
+  fmt.Println("Go readonly real libxml2 late-success cancellation preserves original errors and publishes no XML")
+}
+'''
 
 
 def instrument(path,language):
@@ -130,24 +174,36 @@ def instrument(path,language):
 
 def main():
     """Compile strict actual SDKs and independently validate every retained published projection."""
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--compiler',required=True,type=Path);parser.add_argument('--build',required=True,type=Path);parser.add_argument('--language',default='java,csharp,go');parser.add_argument('--wsl-languages',default='');parser.set_defaults(cpp_library=None,executable=None,sanitize=False)
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--compiler',required=True,type=Path);parser.add_argument('--build',required=True,type=Path);parser.add_argument('--language',default='java,csharp,go');parser.add_argument('--wsl-languages',default='');parser.add_argument('--bridge',type=Path,help='Run additional Go late-provider controls with the actual Windows libxml2 bridge');parser.set_defaults(cpp_library=None,executable=None,sanitize=False)
     args=parser.parse_args();args.compiler=args.compiler.resolve();args.build=args.build.resolve();languages=args.language.split(',')
     if not languages or len(languages)!=len(set(languages)) or any(language not in ('java','csharp','go') for language in languages):parser.error('Choose distinct names from java,csharp,go')
+    if args.bridge and ('go' not in languages or os.name!='nt' or 'go' in args.wsl_languages.split(',')):parser.error('--bridge requires native Windows Go in --language')
     if args.build==ROOT or ROOT in args.build.parents and 'out' not in args.build.relative_to(ROOT).parts:parser.error('In-repository output must be beneath ignored out')
     args.build.mkdir(parents=True,exist_ok=True);model=args.build/'model.serializer';model.write_text(MODEL,encoding='utf-8');command=[args.compiler,'--input',model,'--xml.enabled','true','--xml.runtime_xsd','true','--xml.validation_scope','both','--language',','.join(languages),'--go.package','main']
     for language in languages:
         directory=args.build/language;directory.mkdir(exist_ok=True);command += [f'--{language}.output',directory/sdk.OUTPUTS[language]]
-    sdk.run(command);runner=sdk.Runner(args);oracle=etree.XMLSchema(etree.fromstring(XSD.encode()))
+    sdk.run(command);runner=sdk.Runner(args);oracle=etree.XMLSchema(etree.fromstring(XSD.encode()));(args.build/'projection-provider.xsd').write_text(XSD,encoding='utf-8')
     for language,filename,source in [('java','Main.java',JAVA),('csharp','Program.cs',CSHARP),('go','main.go',GO)]:
         if language not in languages:continue
-        instrument(args.build/language/sdk.OUTPUTS[language],language);directory=args.build/'source'/language;directory.mkdir(parents=True,exist_ok=True);(directory/filename).write_text(source,encoding='utf-8')
+        instrument(args.build/language/sdk.OUTPUTS[language],language);directory=args.build/'source'/language;directory.mkdir(parents=True,exist_ok=True)
+        if language=='go':
+            source=source.replace('@prepared_provider_helpers@',GO_PREPARED if args.bridge else '').replace('@prepared_provider_call@','latePreparedProjection(directory)' if args.bridge else '')
+            if args.bridge:
+                args.bridge=args.bridge.resolve(strict=True);shutil.copyfile(ROOT/'test/resources/xml_provider/go/provider_windows.go',directory/'provider_windows.go')
+        (directory/filename).write_text(source,encoding='utf-8')
         for name in ('reference','translator','inherited'):Path(args.build/f'{name}.{language}.xml').unlink(missing_ok=True)
-        launch=runner.build(language,'xml_projection',args.build/language,directory);sdk.run([*launch,runner.path(language,args.build)])
+        launch=runner.build(language,'xml_projection',args.build/language,directory);arguments=[*launch,runner.path(language,args.build)]
+        if language=='go' and args.bridge:arguments.append(runner.path(language,args.bridge))
+        sdk.run(arguments)
         for name in ('reference','translator','inherited'):
             document=etree.parse(str(args.build/f'{name}.{language}.xml'));oracle.assertValid(document);node=document.getroot()
             if name=='reference':assert node.get('label')=='A<&"' and [child.text for child in node[0]]==['7','A<&"']
             elif name=='translator':assert [child.text for child in node.findall('{'+NS+'}values')]==['1','2'] and node.find('{'+NS+'}fallback').text=='default'
             else:assert node.get('{urn:serializer:xml:model}revision')=='3' and node.find('{'+NS+'}code').text=='7' and node.find('{'+NS+'}fallback').text=='fresh'
+    report={'status':'pass','compiler_sha256':hashlib.sha256(args.compiler.read_bytes()).hexdigest(),'languages':languages,
+            'readonly_late_prepared_provider_controls':{'java':'java' in languages,'go':bool(args.bridge)},
+            'generated_sha256':{language:hashlib.sha256((args.build/language/sdk.OUTPUTS[language]).read_bytes()).hexdigest() for language in languages}}
+    (args.build/'verification.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
     print(f'PASS: live reference/scoped getter exports, fresh inherited defaults, four native protocols, recursive input/provider barriers and constructor tripwires across {len(languages)} SDKs',flush=True)
 
 

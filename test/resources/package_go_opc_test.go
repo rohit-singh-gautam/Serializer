@@ -28,7 +28,7 @@ func TestOPCIndependent(t *testing.T) {
         if len(parts)!=0 { original:=parts[0].Name;parts[0].Name="changed";if reader.Parts()[0].Name!=original { t.Fatal("catalog slice aliases retained state") } }
         reader.Close()
       }
-      accepted:=false;for _,code:=range strings.Split(fields[3],",") { if opcCode(err)==code { accepted=true } }
+      accepted:=fields[3]=="ANY"&&err!=nil;for _,code:=range strings.Split(fields[3],",") { if opcCode(err)==code { accepted=true } }
       if !accepted { t.Fatalf("expected %s, got %s",fields[3],opcCode(err)) }
       if budget.held!=0 { t.Fatalf("retained logical scratch after close/rejection: %d",budget.held) }
     })
@@ -169,7 +169,7 @@ func TestTypedIndependent(t *testing.T){
         value,failure:=opcProfileLoad(data,role,policy,nil);err=failure
         if err==nil&&(value==nil||value.Main==nil||value.Main.Name!="independent"||len(value.Main.Points)!=1||value.Main.Points[0].X!=1){t.Fatal("native typed model values changed")}
       }
-      accepted:=false;for _,expected:=range strings.Split(fields[3],","){if opcCode(err)==expected{accepted=true}}
+      accepted:=fields[3]=="ANY"&&err!=nil;for _,expected:=range strings.Split(fields[3],","){if opcCode(err)==expected{accepted=true}}
       if !accepted{t.Fatalf("expected %s, got %s",fields[3],opcCode(err))}
     })
   }

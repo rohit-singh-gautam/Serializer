@@ -5,6 +5,14 @@ requirements assigned from `docs/pending.md` together. It implements coherent
 C++ slices of `MG02`, `MG03` and `MG07`. It does not mark the broader requirements
 complete. `DB01` and `MIG03` remain on hold at the user's request.
 
+Subsequent ownership disposition: the user clarified that application-owned
+responsibilities must be documented as will not fix in Serializer. The
+[canonical decisions](../project/application_responsibilities.md) mark `MIG02`
+and `MG06` accordingly and recognize `MG03`'s completed library enforcement with
+principal binding, policy persistence and administration supplied by the host.
+The audit table below records the earlier implementation checkpoint; this note
+does not retrospectively change its test counts or claim new tests.
+
 ## Implemented contract
 
 - `managed_authorization.hpp`: immutable principal-context rules on stable entity

@@ -202,7 +202,7 @@ R"packagejava(
   private static String target(String source,String text) throws java.io.IOException {
     Uri value=uri(text,false);if(value.scheme!=null||value.authority!=null)throw error(Code.INVALID_RELATIONSHIP,"Internal target has scheme or authority",source);
     if(value.path.isEmpty())return partName(source,false);
-    if(value.path.endsWith("/")||value.path.equals(".")||value.path.equals("..")||value.path.endsWith("/.")||value.path.endsWith("/.."))throw error(Code.INVALID_RELATIONSHIP,"Relationship targets a directory",source);
+    if(value.path.contains("//")||value.path.endsWith("/")||value.path.equals(".")||value.path.equals("..")||value.path.endsWith("/.")||value.path.endsWith("/.."))throw error(Code.INVALID_RELATIONSHIP,"Relationship targets a directory",source);
     var pieces=new java.util.ArrayList<String>();
     if(!value.path.startsWith("/")){String base=source.substring(1,source.lastIndexOf('/')+1);for(String piece:base.split("/"))if(!piece.isEmpty())pieces.add(piece);}
     for(String piece:value.path.split("/")){if(piece.isEmpty()||piece.equals("."))continue;if(piece.equals("..")){if(!pieces.isEmpty())pieces.remove(pieces.size()-1);}else pieces.add(piece);}

@@ -109,6 +109,19 @@ final class PreparedProvider: XmlValidator, @unchecked Sendable {
     }
 }
 
+// Activate cancellation only after the real provider has accepted the document.
+final class CancelingProvider: XmlValidator {
+    let provider: PreparedProvider
+    var completed = false
+    // Borrow the prepared provider for this synchronous publication-boundary check.
+    init(_ provider: PreparedProvider) { self.provider = provider }
+    // Preserve provider failures and record only a successful completion.
+    func validate(_ bytes: [UInt8], _ limits: XmlLimits) throws {
+        try provider.validate(bytes, limits)
+        completed = true
+    }
+}
+
 // Qualify genuine provider callbacks, candidate publication, independent bounds and concurrent reuse.
 let bridge=try ProviderBridge(CommandLine.arguments[1])
 let provider=try PreparedProvider(bridge,Array(Data(contentsOf:URL(fileURLWithPath:CommandLine.arguments[2]))))
@@ -121,6 +134,21 @@ try provider.validate(output,XmlLimits())
 let copy=try XmlProviderFixtureOrder.decodeXml(output,validator:provider)
 try require(value.encode(.BINARY_NONE) == copy.encode(.BINARY_NONE))
 try require(provider.calls >= 4)
+let cancelingProvider = CancelingProvider(provider)
+enum LateProviderCancellation: Error { case canceled }
+var operationLimits = XmlLimits()
+operationLimits.srlPackageCheck = {
+    if cancelingProvider.completed { throw LateProviderCancellation.canceled }
+}
+for decode in [false, true] {
+    cancelingProvider.completed = false
+    var canceled = false
+    do {
+        if decode { _ = try XmlProviderFixtureOrder.decodeXml(bytes, operationLimits, validator: cancelingProvider) }
+        else { _ = try value.encodeXml(operationLimits, validator: cancelingProvider) }
+    } catch LateProviderCancellation.canceled { canceled = true }
+    try require(cancelingProvider.completed && canceled)
+}
 for bad in ["<wrong xmlns='urn:serializer:xsd'/>",document.replacingOccurrences(of:"urn:serializer:xsd",with:"urn:wrong"),document+"<extra/>",document.replacingOccurrences(of:"<value>3</value>",with:""),"<!DOCTYPE order SYSTEM 'file:///must-not-open'>"+document,"<?xml version='1.1'?>"+document] {
     try rejected { try provider.validate(Array(bad.utf8),XmlLimits()) }
 }

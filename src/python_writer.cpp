@@ -220,6 +220,14 @@ class python_emitter {
       return;
     }
     const auto contract = xml_contract.bind(value);
+    const bool root_list_scope = std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) {
+      return (field.attribute || field.text) && (field.qname_list_fixed || field.qname_list_default);
+    });
+    const bool root_empty_default = std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) {
+      const auto& names = field.qname_list_fixed ? field.qname_list_fixed : field.qname_list_default;
+      return (field.attribute || field.text) && names && std::any_of(names->begin(), names->end(),
+          [](const auto& item) { return item.namespace_uri.empty(); });
+    });
     const auto name = model.names.at(&value);
     const auto expanded = [&](const xml::name& item) {
       return quote(item.namespace_uri.empty() ? item.local : "{" + item.namespace_uri + "}" + item.local);
@@ -387,7 +395,12 @@ class python_emitter {
     line("if not _xml_token_capable(type(self)) and _xml_token_required(type(self)): raise ValueError('This XML mapping requires a token-compatible owning graph')");
     line("data = _xml_token_encode(self, " + expanded(contract.root) + ", budget.limits, context) if _xml_token_capable(type(self)) else _xml_write(self._xml_node(" + expanded(contract.root) + ", budget, 1), budget.limits, context)");
     if (!model.xml.runtime_xsd) { line("if schema is not None: raise ValueError('Runtime XSD was not enabled during generation')"); }
-    else if (model.xml.validation_scope != "input") { line("if schema is not None: schema.validate(data, budget.limits, context)"); }
+    else if (model.xml.validation_scope != "input") {
+      open("if schema is not None");
+      line("if context is not None: context.check()");
+      line("schema.validate(data, budget.limits, context)");
+      line("if context is not None: context.check()"); --indent;
+    }
     line("return data"); --indent;
     line("@classmethod");
     open("def decode_xml(cls, data, limits=None, schema=None, context=None)");
@@ -395,7 +408,12 @@ class python_emitter {
     line("if _xml_export_only(cls): raise ValueError('Readonly XML projections are export-only; decode the owning target')");
     line("context = _xml_pattern_context(limits, context)");
     if (!model.xml.runtime_xsd) { line("if schema is not None: raise ValueError('Runtime XSD was not enabled during generation')"); }
-    else if (model.xml.validation_scope != "output") { line("if schema is not None: schema.validate(data, limits, context)"); }
+    else if (model.xml.validation_scope != "output") {
+      open("if schema is not None");
+      line("if context is not None: context.check()");
+      line("schema.validate(data, limits, context)");
+      line("if context is not None: context.check()"); --indent;
+    }
     line("if not _xml_token_capable(cls) and _xml_token_required(cls): raise ValueError('This XML mapping requires a token-compatible owning graph')");
     line("if _xml_token_capable(cls): return _xml_token_decode(cls, " + expanded(contract.root) + ", (data,), limits, context)");
     line("context = _xml_namespace_context(limits, context)");
@@ -416,6 +434,7 @@ class python_emitter {
     line("\"\"\"Populate the statically bound XML tree under a shared document budget.\"\"\"");
     line("node = budget.node(name, depth)");
     line("state = _xml_state_open(self, node, budget)");
+    if (root_empty_default) { line("node[4][''] = ''"); }
     line("srl_parent_context = budget.context");
     line("extension_cursor = [0]");
     line("_xml_choices(self, self._xml_choices)");
@@ -459,6 +478,9 @@ class python_emitter {
       const auto raw = typed_list ? "' '.join(" + xml_scalar(leaf, "srl_item", true) + " for srl_item in " + selected + ")" :
           xml_scalar(leaf, selected, true);
       const auto lexical = [&] {
+        if (root_list_scope && scoped_value && (item.attribute || item.text)) {
+          return "_xml_root_scoped_lexical(" + raw + ", " + rule + ", state, " + field_index + ", node[4], budget)";
+        }
         const bool child_scope = scoped_value && !item.attribute && !item.text;
         const auto scope = child_scope ? "child[4]" : "node[4]";
         return "_xml_checked(" + (child_scope ? "srl_namespace_text" : raw) + ", " + rule + ", " + scope + ", budget.context)";
@@ -521,18 +543,22 @@ class python_emitter {
         if (!item.attribute && (item.default_value || item.fixed_value)) {
           const auto qualified = item.qname_fixed ? item.qname_fixed : item.qname_default;
           const auto qualified_list = item.qname_list_fixed ? item.qname_list_fixed : item.qname_list_default;
-          const auto fallback = qualified_list ? "_xml_qualify_qname_list(" + python_xml::names(*qualified_list) + ", " +
-              (item.text ? "node[4]" : expression + "[4]") + ", fields.reserved_prefixes())" : qualified ? "_xml_qualify_qname(" + python_xml::name(*qualified) + ", " +
+          const auto fallback = qualified_list ? "fields.list_default(" + field_index + ", " +
+              (item.repeated && !item.list ? "srl_item_index" : "0") + ", " +
+              (item.text ? "node" : expression) + ", " + python_xml::names(*qualified_list) + ")" : qualified && root_list_scope && item.text ?
+              "fields.list_default(" + field_index + ", 0, node, " + python_xml::names(std::vector<xml::name>{*qualified}) + ")" : qualified ? "_xml_qualify_qname(" + python_xml::name(*qualified) + ", " +
               (item.text ? "node[4]" : expression + "[4]") + ")" :
               quote(item.fixed_value ? *item.fixed_value : *item.default_value);
           text = "(" + text + " or " + fallback + ")";
         }
-        const auto scope = item.attribute || item.text ? "node[4]" : scoped_value ?
+        const auto scope = item.attribute || item.text ? "fields.value_scope(" + field_index + ", node)" : scoped_value ?
             "fields.scalar_scope(" + field_index + ", " +
                 (item.repeated && !item.list ? "srl_item_index" : "0") + ", " + expression + ")" :
             expression + "[4]";
         auto checked = "_xml_checked(" + text + ", " + rule + ", " + scope + ", context)";
-        if ((item.attribute || item.text) && (item.qname || item.prefix_list || item.facets.list_item_kind == "QName")) {
+        if (!root_list_scope && (item.attribute || item.text) &&
+            !item.qname_list_default && !item.qname_list_fixed &&
+            (item.qname || item.prefix_list || item.facets.list_item_kind == "QName")) {
           checked = "_xml_promote_lexical(" + checked + ", " + rule + ", " + scope + ", node[4])";
         }
         return typed_list ? "[" + xml_scalar(leaf, "srl_item", false) + " for srl_item in _xml_tokens(" + checked + ")]" :
@@ -545,7 +571,8 @@ class python_emitter {
         if (item.default_value || item.fixed_value) {
           const auto qualified = item.qname_fixed ? item.qname_fixed : item.qname_default;
           const auto qualified_list = item.qname_list_fixed ? item.qname_list_fixed : item.qname_list_default;
-          const auto fallback = qualified_list ? "_xml_qualify_qname_list(" + python_xml::names(*qualified_list) + ", node[4], fields.reserved_prefixes())" :
+          const auto fallback = qualified_list ? "fields.list_default(" + field_index + ", 0, node, " + python_xml::names(*qualified_list) + ")" :
+              qualified && root_list_scope ? "fields.list_default(" + field_index + ", 0, node, " + python_xml::names(std::vector<xml::name>{*qualified}) + ")" :
               qualified ? "_xml_qualify_qname(" + python_xml::name(*qualified) + ", node[4], fields.reserved_prefixes())" :
               quote(item.fixed_value ? *item.fixed_value : *item.default_value);
           line("if text is None: text = " + fallback);
@@ -1255,7 +1282,12 @@ class python_emitter {
       line("selected = " + facade);
       line("data = _xml_token_encode(selected, " + root + ", budget.limits, context) if _xml_token_capable(" + target_name + ") else _xml_write(" + target_name + "._xml_node(selected, " + root + ", budget, 1), budget.limits, context)");
       if (!model.xml.runtime_xsd) { line("if schema is not None: raise ValueError('Runtime XSD was not enabled during generation')"); }
-      else if (model.xml.validation_scope != "input") { line("if schema is not None: schema.validate(data, budget.limits, context)"); }
+      else if (model.xml.validation_scope != "input") {
+        open("if schema is not None");
+        line("if context is not None: context.check()");
+        line("schema.validate(data, budget.limits, context)");
+        line("if context is not None: context.check()"); --indent;
+      }
       line("return data"); --indent;
     }
     auto result = std::move(output); output = std::move(saved_output); indent = saved_indent; dynamic_first = saved_first;

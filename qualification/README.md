@@ -490,3 +490,73 @@ sample with their documented counter scopes; C/Swift report exact allocation as
 unavailable. Raw samples, input/output hashes, dependency identities and commands
 remain in `verification.json`. Other platforms and broader vocabularies remain
 pending.
+
+## Large owning XML profiles
+
+The four maintained XML benchmark runners accept `--tags 75000` for two bounded
+large workloads: repeated escaped Unicode values and fixed-seed 32-character
+random values. Their ordinary default remains 20,000 tags. Every output is checked
+with an independent XML reader and compared against the XML-disabled native wire
+control. Retain each runner's JSON report, raw measurements and provider metadata;
+absolute process residency and allocation counters describe different categories.
+
+For the large Python profile, use `--xml-entries 2000000`; its 16 MiB byte/text
+bounds remain explicit. The default one-million fragment budget correctly rejects
+the escaped random workload. `--interruptions-only` runs large cancellation,
+host deadline and fresh-call recovery checks without repeating timing/allocation
+measurements. Normal measurements also execute these controls.
+
+For Kotlin/Swift in the native/mobile runner, use `--xml-entries 200000
+--xml-text-bytes 16777216`. Their 75,003 logical elements also charge emitted
+namespace entries; the default 100,000-entry policy rejects the large output.
+C/Rust retain their default policies in this runner. These explicit bounded
+profiles do not assert identical backend defaults or hard process-memory caps.
+The C++ runner checks cancellation/deadline/recovery on each large input and
+supports actual provider-enabled Linux measurements in addition to Windows.
+
+After completing the portable and native/mobile profiles,
+`xml_large_interruptions.py --benchmark <evidence-directory> --build <fresh-output>
+--node-dependencies <locked-node_modules> --provider-prefix <libxml2-prefix>
+--cargo-home <offline-cache> --compiler <immutable-current-compiler>
+--kotlin-home <kotlinc-directory>` reuses pinned generated sources and large
+fixtures for Java, Go, JS, strict TS, C and Rust, and generates public policy-copy
+wrapper profiles for C#, Kotlin and Swift.
+It verifies exact original caller failures and fresh recovery after every failed
+call. Host-clock callback expiry is documented separately from native deadline
+APIs. C# `Limits.WithCancellation` and Kotlin/Swift `XmlLimits.withCancellation`
+retain a synchronous throwing callback, copy existing bounds and compose parent
+admission once. Their sticky first failure requires a fresh wrapper for recovery;
+captured external resources must outlive calls and a wrapper must not be shared
+concurrently. Actual separate assembly/JAR/module tests qualify public visibility.
+Swift's FoundationXML delegate safely ignores further owning events after failure
+and throws the original at synchronous parse completion; it does not forcibly
+preempt provider CPU work over the already bounded input.
+
+See the [large-model record](../docs/verification/verification-large-xml-2026-10-21.md)
+for executed platforms, hashes, provider settings and limits. Missing or unexecuted
+platform/provider combinations remain distinct from successful qualification.
+
+## Large combined XML/package profiles
+
+The maintained `test/package_large_operation_{native,portable,mobile}_test.py`
+runners use the independent `package_large_operation_corpus.py` fixture. Their
+default is three owners with 25,000 forward references and 25,000 entries each,
+plus preserved opaque data, scoped internal/external links and real ZIP DEFLATE.
+Use the native runner for C++, Python, C and Rust; the portable runner for Java,
+C#, Go, JavaScript and TypeScript; and the mobile runner for Kotlin and Swift.
+Supply actual installed SDKs, existing provider/locked dependency directories,
+an immutable compiler and a fresh ignored output directory. The independent
+fixed-XSD output oracle requires `lxml`; no dependency installation is performed.
+
+Each runner retains SDK commands, generated hashes, owning operation checks and
+independent output results. Exact/one-tight logical quotas, cancellation,
+elapsed host-clock deadlines, pre-publication file preservation and fresh-call
+recovery have distinct checks. Full Python deadline cases deliberately wait for
+actual monotonic expiry; progress is printed between completed phases. These
+correctness runs are not throughput or hard peak-memory measurements.
+
+Use `--entries-per-registry 10` for the quick Python replay registered under
+`SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES`; it does not replace the default large
+profile. The [combined-operation record](../docs/verification/verification-large-package-operations-2026-10-21.md)
+contains executed scope, exact commands, per-backend policy/API boundaries and
+the Python publication regression's counterfactual and corrected provenance.

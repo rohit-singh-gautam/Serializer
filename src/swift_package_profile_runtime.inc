@@ -229,7 +229,7 @@ R"packageprofile(            parts.append(BinaryPart(data,name:selectedName,cont
         private var closed = false
         /// Parse infrastructure transactionally without invoking a typed decoder until dispatch agrees.
         public init(_ bytes: [Swift.UInt8], budget: Budget) throws {
-            self.budget = budget; archive = try ZipReader.open(bytes,budget:budget)
+            self.budget = budget; archive = try ZipReader.openOpc(bytes,budget:budget)
             do { opc = try Opc(archive) } catch { archive.close(); throw error }
         }
         private struct Occurrence { let metadata: PartMetadata; let parent: Swift.Int; let id: Swift.String }
@@ -312,7 +312,13 @@ R"packageprofile(            guard !busy, !closed else { closed = true; throw Fa
     }
     /// Revalidate complete bytes with the same ledger before Foundation's atomic replacement primitive.
     public static func save(_ bytes: [Swift.UInt8], to path: Foundation.URL, budget: Budget) throws {
-        let reader = try ZipReader.open(bytes,budget:budget); defer { reader.close() }
+        try savePolicy(bytes,to:path,budget:budget,opc:false)
+    }
+    /// Validate inert OPC names before publishing complete package bytes.
+    public static func saveOpc(_ bytes: [Swift.UInt8], to path: Foundation.URL, budget: Budget) throws { try savePolicy(bytes,to:path,budget:budget,opc:true) }
+    /// Share atomic publication while preserving generic ZIP naming defaults.
+    private static func savePolicy(_ bytes: [Swift.UInt8], to path: Foundation.URL, budget: Budget, opc: Swift.Bool) throws {
+        let reader = try opc ? ZipReader.openOpc(bytes,budget:budget) : ZipReader.open(bytes,budget:budget); defer { reader.close() }
         for entry in reader.entries { _ = try reader.read(entry.name) }
         try budget.check(); try Foundation.Data(bytes).write(to:path,options:.atomic); try budget.check()
     }

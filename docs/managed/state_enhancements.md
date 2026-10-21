@@ -268,12 +268,15 @@ runtime extent checks rather than fixed-length tuple types.
 ## Remaining work
 
 The current additive C++ slices provide [inherited authorization](authorization.md),
-[versioned capability availability checks](capabilities.md#implemented-c-profile-validation)
+[versioned native profile activation](capabilities.md#activate-complete-native-profiles),
+[explicit history-policy conversion](capabilities.md#explicit-history-policy-conversion)
 and a [bounded PMR request resource](history.md#runtime-allocation-resources).
 Authorization uses the complete publication candidate, including current-policy
 history navigation and separate trusted replication. Policy administration remains
 host-owned; generated payload decoding still uses standard container allocators.
-These slices do not close the broader managed-engine, selector or allocation gates.
+Application context/policy administration is an explicit will-not-fix responsibility.
+Other-language engines, proposed schema selector syntax and allocator-aware payload
+decoding remain separate from the implemented C++ profile contract.
 
 The authoritative remaining requirements are **MG01–MG10**, **MIG01–MIG03** and
 **DB01** in [the central backlog](../pending.md#managed-state-and-storage).

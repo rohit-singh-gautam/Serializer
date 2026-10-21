@@ -113,8 +113,30 @@ TEST(xml, security_and_complete_document_budgets) {
   EXPECT_THROW((void)xml::parse("<?xml version='1.1'?><a/>"), std::invalid_argument);
   EXPECT_THROW((void)xml::parse("<?xml version='1.0' encoding='ISO-8859-1'?><a/>"), std::invalid_argument);
   EXPECT_NO_THROW((void)xml::parse("<?xml version='1.0' encoding='utf-8'?><a/>"));
-  EXPECT_THROW((void)xml::parse("<a xmlns:p='urn:p'><b><c/></b></a>", {.max_namespace_bindings = 2U}), std::length_error);
+  EXPECT_NO_THROW((void)xml::parse("<a xmlns:p='urn:p'><b><c/></b></a>", {.max_namespace_bindings = 1U}));
+  EXPECT_THROW((void)xml::parse("<a xmlns:p='urn:p'><b><c/></b></a>", {.max_namespace_bindings = 0U}), std::length_error);
   EXPECT_THROW((void)xml::parse("<a xmlns:p='urn:long-name'/>", {.max_name_bytes = 5U}), std::length_error);
+}
+
+// Declaration limits agree in both directions while inherited scope storage stays bounded.
+TEST(xml, namespace_declarations_and_retained_scope_copies_have_separate_budgets) {
+  constexpr std::string_view document{"<a xmlns:p='urn:p'><b/></a>"};
+  constexpr std::size_t retained_nodes{2U};
+  constexpr std::size_t binding_bytes{std::string_view{"p"}.size()+std::string_view{"urn:p"}.size()};
+  constexpr std::size_t retained_bytes{retained_nodes*(sizeof(xml::element)+
+      sizeof(std::pair<const std::string,std::string>)+binding_bytes)+
+      std::string_view{"a"}.size()+std::string_view{"b"}.size()};
+  EXPECT_NO_THROW((void)xml::parse(document,{.max_namespace_bindings=1U,.max_tree_bytes=retained_bytes}));
+  EXPECT_THROW((void)xml::parse(document,{.max_namespace_bindings=1U,.max_tree_bytes=retained_bytes-1U}),std::length_error);
+  auto tree=xml::parse(document);
+  // The retained tree writer emits each explicit stored binding, including the child copy.
+  EXPECT_THROW((void)xml::write(tree,{.max_namespace_bindings=1U}),std::length_error);
+  const auto emitted=xml::write(tree,{.max_namespace_bindings=retained_nodes});
+  EXPECT_NO_THROW((void)xml::parse(emitted,{.max_namespace_bindings=retained_nodes}));
+  xml::element generated{};
+  generated.qualified_name={"root","urn:generated"};
+  EXPECT_THROW((void)xml::write(generated,{.max_namespace_bindings=0U}),std::length_error);
+  EXPECT_NO_THROW((void)xml::write(generated,{.max_namespace_bindings=1U}));
 }
 
 TEST(xml, retained_namespace_bindings_preserve_qname_valued_metadata) {

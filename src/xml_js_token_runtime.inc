@@ -46,9 +46,10 @@ function srlXmlTokenWrite(owner,meta,output,local,uri,variantType=null) {
     const field=meta.fields[index],item=selected[index];
     if(item.present && (field.mode==='attribute' || field.mode==='text')){
       const scalar=srlXmlPrepareField(owner,field,item.values[0],output.limits);
-      prepared.set(index,scalar);srlXmlMergeBindings(bindings,scalar.bindings);
+      prepared.set(index,scalar);
     }
   }
+  srlXmlReconcilePrepared(prepared,bindings,output.limits);
   let attributeIndex=srlXmlVariantStart(output,local,uri,variantType,bindings);
   for(const [name,value] of model.attributes)output.attribute(name.slice(name.indexOf('\0')+1),srlXmlModelNamespace,value,attributeIndex++);
   for (let index=0;index<meta.fields.length;++index) {

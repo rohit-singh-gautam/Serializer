@@ -16,6 +16,11 @@ import zipfile
 
 import python_package_test as independent
 import package_application_contract_test as application_contract
+import package_annex_b_corpus as annex_b
+import package_mce_corpus as mce_corpus
+import package_opc_uri_corpus as uri_corpus
+import package_iri_corpus as iri_corpus
+import package_utf16_corpus as utf16
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -94,6 +99,14 @@ def fixtures(build):
         (directory / name).write_bytes(data)
         rows.append((name, kind, str(int(valid))))
 
+    for label, data, accepted in annex_b.cases():
+        add(label + '.zip', 'zip', data, accepted)
+    for label, data, accepted in mce_corpus.cases():
+        add(label + '.opc', 'opc', data, accepted)
+    for label, data, accepted in uri_corpus.cases():
+        add(label + '.opc', 'opc', data, accepted)
+    for label, data, accepted in iri_corpus.cases():
+        add(label + '.opc', 'preserve', data, accepted)
     for wide in (False, True):
         for signed in (False, True):
             for payload_name, payload in [('empty', b''), ('model', b'independent raw DEFLATE'),
@@ -133,6 +146,12 @@ def fixtures(build):
             struct.pack_into('<Q', candidate, record + 24, value)
         add('high-' + label + '.zip', 'zip', candidate, False)
     add('relocated.opc', 'opc', independent.independent_zip(independent.independent_parts()), True)
+    for label, parts, accepted in utf16.cases(independent.independent_parts()):
+        add(label + '.opc', 'opc', independent.independent_zip(parts), accepted)
+        if accepted and label.endswith('-all'):
+            metadata_bytes = sum(len(data) for name, data in parts.items()
+                                 if name == '[Content_Types].xml' or name.endswith('.rels'))
+            (directory / (label + '.metadata-bytes')).write_text(str(metadata_bytes), encoding='ascii')
     add('extensions.opc', 'preserve', independent.independent_zip(independent.independent_parts(extension=True)), True)
     scoped = independent.independent_parts(extension=True)
     scoped['Alternate/_rels/root.xml.rels'] = scoped['Alternate/_rels/root.xml.rels'].replace(

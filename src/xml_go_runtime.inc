@@ -42,6 +42,11 @@ func (b *srlXmlBudget) textValue(text string) error {
   for _,c:=range text { if !(c==9||c==10||c==13||c>=32&&c<=0xd7ff||c>=0xe000&&c<=0xfffd||c>=0x10000&&c<=0x10ffff) { return fmt.Errorf("Invalid XML character") } }
   if err:=b.charge("work",int64(len(text)));err!=nil{return err};if err:=b.charge("allocation",int64(len(text)));err!=nil{return err};b.text+=len(text); return nil
 }
+// Charge one physical namespace declaration by its binding rather than the xmlns spelling.
+func (b *srlXmlBudget) namespaceValue(prefix,uri string)error{
+  if b.attrs>=b.limits.MaxAttributes{return srlXmlLimitError("XML attribute limit exceeded")}
+  if err:=b.textValue(prefix+uri);err!=nil{return err};b.attrs++;return nil
+}
 // Bind one explicit policy and reject nonsensical resource bounds.
 func srlXmlOptions(values []XmlOptions) (srlXmlSelectedOptions,error) {
   if len(values)>1 { return srlXmlSelectedOptions{},fmt.Errorf("Expected at most one XML policy") }
@@ -70,11 +75,10 @@ func srlXmlParse(data []byte, limits XmlLimits) (*srlXmlNode,error) {
       if len(stack)>=limits.MaxDepth { return nil,srlXmlLimitError("XML depth limit exceeded") }
       changes:=[]srlXmlBindingChange{};seenRaw:=map[srlxml.Name]bool{}
       for _,a:=range value.Attr {
-        if budget.attrs>=limits.MaxAttributes { return nil,srlXmlLimitError("XML attribute limit exceeded") }; budget.attrs++
-        if err=budget.textValue(a.Name.Space+a.Name.Local+a.Value); err!=nil { return nil,err }
         if seenRaw[a.Name]{return nil,fmt.Errorf("Duplicate XML attribute")};seenRaw[a.Name]=true
         if a.Name.Space=="xmlns"||a.Name.Space==""&&a.Name.Local=="xmlns" {
           prefix:=a.Name.Local;if a.Name.Space==""{prefix=""}
+          if err=budget.namespaceValue(prefix,a.Value);err!=nil{return nil,err}
           if prefix=="xmlns"||a.Value=="http://www.w3.org/2000/xmlns/"||prefix=="xml"&&a.Value!="http://www.w3.org/XML/1998/namespace"||prefix!="xml"&&a.Value=="http://www.w3.org/XML/1998/namespace"||prefix!=""&&a.Value=="" { return nil,fmt.Errorf("Invalid XML namespace declaration") }
           previous,existed:=namespaces[prefix];changes=append(changes,srlXmlBindingChange{prefix,previous,existed});namespaces[prefix]=a.Value
         }
@@ -85,6 +89,7 @@ func srlXmlParse(data []byte, limits XmlLimits) (*srlXmlNode,error) {
       for _,a:=range value.Attr {
         if a.Name.Space=="xmlns"||a.Name.Space==""&&a.Name.Local=="xmlns" { continue }
         a.Name,err=resolve(a.Name,true);if err!=nil{return nil,err}
+        if budget.attrs>=limits.MaxAttributes{return nil,srlXmlLimitError("XML attribute limit exceeded")};if err=budget.textValue(a.Name.Space+a.Name.Local+a.Value);err!=nil{return nil,err};budget.attrs++
         if seen[a.Name] { return nil,fmt.Errorf("Duplicate XML attribute") }; seen[a.Name]=true; node.attrs=append(node.attrs,a)
       }
       if len(stack)==0 { if root!=nil { return nil,fmt.Errorf("Multiple XML roots") }; root=node } else { parent:=stack[len(stack)-1].node; parent.children=append(parent.children,node) }
@@ -133,17 +138,17 @@ func (r *srlXmlInput) read()(*srlXmlInputToken,error) {
       if len(r.stack)==0{if r.root{return nil,fmt.Errorf("Multiple XML roots")};r.root=true}
       r.budget.field=value.Name.Local;changes:=[]srlXmlBindingChange{};seenRaw:=map[srlxml.Name]bool{}
       for _,a:=range value.Attr{
-        r.budget.field=a.Name.Local;if r.budget.attrs>=r.budget.limits.MaxAttributes{return nil,srlXmlLimitError("XML attribute limit exceeded")};r.budget.attrs++
-        if err:=r.budget.textValue(a.Name.Space+a.Name.Local+a.Value);err!=nil{return nil,err};if seenRaw[a.Name]{return nil,fmt.Errorf("Duplicate XML attribute")};seenRaw[a.Name]=true
+        r.budget.field=a.Name.Local;if seenRaw[a.Name]{return nil,fmt.Errorf("Duplicate XML attribute")};seenRaw[a.Name]=true
         if a.Name.Space=="xmlns"||a.Name.Space==""&&a.Name.Local=="xmlns"{
           prefix:=a.Name.Local;if a.Name.Space==""{prefix=""}
+          if err:=r.budget.namespaceValue(prefix,a.Value);err!=nil{return nil,err}
           if prefix=="xmlns"||a.Value=="http://www.w3.org/2000/xmlns/"||prefix=="xml"&&a.Value!="http://www.w3.org/XML/1998/namespace"||prefix!="xml"&&a.Value=="http://www.w3.org/XML/1998/namespace"||prefix!=""&&a.Value==""{return nil,fmt.Errorf("Invalid XML namespace declaration")}
           previous,exists:=r.namespaces[prefix];changes=append(changes,srlXmlBindingChange{prefix,previous,exists});r.namespaces[prefix]=a.Value
         }
       }
       expanded,err:=r.resolve(value.Name,false);if err!=nil{return nil,err};if r.budget.nodes>=r.budget.limits.MaxNodes{return nil,srlXmlLimitError("XML node limit exceeded")};if err=r.budget.textValue(expanded.Space+expanded.Local);err!=nil{return nil,err};r.budget.nodes++
       r.budget.field=expanded.Local;if err:=r.budget.charge("allocation",128);err!=nil{return nil,err};event:=&srlXmlInputToken{kind:'s',name:expanded};seen:=map[srlxml.Name]bool{}
-      for _,a:=range value.Attr{if a.Name.Space=="xmlns"||a.Name.Space==""&&a.Name.Local=="xmlns"{continue};a.Name,err=r.resolve(a.Name,true);if err!=nil{return nil,err};if seen[a.Name]{return nil,fmt.Errorf("Duplicate XML attribute")};seen[a.Name]=true;event.attrs=append(event.attrs,a)}
+      for _,a:=range value.Attr{if a.Name.Space=="xmlns"||a.Name.Space==""&&a.Name.Local=="xmlns"{continue};a.Name,err=r.resolve(a.Name,true);if err!=nil{return nil,err};if r.budget.attrs>=r.budget.limits.MaxAttributes{return nil,srlXmlLimitError("XML attribute limit exceeded")};if err=r.budget.textValue(a.Name.Space+a.Name.Local+a.Value);err!=nil{return nil,err};r.budget.attrs++;if seen[a.Name]{return nil,fmt.Errorf("Duplicate XML attribute")};seen[a.Name]=true;event.attrs=append(event.attrs,a)}
       r.stack=append(r.stack,srlXmlInputFrame{value.Name,changes});if err:=r.identityEvent(event);err!=nil{return nil,err};return event,nil
     case srlxml.EndElement:
       if len(r.stack)==0||r.stack[len(r.stack)-1].raw!=value.Name{return nil,fmt.Errorf("Unexpected XML end")};frame:=r.stack[len(r.stack)-1];if err:=r.identityEvent(&srlXmlInputToken{kind:'e'});err!=nil{return nil,err};r.stack=r.stack[:len(r.stack)-1]
@@ -212,28 +217,43 @@ type srlXmlOutput struct { budget srlXmlBudget; mapLimits XmlMapLimits; mixedLim
 // Create operation-local output; no model value or descendant node is retained.
 func srlXmlOutputStart(limits XmlLimits,maps ...XmlMapLimits)*srlXmlOutput { mapLimits:=DefaultXmlMapLimits();if len(maps)!=0{mapLimits=maps[0]};result:=&srlXmlOutput{budget:srlXmlBudget{limits:limits},mapLimits:mapLimits,mixedLimits:DefaultXmlMixedLimits(),identityLimits:DefaultXmlIdentityLimits(),digestLimits:DefaultXmlDigestLimits(),extensionOptions:DefaultXmlExtensionOptions(),sink:srlXmlSink{maximum:limits.MaxBytes}};result.encoder=srlxml.NewEncoder(&result.sink);return result }
 // Flush attributes before the first child or scalar text token.
-func (w *srlXmlOutput) seal()error { if len(w.stack)==0{return nil};frame:=&w.stack[len(w.stack)-1];if !frame.pending{return nil};if frame.start.Name.Space==""&&frame.inherited!=""{frame.start.Attr=append(frame.start.Attr,srlxml.Attr{Name:srlxml.Name{Local:"xmlns"},Value:""})};if err:=w.identityStart(frame);err!=nil{return err};frame.pending=false;return w.encoder.EncodeToken(frame.start) }
+func (w *srlXmlOutput) seal()error { if len(w.stack)==0{return nil};frame:=&w.stack[len(w.stack)-1];if !frame.pending{return nil};if frame.start.Name.Space!=""{if err:=w.budget.namespaceValue("",frame.start.Name.Space);err!=nil{return err}};if frame.start.Name.Space==""&&frame.inherited!=""{if err:=w.budget.namespaceValue("","");err!=nil{return err};frame.start.Attr=append(frame.start.Attr,srlxml.Attr{Name:srlxml.Name{Local:"xmlns"},Value:""})};if err:=w.identityStart(frame);err!=nil{return err};frame.pending=false;return w.encoder.EncodeToken(frame.start) }
 // Admit one start token before retaining its bounded pending tag.
 func (w *srlXmlOutput) open(name srlxml.Name)error { w.budget.field=name.Local;if err:=w.budget.charge("allocation",128);err!=nil{return err}; if len(w.stack)!=0&&w.stack[len(w.stack)-1].scoped{return w.openScoped(name,nil)}; if len(w.stack)>=w.budget.limits.MaxDepth{return srlXmlLimitError("XML depth limit exceeded")};if w.budget.nodes>=w.budget.limits.MaxNodes{return srlXmlLimitError("XML node limit exceeded")};if err:=w.budget.textValue(name.Space+name.Local);err!=nil{return err};if err:=w.seal();err!=nil{return err};inherited:="";manual:=false;if len(w.stack)!=0{parent:=&w.stack[len(w.stack)-1];inherited=parent.start.Name.Space;manual=parent.manual};w.budget.nodes++;w.stack=append(w.stack,srlXmlOutputFrame{start:srlxml.StartElement{Name:name},expanded:name,pending:true,inherited:inherited,manual:manual});return nil }
-// Add a statically bound attribute while its start token remains pending.
+// Select a stable short alias from the namespace locator, retaining the provider's usual basename policy.
+func srlXmlAttributePrefix(uri string)string{
+  prefix:=strings.TrimRight(uri,"/");if index:=strings.LastIndex(prefix,"/");index>=0{prefix=prefix[index+1:]}
+  if !srlXmlExtensionNcName(prefix){prefix="_"}
+  if len(prefix)>=3&&strings.EqualFold(prefix[:3],"xml"){prefix="_"+prefix}
+  return prefix
+}
+// Add a statically bound attribute while its start token remains pending, reusing inherited aliases.
 func (w *srlXmlOutput) attribute(name srlxml.Name,text string)error {
   w.budget.field=name.Local;if err:=w.budget.charge("allocation",96);err!=nil{return err}
-  if len(w.stack)==0||!w.stack[len(w.stack)-1].pending{return fmt.Errorf("XML attribute follows content")};if w.budget.attrs>=w.budget.limits.MaxAttributes{return srlXmlLimitError("XML attribute limit exceeded")};if err:=w.budget.textValue(name.Space+name.Local+text);err!=nil{return err};frame:=&w.stack[len(w.stack)-1]
+  if len(w.stack)==0||!w.stack[len(w.stack)-1].pending{return fmt.Errorf("XML attribute follows content")};frame:=&w.stack[len(w.stack)-1]
+  if name.Space=="xmlns"||name.Space==""&&(name.Local=="xmlns"||strings.HasPrefix(name.Local,"xmlns:")){prefix:=name.Local;if name.Space==""{prefix=strings.TrimPrefix(prefix,"xmlns:");if prefix=="xmlns"{prefix=""}};if err:=w.budget.namespaceValue(prefix,text);err!=nil{return err};local:="xmlns";if prefix!=""{local+=":"+prefix};frame.start.Attr=append(frame.start.Attr,srlxml.Attr{Name:srlxml.Name{Local:local},Value:text});return nil}
+  if w.budget.attrs>=w.budget.limits.MaxAttributes{return srlXmlLimitError("XML attribute limit exceeded")};if err:=w.budget.textValue(name.Space+name.Local+text);err!=nil{return err}
   if len(w.identities)!=0&&name.Space!="xmlns"&&!strings.HasPrefix(name.Local,"xmlns:")&&name.Local!="xmlns"{if frame.identityAttributes==nil{frame.identityAttributes=make(map[string]string)};frame.identityAttributes[srlXmlIdentityName(name)]=text}
+  if !frame.manual&&name.Space!=""{
+    prefix,exists:=w.extensionMatchingPrefix(name.Space,nil,true)
+    if !exists{prefix=w.extensionPrefix(srlXmlAttributePrefix(name.Space),name.Space,nil)}
+    if err:=w.extensionDeclare(prefix,name.Space);err!=nil{return err}
+    name=srlxml.Name{Local:prefix+":"+name.Local}
+  }
   if frame.manual{
     if frame.attributes==nil{frame.attributes=make(map[srlxml.Name]bool)};if frame.attributes[name]{return fmt.Errorf("Duplicate XML attribute")};frame.attributes[name]=true
     if name.Space!=""{
       prefix:="xml"
       if name.Space!="http://www.w3.org/XML/1998/namespace"{
         if frame.scoped{var exists bool;prefix,exists=w.extensionMatchingPrefix(name.Space,nil,true);if !exists{prefix=w.extensionPrefix("a",name.Space,nil)};if err:=w.extensionDeclare(prefix,name.Space);err!=nil{return err}}else{
-        prefix="a"+strconv.Itoa(len(frame.start.Attr));if w.budget.attrs+1>=w.budget.limits.MaxAttributes{return srlXmlLimitError("XML namespace limit exceeded")};if err:=w.budget.textValue(prefix+name.Space);err!=nil{return err};w.budget.attrs++
+        prefix="a"+strconv.Itoa(len(frame.start.Attr));if w.budget.attrs+1>=w.budget.limits.MaxAttributes{return srlXmlLimitError("XML namespace limit exceeded")};if err:=w.budget.namespaceValue(prefix,name.Space);err!=nil{return err}
         frame.start.Attr=append(frame.start.Attr,srlxml.Attr{Name:srlxml.Name{Local:"xmlns:"+prefix},Value:name.Space})
         }
       }
       name=srlxml.Name{Local:prefix+":"+name.Local}
     }
   }else{for _,attribute:=range frame.start.Attr{if attribute.Name==name{return fmt.Errorf("Duplicate XML attribute")}}}
-  w.budget.attrs++;frame.start.Attr=append(frame.start.Attr,srlxml.Attr{Name:name,Value:text});return nil
+  if w.budget.attrs>=w.budget.limits.MaxAttributes{return srlXmlLimitError("XML attribute limit exceeded")};w.budget.attrs++;frame.start.Attr=append(frame.start.Attr,srlxml.Attr{Name:name,Value:text});return nil
 }
 // Keep typed-subgraph namespace prefixes under one owner so encoder aliases cannot shadow QName values.
 func (w *srlXmlOutput) typeName(identity srlxml.Name)error{
@@ -257,19 +277,16 @@ func (w *srlXmlOutput) close()error { if len(w.stack)==0{return fmt.Errorf("Unex
 func (w *srlXmlOutput) finish()([]byte,error) { if len(w.stack)!=0||len(w.identities)!=0{return nil,fmt.Errorf("Incomplete XML output or identity scope")};if err:=w.encoder.Flush();err!=nil{return nil,err};return []byte(w.sink.text.String()),nil }
 // Emit deterministic data XML without a private envelope or external resources.
 func srlXmlWrite(node *srlXmlNode, limits XmlLimits)([]byte,error) {
-  sink:=srlXmlSink{maximum:limits.MaxBytes}; output:=srlxml.NewEncoder(&sink)
-  var visit func(*srlXmlNode,int,string)error
-  visit=func(n *srlXmlNode,depth int,inheritedNamespace string)error {
-    if depth>limits.MaxDepth { return srlXmlLimitError("XML depth limit exceeded") }
-    start:=srlxml.StartElement{Name:n.name,Attr:n.attrs}
-    // encoding/xml does not reset an inherited default namespace for empty Name.Space.
-    if n.name.Space==""&&inheritedNamespace!="" { start.Attr=append(start.Attr,srlxml.Attr{Name:srlxml.Name{Local:"xmlns"},Value:""}) }
-    if err:=output.EncodeToken(start); err!=nil { return err }
-    if err:=output.EncodeToken(srlxml.CharData(n.text)); err!=nil { return err }
-    for _,child:=range n.children { if err:=visit(child,depth+1,n.name.Space); err!=nil { return err } }
-    return output.EncodeToken(start.End())
+  output:=srlXmlOutputStart(limits)
+  var visit func(*srlXmlNode)error
+  visit=func(n *srlXmlNode)error {
+    if err:=output.open(n.name);err!=nil{return err}
+    for _,attribute:=range n.attrs{if err:=output.attribute(attribute.Name,attribute.Value);err!=nil{return err}}
+    if err:=output.text(n.text);err!=nil{return err}
+    for _,child:=range n.children { if err:=visit(child);err!=nil{return err} }
+    return output.close()
   }
-  if err:=visit(node,1,""); err!=nil { return nil,err }; if err:=output.Flush(); err!=nil { return nil,err }; return []byte(sink.text.String()),nil
+  if err:=visit(node);err!=nil{return nil,err};return output.finish()
 }
 type srlXmlFields struct { node *srlXmlNode; next int; attrs map[srlxml.Name]bool }
 // Require element-only record content before any field is decoded.

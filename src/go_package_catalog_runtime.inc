@@ -131,7 +131,7 @@ func srlPackageReadOPC(archive *SerializerPackageZipReader,state *srlPackageStat
       for _,child:=range tree.root.children {
         if !srlPackageNamed(child,srlPackageRelationshipNamespace,"Relationship") { return srlPackageFailure(SerializerPackageInvalidMetadata,"Invalid relationship declaration",item.name) }
         if failure=srlPackageAttributes(child,item.name,"Id","Type","Target","TargetMode");failure!=nil { return failure }
-        mode:="Internal";if text,found:=child.attributes[srlPackageXML.Name{Local:"TargetMode"}];found { mode=srlPackageCollapse(text) }
+        mode:="Internal";if text,found:=child.attributes[srlPackageXML.Name{Local:"TargetMode"}];found { mode=text }
         if mode!="Internal"&&mode!="External" { return srlPackageFailure(SerializerPackageInvalidRelationship,"Invalid TargetMode",item.name) }
         id,failure:=srlPackageAttribute(child,"Id",item.name);if failure!=nil { return failure };kind,failure:=srlPackageAttribute(child,"Type",item.name);if failure!=nil { return failure };target,failure:=srlPackageAttribute(child,"Target",item.name);if failure!=nil { return failure }
         if failure=opc.reserve(256+int64(len(item.source)+len(id)+len(kind)+len(target)),item.name);failure!=nil { return failure }

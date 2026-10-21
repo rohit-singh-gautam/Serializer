@@ -230,7 +230,7 @@ R"packagejs(      for (let bit = 0; bit < 8; ++bit) value = value >>> 1 ^ (value
             if (flags & ~0x80e) throw new PackageError(Code.Unsupported, 'Encrypted or unsupported ZIP flags');
             if (u16(central, at + 6) > 45) throw new PackageError(Code.Unsupported, 'Unsupported ZIP extraction version');
             admitCompression(method, this.options.compressionProvider);
-            if (extent > central.length - at) throw new PackageError(Code.InvalidArchive, 'Truncated central entry payload');
+            if (extent > 65535 || extent > central.length - at) throw new PackageError(Code.InvalidArchive, 'Truncated central entry payload');
             const rawName = central.slice(at + 46, at + 46 + nameSize), name = zipName(decodeName(rawName, flags));
             this.budget.consume('decoderAllocationBytes', nameSize * 3 + 256, name);
             if (names.has(name)) throw new PackageError(Code.InvalidArchive, 'Duplicate physical ZIP entry', name);
@@ -242,15 +242,16 @@ R"packagejs(      for (let bit = 0; bit < 8; ++bit) value = value >>> 1 ^ (value
             if (disk) throw new PackageError(Code.Unsupported, 'Split ZIP entry is unsupported', name);
             if (expanded > this.budget.limits.maxPartBytes) throw new PackageError(Code.ResourceLimit, 'Declared part extent exceeds limit', name);
             if (local > centralStart || 30 > centralStart - local) throw new PackageError(Code.InvalidArchive, 'Local header overlaps central directory', name);
-            const entry = {name, method: method === 8 ? 'deflate' : 'stored', flags, compressedBytes: compressed, expandedBytes: expanded, crc32: u32(central, at + 16), headerOffsetBytes: local, zip64Sizes, creatorSystem: central[at + 5], externalAttributes: u32(central, at + 38), rawName};
+            const entry = {name, method: method === 8 ? 'deflate' : 'stored', flags, compressedBytes: compressed, expandedBytes: expanded, crc32: u32(central, at + 16), headerOffsetBytes: local, zip64Sizes, creatorSystem: central[at + 5], externalAttributes: u32(central, at + 38), versionNeeded: u16(central, at + 6), dosTime: u16(central, at + 12), dosDate: u16(central, at + 14), rawName};
             entries.push(entry); names.set(name, entry); at += extent;
           }
-          if (at !== central.length) throw new PackageError(Code.InvalidArchive, 'Unclaimed central directory bytes');
+          // Consume the optional directory signature record without treating it as an OPC XML signature.
+          if (at !== central.length && (central.length - at < 6 || u32(central, at) !== 0x05054b50 || u16(central, at + 4) !== central.length - at - 6)) throw new PackageError(Code.InvalidArchive, 'Unclaimed central directory bytes');
         } finally { releaseCentral(); }
         const ranges = [];
         for (const entry of entries) {
           this.poll(); const local = await this.readAt(entry.headerOffsetBytes, 30);
-          if (u32(local, 0) !== signature.local || u16(local, 6) !== entry.flags || u16(local, 8) !== (entry.method === 'deflate' ? 8 : 0)) throw new PackageError(Code.InvalidArchive, 'Conflicting local header', entry.name);
+          if (u32(local, 0) !== signature.local || u16(local, 4) > 45 || u16(local, 10) !== entry.dosTime || u16(local, 12) !== entry.dosDate || u16(local, 6) !== entry.flags || u16(local, 8) !== (entry.method === 'deflate' ? 8 : 0)) throw new PackageError(Code.InvalidArchive, 'Conflicting local header', entry.name);
           const nameSize = u16(local, 26), extraSize = u16(local, 28), start = entry.headerOffsetBytes + 30;
           if (start > centralStart || nameSize + extraSize > centralStart - start) throw new PackageError(Code.InvalidArchive, 'Local name or extra overlaps central directory', entry.name);
           const raw = await this.readAt(start, nameSize + extraSize);
@@ -276,7 +277,7 @@ R"packagejs(            const width = descriptorWide ? 8 : 4, length = 4 + width
             else if (u32(bytes, 0) === signature.descriptor && matches(4)) dataEnd += length + 4;
             else throw new PackageError(Code.Integrity, 'Conflicting ZIP descriptor', entry.name);
           }
-          delete entry.rawName; entry.dataOffsetBytes = dataStart; Object.freeze(entry); ranges.push([entry.headerOffsetBytes, dataEnd]);
+          delete entry.rawName; delete entry.versionNeeded; delete entry.dosTime; delete entry.dosDate; entry.dataOffsetBytes = dataStart; Object.freeze(entry); ranges.push([entry.headerOffsetBytes, dataEnd]);
         }
         ranges.sort((a, b) => a[0] - b[0]); for (let i = 1; i < ranges.length; ++i) if (ranges[i][0] < ranges[i - 1][1]) throw new PackageError(Code.InvalidArchive, 'Overlapping ZIP local extents');
         this.poll(); this.entries = Object.freeze(entries); this.byName = names;

@@ -417,6 +417,7 @@ class python_xml_rich_test(unittest.TestCase):
             public array<string> defaults(3) xml(attribute,list);
             public optional<array<string>> fixed_names(4) xml(attribute,list);
             public array<string> empty(5) xml(attribute,list);
+            public optional<string> category(6) xml(attribute,qname);
           }
           class text_sample { public string value xml(text); }
           class fixed_text { public string value xml(text); }
@@ -428,7 +429,7 @@ class python_xml_rich_test(unittest.TestCase):
           <xs:simpleType name="Allowed"><xs:restriction base="t:Names">
             <xs:enumeration value="q:élément local q:second"/>
           </xs:restriction></xs:simpleType>
-          <xs:simpleType name="Choice"><xs:union memberTypes="t:Allowed xs:unsignedShort"/></xs:simpleType>
+          <xs:simpleType name="Choice"><xs:union memberTypes="t:Allowed xs:unsignedShort xs:string"/></xs:simpleType>
           <xs:element name="sample"><xs:complexType><xs:sequence>
             <xs:element name="values" type="t:Allowed" default="q:élément local q:second"/>
             <xs:element name="choice" type="t:Choice"/>
@@ -436,6 +437,7 @@ class python_xml_rich_test(unittest.TestCase):
             <xs:attribute name="defaults" type="t:Names" default="q:élément local q:second"/>
             <xs:attribute name="fixed_names" type="t:Names" fixed="q:élément local q:second"/>
             <xs:attribute name="empty" type="t:Names" default=""/>
+            <xs:attribute name="category" type="xs:QName"/>
           </xs:complexType></xs:element>
           <xs:element name="text_sample" default="q:élément q:second"><xs:complexType>
             <xs:simpleContent><xs:extension base="t:Names"/></xs:simpleContent>
@@ -507,13 +509,19 @@ class python_xml_rich_test(unittest.TestCase):
         with self.assertRaises(RuntimeError) as failure:
             module._xml_checked('p:élément local p:second', rule, {'p': 'urn:allowed'}, context())
         self.assertIs(failure.exception, marker)
-        # A schema no-namespace default cannot reset another field's active
-        # default scope. Keep this combination gated until per-attribute scopes
-        # can preserve all of those values together.
-        active_default = template.format(attributes='', scope='', values='', choice='1').replace(
+        # A schema no-namespace default uses its own scope; another attribute's
+        # unprefixed QName and an unbound union string retain their original identities.
+        active_default = template.format(attributes='category="Name"', scope='', values='', choice='q0:literal').replace(
             'xmlns:q="urn:shadow"', 'xmlns:q="urn:shadow" xmlns="urn:active"').encode()
-        with self.assertRaisesRegex(ValueError, 'no-namespace items'):
-            module.QnameListsSample.decode_xml(active_default)
+        value = module.QnameListsSample.decode_xml(active_default)
+        self.assertEqual(value.category, ('Name',))
+        before = value.encode(module.Protocol.BINARY_NONE)
+        root = provider.fromstring(value.encode_xml())
+        self.assertEqual(identities(root.attrib['category'], root.nsmap), (('urn:active', 'Name'),))
+        self.assertEqual(identities(root.attrib['defaults'], root.nsmap), identity)
+        self.assertEqual(root[1].text, 'q0:literal')
+        self.assertNotIn('q0', root[1].nsmap)
+        self.assertEqual(value.encode(module.Protocol.BINARY_NONE), before)
         for local, cls in (('text_sample', module.QnameListsTextSample), ('fixed_text', module.QnameListsFixedText)):
             data = ('<t:' + local + ' xmlns:t="urn:qname-lists" xmlns:q="urn:shadow"/>').encode()
             value = cls.decode_xml(data)
@@ -538,6 +546,27 @@ class python_xml_rich_test(unittest.TestCase):
             if local == 'fixed_text':
                 value.value = 'q:élément q:second'
                 with self.assertRaisesRegex(ValueError, 'fixed QName list'): value.encode_xml()
+
+    def test_list_and_scalar_defaults_use_independent_root_scopes(self):
+        """Keep no-namespace and qualified scalar defaults from rebinding a sibling union fallback."""
+        from lxml import etree as provider
+        target = self.directory / 'shared_qname_defaults.py'
+        subprocess.run([str(self.compiler), '--language', 'python', '--input',
+                        str(ROOT / 'test/resources/xml_qname_lists/model.serializer'),
+                        '--python.output', str(target)], check=True)
+        module = load_module(target, 'serializer_shared_qname_defaults')
+        source = b'<t:root_scalar_default xmlns:t="urn:qname-lists" xmlns="urn:active" xmlns:q="urn:shadow" fallback="q0:literal"/>'
+        owner = module.QnameListsRootScalarDefault.decode_xml(source)
+        self.assertEqual(owner.category, ('local',))
+        self.assertEqual(owner.fallback, ('q0:literal',))
+        before = [owner.encode(protocol) for protocol in module.Protocol]
+        emitted = provider.fromstring(owner.encode_xml())
+        self.assertNotIn('q0', emitted.nsmap)
+        self.assertEqual(emitted.get('category'), 'local')
+        self.assertFalse(emitted.nsmap.get(None, ''))
+        prefix, local = emitted.get('qualified').split(':')
+        self.assertEqual((emitted.nsmap[prefix], local), ('urn:allowed', 'value'))
+        self.assertEqual([owner.encode(protocol) for protocol in module.Protocol], before)
 
     def test_qname_list_schema_amplification_rejects_before_publication(self):
         """Bound repeated expanded URI storage independently of small lexical schema inputs."""

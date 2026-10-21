@@ -16,6 +16,11 @@ import zipfile
 
 import package_zip64_test as wide_zip
 import python_package_test as independent
+import package_annex_b_corpus as annex_b
+import package_mce_corpus as mce_corpus
+import package_opc_uri_corpus as uri_corpus
+import package_iri_corpus as iri_corpus
+import package_utf16_corpus as utf16_corpus
 
 ROOT = Path(__file__).resolve().parent.parent
 MODEL_MIME = independent.MODEL_MIME
@@ -287,6 +292,18 @@ def build_fixtures(directory):
     path = directory / 'discarded-integrity.zip'
     path.write_bytes(data)
     rows.append(('discarded-integrity', 'package', path.name, 'INVALID_ARCHIVE,INTEGRITY', '', ''))
+    for label, data, accepted in annex_b.cases():
+        raw(label, data, 'data.bin', annex_b.PAYLOAD, 'OK' if accepted else 'INVALID_ARCHIVE')
+    for label, data, accepted in mce_corpus.cases():
+        filename = label + '.zip'; (directory / filename).write_bytes(data)
+        rows.append((label,'package',filename,'OK' if accepted else 'INVALID_METADATA','','independent'))
+    for module, operation in ((uri_corpus,'package'),(iri_corpus,'preserve')):
+        for label, data, accepted in module.cases():
+            filename = label + '.zip'; (directory / filename).write_bytes(data)
+            rows.append((label,operation,filename,'OK' if accepted else 'ANY','','independent'))
+    for label,parts,accepted in utf16_corpus.cases(independent.independent_parts()):
+        filename = label + '.zip'; (directory / filename).write_bytes(independent.independent_zip(parts))
+        rows.append((label,'package',filename,'OK' if accepted else 'ANY','','independent'))
     (directory / 'cases.tsv').write_text(''.join('\t'.join(row) + '\n' for row in rows), encoding='utf-8')
     return rows
 
@@ -321,6 +338,7 @@ public final class Main {
   private static void code(Throwable observed,String expected) {
     String actual=observed instanceof PKG.PackageError value?value.code.name():observed instanceof Parameterized.SerializerPackage.PackageError value?value.code.name():null;
     require(actual!=null,"Missing package diagnostic: "+observed);
+    if(expected.equals("ANY"))return;
     require(Arrays.asList(expected.split(",")).contains(actual),"Expected "+expected+"; got "+actual+": "+observed);
   }
   /** Relax only count/offset policy for real 65K counts and small segmented large-offset fixtures. */

@@ -64,7 +64,7 @@ R"packagejava(
       String name=item.getKey(),source=item.getValue();if(!source.equals("/")&&!result.parts.containsKey(fold(source)))throw error(Code.MISSING_PART,"Relationship-part source is missing",name);
       for(Node child:declarations(archive.read(name.substring(1)),RELS,"Relationships",name,state,true)) {
         if(!named(child,RELS,"Relationship"))throw error(Code.INVALID_METADATA,"Invalid relationship declaration",name);
-        attributes(child,name,"Id","Type","Target","TargetMode");String mode=child.attributes.get(new QName("","TargetMode"));mode=mode==null?"Internal":collapse(mode);
+        attributes(child,name,"Id","Type","Target","TargetMode");String mode=child.attributes.get(new QName("","TargetMode"));mode=mode==null?"Internal":mode;
         if(!(mode.equals("Internal")||mode.equals("External")))throw error(Code.INVALID_RELATIONSHIP,"Invalid TargetMode",name);
         links.add(new Relationship(source,attribute(child,"Id",name),attribute(child,"Type",name),attribute(child,"Target",name),fold(mode)));
       }

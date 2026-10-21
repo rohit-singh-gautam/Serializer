@@ -90,7 +90,10 @@ inline std::string js_translator_xml_methods(const class_node& target, const rec
       "const output=new SrlXmlWriter(limits);const split=meta.root.indexOf(String.fromCharCode(0));"
       "srlXmlTokenWrite(this,meta,output,meta.root.slice(split+1),meta.root.slice(0,split));";
   if (!options.runtime_xsd) { result += "if(validator)throw new Error('Runtime XSD was not enabled during generation');"; }
-  else if (options.validation_scope != "input") { result += "if(validator)validator.validate(output.text);"; }
+  else if (options.validation_scope != "input") {
+    result += "if(validator){if(limits.operation)limits.operation('work',0,'');validator.validate(output.text);"
+        "if(limits.operation)limits.operation('work',0,'');}";
+  }
   return result + "return output.text; }\n";
 }
 

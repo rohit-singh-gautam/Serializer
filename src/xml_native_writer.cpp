@@ -1119,7 +1119,9 @@ class generator {
     line(select("try self.srlXmlEmit(output, ", "this.srlXmlEmit(output, ") + name(contract.root) + ")");
     line(select("let bytes = try output.finish()", "val bytes = output.finish()"));
     if (options_.runtime_xsd && options_.validation_scope != "input") {
+      line(select("try limits.srlPackageCheck?()", "limits.srlPackageContext?.charge(\"work\",0)"));
       line(select("try validator?.validate(bytes, limits)", "validator?.validate(bytes, limits)"));
+      line(select("try limits.srlPackageCheck?()", "limits.srlPackageContext?.charge(\"work\",0)"));
     }
     line("return bytes");
     close();
@@ -1132,7 +1134,9 @@ class generator {
     } else {
     if (swift_) { line("var extensionOptions=extensionOptions;extensionOptions.srlPackageLimit=limits.srlPackageLimit\ntry mapLimits.validate(); try mixedLimits.validate(); try digestLimits.validate(); try identityLimits.validate(); try extensionOptions.validate()"); }
     if (options_.runtime_xsd && options_.validation_scope != "output") {
+      line(select("try limits.srlPackageCheck?()", "limits.srlPackageContext?.charge(\"work\",0)"));
       line(select("try validator?.validate(bytes, limits)", "validator?.validate(bytes, limits)"));
+      line(select("try limits.srlPackageCheck?()", "limits.srlPackageContext?.charge(\"work\",0)"));
     }
     if (swift_) {
       line("return try srlXmlDecodeTokens(bytes, limits, " + name(contract.root) + ", mapLimits, mixedLimits, digestLimits, identityLimits, extensionOptions, " + model_name + ".srlXmlFrame)");
@@ -1254,7 +1258,11 @@ class generator {
     line(select("let output = try ", "val output = ") + "SrlXmlOutput(limits, mapLimits, mixedLimits, digestLimits, identityLimits, extensionOptions)");
     line(select("try self.srlXmlEmit(output, ", "this.srlXmlEmit(output, ") + name(contract.root) + ')');
     line(select("let bytes = try output.finish()", "val bytes = output.finish()"));
-    if (options_.runtime_xsd && options_.validation_scope != "input") { line(select("try validator?.validate(bytes, limits)", "validator?.validate(bytes, limits)")); }
+    if (options_.runtime_xsd && options_.validation_scope != "input") {
+      line(select("try limits.srlPackageCheck?()", "limits.srlPackageContext?.charge(\"work\",0)"));
+      line(select("try validator?.validate(bytes, limits)", "validator?.validate(bytes, limits)"));
+      line(select("try limits.srlPackageCheck?()", "limits.srlPackageContext?.charge(\"work\",0)"));
+    }
     line("return bytes"); close();
     mobile_emit_method(target, contract, view);
     if (swift_) { close(); }
@@ -1456,7 +1464,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
     }
     if (!field.attribute && !field.text) {
       line("if (!srl_xml_operation_node(out,operation)) { return false; }");
-    line("if (++out->nodes > out->limits.max_elements || out->writer.depth >= out->limits.max_depth || xmlTextWriterStartElementNS(writer, " +
+    line("if (++out->nodes > out->limits.max_elements || out->writer.depth >= out->limits.max_depth || srl_xml_start_element(writer,out, " +
            std::string{field.qualified_name.namespace_uri.empty() ? "NULL" : "BAD_CAST \"srl\""} + ", BAD_CAST " + quote(field.qualified_name.local) + ", " +
            (field.qualified_name.namespace_uri.empty() ? "NULL" : "BAD_CAST " + quote(field.qualified_name.namespace_uri)) + ") < 0) { return false; }");
       line("if (!srl_xml_operation_output_type(writer,out,operation)) { return false; }");
@@ -1566,7 +1574,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
     line(c_map_key_size(map, helper + "_key_size", [&](const type_name& value) { return type(value); }));
     open("static inline bool " + helper + "_entry(xmlTextWriterPtr writer, srl_xml_output* out, const " + map_storage(field) + "_entry* entry,srl_xml_operation* operation)");
     line("if (!srl_xml_operation_node(out,operation)) { return false; }");
-    line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || xmlTextWriterStartElementNS(writer," +
+    line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || srl_xml_start_element(writer,out," +
         std::string{map.entry.namespace_uri.empty() ? "NULL" : "BAD_CAST \"srl\""} + ",BAD_CAST " + quote(map.entry.local) + "," +
         (map.entry.namespace_uri.empty() ? "NULL" : "BAD_CAST " + quote(map.entry.namespace_uri)) + ") < 0) { return false; }");
     auto key = field; key.qualified_name = map.key; key.attribute = map.key_placement == xml_binding::map_key_placement::attribute;
@@ -1589,7 +1597,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
   } else {
   line(native_choice_checks(contract, [&](const member& field) { return member_access(field); }, "c"));
   line("if (!srl_xml_operation_node(out,operation)) { return false; }");
-    line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || xmlTextWriterStartElementNS(writer, *uri ? BAD_CAST \"srl\" : NULL, BAD_CAST local, *uri ? BAD_CAST uri : NULL) < 0) { return false; }");
+    line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || srl_xml_start_element(writer,out, *uri ? BAD_CAST \"srl\" : NULL, BAD_CAST local, *uri ? BAD_CAST uri : NULL) < 0) { return false; }");
   line("if (!srl_xml_operation_output_type(writer,out,operation)) { return false; }");
   if (contract.model.revision) {
     const auto& revision = *contract.model.revision;
@@ -1640,7 +1648,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
           open("if (!" + payload + ".has_value)");
           const auto& element = field.wrapper ? *field.wrapper : field.qualified_name;
           line("if (!srl_xml_operation_node(out,operation)) { return false; }");
-    line("if (++out->nodes > out->limits.max_elements || out->writer.depth >= out->limits.max_depth || xmlTextWriterStartElementNS(writer, " +
+    line("if (++out->nodes > out->limits.max_elements || out->writer.depth >= out->limits.max_depth || srl_xml_start_element(writer,out, " +
               std::string{element.namespace_uri.empty() ? "NULL" : "BAD_CAST \"srl\""} + ", BAD_CAST " + quote(element.local) + ", " +
               (element.namespace_uri.empty() ? "NULL" : "BAD_CAST " + quote(element.namespace_uri)) + ") < 0) { return false; }");
           line("if (!srl_xml_operation_emit_text(operation,writer, out, \"nil\", \"http://www.w3.org/2001/XMLSchema-instance\", \"xsi\", \"true\", sizeof(\"true\")-1) || xmlTextWriterEndElement(writer) < 0) { return false; }");
@@ -1648,7 +1656,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
         }
         if (field.wrapper) {
           line("if (!srl_xml_operation_node(out,operation)) { return false; }");
-    line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || xmlTextWriterStartElementNS(writer, " +
+    line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || srl_xml_start_element(writer,out, " +
               std::string{field.wrapper->namespace_uri.empty() ? "NULL" : "BAD_CAST \"srl\""} + ", BAD_CAST " + quote(field.wrapper->local) + ", " +
               (field.wrapper->namespace_uri.empty() ? "NULL" : "BAD_CAST " + quote(field.wrapper->namespace_uri)) + ") < 0) { return false; }");
         }
@@ -1669,7 +1677,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
       }
       if (field.wrapper) {
         line("if (!srl_xml_operation_node(out,operation)) { return false; }");
-    line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || xmlTextWriterStartElementNS(writer, " +
+    line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || srl_xml_start_element(writer,out, " +
             std::string{field.wrapper->namespace_uri.empty() ? "NULL" : "BAD_CAST \"srl\""} + ", BAD_CAST " + quote(field.wrapper->local) + ", " +
             (field.wrapper->namespace_uri.empty() ? "NULL" : "BAD_CAST " + quote(field.wrapper->namespace_uri)) + ") < 0) { return false; }");
       }
@@ -2041,7 +2049,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
   const auto validator_parameter = options_.runtime_xsd ? ", const srl_xml_validation* validation" : "";
   open("static inline srl_status srl_xml_operation_encode_" + n + "(const " + n + "* value, srl_buffer* result, const srl_limits* limits" + validator_parameter + ", const srl_xml_map_limits* map_limits, const srl_xml_mixed_limits* mixed_limits, const srl_xml_digest_limits* digest_limits, const srl_xml_identity_limits* identity_limits, bool check_identity, const srl_limits* transport_limits,srl_xml_operation* operation)");
   if (options_.runtime_xsd && options_.validation_scope == "input") { line("(void)validation;"); }
-  line("if (!value || !result) { return srl_invalid; } srl_xml_output out = {0}; out.limits = limits ? *limits : srl_default_limits();");
+  line("if (!value || !result) { return srl_invalid; } srl_xml_output out = {0}; out.limits = limits ? *limits : srl_default_limits(); out.operation=operation;");
   line("/* Bound private namespace framing independently; modeled strings/lists retain the original limits. */");
   line("out.framing_bytes = transport_limits ? transport_limits->max_bytes : out.limits.max_bytes;");
   line("out.map_limits = map_limits ? *map_limits : srl_xml_default_map_limits();");
@@ -2050,7 +2058,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
   line("srl_xml_operation_select(operation," + quote(source.get_full_name()) + ");if(!srl_xml_operation_check(operation)){return srl_invalid;}");
   line("srl_xml_operation_output output_operation={&out,operation};xmlOutputBufferPtr buffer = xmlOutputBufferCreateIO(operation?srl_xml_operation_output_write:srl_xml_output_write, srl_xml_output_close, operation?(void*)&output_operation:(void*)&out, NULL); if (!buffer) { return srl_xml_operation_fail(operation,srl_allocation); }");
   line("xmlTextWriterPtr writer = xmlNewTextWriter(buffer); if (!writer) { xmlOutputBufferClose(buffer); return srl_xml_operation_fail(operation,srl_allocation); }");
-  line("const bool good = srl_xml_operation_write_" + n + "(writer, &out, value, " + quote(contract.root.local) + ", " + quote(contract.root.namespace_uri) + ",operation) && xmlTextWriterFlush(writer) >= 0; xmlFreeTextWriter(writer);");
+  line("const bool good = srl_xml_operation_write_" + n + "(writer, &out, value, " + quote(contract.root.local) + ", " + quote(contract.root.namespace_uri) + ",operation) && xmlTextWriterFlush(writer) >= 0; xmlFreeTextWriter(writer); free(out.bindings);");
   line("if (!good || out.writer.status != srl_ok) { srl_buffer_free(&out.writer.buffer); return srl_xml_operation_fail(operation,out.writer.status == srl_ok ? srl_invalid : out.writer.status); }");
   line("if(operation){const srl_status observed=srl_xml_operation_observe_output(out.writer.buffer.data,out.writer.buffer.size," + identity_identifier + ",sizeof(" + identity_identifier + ")/sizeof(" + identity_identifier + "[0])," + identity_identifier + "_diagnostics,operation);if(observed!=srl_ok){srl_buffer_free(&out.writer.buffer);return observed;}}");
   line("if (check_identity) { const srl_status identity_status=operation?srl_xml_operation_identity_check_" + n + "(out.writer.buffer.data,out.writer.buffer.size,&out.limits,identity_limits,operation):" + n + "_srl_xml_identity_check(out.writer.buffer.data,out.writer.buffer.size,&out.limits,identity_limits); if(identity_status!=srl_ok) {srl_buffer_free(&out.writer.buffer);return srl_xml_operation_fail(operation,identity_status);} }");

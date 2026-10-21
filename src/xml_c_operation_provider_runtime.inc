@@ -46,13 +46,14 @@ static inline int srl_xml_operation_output_write(void* context,const char* bytes
 /* Admit modeled scalar work; finalized provider bytes supply the single logical XML event pass. */
 static inline bool srl_xml_operation_emit_text(srl_xml_operation* operation,xmlTextWriterPtr writer,srl_xml_output* output,const char* local,const char* uri,const char* prefix,const char* text,size_t size) {
   if(!operation){return srl_xml_emit_text(writer,output,local,uri,prefix,text,size);}
+  if(!srl_xml_output_attribute(output,local,uri,prefix)){srl_xml_operation_fail(operation,output->writer.status);return false;}
   if(size>output->limits.max_string_bytes||output->text_bytes>output->limits.max_bytes||size>output->limits.max_bytes-output->text_bytes){
     output->writer.status=operation?srl_limit:srl_invalid;srl_xml_operation_fail(operation,output->writer.status);return false;
   }
   if(!srl_xml_operation_charge(operation,srl_xml_operation_work,size+1u)){output->writer.status=srl_invalid;return false;}
   if(!srl_xml_operation_characters(operation,text,size)||strlen(text)!=size){output->writer.status=srl_xml_operation_fail(operation,srl_invalid);return false;}
   output->text_bytes+=size;
-  const int written=local?xmlTextWriterWriteAttributeNS(writer,*uri?BAD_CAST srl_xml_namespace_prefix(uri,prefix):NULL,BAD_CAST local,*uri?BAD_CAST uri:NULL,BAD_CAST text):xmlTextWriterWriteString(writer,BAD_CAST text);
+  const int written=local?xmlTextWriterWriteAttributeNS(writer,*uri?BAD_CAST srl_xml_namespace_prefix(uri,prefix):NULL,BAD_CAST local,srl_xml_namespace_uri(uri),BAD_CAST text):xmlTextWriterWriteString(writer,BAD_CAST text);
   return written>=0;
 }
 /* Admit one modeled element before provider output or native depth growth. */
