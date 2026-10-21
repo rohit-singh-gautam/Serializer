@@ -270,7 +270,8 @@ private:
   }
   // Metadata-only decisions also precede any network send or model publication.
   void commit(state_type next, std::unique_ptr<Store> model = {},
-                std::optional<std::uint64_t> reserved_watermark = {}) {
+                std::optional<std::uint64_t> reserved_watermark = {},
+                bool trusted_replication = false) {
     if (reserved_watermark && (model || *reserved_watermark <= store_.allocated_id_ ||
         *reserved_watermark > std::numeric_limits<id_type>::max())) {
       throw std::invalid_argument{"Invalid native client range reservation"};
@@ -294,7 +295,8 @@ private:
       event.emplace(store_.prepare_publication(publication_kind::load, model->identities_,
                                                 model->current_.get(),
                                                 store_.document_.high != model->document_.high ||
-                                                    store_.document_.low != model->document_.low));
+                                                    store_.document_.low != model->document_.low,
+                                                trusted_replication));
     }
     if constexpr (Store::has_journal) {
       if (store_.journal_state_.sink) {
@@ -498,7 +500,7 @@ private:
       if (!model && allocated != store_.allocated_id_) {
         model = replacement(next, store_.snapshot_, allocated);
       }
-      commit(std::move(next), std::move(model));
+      commit(std::move(next), std::move(model), {}, true);
     }
   }
   // Share one checked operation counter between document submissions and host coordination requests.
@@ -707,7 +709,7 @@ public:
     next.allocated_id = batch.allocated_id;
     next.acknowledged = batch.snapshot;
     auto model = replacement(next, batch.snapshot, batch.allocated_id);
-    commit(std::move(next), std::move(model));
+    commit(std::move(next), std::move(model), {}, true);
   }
 
   // Observe the exact durable cursor; copying it grants no permission to publish native identities.
@@ -980,7 +982,7 @@ public:
       // Keep outstanding bytes as evidence; they must never be submitted to a different epoch.
       auto model = next.pending.empty() ? replacement(next, next.acknowledged, allocated)
                                         : replacement(next, store_.snapshot_, allocated);
-      commit(std::move(next), std::move(model));
+      commit(std::move(next), std::move(model), {}, true);
       return;
     }
     if (!state_->pending.empty() && transaction(*state_, state_->pending.front()).status ==

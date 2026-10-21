@@ -460,17 +460,45 @@ TEST(xsd_import, outer_union_value_constraints_require_selected_member_identity)
   }
 }
 
-// QName list enumeration values need schema-scope item identities even inside a union member.
-TEST(xsd_import, nested_qname_list_enumeration_rejects_without_expanded_item_identities) {
+// Python keeps schema-scope list identities inside union members; unimplemented backends reject.
+TEST(xsd_import, nested_qname_list_enumeration_selects_supported_backend_contracts) {
   import_directory files;
   const auto path = files.write("model.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:q="urn:allowed"><xs:simpleType name="Names"><xs:list itemType="xs:QName"/></xs:simpleType><xs:simpleType name="Allowed"><xs:restriction base="Names"><xs:enumeration value="q:item"/></xs:restriction></xs:simpleType><xs:simpleType name="Value"><xs:union memberTypes="Allowed xs:int"/></xs:simpleType><xs:element name="model"><xs:complexType><xs:attribute name="value" type="Value"/></xs:complexType></xs:element></xs:schema>)");
   const auto imported = binding::import_xsd(path, {"models", {}, "model.xsd"});
   const auto parsed = rohit::serializer::parser::parse_file(files.write("model.serializer", imported.schema_text));
   const auto options = binding::effective_options(parsed.statements, {});
   const auto contract = binding::schema{options}.bind(*model_classes(parsed).front());
-  for (const auto language : {"cpp", "python"}) {
-    EXPECT_THROW(binding::validate_backend(contract, language), std::invalid_argument);
-  }
+  EXPECT_NO_THROW(binding::validate_backend(contract, "python"));
+  EXPECT_THROW(binding::validate_backend(contract, "cpp"), std::invalid_argument);
+  const auto& allowed = contract.fields.front().facets.union_members.front();
+  ASSERT_EQ(allowed.qname_list_enumeration.size(), 1U);
+  ASSERT_EQ(allowed.qname_list_enumeration.front().size(), 1U);
+  EXPECT_EQ(allowed.qname_list_enumeration.front().front(), (rohit::serializer::xml::name{"item", "urn:allowed"}));
+  auto previous = contract;
+  auto current = contract;
+  previous.fields.front().default_value = current.fields.front().default_value = "q:item";
+  previous.fields.front().qname_list_default = std::vector<rohit::serializer::xml::name>{{"item", "urn:before"}};
+  current.fields.front().qname_list_default = std::vector<rohit::serializer::xml::name>{{"item", "urn:after"}};
+  const auto differences = binding::compare_contracts(previous, current);
+  ASSERT_EQ(differences.size(), 1U);
+  EXPECT_EQ(differences.front().message, "Scalar restrictions or default/fixed semantics changed");
+}
+
+// Empty QName-list defaults need no schema namespace identities and retain their existing export path.
+TEST(xsd_import, empty_qname_list_default_keeps_compatible_export) {
+  import_directory files;
+  files.write("model.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:simpleType name="Names"><xs:list itemType="xs:QName"/></xs:simpleType><xs:element name="model"><xs:complexType><xs:attribute name="names" type="Names" default=""/></xs:complexType></xs:element></xs:schema>)");
+  const auto parsed = rohit::serializer::parser::parse_file(files.write("model.serializer",
+      R"(serializer version 1.20.0; namespace models { using schema "model.xsd"; class xsd_model { xml(root("model")); public array<string> names xml(attribute,list); } })"));
+  const auto classes = model_classes(parsed);
+  const binding::schema schema{binding::effective_options(parsed.statements, {})};
+  const auto contract = schema.bind(*classes.front());
+  ASSERT_TRUE(contract.fields.front().qname_list_default.has_value());
+  EXPECT_TRUE(contract.fields.front().qname_list_default->empty());
+  EXPECT_NO_THROW(binding::validate_backend(contract, "cpp"));
+  const auto exported = schema.export_xsd(classes);
+  EXPECT_NE(exported.find("default=\"\""), std::string::npos);
+  EXPECT_NO_THROW((void)rohit::serializer::xml::prepared_schema{exported});
 }
 
 // Both QName and union-QName children generate with runtime namespace projection checks.

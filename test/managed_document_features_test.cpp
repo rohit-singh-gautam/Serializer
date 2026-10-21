@@ -27,6 +27,68 @@ model::document_data initial_document() {
 }
 } // namespace
 
+// Independently managed bases and active variants inherit policy through generated ownership edges.
+TEST(managed_document_features, authorization_on_managed_bases_and_variant_replacement) {
+  document_store store{initial_document()};
+  using permission = managed::authorization_permission;
+  using decision = managed::authorization_decision;
+  const auto root = store.read()->persistent_id;
+  const auto author = static_cast<const model::author_data&>(*store.read()).persistent_id;
+  const auto content = std::get<0>(store.read()->content).persistent_id;
+  managed::authorization_policy policy{{{{root, {}}, permission::content},
+      {{root, {}}, permission::structure}, {{author, {}}, permission::content, decision::deny},
+      {{content, {}}, permission::content, decision::deny}}};
+  store.set_authorization_policy([&](auto, const auto& before, const auto& candidate, bool replaced) {
+    return !replaced && managed::authorize_managed_candidate<document_store::traits_type>(
+        policy, before, candidate, managed::store_options::default_snapshot_bytes);
+  });
+  const auto baseline = store.read();
+  const auto allocated = store.allocated_id();
+  EXPECT_EQ(store.execute_transaction([](auto& tx) { tx.root().author().set_name("Denied"); }).status,
+            managed::transaction_status::failed);
+  EXPECT_EQ(store.execute_transaction([](auto& tx) {
+    tx.root().template emplace_content<1>(model::attachment_data{});
+  }).status, managed::transaction_status::failed);
+  EXPECT_EQ(store.read(), baseline);
+  EXPECT_GT(store.allocated_id(), allocated);
+  store.execute_transaction([](auto& tx) { tx.root().review().set_status("approved"); }).throw_if_failed();
+  EXPECT_EQ(static_cast<const model::review_data&>(*store.read()).status, "approved");
+}
+
+// Ordinary inherited field IDs retain base scopes when authorization selects one field.
+TEST(managed_document_features, authorization_distinguishes_ordinary_base_field_paths) {
+  using store_type = managed::model_store<model::ordinary_bases_document>;
+  store_type store{model::ordinary_bases_document{}};
+  managed::authorization_policy policy{{{{store.read()->persistent_id, {1, 1}},
+                                         managed::authorization_permission::content}}};
+  store.set_authorization_policy([&](auto, const auto& before, const auto& candidate, bool replaced) {
+    return !replaced && managed::authorize_managed_candidate<store_type::traits_type>(
+        policy, before, candidate, managed::store_options::default_snapshot_bytes);
+  });
+  store.execute_transaction([](auto& tx) { tx.root().title_part().set_title("Allowed"); }).throw_if_failed();
+  EXPECT_EQ(store.execute_transaction([](auto& tx) {
+    tx.root().language_part().set_language("fr");
+  }).status, managed::transaction_status::failed);
+}
+
+// Transient edits have a separate complete-candidate policy operation rather than a durable-field grant.
+TEST(managed_document_features, authorization_gates_runtime_updates_separately) {
+  document_store store{initial_document()};
+  bool saw_runtime = false;
+  store.set_authorization_policy([&](auto operation, const auto& before, const auto& candidate, bool) {
+    saw_runtime = operation == managed::authorization_operation::runtime;
+    EXPECT_EQ(before.preview_cache, 0u);
+    EXPECT_EQ(candidate.preview_cache, 42u);
+    return false;
+  });
+  const auto outcome = store.update_runtime([](auto& edit) {
+    edit.update([](auto& value) { value.preview_cache = 42; });
+  });
+  EXPECT_EQ(outcome.status, managed::transaction_status::failed);
+  EXPECT_TRUE(saw_runtime);
+  EXPECT_EQ(store.read()->preview_cache, 0u);
+}
+
 // Managed base occurrences have separate IDs while sharing one atomic history.
 TEST(managed_document_features, private_fields_and_independent_base_identities) {
   document_store store{initial_document()};

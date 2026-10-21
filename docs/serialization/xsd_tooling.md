@@ -121,8 +121,19 @@ comparison rules.
 
 Python supports namespace-independent outer union enumeration/fixed constraints;
 other backend and namespace-dependent combinations retain their capability gates.
-Namespace-dependent union defaults and QName-list enumeration/fixed values still
-reject. C++ and Python scalar children retain occurrence-specific namespace scopes
+Python also supports QName-list enumeration, defaults and fixed values, including
+an enumerated list inside a union member. Schema values retain ordered expanded
+item identities, so instance prefix aliases and shadowed schema prefixes do not
+change acceptance. Empty lists and no-namespace items are distinct, and defaults
+generate declarations in the field's own scope. Native lexical strings, arrays
+and wire protocols retain their contracts. A schema default/fixed list containing
+no-namespace items rejects when the instance has an active nonempty default
+namespace; this avoids resetting other fields' QName scopes. Other backends keep their existing
+QName-list restriction gates. Namespace-dependent outer union restrictions and
+union defaults still reject, as does exporting these schema-scope QName-list
+constraints. See the [QName-list qualification](../verification/verification-qname-lists-2026-10-21.md).
+
+C++ and Python scalar children retain occurrence-specific namespace scopes
 for QName, QName-list, prefix-list and nested union values, including child-local
 declarations, shadowing and default-namespace resets. Native strings and wire
 codecs remain independent of this XML-only state. Applications editing or

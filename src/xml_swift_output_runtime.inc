@@ -76,8 +76,8 @@ fileprivate final class SrlXmlOutput {
         try append("<" + local)
         if !name.namespace.isEmpty && prefix != "xml" { bindings[WireString(prefix)]=name.namespace }
         if preservedScope == nil {
-            if !name.namespace.isEmpty && prefix != "xml" { try append(" xmlns:"+prefix+"=\""+srlXmlEscape(name.namespace,true)+"\"") }
-            if bindings[WireString("")] != nil { try append(" xmlns=\"\"") }
+            if !name.namespace.isEmpty && prefix != "xml" { try budget.node(stack.count+1); try budget.text(prefix); try budget.text(name.namespace); try append(" xmlns:"+prefix+"=\""+srlXmlEscape(name.namespace,true)+"\"") }
+            if bindings[WireString("")] != nil { try budget.node(stack.count+1); try append(" xmlns=\"\"") }
         } else {
             for (declared,uri) in bindings.sorted(by:{ $0.key < $1.key }) {
                 if declared == WireString("xml") { continue }
@@ -96,7 +96,7 @@ fileprivate final class SrlXmlOutput {
         while let existing=stack[stack.count-1].bindings[WireString(prefix)], WireString(existing) != WireString(uri) { suffix += 1; prefix=preferred+"_"+String(suffix) }
         if stack[stack.count-1].bindings[WireString(prefix)] == nil {
             stack[stack.count-1].bindings[WireString(prefix)]=uri
-            if stack[stack.count-1].pinned { try budget.node(stack.count); try budget.text(prefix); try budget.text(uri) }
+            try budget.node(stack.count); try budget.text(prefix); try budget.text(uri)
             try append(" xmlns:"+prefix+"=\""+srlXmlEscape(uri,true)+"\"")
         }
         return prefix
@@ -115,10 +115,7 @@ fileprivate final class SrlXmlOutput {
         let prefix = identity.namespace.isEmpty ? "" : try prefixFor(identity.namespace,"srlType")
         if prefix.isEmpty && !(identityNamespace("") ?? "").isEmpty {
             guard stack[stack.count-1].bindings[WireString("")] == nil else { throw SerializerError.invalid("Preserved default namespace conflicts with an empty XML type namespace") }
-            stack[stack.count-1].bindings[WireString("")]=""; try append(" xmlns=\"\"")
-        }
-        if prefix != "xml" && !prefix.isEmpty {
-            try budget.node(stack.count); try budget.text(prefix); try budget.text(identity.namespace)
+            try budget.node(stack.count); stack[stack.count-1].bindings[WireString("")]=""; try append(" xmlns=\"\"")
         }
         try attribute(SrlXmlAttribute(name: SrlXmlName(local: "type", namespace: "http://www.w3.org/2001/XMLSchema-instance"), value: (prefix.isEmpty ? "" : prefix + ":") + identity.local))
     }

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.20.0 LANGUAGES CXX)
+project(serializer VERSION 2.21.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.21.0)
@@ -87,6 +87,8 @@ add_library(serializer_runtime
   include/rohit/xml_choice_contract.hpp
   src/package.cpp
   src/package_opc.cpp
+  src/core_properties.cpp
+  include/rohit/core_properties.hpp
   include/rohit/package.hpp
   include/rohit/package_profile.hpp
   include/rohit/opc_generated.hpp

@@ -29,6 +29,7 @@ local-tree-[0-9]*/
 wide-journal-[0-9]*/
 serializer-local-sync-[0-9]*/
 serializer-store-undo-[0-9]*/
+serializer-authorization-[0-9]*/
 
 # CMake and native compiler output, including accidental in-source builds.
 CMakeFiles/

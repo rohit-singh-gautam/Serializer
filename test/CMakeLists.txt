@@ -1038,7 +1038,7 @@ if(SERIALIZER_BUILD_MANAGED)
   add_executable(managed_collaboration_test managed_collaboration_test.cpp
     managed_collaboration_ownership_test.cpp managed_collaboration_proposal_test.cpp
     managed_collaboration_session_test.cpp managed_collaboration_history_test.cpp
-    managed_local_collaboration_test.cpp managed_feature_test.cpp)
+    managed_local_collaboration_test.cpp managed_feature_test.cpp managed_authorization_test.cpp)
   serializer_generate(TARGET managed_collaboration_test
     SCHEMAS resources/collaboration_commands.serializer ../example/managed/ledger/ledger.serializer
     resources/collaboration_model.serializer
@@ -1433,7 +1433,7 @@ else()
 endif()
 add_test(NAME compression_stream_test COMMAND compression_stream_test)
 
-add_executable(package_test package_test.cpp)
+add_executable(package_test package_test.cpp core_properties_test.cpp)
 target_link_libraries(package_test PRIVATE Serializer::runtime GTest::gtest_main)
 target_compile_definitions(package_test PRIVATE
   SERIALIZER_TEST_HAS_XML=$<BOOL:${SERIALIZER_WITH_XML}>
@@ -1444,6 +1444,15 @@ else()
   target_compile_options(package_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 add_test(NAME package_test COMMAND package_test)
+
+# Expose typed core-property XML to an independent standards-schema validation process.
+add_executable(core_properties_probe "${PROJECT_SOURCE_DIR}/qualification/core_properties_probe.cpp")
+target_link_libraries(core_properties_probe PRIVATE Serializer::runtime)
+if(MSVC)
+  target_compile_options(core_properties_probe PRIVATE /W4 /WX)
+else()
+  target_compile_options(core_properties_probe PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
 
 # Fault substitution needs native static objects, rather than calls inside a shared library.
 get_target_property(serializer_runtime_test_type serializer_runtime TYPE)
@@ -1751,6 +1760,14 @@ if(SERIALIZER_WITH_XML)
       add_test(NAME portable_xml_model_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_model_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_model")
+      add_test(NAME portable_xml_namespace_budget_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_namespace_budget_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_namespace_budget"
+          --language java,csharp)
+      add_test(NAME mobile_xml_namespace_budget_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_namespace_budget_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/mobile_xml_namespace_budget"
+          --language kotlin,swift)
       add_test(NAME portable_xml_lifecycle_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_lifecycle_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_lifecycle")

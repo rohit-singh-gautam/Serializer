@@ -238,12 +238,19 @@ These are logical resource limits, not a total heap/CPU quota. Decoding returns
 a fresh candidate after complete validation.
 Assignment to an existing object may itself throw.
 
-Output counters are not yet identical across backends. In particular,
-provider-generated namespace declarations are not charged as authored output
-attributes by every adapter, while input parsers can count those declarations.
-An unusually tight attribute policy can therefore reject an otherwise valid
-re-encoded document on input. Qualifying and aligning those counters remains
-part of the pending cross-backend resource contract.
+Compiler/runtime 2.20.1 charges generated element/attribute namespace declarations
+in Java/C#/Kotlin/Swift direct output. Kotlin/Swift count namespace declarations
+against their combined node/attribute limit, including empty-default resets;
+their type-name declarations are charged exactly once in both ordinary and
+preserved scopes. Java/C# count declarations against the attribute limit, and
+C# input normalizes declaration names to prefix/URI text. These checks run before
+growing declaration output and preserve existing emitted bytes.
+
+Output counters are not yet identical across every backend and adapter. Other
+provider-generated declaration paths, retained namespace scopes, tree construction
+and text policies retain their separate resource qualification gates. An unusually
+tight policy can still differ between adapters; broader alignment remains part
+of `XML-B13` in the [pending requirements](../pending.md).
 
 All outputs now have direct generated output paths. Supported C++/Python token
 graphs and Java/C#/Go/Kotlin input use direct/pull traversal; richer C++/Python mappings

@@ -1,5 +1,21 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.21.0** adds optional C++ OPC core-property adapters and managed
+publication authorization without changing existing native payload, managed save,
+journal or collaboration formats. Capability requirement profiles and routed PMR
+limits are native configuration, not serialized metadata. Python QName-list
+schema restrictions retain ordered expanded identities through XML-only state;
+ordinary string/list fields and their native IDs/bytes are unchanged. Schema
+language remains **1.21.0**. The supported combinations and remaining QName/export
+gates are recorded in the [QName-list verification](../verification/verification-qname-lists-2026-10-21.md).
+
+Compiler/runtime **2.20.1** fixes Java/C#/Kotlin/Swift XML namespace-declaration
+accounting without changing native or XML representations. Generated declarations
+consume output limits; Kotlin/Swift type-name declarations are charged once and
+C# input uses prefix/URI declaration text consistently with output. Regenerate
+affected sources. Existing schemas, native APIs and protocol identities retain
+their contracts; these logical admissions provide no hard process-memory bound.
+
 Compiler/runtime **2.20.0** extends XML contract tooling without changing native
 protocols, enum ordinals/wire names, field IDs or declaration order. Supported
 native enums export to string-space XSD restrictions; binding and validation

@@ -109,6 +109,26 @@ def _xml_qualify_qname(value, bindings, reserved=()):
     bindings[prefix] = uri
     return prefix + ':' + local
 
+
+def _xml_qualify_qname_list(values, bindings, reserved=()):
+    """Render schema-owned list identities while preserving input scopes and prefix collisions."""
+    # A no-namespace token resets the default before any namespaced token is rendered.
+    # Otherwise an earlier unprefixed token could silently acquire the later reset.
+    if any(not uri for uri, local in values):
+        if bindings.get(''):
+            raise _XmlLexicalError('QName list schema no-namespace items require an absent default namespace')
+        bindings[''] = ''
+    return ' '.join(_xml_qualify_qname(value, bindings, reserved) for value in values)
+
+
+def _xml_qname_list_identity(value, bindings, context=None):
+    """Resolve ordered list identities with the same cumulative admission as union lists."""
+    values = _xml_tokens(value)
+    if context is not None:
+        context.consume('work_units', len(values))
+        context.consume('decoder_allocation_bytes', len(values) * _XML_UNION_LIST_ITEM_ALLOCATION_BYTES)
+    return tuple(_xml_resolve_qname(item, bindings) for item in values)
+
 def _xml_reserved_qname_prefixes(node, context=None):
     """Avoid assigning schema-default prefixes that would reinterpret an existing union string."""
     reserved = set()
@@ -362,16 +382,21 @@ R"richpython(def _xml_checked(value, rule, bindings, context=None, _selected=Fal
                     accepted = compare(number, boundary)
                 if not accepted: raise _XmlLexicalError('XML numeric facet failed')
     compared = original if rule['union'] else value
-    if rule['enumeration'] and not rule['qnames'] and not any(_xml_value_equal(compared, allowed, rule, bindings, context) for allowed in rule['enumeration']):
+    if rule['enumeration'] and not rule['qnames'] and not rule['qname_lists'] and not any(_xml_value_equal(compared, allowed, rule, bindings, context) for allowed in rule['enumeration']):
         raise _XmlLexicalError('XML enumeration facet failed')
     if rule['qnames'] and _xml_resolve_qname(value, bindings) not in rule['qnames']:
         raise _XmlLexicalError('XML QName enumeration facet failed')
+    if rule['qname_lists'] and _xml_qname_list_identity(value, bindings, context) not in rule['qname_lists']:
+        raise _XmlLexicalError('XML QName list enumeration facet failed')
     for index, patterns in enumerate(rule['patterns']):
         portable = rule['portable_patterns'][index]
         matched = _xml_pattern(value, patterns, context) if portable is None else any(
             _xml_portable_pattern(value, program, context) for program in portable)
         if not matched: raise _XmlLexicalError('XML pattern facet failed')
-    if rule['fixed_qname'] is not None:
+    if rule['fixed_qname_list'] is not None:
+        if _xml_qname_list_identity(value, bindings, context) != rule['fixed_qname_list']:
+            raise _XmlLexicalError('XML fixed QName list failed')
+    elif rule['fixed_qname'] is not None:
         if _xml_resolve_qname(value, bindings) != rule['fixed_qname']: raise _XmlLexicalError('XML fixed QName failed')
     elif rule['fixed'] is not None and not _xml_value_equal(compared, rule['fixed'], rule, bindings, context):
         raise _XmlLexicalError('XML fixed value failed')

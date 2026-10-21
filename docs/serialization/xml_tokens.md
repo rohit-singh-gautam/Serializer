@@ -1,5 +1,16 @@
 # Generated XML token codecs
 
+Python QName-list enumeration, defaults and fixed values retain the schema's
+ordered expanded identities. Equivalent instance aliases, child-local prefixes,
+empty lists, no-namespace items and list-valued union members are supported.
+These graphs retain their existing whole-document Python path and XML-only scope
+state; the change does not introduce tree-free decoding or a hard allocation
+ceiling. Other backend restrictions and namespace-dependent outer union
+restrictions/defaults remain gated. See the
+[executed QName-list inventory](../verification/verification-qname-lists-2026-10-21.md).
+Schema defaults/fixed lists with no-namespace items also reject an active
+nonempty instance default namespace; scopes of other QName fields remain intact.
+
 Compiler/runtime **2.16.0** retains C++/Python namespace-dependent scalar-child
 scopes by field and occurrence. Local/shadowed QName prefixes, QName-list items,
 default namespace resets and nested union branch identities survive output;
@@ -30,7 +41,8 @@ that would lose identity rejected in that release. Python supports outer enumera
 fixed restrictions on namespace-independent unions, comparing through the first
 successful member's primitive value space. Numeric, Boolean and string values
 remain distinct; ordered list values compare item by item. QName-dependent outer
-restrictions and QName-list enumeration/fixed values remain unavailable. See the
+restrictions remain unavailable. The later Python QName-list extension above
+supersedes the original QName-list enumeration/fixed restriction. See the
 [selected qualification](../verification/verification-pending-xml-2026-10-20.md).
 
 Compiler/runtime **2.12.0** adds direct XML codec paths without changing schema

@@ -13,9 +13,34 @@ and undo/deletion never renumber survivors. Explicit member boundaries still app
 Status: revised design proposal with implemented C++ identity/history and
 [synchronous file journaling](journal.md), and [snapshot collaboration with conditional per-session undo/redo](collaboration_runtime.md).
 The [C++ interface](cpp_runtime.md) accepts bare `managed` declarations and centrally
-configured uint32/uint64 IDs. Selectors and the complete four-capability runtime
-remain unimplemented. This document defines their shared contracts and supersedes
+configured uint32/uint64 IDs. Schema selectors and the complete four-capability
+runtime remain unimplemented. Explicit versioned C++ profile validation and a
+host-installed [authorization publication gate](authorization.md) are implemented.
+This document defines their shared contracts and supersedes
 earlier suggestions that map keys alone provide identity or uint64 is the default.
+
+## Implemented C++ profile validation
+
+`<rohit/managed_capabilities.hpp>` provides `managed_capability_profile` version
+`1` and independently named `history`, `collaboration`, `authorization` and
+`journal` bits. `version_one_all` is fixed to those four features. The profile's
+`selected` mask and optional `excluded` mask resolve explicitly; unknown versions,
+unknown bits and exclusions outside the selected set reject. An upgrade cannot
+silently expand an existing profile.
+
+`validate_managed_capability_profile(store, profile, authorization_required)`
+checks the resolved profile against the actual store specialization: history
+must agree with its compiled mode, selected journal/collaboration need compiled
+support, and selected authorization requires an installed store policy. A host
+requiring authorization cannot exclude it. Identity, ownership validation and
+atomic publication remain mandatory; they have no disabling bit.
+
+Validation describes the current configuration, not persistent activation. It
+is a requirement/availability check: excluding a mechanism does not detach an
+existing journal/transport or remove an installed authorization gate. It
+does not attach a journal/transport, prevent later trusted host reconfiguration,
+convert a saved history policy or provide schema selector syntax. Hosts must
+revalidate after reconfiguration. Those broader requirements remain `MG02`.
 
 ## Four managed features
 

@@ -3,10 +3,10 @@
 [Documentation index](../README.md) · [XML/package design](xml_support.md) ·
 [Implemented APIs](../serialization/xml_packages.md) · [Pending work](../pending.md)
 
-Status: implemented subsets and remaining requirements, **19 October 2026**.
-The source release is compiler/runtime **2.8.0**, schema language **1.20.0**.
-The C++ OPC builder and C++/Python declarative package facades exist; complete 3MF support
-and cross-language package parity remain pending. Current source qualification
+Status: implemented subsets and remaining requirements, **21 October 2026**.
+The source release is compiler/runtime **2.21.0**, schema language **1.21.0**.
+The C++ OPC builder and declarative package facades in all eleven outputs exist;
+complete 3MF support and broader profile/provider qualification remain pending. Current source qualification
 is separate from the historically checked manual example.
 
 The name of the standard is **Open Packaging Conventions (OPC)**. OPC provides
@@ -74,9 +74,13 @@ underlying part is checked; applications interpret the selectors. The selected
 OPC edition permits ASCII-only part-name implementations. Opaque part
 preservation does not preserve unknown XML inside a rewritten known model part.
 
-Optional reusable models/adapters for OPC core properties or digital signatures
-would also belong in Serializer's standard-package layer. Applications supply
-property values and signature/trust policy. Neither opaque-byte retention nor
+The optional [C++ fifth-edition core-properties adapter](../serialization/core_properties.md)
+belongs to Serializer's standard-package layer. It supplies all fifteen current
+properties, including localized mixed keywords, standard singleton relationship
+discovery and shared XML/package budgets. Applications supply property values.
+Older `contentType` metadata and arbitrary extensions remain opaque pass-through
+contracts outside this typed adapter. Digital signatures still need a separately
+selected signature/trust provider. Neither opaque-byte retention nor
 deterministic ZIP ordering supplies signature verification, XML canonicalization
 or preservation of signature validity after editing signed content. Those features
 need an explicitly scoped provider and independent qualification before a claim of
@@ -660,7 +664,9 @@ does not satisfy the pattern. Original numeric formatting is not retained.
 Wildcards enforce namespace, position and occurrence policy; `lax`/`skip` foreign
 content can use declared extension slots, while `strict` foreign data rejects
 until known-schema dispatch exists. QName enums/defaults use expanded identity;
-QName-list enumeration/fixed constraints and selected union/QName combinations
+Python QName-list enumeration/default/fixed constraints retain ordered expanded
+schema identities, including enumerated lists inside union members; other
+backends and selected union/QName combinations
 remain explicitly rejected as listed in the XSD tooling contract. Required capabilities always
 need the declared vocabulary's checks. No lexical XML or signature preservation
 is implied.

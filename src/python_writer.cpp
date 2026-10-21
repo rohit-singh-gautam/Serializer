@@ -520,7 +520,9 @@ class python_emitter {
         auto text = item.attribute || item.text ? expression : "_xml_read_scalar(" + expression + ")";
         if (!item.attribute && (item.default_value || item.fixed_value)) {
           const auto qualified = item.qname_fixed ? item.qname_fixed : item.qname_default;
-          const auto fallback = qualified ? "_xml_qualify_qname(" + python_xml::name(*qualified) + ", " +
+          const auto qualified_list = item.qname_list_fixed ? item.qname_list_fixed : item.qname_list_default;
+          const auto fallback = qualified_list ? "_xml_qualify_qname_list(" + python_xml::names(*qualified_list) + ", " +
+              (item.text ? "node[4]" : expression + "[4]") + ", fields.reserved_prefixes())" : qualified ? "_xml_qualify_qname(" + python_xml::name(*qualified) + ", " +
               (item.text ? "node[4]" : expression + "[4]") + ")" :
               quote(item.fixed_value ? *item.fixed_value : *item.default_value);
           text = "(" + text + " or " + fallback + ")";
@@ -542,7 +544,9 @@ class python_emitter {
         line("text = fields.attribute(" + expanded(item.qualified_name) + ", " + (optional || item.default_value || item.fixed_value ? "True" : "False") + ")");
         if (item.default_value || item.fixed_value) {
           const auto qualified = item.qname_fixed ? item.qname_fixed : item.qname_default;
-          const auto fallback = qualified ? "_xml_qualify_qname(" + python_xml::name(*qualified) + ", node[4], fields.reserved_prefixes())" :
+          const auto qualified_list = item.qname_list_fixed ? item.qname_list_fixed : item.qname_list_default;
+          const auto fallback = qualified_list ? "_xml_qualify_qname_list(" + python_xml::names(*qualified_list) + ", node[4], fields.reserved_prefixes())" :
+              qualified ? "_xml_qualify_qname(" + python_xml::name(*qualified) + ", node[4], fields.reserved_prefixes())" :
               quote(item.fixed_value ? *item.fixed_value : *item.default_value);
           line("if text is None: text = " + fallback);
         }

@@ -3,6 +3,7 @@
 // See LICENSE-RUNTIME for permission to use this runtime in proprietary applications.
 #pragma once
 #include <rohit/managed_memory.hpp>
+#include <rohit/managed_authorization.hpp>
 #include <rohit/managed_changes.hpp>
 #include <rohit/managed_resident.hpp>
 #include <rohit/managed_registry.hpp>
@@ -441,6 +442,8 @@ public:
   using storage_type = typename Traits::storage_type;
   using id_type = typename Traits::id_type;
   using identity_reservation_callback = std::function<std::pair<id_type, identity_allocation_context>()>;
+  using authorization_callback = std::function<bool(authorization_operation,
+      const storage_type&, const storage_type&, bool)>;
   static_assert(std::same_as<id_type, std::uint32_t> || std::same_as<id_type, std::uint64_t>);
   static_assert(std::same_as<decltype(storage_type{}.persistent_id), id_type>);
   static_assert(Labels == history_labels::disabled || Labels == history_labels::enabled);
@@ -488,6 +491,7 @@ private:
   state_stamp stamp_{};
   using event_type = publication_event<storage_type, id_type>;
   std::function<void(const event_type&)> publication_callback_{};
+  authorization_callback authorization_callback_{};
   std::exception_ptr notification_error_{};
   const std::thread::id thread_{std::this_thread::get_id()};
   std::function<void(const storage_type&)> validate_{};
@@ -591,7 +595,28 @@ private:
   // Prepare every notification allocation and generation overflow check before durable publication.
   event_type prepare_publication(publication_kind kind, const identity_table& identities,
                                  const storage_type* next = nullptr,
-                                 bool replaced_namespace = false) const {
+                                 bool replaced_namespace = false,
+                                 bool trusted_replication = false) {
+    if (authorization_callback_ && current_ && next) {
+      const auto operation = trusted_replication ? authorization_operation::replicate
+          : kind == publication_kind::durable_edit ? authorization_operation::edit
+          : kind == publication_kind::history_navigation ? authorization_operation::history
+          : kind == publication_kind::runtime_update ? authorization_operation::runtime
+          : authorization_operation::replace;
+      // Recovery/discard may already be inside a journal callback guard; preserve that outer guard.
+      // Public mutation entry points reject reentry before they can reach this internal preparation.
+      const auto previous_callback_active = callback_active_;
+      callback_active_ = true;
+      try {
+        if (!authorization_callback_(operation, *current_, *next, replaced_namespace)) {
+          throw authorization_error{};
+        }
+        callback_active_ = previous_callback_active;
+      } catch (...) {
+        callback_active_ = previous_callback_active;
+        throw;
+      }
+    }
     if (stamp_.view_generation == std::numeric_limits<std::uint64_t>::max() ||
         (kind != publication_kind::runtime_update &&
          stamp_.durable_generation == std::numeric_limits<std::uint64_t>::max())) {
@@ -1868,7 +1893,7 @@ public:
           return outcome;
         }
       }
-      auto event = prepare_publication(publication_kind::runtime_update, identities_);
+      auto event = prepare_publication(publication_kind::runtime_update, identities_, edit.candidate_.get());
       edit.candidate_charge_->resize(estimate_storage(*edit.candidate_));
       auto published = std::shared_ptr<const storage_type>{std::move(edit.candidate_)};
       current_.swap(published);
@@ -2308,6 +2333,20 @@ public:
   void set_publication_callback(std::function<void(const event_type&)> callback) {
     require_idle();
     publication_callback_ = std::move(callback);
+  }
+
+  // Install a host-owned, owner-thread gate on complete candidates before journal I/O/publication.
+  // False or exceptions reject atomically; replication has its own operation, so observing clients
+  // need not possess edit permission. Policy lifetime and trusted-principal binding belong to the host.
+  void set_authorization_policy(authorization_callback callback) {
+    require_idle();
+    authorization_callback_ = std::move(callback);
+  }
+
+  // Report whether this owner-thread store currently enforces a host authorization boundary.
+  bool has_authorization_policy() const {
+    check_thread();
+    return static_cast<bool>(authorization_callback_);
   }
 
   // Consume an observer error separately from the successfully accepted store operation.

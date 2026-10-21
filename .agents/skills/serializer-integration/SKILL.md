@@ -46,8 +46,39 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-The current compiler/runtime release is **2.20.0**, with schema language
-**1.21.0**. Preserve the supported native managed identity, transaction,
+The current compiler/runtime release is **2.21.0**, with schema language
+**1.21.0**. Use [C++ core-property adapters](../../../docs/serialization/core_properties.md)
+for application-supplied OPC metadata, following the selected fifth-edition
+property/date/keyword contract. Use the [managed authorization boundary](../../../docs/managed/authorization.md)
+for complete-candidate publication checks, binding the principal and policy
+administration in the host. Explicit C++ capability profiles validate requirements
+and engine/policy availability; they do not activate engines or implement schema
+selectors. The bounded PMR resource caps routed requested bytes; generated standard
+payload containers and decoding allocations retain their existing allocator behavior.
+
+Regenerate Python output for [QName-list restrictions](../../../docs/verification/verification-qname-lists-2026-10-21.md):
+enumeration/default/fixed constraints retain ordered schema-scope expanded names,
+including enumerated list union members and global text. Non-Python and
+namespace-dependent outer-union/default/export combinations retain explicit gates.
+Schema default/fixed lists containing no-namespace names reject an active nonempty
+instance default namespace. Native IDs/wire formats and schema language are unchanged.
+
+Regenerate Java/C#/Kotlin/Swift XML codecs to apply corrected
+namespace-declaration admissions, including qualified attributes, default resets
+and type declarations. Tight output bounds can reject earlier when generated
+declarations exhaust the policy. C# readers count declaration prefix/URI bytes
+consistently with the direct writer. Native models, APIs and wire identities retain
+their contracts. Use the [namespace admission test](../../../test/xml_namespace_budget_test.py)
+for the selected SDK boundary inventory; broader XML resource/provider qualification
+remains tracked under `XML-B13`.
+Use the [eleven-output native baseline](../../../docs/verification/verification-native-codec-baseline-2026-10-21.md)
+when assessing ordinary positional-binary costs. Replay
+`qualification/native_codec_baseline.py` with actual SDKs and pinned local providers;
+retain XML-disabled controls and exact wire hashes. Process residency and Python
+traced allocation have different scopes; the checkpoint supplies no hard memory
+cap or earlier-release performance guarantee.
+
+Preserve the supported native managed identity, transaction,
 preview, journal and collaboration contracts when composing those features.
 For local collaboration, attach a fresh placeholder store before editing or
 creating its client journal. Initial join validates typed references against the

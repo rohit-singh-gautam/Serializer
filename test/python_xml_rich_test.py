@@ -369,8 +369,9 @@ class python_xml_rich_test(unittest.TestCase):
         for child in output:
             self.assertFalse(child.nsmap.get(None))
 
-    def test_namespace_dependent_list_defaults_reject_before_output_publication(self):
-        """Require expanded schema item metadata before emitting a nonempty QName-list default."""
+    def test_namespace_dependent_list_defaults_preserve_schema_item_identity(self):
+        """Render schema defaults with fresh declarations when input shadows its presentation prefix."""
+        from lxml import etree as provider
         source = self.directory / 'qname_list_default.serializer'
         schema = self.directory / 'qname_list_default.xsd'
         target = self.directory / 'qname_list_default.py'
@@ -385,13 +386,187 @@ class python_xml_rich_test(unittest.TestCase):
           <xs:element name="sample"><xs:complexType><xs:sequence>
             <xs:element name="names" type="t:Names" default="q:item"/>
           </xs:sequence></xs:complexType></xs:element></xs:schema>''', encoding='utf-8')
-        sentinel = b'previous valid generated output\n'
-        target.write_bytes(sentinel)
         result = subprocess.run([str(self.compiler), '--language', 'python', '--input', str(source),
                                  '--python.output', str(target)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        module = load_module(target, 'serializer_qname_list_default')
+        document = b'<t:sample xmlns:t="urn:qname-list-default" xmlns:q="urn:shadow"><t:names/></t:sample>'
+        value = module.QnameListDefaultSample.decode_xml(document)
+        output = provider.fromstring(value.encode_xml())
+        self.assertEqual(module._xml_resolve_qname(output[0].text, output[0].nsmap), ('urn:default', 'item'))
+        exported = self.directory / 'protected_qname_list_export.xsd'
+        sentinel = b'previous reviewed schema\n'
+        exported.write_bytes(sentinel)
+        result = subprocess.run([str(self.compiler), '--language', 'python', '--input', str(source),
+                                 '--xml.export-xsd', str(exported)], capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('QName list defaults require expanded schema-scope item identities', result.stdout + result.stderr)
-        self.assertEqual(target.read_bytes(), sentinel)
+        self.assertIn('explicit namespace contexts', result.stdout + result.stderr)
+        self.assertEqual(exported.read_bytes(), sentinel)
+
+    def test_qname_list_enumeration_fixed_defaults_and_union_members(self):
+        """Compare expanded ordered items across aliases, local shadows, empty lists and native protocols."""
+        from lxml import etree as provider
+        source = self.directory / 'qname_lists.serializer'
+        schema = self.directory / 'qname_lists.xsd'
+        target = self.directory / 'qname_lists.py'
+        source.write_text('''serializer version 1.20.0; namespace qname_lists {
+          using schema "qname_lists.xsd";
+          class sample {
+            public array<string> values(1) xml(list);
+            public string choice(2);
+            public array<string> defaults(3) xml(attribute,list);
+            public optional<array<string>> fixed_names(4) xml(attribute,list);
+            public array<string> empty(5) xml(attribute,list);
+          }
+          class text_sample { public string value xml(text); }
+          class fixed_text { public string value xml(text); }
+        }''', encoding='utf-8')
+        schema.write_text('''<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+          xmlns:t="urn:qname-lists" xmlns:q="urn:allowed" targetNamespace="urn:qname-lists"
+          elementFormDefault="qualified">
+          <xs:simpleType name="Names"><xs:list itemType="xs:QName"/></xs:simpleType>
+          <xs:simpleType name="Allowed"><xs:restriction base="t:Names">
+            <xs:enumeration value="q:élément local q:second"/>
+          </xs:restriction></xs:simpleType>
+          <xs:simpleType name="Choice"><xs:union memberTypes="t:Allowed xs:unsignedShort"/></xs:simpleType>
+          <xs:element name="sample"><xs:complexType><xs:sequence>
+            <xs:element name="values" type="t:Allowed" default="q:élément local q:second"/>
+            <xs:element name="choice" type="t:Choice"/>
+          </xs:sequence>
+            <xs:attribute name="defaults" type="t:Names" default="q:élément local q:second"/>
+            <xs:attribute name="fixed_names" type="t:Names" fixed="q:élément local q:second"/>
+            <xs:attribute name="empty" type="t:Names" default=""/>
+          </xs:complexType></xs:element>
+          <xs:element name="text_sample" default="q:élément q:second"><xs:complexType>
+            <xs:simpleContent><xs:extension base="t:Names"/></xs:simpleContent>
+          </xs:complexType></xs:element>
+          <xs:element name="fixed_text" fixed="q:élément q:second"><xs:complexType>
+            <xs:simpleContent><xs:extension base="t:Names"/></xs:simpleContent>
+          </xs:complexType></xs:element></xs:schema>''', encoding='utf-8')
+        subprocess.run([str(self.compiler), '--language', 'python', '--input', str(source),
+                        '--python.output', str(target)], check=True)
+        module = load_module(target, 'serializer_qname_lists')
+        oracle = provider.XMLSchema(provider.parse(str(schema)))
+        identity = (('urn:allowed', 'élément'), ('', 'local'), ('urn:allowed', 'second'))
+        def identities(text, scope):
+            """Resolve names using the independent provider's original per-element scope."""
+            result = []
+            for item in text.split():
+                if ':' in item:
+                    prefix, local = item.split(':')
+                    result.append((scope[prefix], local))
+                else:
+                    result.append((scope.get(None, ''), item))
+            return tuple(result)
+        template = '<t:sample xmlns:t="urn:qname-lists" xmlns:p="urn:allowed" xmlns:q="urn:shadow" {attributes}><t:values{scope}>{values}</t:values><t:choice>{choice}</t:choice></t:sample>'
+        # Child-local aliases and schema-default aliases need different retained maps.
+        for values, scope in (('p:élément local p:second', ''),
+                              ('x:élément local x:second', ' xmlns:x="urn:allowed"'),
+                              ('', '')):
+            for choice in ('p:élément local p:second', '65535'):
+                for attributes in ('', 'fixed_names="p:élément local p:second"'):
+                    data = template.format(attributes=attributes, scope=scope, values=values, choice=choice).encode()
+                    # libxml2 also resolves a schema element default through a
+                    # shadowing instance prefix. Reify that default through the
+                    # independently authored equivalent alias for its control.
+                    oracle_input = data if values else template.format(
+                        attributes=attributes, scope=scope, values='p:élément local p:second', choice=choice).encode()
+                    self.assertTrue(oracle.validate(provider.fromstring(oracle_input)), oracle.error_log)
+                    value = module.QnameListsSample.decode_xml(data)
+                    before = [value.encode(protocol) for protocol in module.Protocol]
+                    output = value.encode_xml()
+                    root = provider.fromstring(output)
+                    # libxml2 treats an explicit empty default namespace as a
+                    # different QName-list value from an absent default. Every
+                    # default here is empty, so dropping redundant resets is a
+                    # semantics-preserving provider workaround. Original scopes
+                    # are independently checked below before native reload.
+                    self.assertTrue(all(not item.nsmap.get(None) for item in root.iter()))
+                    oracle_root = provider.fromstring(output.replace(b' xmlns=""', b''))
+                    self.assertTrue(oracle.validate(oracle_root), oracle.error_log)
+                    self.assertEqual(identities(root[0].text, root[0].nsmap), identity)
+                    self.assertEqual(identities(root.attrib['defaults'], root.nsmap), identity)
+                    self.assertEqual(identities(root.attrib['fixed_names'], root.nsmap), identity)
+                    self.assertEqual(root.attrib['empty'], '')
+                    self.assertEqual([value.encode(protocol) for protocol in module.Protocol], before)
+                    self.assertEqual(module.QnameListsSample.decode_xml(output).encode(module.Protocol.BINARY_NONE), before[1])
+        for bad in ('p:second local p:élément', 'p:élément local', 'q:élément local q:second', 'missing:x'):
+            data = template.format(attributes='', scope='', values=bad, choice='1').encode()
+            self.assertFalse(oracle.validate(provider.fromstring(data)))
+            with self.assertRaises(ValueError): module.QnameListsSample.decode_xml(data)
+        value = module.QnameListsSample.decode_xml(template.format(attributes='', scope='', values='', choice='1').encode())
+        value.fixed_names = (['q:élément', 'local', 'q:second'],)
+        with self.assertRaisesRegex(ValueError, 'fixed QName list'): value.encode_xml()
+        marker = RuntimeError('QName list resource marker')
+        class context:
+            """Fail admission without disguising the caller's exception as a union mismatch."""
+            def consume(self, resource, count):
+                """Reject each actual list allocation before an owning identity tuple is formed."""
+                if resource == 'decoder_allocation_bytes': raise marker
+        rule = module.QnameListsSample._xml_rules[1]
+        with self.assertRaises(RuntimeError) as failure:
+            module._xml_checked('p:élément local p:second', rule, {'p': 'urn:allowed'}, context())
+        self.assertIs(failure.exception, marker)
+        # A schema no-namespace default cannot reset another field's active
+        # default scope. Keep this combination gated until per-attribute scopes
+        # can preserve all of those values together.
+        active_default = template.format(attributes='', scope='', values='', choice='1').replace(
+            'xmlns:q="urn:shadow"', 'xmlns:q="urn:shadow" xmlns="urn:active"').encode()
+        with self.assertRaisesRegex(ValueError, 'no-namespace items'):
+            module.QnameListsSample.decode_xml(active_default)
+        for local, cls in (('text_sample', module.QnameListsTextSample), ('fixed_text', module.QnameListsFixedText)):
+            data = ('<t:' + local + ' xmlns:t="urn:qname-lists" xmlns:q="urn:shadow"/>').encode()
+            value = cls.decode_xml(data)
+            before = value.encode(module.Protocol.BINARY_NONE)
+            root = provider.fromstring(value.encode_xml())
+            self.assertEqual(identities(root.text, root.nsmap), (identity[0], identity[2]))
+            self.assertEqual(value.encode(module.Protocol.BINARY_NONE), before)
+            self.assertFalse(root.nsmap.get(None))
+            oracle_root = provider.fromstring(provider.tostring(root).replace(b' xmlns=""', b''))
+            valid = oracle.validate(oracle_root)
+            if not valid and local == 'fixed_text':
+                # This provider compares a root QName-list fixed value through
+                # its schema spelling. The original emitted identities above
+                # remain the oracle; reify only an equivalent fixed-value
+                # control, and do not forgive any unrelated provider failure.
+                self.assertEqual(oracle.error_log.last_error.type_name, 'SCHEMAV_CVC_ELT_5_2_2_2_2')
+                control = provider.Element('{urn:qname-lists}fixed_text', nsmap={'t': 'urn:qname-lists', 'q': 'urn:allowed'})
+                control.text = 'q:élément q:second'
+                self.assertTrue(oracle.validate(control), oracle.error_log)
+            else:
+                self.assertTrue(valid, oracle.error_log)
+            if local == 'fixed_text':
+                value.value = 'q:élément q:second'
+                with self.assertRaisesRegex(ValueError, 'fixed QName list'): value.encode_xml()
+
+    def test_qname_list_schema_amplification_rejects_before_publication(self):
+        """Bound repeated expanded URI storage independently of small lexical schema inputs."""
+        source = self.directory / 'qname_list_amplification.serializer'
+        schema = self.directory / 'qname_list_amplification.xsd'
+        target = self.directory / 'qname_list_amplification.py'
+        depfile = self.directory / 'qname_list_amplification.d'
+        source.write_text('''serializer version 1.20.0; namespace amplified {
+          using schema "qname_list_amplification.xsd";
+          class sample { public array<string> names xml(attribute,list); }
+        }''', encoding='utf-8')
+        uri, lexical = 'urn:' + 'x' * 8192, ' '.join(['q:item'] * 2200)
+        for constraint in ('default', 'fixed', 'enumeration'):
+            restriction = ('<xs:simpleType name="Allowed"><xs:restriction base="Names">'
+                           '<xs:enumeration value="' + lexical + '"/></xs:restriction></xs:simpleType>') if constraint == 'enumeration' else ''
+            value = '' if constraint == 'enumeration' else ' ' + constraint + '="' + lexical + '"'
+            schema.write_text('<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:q="' + uri + '">'
+                              '<xs:simpleType name="Names"><xs:list itemType="xs:QName"/></xs:simpleType>' + restriction +
+                              '<xs:element name="sample"><xs:complexType><xs:attribute name="names" type="' +
+                              ('Allowed' if restriction else 'Names') + '"' + value + '/></xs:complexType></xs:element></xs:schema>', encoding='utf-8')
+            sentinel = b'previous reviewed output\n'
+            target.write_bytes(sentinel)
+            depfile.write_bytes(sentinel)
+            result = subprocess.run([str(self.compiler), '--language', 'python', '--input', str(source),
+                                     '--python.output', str(target), '--depfile', str(depfile)], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0, constraint)
+            self.assertIn('QName list identity expansion byte limit', result.stdout + result.stderr)
+            self.assertEqual(target.read_bytes(), sentinel)
+            self.assertEqual(depfile.read_bytes(), sentinel)
 
 
 def main():

@@ -81,6 +81,32 @@ xml::name resolve(const xml::element& node, std::string_view value) {
   (void)xml::write(check);
   return result;
 }
+// Bound schema-scope list identity expansion, including repeated long namespace URIs.
+std::vector<xml::name> resolve_qname_list(const xml::element& node, std::string_view lexical,
+    std::size_t& remaining_bytes) {
+  std::vector<xml::name> result{};
+  for (const auto token : lexical_words(lexical)) {
+    if (sizeof(xml::name) > remaining_bytes) {
+      throw std::length_error{"XSD QName list identity expansion byte limit exceeded"};
+    }
+    remaining_bytes -= sizeof(xml::name);
+    auto item = resolve(node, token);
+    for (const auto size : {item.local.size(), item.namespace_uri.size()}) {
+      if (size > remaining_bytes) {
+        throw std::length_error{"XSD QName list identity expansion byte limit exceeded"};
+      }
+      remaining_bytes -= size;
+    }
+    result.push_back(std::move(item));
+  }
+  return result;
+}
+// Apply the same bounded expansion to each schema default/fixed list value.
+std::vector<xml::name> resolve_qname_list(const xml::element& node, std::string_view lexical) {
+  constexpr std::size_t maximum_expanded_list_bytes{16U * 1024U * 1024U};
+  auto remaining_bytes = maximum_expanded_list_bytes;
+  return resolve_qname_list(node, lexical, remaining_bytes);
+}
 // Native enums use complete authored identifier spellings, never numeric, QName or list value spaces.
 bool native_enum_string_kind(std::string_view kind, std::string_view whitespace) {
   return kind == "string" && (whitespace.empty() || whitespace == "preserve");
@@ -726,11 +752,19 @@ scalar_resolution resolve_scalar(const schema_bundle& bundle, const xml::element
     if (!enumeration.empty()) {
       result.facets.enumeration = std::move(enumeration);
       result.facets.qname_enumeration.clear();
+      result.facets.qname_list_enumeration.clear();
       if (result.primitive.local == "QName") {
         for (const auto& facet : restriction.children) {
           if (facet.qualified_name.local == "enumeration") {
             result.facets.qname_enumeration.push_back(resolve(facet, attribute(facet, "value")));
           }
+        }
+      }
+      if (result.facets.list_item_kind == "QName") {
+        for (const auto& facet : restriction.children) {
+          if (facet.qualified_name.local != "enumeration") { continue; }
+          result.facets.qname_list_enumeration.push_back(
+              resolve_qname_list(facet, attribute(facet, "value"), remaining_facet_bytes));
         }
       }
     }
@@ -1537,6 +1571,10 @@ record schema::bind(const class_node& source) const {
         if (field.default_value) { field.qname_default = resolve(node, *field.default_value); }
         if (field.fixed_value) { field.qname_fixed = resolve(node, *field.fixed_value); }
       }
+      if (field.facets.list_item_kind == "QName") {
+        if (field.default_value) { field.qname_list_default = resolve_qname_list(node, *field.default_value); }
+        if (field.fixed_value) { field.qname_list_fixed = resolve_qname_list(node, *field.fixed_value); }
+      }
       if (is_attribute) {
         if (field.repeated) { throw std::invalid_argument{"XSD attributes cannot bind collections"}; }
         const auto use = attribute(occurrence_node, "use");
@@ -1951,6 +1989,10 @@ record schema::bind(const class_node& source) const {
             if (text->default_value) { text->qname_default = resolve(node, *text->default_value); }
             if (text->fixed_value) { text->qname_fixed = resolve(node, *text->fixed_value); }
           }
+          if (text->facets.list_item_kind == "QName") {
+            if (text->default_value) { text->qname_list_default = resolve_qname_list(node, *text->default_value); }
+            if (text->fixed_value) { text->qname_list_fixed = resolve_qname_list(node, *text->fixed_value); }
+          }
         }
         if (std::none_of(node.children.begin(), node.children.end(), [](const auto& child) {
               return child.qualified_name.local == "key" || child.qualified_name.local == "unique" ||
@@ -2157,7 +2199,7 @@ void validate_backend(const record& contract, std::string_view language) {
             [&](const auto& member) { return self(self, member); });
   };
   const auto check_unions = [&](auto&& self, const scalar_facets& facets) -> void {
-    if (facets.list_item_kind == "QName" && !facets.enumeration.empty()) {
+    if (language != "python" && facets.list_item_kind == "QName" && !facets.enumeration.empty()) {
       throw std::invalid_argument{"XSD QName list enumeration requires expanded item identities"};
     }
     if (!facets.union_members.empty() &&
@@ -2168,7 +2210,7 @@ void validate_backend(const record& contract, std::string_view language) {
     for (const auto& alternative : facets.union_members) { self(self, alternative); }
   };
   for (const auto& field : contract.fields) {
-    if (field.facets.list_item_kind == "QName" && field.default_value &&
+    if (language != "python" && field.facets.list_item_kind == "QName" && field.default_value &&
         !lexical_words(*field.default_value).empty()) {
       throw std::invalid_argument{"XSD QName list defaults require expanded schema-scope item identities"};
     }
@@ -2217,10 +2259,6 @@ void validate_backend(const record& contract, std::string_view language) {
       for (const auto& alternative : facets.union_members) { self(self, alternative); }
     };
     for (const auto& value : contract.fields) {
-      if (value.facets.list_item_kind == "QName" &&
-          (value.fixed_value || !value.facets.enumeration.empty())) {
-        throw std::invalid_argument{"QName list default/fixed/enumeration values require expanded item identities"};
-      }
       check(check, value.facets);
     }
     return;
@@ -2504,7 +2542,9 @@ std::vector<compatibility_diagnostic> compare_contracts(const record& previous, 
       result.push_back({value.source->name, "Field creation or retirement revision changed"});
     }
     if (normalized_facets(old) != normalized_facets(value) || old.fixed_value != value.fixed_value ||
-        old.default_value != value.default_value) {
+        old.default_value != value.default_value || old.qname_default != value.qname_default ||
+        old.qname_fixed != value.qname_fixed || old.qname_list_default != value.qname_list_default ||
+        old.qname_list_fixed != value.qname_list_fixed) {
       result.push_back({value.source->name, "Scalar restrictions or default/fixed semantics changed"});
     }
     previous_fields.erase(found);
@@ -2672,7 +2712,9 @@ schema_bundle schema::export_xsd_bundle(const std::vector<const class_node*>& so
       {"int32", "int"}, {"uint32", "unsignedInt"}, {"int64", "long"}, {"uint64", "unsignedLong"},
       {"float", "float"}, {"double", "double"}, {"float32", "float"}, {"float64", "double"}};
   const auto assign_type = [&](xml::element& declaration, const field& value) {
-    if (value.prefix_list || value.qname_default || value.qname_fixed) {
+    if (value.prefix_list || value.qname_default || value.qname_fixed ||
+        (value.qname_list_default && !value.qname_list_default->empty()) ||
+        (value.qname_list_fixed && !value.qname_list_fixed->empty())) {
       throw std::invalid_argument{"XSD export requires explicit namespace contexts for QName defaults/fixed values and prefix lists"};
     }
     const auto& type = leaf(*value.source);
@@ -2688,7 +2730,8 @@ schema_bundle schema::export_xsd_bundle(const std::vector<const class_node*>& so
       throw std::invalid_argument{"Unsupported XSD export scalar: " + type.name};
     }
     const auto& facets = value.facets;
-    if (!facets.union_members.empty() || !facets.pattern_groups.empty() || !facets.qname_enumeration.empty()) {
+    if (!facets.union_members.empty() || !facets.pattern_groups.empty() ||
+        !facets.qname_enumeration.empty() || !facets.qname_list_enumeration.empty()) {
       throw std::invalid_argument{"XSD export requires explicit union/inherited-pattern/QName value identities"};
     }
     const auto lexical = facets.lexical_kind.empty() ? (value.qname ? "QName" :

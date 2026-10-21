@@ -132,7 +132,24 @@ entity and reclaiming its historical payloads are separate decisions. See
 
 ### Runtime allocation resources
 
-Propose runtime configuration with standard defaults, not another schema keyword.
+Implemented C++ `store_options::allocation_resource` retains a shared
+`std::pmr::memory_resource` for root/control-block allocations, including immutable
+pins outliving the store. Standard generated payload containers keep their own
+allocators. `<rohit/managed_allocation.hpp>` adds `bounded_memory_resource`, a hard
+cap on requested bytes routed through that resource, usable by the store hook and
+explicit application PMR containers. Its upstream resource is shared-owned;
+concurrent accounting is safe when the chosen upstream supports concurrent use.
+Application PMR containers must keep the bounded resource itself alive; the
+native store hook retains its shared owner automatically.
+
+`reserved_bytes()` includes allocation attempts in progress;
+`peak_reserved_bytes()` is a reservation high-water mark, including failed
+upstream attempts. Reservations roll back when upstream throws. These counters
+exclude upstream metadata, bypassing allocations, decoder temporaries and process
+residency. This does not provide allocator-aware generated decoding or a hard
+whole-process peak bound, so the broader `MG07` gate remains open.
+
+The broader proposed configuration below uses standard defaults, not another schema keyword.
 In C++, use `std::pmr::memory_resource` or an adapter to it for allocation with a
 byte count and alignment. Its public allocation/deallocation operations and custom
 resource requirements are described in the C++ working draft's

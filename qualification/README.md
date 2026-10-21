@@ -4,6 +4,38 @@ These tools separate regression tests, performance measurements, and fuzzing.
 The dated [verification record](../docs/verification/verification-2026-09-17.md) ties executed
 checks to a source revision and configurations, and lists outstanding work.
 
+## Eleven-output native codec baselines
+
+`native_codec_baseline.py` runs the maintained C++, Python, portable and native/mobile
+measurement drivers sequentially on Windows. It audits all eleven actual SDKs,
+three fixed workloads and both XML-enabled/native-only positional binary controls:
+132 native operation profiles and 660 wall samples. Each workload must have identical
+native bytes across SDKs. The aggregate retains throughput, encoded size and each
+measurement's memory category, plus hashes linking the underlying reports.
+
+Run from a Windows developer shell with all SDKs and the explicitly installed
+providers available:
+
+```powershell
+python -B qualification/native_codec_baseline.py `
+  --compiler out/build/ReleaseWindows/serializer.exe `
+  --runtime-library out/build/ReleaseWindows/serializer_runtime.lib `
+  --provider-prefix out/build/ReleaseWindows/vcpkg_installed/x64-windows `
+  --node-dependencies path/to/installed/xml/node_modules `
+  --kotlin-home path/to/kotlinc `
+  --cargo-home path/to/prepared/cargo-home `
+  --build out/native-codec-baseline
+```
+
+Use an empty build directory and keep the compiler unchanged until every driver
+finishes. `--audit-only` rechecks existing reports and regenerates the aggregate
+without rerunning measurements. The individual reports retain SDK/provider
+versions, raw timing/CPU/allocation samples and generated source sizes. Windows
+process residency includes startup and setup; Python's traced allocation peak
+excludes native workspace. These categories do not denote interchangeable heap
+peaks. No speed threshold, earlier-release regression claim, hard memory cap,
+streaming or larger-than-RAM guarantee follows from this measurement profile.
+
 ## XSD export, comparison and local bundles
 
 The [tooling inventory](xsd_tooling/README.md) qualifies real compiler exports,

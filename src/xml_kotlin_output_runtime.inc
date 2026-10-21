@@ -69,8 +69,8 @@ internal class SrlXmlOutput(private val limits: XmlLimits, val mapLimits: XmlMap
         append("<" + local)
         if (name.namespace.isNotEmpty() && prefix != "xml") { bindings[prefix]=name.namespace }
         if (preservedScope == null) {
-            if (name.namespace.isNotEmpty() && prefix != "xml") { append(" xmlns:"+prefix+"=\""+srlXmlEscape(name.namespace,true,limits.srlPackageContext)+"\"") }
-            if (bindings.containsKey("")) { append(" xmlns=\"\"") }
+            if (name.namespace.isNotEmpty() && prefix != "xml") { budget.node(stack.size+1); budget.text(prefix); budget.text(name.namespace); append(" xmlns:"+prefix+"=\""+srlXmlEscape(name.namespace,true,limits.srlPackageContext)+"\"") }
+            if (bindings.containsKey("")) { budget.node(stack.size+1); append(" xmlns=\"\"") }
         } else {
             for ((declared,uri) in bindings.toSortedMap()) {
                 if (declared == "xml") { continue }
@@ -90,7 +90,7 @@ internal class SrlXmlOutput(private val limits: XmlLimits, val mapLimits: XmlMap
         while (frame.bindings[prefix] != null && frame.bindings[prefix] != uri) { ++suffix; prefix=preferred+"_"+suffix }
         if (frame.bindings[prefix] == null) {
             frame.bindings[prefix]=uri
-            if (frame.pinned) { budget.node(stack.size); budget.text(prefix); budget.text(uri) }
+            budget.node(stack.size); budget.text(prefix); budget.text(uri)
             append(" xmlns:"+prefix+"=\""+srlXmlEscape(uri,true,limits.srlPackageContext)+"\"")
         }
         return prefix
@@ -109,10 +109,7 @@ internal class SrlXmlOutput(private val limits: XmlLimits, val mapLimits: XmlMap
         val prefix = if (identity.namespace.isEmpty()) "" else prefixFor(identity.namespace,"srlType")
         if (prefix.isEmpty() && !identityNamespace("").isNullOrEmpty()) {
             require(stack.last().bindings[""] == null) { "Preserved default namespace conflicts with an empty XML type namespace" }
-            stack.last().bindings[""]=""; append(" xmlns=\"\"")
-        }
-        if (prefix != "xml" && prefix.isNotEmpty()) {
-            budget.node(stack.size); budget.text(prefix); budget.text(identity.namespace)
+            budget.node(stack.size); stack.last().bindings[""]=""; append(" xmlns=\"\"")
         }
         attribute(SrlXmlAttribute(SrlXmlName("type", "http://www.w3.org/2001/XMLSchema-instance"), (if (prefix.isEmpty()) "" else prefix + ":") + identity.local))
     }

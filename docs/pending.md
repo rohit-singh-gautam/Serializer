@@ -1,11 +1,34 @@
 # Pending requirements across Serializer
 
+Compiler/runtime **2.21.0** adds the reusable fifth-edition C++ OPC core-property
+adapter, completing `OPC-OPT01`; see its
+[independent schema/OPC checks and twenty-three-item audit](verification/verification-core-properties-2026-10-21.md).
+The concurrent batch also implements
+[managed authorization, capability and allocation slices](verification/verification-managed-authorization-2026-10-21.md)
+and [Python QName-list schema identities](verification/verification-qname-lists-2026-10-21.md).
+Their broader managed/XML parent requirements remain open with explicit acceptance
+boundaries. All 55 initially active requirements were assigned and audited together;
+an audit is not evidence that an unfinished requirement is implemented.
+The combined 2.21.0 native build and **271/271 CTests pass**; see the
+[integrated result and checkpoint provenance](verification/verification-integrated-pending-2026-10-21.md).
+
+The **2.20.1 measurement checkpoint** completes `XML-B06` across eleven actual
+Windows SDKs: 132 native operation profiles, 660 timing samples and exact native
+bytes agree with XML-disabled controls. See the
+[executed baseline and measurement limits](verification/verification-native-codec-baseline-2026-10-21.md).
+`XML-B12` is reconciled with the already completed `OPC-R13` authoring/evolution
+contract and its eleven-output Windows/Linux evidence. **54 requirements remain
+unchecked**; 793 of 847 rows are checked. `DB01` and `MIG03` are held at the user's
+request; the other 52 remain active. Selected Java/C#/Kotlin/Swift namespace
+accounting is implemented under `XML-B13`, whose broader parent stays open; see
+[8,256 boundary decisions and provider checks](verification/verification-namespace-budgets-2026-10-21.md).
+
 Compiler/runtime **2.20.0** completes `XML-B11` and `OPC-R12`: 300 XSD
 compiler-tooling decisions pass on Windows and Linux, including checked bundles,
 UTF-8 paths, directional comparisons, rich exports and protected enum-binding
 failures. All eleven outputs pass the ordinary exported/rebound model matrix on
 both hosts. See the [scope and final audit](verification/verification-xsd-tooling-2026-10-21.md).
-**57 requirements remain unchecked**; 790 of 847 rows are checked.
+That checkpoint left **57 requirements unchecked**, with 790 of 847 rows checked.
 
 Compiler/runtime **2.19.2** completes `OPC-R13`: staged XSD imports preserve
 surviving expanded-identity IDs and protect reviewed source, while authored
@@ -74,7 +97,7 @@ See the [batch dependencies and verification](verification/verification-pending-
 | [x] | OPC-R01d | — | Kotlin/Swift plain QName, QName-list and prefix-list scalar scopes retain local/shadowed declarations and explicit default absence; optional/repeated values, qualified attributes, native bindings and cumulative scope admission pass ten independent probes per actual SDK. Namespace-dependent union/default/fixed/enumeration combinations remain gated; [2.16 checks](verification/verification-qname-scopes-2026-10-20.md). | — |
 | [x] | OPC-R01e | — | C/Rust XML document companions retain plain QName/list/prefix-list occurrence scopes without changing native model structs or wire bytes. Thirteen namespace probes, independent retained-scope admission accounting and 29 existing extension probes pass in both actual SDKs. Wrapped/nil, mixed/all, revision/magic and other documented graph combinations remain gated; [2.16 checks](verification/verification-qname-scopes-2026-10-20.md). | — |
 | [ ] | OPC-R02 | — | Broaden namespace-aware reject/skip/preserve slots, exact wildcard positions/counts and required-capability handling beyond the selected generated graphs; unknown core names must still reject. | — |
-| [ ] | OPC-R03 | — | Complete lexical lists, exact facets, patterns and unions without duplicate INI inventories; broaden outer union enumeration/fixed values beyond the selected Python subset, namespace-dependent union defaults, QName-list enumeration/fixed values, child-local QName storage and broader numeric/provider boundaries; canonical numeric output satisfies its pattern. | — |
+| [ ] | OPC-R03 | — | Complete lexical lists, exact facets, patterns and unions without duplicate INI inventories; broaden outer union enumeration/fixed values beyond the selected Python subset, namespace-dependent union defaults, QName-list constraints beyond Python and broader numeric/provider boundaries; canonical numeric output satisfies its pattern. Python list enumeration/default/fixed values now retain schema-scope expanded identities in selected unions/global text; no-namespace defaults/fixed values reject an active nonempty instance default. [Executed QName-list scope](verification/verification-qname-lists-2026-10-21.md). | — |
 | [x] | OPC-R03a | — | C++ inherited/equivalent-scope QName/QName-list child unions preserve the first successful member and expanded identities; Python namespace-independent outer union enumeration/fixed values compare primitive/list value identities; [2.15 scope](verification/verification-pending-xml-2026-10-20.md). Child-local C++/Python scopes are implemented separately in OPC-R01a; broader backend/restriction combinations remain pending. | — |
 | [ ] | OPC-R04 | — | Complete multiple-typed-branch and grouped repeated choices plus ordered heterogeneous content; interleaving and occurrence semantics survive round trips. | — |
 | [ ] | OPC-R05 | — | Qualify the selected official Core 1.4 and XML XSD bundle against independent official 3MF corpus/conformance checks; required scalar/content constructs bind and unsupported external schemas reject precisely. | — |
@@ -145,7 +168,7 @@ and actual SDK checks before the parent requirement can be checked.
 | [ ] | BE02 | — | Define and implement Java packed output and the proposed stream/channel, native-acceleration and output-buffer-reuse APIs, with ownership/resource tests; [Java output](languages/java.md#defaults-and-unsupported-schema-features). | — |
 | [ ] | BE03 | — | Qualify borrowed/mapped-view platform, lifetime, allocation and performance boundaries; broader formats require their own mapping contract; [Views](serialization/views.md). | — |
 | [x] | BE04 | — | Compiler-only installed CMake discovery avoids unused runtime-provider lookup; preserve runtime exports, relocation, component selection and cross-toolchain host lookup (2.14 Windows/Linux neutral and multiarch install profiles; [evidence](verification/verification-backlog-2026-10-20.md)). | — |
-| [ ] | OPC-OPT01 | — | Define reusable OPC core-property models/adapters if selected; applications supply property values; [OPC design](design/opc_3mf_support.md). | — |
+| [x] | OPC-OPT01 | — | Reusable C++ fifth-edition core-property model, standalone XML and OPC writer/loader adapters; applications supply all fifteen standard values, including localized mixed keywords and normative W3CDTF dates. [Usage](serialization/core_properties.md) and [independent verification](verification/verification-core-properties-2026-10-21.md). | — |
 | [ ] | OPC-OPT02 | — | Define a signature/canonicalization/trust provider and independently qualify editing/signed-package behavior before claiming signature support; [OPC design](design/opc_3mf_support.md). | — |
 | [ ] | OPC-OPT03 | — | Define any outer package/Pack-IRI addressing API separately from internal part resolution; distinguish optional non-ASCII naming, interleaving and growth hints from mandatory selected-edition requirements; [OPC design](design/opc_3mf_support.md). | — |
 
@@ -180,13 +203,13 @@ and actual SDK checks before the parent requirement can be checked.
 | [ ] | XML-B03 | — | Implement equivalent rich XSD/XML emitters beyond C++/Python and qualify broader numeric, QName, content-model and provider combinations. | — |
 | [ ] | XML-B04 | — | Implement generated package facades for remaining outputs; add declarative payload references, target-mode/profile selection and broad corpus/performance qualification. | — |
 | [ ] | XML-B05 | — | Propagate the shared XML/package operation context through remaining backends and qualify large-model/provider boundaries. | — |
-| [ ] | XML-B06 | — | Measure repeatable ordinary-native throughput and peak memory against reproducible baselines. | — |
+| [x] | XML-B06 | — | Repeatable ordinary-native throughput and memory measurements pass across eleven Windows SDKs with XML-disabled controls: 132 positional-binary operation profiles, 660 samples, exact cross-language bytes and separate residency/traced-allocation categories. [Executed baseline and limits](verification/verification-native-codec-baseline-2026-10-21.md). | — |
 | [ ] | XML-B07 | — | Qualify additional platforms/provider combinations, broad performance and complete selected OPC/3MF profiles. | — |
 | [ ] | XML-B08 | — | XML performance: Broaden tree-free token coverage and qualify provider/platform and retained-tree helper costs; measure CPU, memory, encoded size and generated-code size on reproducible workloads. | — |
 | [ ] | XML-B09 | — | XML vocabulary: Extend combinations of presence/nil, ordered fragments, maps/variants and positioned extensions; qualify bounded foreign retention, grouped/repeated heterogeneous choices and broader mixed content. | — |
 | [ ] | XML-B10 | — | XSD compilation: Extend facets/derivations, multiple-typed-branch/grouped choices and scalar/pattern/identity/local-bundle combinations; qualify union/QName boundaries and explicit unsupported-graph capability gates. | — |
 | [x] | XML-B11 | — | Expanded XSD tooling passes 300 decisions per host: exact bundle/path/identity bounds, directional comparisons, eight rich export families, six invalid enum-binding profiles and protected publication. All eleven ordinary exported/rebound SDK outputs pass Windows/Linux interoperability; rich runtime graphs retain their recorded scope. [2.20.0 evidence](verification/verification-xsd-tooling-2026-10-21.md). | — |
-| [ ] | XML-B12 | — | Schema-first authoring: Extend inline association and declaration import while preserving authored behavior and native ordering through reviewed schema evolution. | — |
+| [x] | XML-B12 | — | Inline association and staged declaration import preserve authored behavior, IDs, defaults and native ordering through reviewed schema evolution. This duplicates the completed OPC-R13 interface gate; broader XSD graph/import combinations stay in XML-B02/B10. [Executed eleven-output authoring/evolution matrix](verification/verification-xsd-evolution-2026-10-21.md). | — |
 | [ ] | XML-B13 | — | Runtime XSD: Qualify prepared providers, limits and concurrency in every backend; align input/output namespace-declaration accounting, qualify caller-prepared validator interfaces and prohibit automatic remote schema loading. | — |
 | [ ] | XML-B14 | — | Model coverage: Broaden concrete generic, owning inheritance, revision/magic and digest combinations; define supported managed/view and recursive/combined graph contracts. | — |
 | [ ] | XML-B15 | — | Referenced XML output: Broaden stress/resource and ownership qualification without duplicate owning payloads; define any durable field-address XML contract before enabling it. | — |

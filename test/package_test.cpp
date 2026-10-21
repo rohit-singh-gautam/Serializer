@@ -1780,7 +1780,15 @@ TEST(package_profile, tree_identity_admission_uses_the_shared_reference_budget) 
   const xml::identity_field field{{{}, false, xml::name{"id", ""}}, "unsignedInt", false};
   const xml::identity_scope contract{{"root", ""}, {
       {{"keys", ""}, xml::identity_kind::key, selector, {field}, {}}}};
-  const auto tree = xml::parse("<root><item id='1'/><item id='2'/></root>");
+  // Identity validation accepts materialized trees even when the optional XML parser is disabled.
+  xml::element tree{};
+  tree.qualified_name = {"root", ""};
+  for (const auto id : {"1", "2"}) {
+    xml::element item{};
+    item.qualified_name = {"item", ""};
+    item.attributes.push_back({{"id", ""}, id});
+    tree.children.push_back(std::move(item));
+  }
   package::budget shared{package::limits{.max_references = 1U}};
   auto context = shared.xml_context("/tree.xml", "treeLink");
   try {

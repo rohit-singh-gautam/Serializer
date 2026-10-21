@@ -38,11 +38,33 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.20.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.21.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.21.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.21.0** adds [C++ OPC core-property adapters](docs/serialization/core_properties.md),
+[complete-candidate managed authorization](docs/managed/authorization.md), explicit
+C++ capability requirement profiles and a bounded PMR resource for routed
+allocations. Policy administration and principal binding remain application-owned;
+generated payload container/decoding allocators retain their existing contract.
+Python [QName-list restrictions](docs/verification/verification-qname-lists-2026-10-21.md)
+retain ordered schema-scope expanded identities for enumeration/default/fixed
+values, including selected union members and global text. Regenerate affected
+outputs. Native identities, wire formats and schema language **1.21.0** stay compatible;
+the [pending list](docs/pending.md) retains broader engine/backend/provider gates.
+
+Release **2.20.1** charges generated namespace declarations in Java/C#/Kotlin/Swift
+XML output, including qualified attributes and default-namespace resets. Kotlin
+and Swift charge type declarations once, including preserved scopes; C# input
+counts declaration prefixes consistently with output. Regenerate affected codecs
+when using tight XML limits. Native model APIs, wire bytes and schema language
+retain their contracts. The [namespace budget test](test/xml_namespace_budget_test.py)
+checks actual SDK admission against an independent declaration count.
+The [eleven-output native baseline](docs/verification/verification-native-codec-baseline-2026-10-21.md)
+records ordinary positional-binary throughput and memory with reproducible owning
+workloads and XML-disabled controls; measured peak categories remain distinct.
 
 Release **2.20.0** qualifies [XSD contract tooling](qualification/xsd_tooling/README.md),
 including native-enum export/string-space binding, directional comparison and

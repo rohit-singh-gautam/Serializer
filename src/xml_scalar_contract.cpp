@@ -128,7 +128,9 @@ void compiled_scalar_contract::validate(std::string_view text, const xml::elemen
   contract.list_item_kind = facets.list_item_kind;
   contract.enumeration = enumeration;
   contract.qname_enumeration = facets.qname_enumeration;
-  if (facets.lexical_kind == "QName") { contract.enumeration = {}; }
+  if (facets.lexical_kind == "QName" || !facets.qname_list_enumeration.empty()) {
+    contract.enumeration = {};
+  }
   std::string normalized{};
   if (contract.constraints.whitespace != xml::whitespace_policy::preserve) {
     if (context) { context->consume(xml::operation_resource::allocation_bytes, text.size()); }
@@ -166,6 +168,30 @@ void compiled_scalar_contract::validate(std::string_view text, const xml::elemen
     if (!matched) { throw std::invalid_argument{"XML value matches no compiled union member"}; }
   }
   xml::validate_lexical_contract(text, contract, scope, context);
+  if (!facets.qname_list_enumeration.empty()) {
+    // Compare one item at a time against immutable schema identities rather than
+    // resolving schema prefixes against the instance's unrelated namespace map.
+    const auto matches = [&](const std::vector<xml::name>& expected) {
+      auto remaining = text;
+      for (const auto& item : expected) {
+        remaining = xml::detail::trim(remaining);
+        if (remaining.empty()) { return false; }
+        const auto end = remaining.find_first_of(" \t\r\n");
+        const auto token = remaining.substr(0U, end);
+        if (context) {
+          context->consume(xml::operation_resource::work_units, token.size());
+          context->consume(xml::operation_resource::allocation_bytes, token.size());
+          context->consume(xml::operation_resource::allocation_bytes, item.namespace_uri.size());
+        }
+        if (xml::resolve_qname(token, scope) != item) { return false; }
+        remaining.remove_prefix(token.size());
+      }
+      return xml::detail::trim(remaining).empty();
+    };
+    if (std::none_of(facets.qname_list_enumeration.begin(), facets.qname_list_enumeration.end(), matches)) {
+      throw std::invalid_argument{"XML QName list enumeration facet failed"};
+    }
+  }
   for (const auto& group : stored.patterns) {
     if (std::none_of(group.begin(), group.end(), [&](const auto& pattern) {
         return pattern.matches(text, stored.limits, context);

@@ -1,5 +1,23 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.21.0** adds application-supplied
+[OPC core properties](../serialization/core_properties.md) and
+[complete-candidate authorization](../managed/authorization.md) for C++ stores,
+plus explicit native requirement profiles and bounded routed PMR allocation.
+These additions preserve existing model IDs and saved formats. Authorization
+principal/policy administration remains host-owned; PMR routing does not replace
+generated payload/decoder allocators. Python QName-list enumeration/default/fixed
+constraints now retain schema-scope expanded identities in the
+[verified supported combinations](../verification/verification-qname-lists-2026-10-21.md).
+Regenerate affected outputs; broader schema/backend/provider gates stay explicit.
+
+Compiler/runtime **2.20.1** corrects generated XML namespace-declaration admission
+in Java/C#/Kotlin/Swift. Regenerate those outputs when using bounded XML codecs.
+Qualified attributes, generated element declarations, empty-default resets and
+type-name declarations consume their configured structural/text budgets. Native
+payload fields, IDs, APIs and encoded bytes keep their existing contracts. See
+[XML limits and remaining resource boundaries](../serialization/xml_packages.md).
+
 Compiler/runtime **2.20.0** qualifies
 [XSD tooling qualification](../../qualification/xsd_tooling/README.md), including
 native-enum export/string-space binding, checked local bundles and directional

@@ -37,6 +37,8 @@ struct scalar_facets {
   std::vector<std::vector<std::string>> pattern_groups{};
   std::string list_item_kind{};
   std::vector<xml::name> qname_enumeration{};
+  // Each list enumeration owns schema-scope expanded item identities in original order.
+  std::vector<std::vector<xml::name>> qname_list_enumeration{};
   // Union branches are independent complete lexical contracts, never intersected facets.
   std::vector<scalar_facets> union_members{};
   // Compare the static validation contract without inspecting generated model values.
@@ -63,6 +65,7 @@ struct field {
   bool list{}, qname{}, prefix_list{};
   bool value_projection{};
   std::optional<xml::name> qname_default{}, qname_fixed{};
+  std::optional<std::vector<xml::name>> qname_list_default{}, qname_list_fixed{};
   presence_contract presence{};
   std::optional<map_contract> map_binding{};
   std::optional<variant_contract> variant_binding{};

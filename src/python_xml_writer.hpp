@@ -48,6 +48,13 @@ inline std::string name(const xml::name& value) {
   return "(" + native::quote(value.namespace_uri) + ", " + native::quote(value.local) + ")";
 }
 
+// Emit ordered expanded QName items independently of their schema presentation prefixes.
+inline std::string names(const std::vector<xml::name>& values) {
+  std::string result{"("};
+  for (const auto& value : values) { result += name(value) + ','; }
+  return result + ')';
+}
+
 // Emit complete immutable scalar/union metadata rather than interpreting XSD during every codec call.
 inline std::string facets(const xml_binding::scalar_facets& value, std::string kind = {}) {
   if (!value.lexical_kind.empty()) { kind = value.lexical_kind; }
@@ -66,6 +73,8 @@ inline std::string facets(const xml_binding::scalar_facets& value, std::string k
   for (const auto& selected : value.enumeration) { result += native::quote(selected) + ","; }
   result += "), 'qnames': (";
   for (const auto& selected : value.qname_enumeration) { result += name(selected) + ","; }
+  result += "), 'qname_lists': (";
+  for (const auto& selected : value.qname_list_enumeration) { result += names(selected) + ','; }
   result += "), 'patterns': (";
   auto groups = value.pattern_groups;
   if (!value.patterns.empty()) { groups.push_back(value.patterns); }
@@ -90,7 +99,7 @@ inline std::string facets(const xml_binding::scalar_facets& value, std::string k
   }
   result += "), 'list_item': " + native::quote(value.list_item_kind) + ", 'union': (";
   for (const auto& alternative : value.union_members) { result += facets(alternative) + ','; }
-  return result + "), 'qname': False, 'prefix_list': False, 'fixed': None, 'fixed_qname': None}";
+  return result + "), 'qname': False, 'prefix_list': False, 'fixed': None, 'fixed_qname': None, 'fixed_qname_list': None}";
 }
 
 // Bind field-only lexical adapters without changing the underlying ordinary model representation.
@@ -111,7 +120,8 @@ inline std::string field(const xml_binding::field& value, const type_name& leaf)
   result += ", 'qname': " + std::string{value.qname ? "True" : "False"} +
       ", 'prefix_list': " + (value.prefix_list ? "True" : "False") +
       ", 'fixed': " + (value.fixed_value ? native::quote(*value.fixed_value) : "None") +
-      ", 'fixed_qname': " + (value.qname_fixed ? name(*value.qname_fixed) : "None") + "}";
+      ", 'fixed_qname': " + (value.qname_fixed ? name(*value.qname_fixed) : "None") +
+      ", 'fixed_qname_list': " + (value.qname_list_fixed ? names(*value.qname_list_fixed) : "None") + "}";
   return result;
 }
 

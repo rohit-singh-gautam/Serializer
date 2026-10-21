@@ -1,5 +1,14 @@
 # Features and implementation status
 
+Compiler/runtime **2.21.0** adds selected
+[C++ core-property adapters](../serialization/core_properties.md),
+[managed authorization/publication gates](../managed/authorization.md), explicit
+C++ requirement/availability profiles and routed PMR admission. Python QName-list
+schema-scope enumeration/default/fixed identities extend the existing scalar
+contract. These are implemented native/backend additions; broader managed engines,
+schema selectors, payload allocation and XML graph/provider requirements remain
+open in the [pending list](../pending.md).
+
 Compiler/runtime **2.20.0** completes
 [XSD tooling qualification](../../qualification/xsd_tooling/README.md).
 Native-enum XSD export/string-space binding retains native identities and adds

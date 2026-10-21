@@ -15,6 +15,30 @@
 namespace binding = rohit::serializer::writer::xml_binding;
 namespace xml = rohit::serializer::xml;
 
+// Prepared list restrictions own ordered schema identities, including the empty list value.
+TEST(xml_scalar_contract, compiled_qname_list_enumeration_keeps_schema_scope) {
+  binding::scalar_facets facets{};
+  facets.lexical_kind = "string";
+  facets.list_item_kind = "QName";
+  facets.whitespace = "collapse";
+  facets.enumeration = {"schema:first local schema:second", ""};
+  facets.qname_list_enumeration = {{{"first", "urn:allowed"}, {"local", ""}, {"second", "urn:allowed"}}, {}};
+  const auto contract = binding::compile_scalar_contract(facets);
+  facets.qname_list_enumeration.clear();
+  xml::element scope{};
+  scope.namespace_bindings.emplace("p", "urn:allowed");
+  scope.namespace_bindings.emplace("schema", "urn:shadow");
+  EXPECT_NO_THROW(contract.validate(" p:first\tlocal p:second ", scope));
+  EXPECT_NO_THROW(contract.validate(" \n", scope));
+  EXPECT_THROW(contract.validate("schema:first local schema:second", scope), std::invalid_argument);
+  EXPECT_THROW(contract.validate("p:second local p:first", scope), std::invalid_argument);
+  EXPECT_THROW(contract.validate("p:first local", scope), std::invalid_argument);
+  EXPECT_THROW(contract.validate("missing:first", scope), std::invalid_argument);
+  xml::operation_context context{};
+  context.charge = [](auto, auto) { throw std::length_error{"list admission marker"}; };
+  EXPECT_THROW(contract.validate("p:first local p:second", scope, &context), std::length_error);
+}
+
 // Schema-scope QName identities replace their lexical aliases without weakening string enumerations.
 TEST(xml_scalar_contract, generated_qname_enumeration_uses_expanded_schema_identity) {
   const std::array<std::string_view, 1U> lexical{{"schema:item"}};
