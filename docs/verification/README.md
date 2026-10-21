@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [XSD authoring and evolution](verification-xsd-evolution-2026-10-21.md) | Staged addition/rename imports, ambiguity/publication guards and two authored native-compatible XML mappings across eleven actual SDKs on Windows/Linux; 44 emissions, 1,452 exchanges and explicit final-guard provenance. |
 | [Package reproducibility](verification-package-reproducibility-2026-10-21.md) | Independently checked ordering, metadata, ZIP64 and provider policies across eleven actual SDKs on Windows/Linux; 2,112 formal archives, conditional compressed-byte comparisons and explicit final-guard replay scope. |
 | [Fixed singleton package relocation](verification-package-relocation-2026-10-21.md) | Simultaneous preserved-link rebinding, opt-in C/Rust/Go APIs, moved-role removal, URI spelling and publication/collision checks across eleven actual SDKs. |
 | [Native XML operations and selected package codecs](verification-native-xml-operations-2026-10-21.md) | Additive C/Rust operation APIs, supported package identity graphs, public same-ledger codec composition across eleven outputs, strict SDK/field/error checks and explicit provider limits. |

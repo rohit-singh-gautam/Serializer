@@ -1,5 +1,12 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.19.2** qualifies
+[XSD authoring and evolution](../serialization/xsd_tooling.md#review-xsd-evolution)
+in all eleven outputs. Stage imports into fresh destinations for review. Retain
+native names, IDs, declaration order, defaults and behavior when using inline
+XML exceptions to rename/reorder XML fields in an existing application model.
+The XML contract changes independently; no automatic rename migration is inferred.
+
 Compiler/runtime **2.19.1** adds an
 [independent package reproducibility inventory](../../qualification/package_reproducibility/README.md).
 Keep authored payloads/names/IDs and writer policies fixed when comparing bytes.

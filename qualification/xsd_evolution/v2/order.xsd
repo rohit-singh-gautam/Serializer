@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in) -->
+<!-- SPDX-License-Identifier: 0BSD -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="urn:serializer:xsd-evolution"
+           elementFormDefault="qualified" attributeFormDefault="unqualified">
+  <xs:element name="order">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="note" type="xs:string" minOccurs="0"/>
+        <xs:element name="client" type="xs:string"/>
+      </xs:sequence>
+      <xs:attribute name="id" type="xs:unsignedInt" use="required"/>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

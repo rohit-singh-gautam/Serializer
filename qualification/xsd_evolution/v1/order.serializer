@@ -1,0 +1,14 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.20.0;
+
+namespace evolution {
+  using schema "order.xsd";
+
+  class order stable_ids {
+    public uint32 id (37) {7};
+    public string customer (11) {"native default"};
+    public optional<string> note (83);
+    public function bool has_id(uint32 expected) readonly expression(id == expected);
+  }
+}

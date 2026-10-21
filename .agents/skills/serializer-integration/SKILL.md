@@ -46,7 +46,7 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-The current compiler/runtime release is **2.19.1**, with schema language
+The current compiler/runtime release is **2.19.2**, with schema language
 **1.21.0**. Preserve the supported native managed identity, transaction,
 preview, journal and collaboration contracts when composing those features.
 For local collaboration, attach a fresh placeholder store before editing or
@@ -657,6 +657,18 @@ in the build directory and obtain their actual names from compiler output.
 Import protects differing existing source files; use the maintained CMake
 example's exact build-owned destination cleanup and depfile tracking when
 regenerating. Review changed output and retain existing native IDs.
+For changed XSDs, import to a fresh destination and compare the resulting model.
+IDs derive from expanded XML identity and placement; a new unrelated field does
+not renumber surviving identities, but an XML rename creates a new imported
+identity. Declaration reordering can change positional bytes despite stable IDs.
+For an existing application model, retain native field names, IDs, order,
+defaults and behavior and use a supported inline `xml(name("client"))` exception
+for the changed XML name. The XSD still determines XML child order. Select the
+matching XML contract or supply an application migration; this does not make
+renamed XML vocabularies interchangeable. Release 2.19.2's
+[actual eleven-output inventory](../../../qualification/xsd_evolution/README.md)
+checks this distinction and protected ambiguity failures without a second INI
+field inventory or automatic rename inference.
 Without XSD, use namespace/class `xml(namespace("uri"), scalars(attribute));`
 defaults and field `xml(...)` exceptions instead of a second INI field inventory.
 See the [automatic/manual examples for all outputs](../../../example/xsd/README.md)

@@ -1,11 +1,18 @@
 # Pending requirements across Serializer
 
+Compiler/runtime **2.19.2** completes `OPC-R13`: staged XSD imports preserve
+surviving expanded-identity IDs and protect reviewed source, while authored
+models retain native names/IDs/order/defaults/behavior through supported XML
+rename/reorder exceptions. All eleven outputs pass the Windows/Linux
+[actual evolution and interoperability matrix](verification/verification-xsd-evolution-2026-10-21.md).
+**59 requirements remain unchecked**; 788 of 847 rows are checked.
+
 Compiler/runtime **2.19.1** completes `XML-B23`: independent ordering, ZIP/XML
 metadata and provider-qualified byte reproducibility checks across all eleven
 outputs on Windows and Linux. The matrix preserves each backend's existing wire
 policy; Python's generic ZIP probe remains diagnostic/internal. See the
 [actual SDK matrix and provider boundaries](verification/verification-package-reproducibility-2026-10-21.md).
-**60 requirements remain unchecked**; 787 of 847 rows are checked.
+That checkpoint left 60 unchecked, with 787 of 847 rows checked.
 
 Compiler/runtime **2.19.0** completes `XML-B22` preservation/policy/collision
 qualification in supported XML/package graphs across all eleven outputs. Fixed
@@ -72,7 +79,7 @@ See the [batch dependencies and verification](verification/verification-pending-
 | [ ] | OPC-R10 | — | Broaden value-reference/scoped-projection XML graph, resource and stress qualification in every backend, preserving source lifetime and avoiding owning payload copies; separately define any durable-address XML contract. | — |
 | [ ] | OPC-R11 | — | Carry one cumulative operation context through generated codecs, XML, compression, ZIP, references, preservation and publication; test bounds, cancellation and deadlines across backends/providers. | — |
 | [ ] | OPC-R12 | — | Broaden fixed-XSD association/import/export, local bundle resolution and ambiguity diagnostics while preserving explicit native member IDs and reviewed schema evolution. | — |
-| [ ] | OPC-R13 | — | Retain one-source authoring: derive mapping from XSD or inline defaults/exceptions; qualify new/renamed-field and ambiguous-association workflows as coverage broadens. | — |
+| [x] | OPC-R13 | — | One-source XSD/inline exception workflows pass staged new-field/rename imports, protected ambiguity failures and authored native-model XML rename/reorder in all eleven outputs on Windows/Linux. Native names, IDs, defaults, behavior and literal positional/integer/string bytes retain their contracts; imported evolution remains reviewed. [2.19.2 evidence](verification/verification-xsd-evolution-2026-10-21.md). | — |
 
 `OPC-R01` remains open beyond the checked slices: namespace-dependent
 union/default/fixed/enumeration combinations still reject in the newly enabled

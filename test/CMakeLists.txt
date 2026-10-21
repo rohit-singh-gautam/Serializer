@@ -1581,7 +1581,26 @@ if(SERIALIZER_WITH_XML)
       COMMAND "${Python3_EXECUTABLE}" -B "${PROJECT_SOURCE_DIR}/qualification/package_reproducibility/oracle.py" self-test)
     add_test(NAME serializer_package_reproducibility_guards
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_reproducibility_guard_test.py")
+    add_test(NAME serializer_xsd_evolution_oracle
+      COMMAND "${Python3_EXECUTABLE}" -B "${PROJECT_SOURCE_DIR}/qualification/xsd_evolution/oracle.py" self-test)
+    add_test(NAME serializer_xsd_evolution_guards
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xsd_evolution_guard_test.py")
   endif()
+
+  foreach(serializer_xsd_evolution_variant IN ITEMS v1 v2)
+    set(serializer_xsd_evolution_target "xsd_evolution_cpp_${serializer_xsd_evolution_variant}")
+    add_executable(${serializer_xsd_evolution_target}
+      "${PROJECT_SOURCE_DIR}/qualification/xsd_evolution/cpp_consumer.cpp")
+    serializer_generate(TARGET ${serializer_xsd_evolution_target}
+      SCHEMAS "${PROJECT_SOURCE_DIR}/qualification/xsd_evolution/${serializer_xsd_evolution_variant}/order.serializer"
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xsd_evolution_${serializer_xsd_evolution_variant}")
+    target_link_libraries(${serializer_xsd_evolution_target} PRIVATE Serializer::runtime)
+    if(MSVC)
+      target_compile_options(${serializer_xsd_evolution_target} PRIVATE /W4 /WX)
+    else()
+      target_compile_options(${serializer_xsd_evolution_target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+  endforeach()
 
   add_executable(xml_schema_test xml_schema_test.cpp)
   target_link_libraries(xml_schema_test PRIVATE Serializer::serializer_lib GTest::gtest_main)

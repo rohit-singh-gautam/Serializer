@@ -1,0 +1,14 @@
+{
+  "format": "serializer-xsd-evolution-v1",
+  "namespace": "urn:serializer:xsd-evolution",
+  "root": "order",
+  "native_fields": [["id", 37], ["customer", 11], ["note", 83]],
+  "xml_children": {"v1": [["customer", "R&D"], ["note", "memo"]], "v2": [["note", "memo"], ["client", "R&D"]]},
+  "native_hex": {
+    "authored.bin": "070000000352264401046d656d6f",
+    "authored-integer.bin": "25070000000b03522644405301046d656d6f00",
+    "authored-string.bin": "0269640700000008637573746f6d657203522644046e6f746501046d656d6f00",
+    "default.bin": "070000000e6e61746976652064656661756c7400",
+    "xml-projection.bin": "070000000352264401046d656d6f"
+  }
+}

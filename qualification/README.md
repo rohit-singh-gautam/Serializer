@@ -4,6 +4,16 @@ These tools separate regression tests, performance measurements, and fuzzing.
 The dated [verification record](../docs/verification/verification-2026-09-17.md) ties executed
 checks to a source revision and configurations, and lists outstanding work.
 
+## XSD authoring and evolution
+
+The [eleven-output XSD inventory](xsd_evolution/README.md) checks staged declaration
+imports, protected ambiguity failures and authored native-model stability through
+XML name/order changes. Literal independent bytes check all three binary key
+modes; an independent parser and XSD provider validate every XML result. Each
+separately built variant consumes every backend's ordinary native output and
+every matching XML contract. Missing SDKs and diagnostic subsets cannot close
+the full gate.
+
 ## Package reproducibility
 
 The [eleven-output package inventory](package_reproducibility/README.md) uses an

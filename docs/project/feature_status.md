@@ -1,5 +1,11 @@
 # Features and implementation status
 
+Compiler/runtime **2.19.2** qualifies
+[one-source XSD authoring and evolution](../../qualification/xsd_evolution/README.md)
+across eleven outputs, including protected staged imports, explicit ambiguity
+resolution and native-model stability through supported XML rename/reorder.
+New XML identities in automatic imports retain their separate migration review.
+
 Compiler/runtime **2.19.1** adds the
 [eleven-output package reproducibility inventory](../../qualification/package_reproducibility/README.md),
 with independent raw ZIP/XML checks and provider-qualified byte comparisons.

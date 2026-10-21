@@ -38,11 +38,17 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.19.1**. Bug fixes and minor updates
+The current compiler and runtime release is **2.19.2**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.21.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.19.2** qualifies [XSD authoring and native-model evolution](qualification/xsd_evolution/README.md)
+in all eleven outputs. Staged imports retain existing expanded-identity IDs;
+authored models can preserve native names, IDs, defaults and behavior while XML
+exceptions rename or reorder their mapped children. XML compatibility remains
+separate from native wire compatibility; imports never infer a rename migration.
 
 Release **2.19.1** adds an [independent package reproducibility inventory](qualification/package_reproducibility/README.md)
 covering all eleven outputs. Existing writer policies, names and serialized

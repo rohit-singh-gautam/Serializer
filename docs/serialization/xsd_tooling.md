@@ -197,6 +197,38 @@ generate and compile the same primitive contract in all eleven languages. Rich
 C++/Python feature checks and other-backend rejection are separate from that baseline;
 an imported model is not an OPC package or a 3MF conformance claim.
 
+## Review XSD evolution
+
+Compiler/runtime **2.19.2** qualifies two existing one-source workflows across
+all eleven outputs. In the import workflow, generate a changed XSD into a fresh
+`.serializer` destination, then review the explicit native names, IDs, types and
+declaration order before regenerating application code. An unrelated new XML
+field does not renumber surviving expanded identities. Renaming an XML field
+changes its imported identity and can change both the native name and ID; the
+importer does not infer that two different XML names represent the same
+application field. Adding/reordering declarations can change positional bytes
+even when surviving IDs remain stable. Differing existing imported source is
+protected, including application edits; identical reruns remain idempotent.
+
+In the authored-model workflow, retain native field names, IDs, declaration order,
+defaults and behavior. Associate the new XSD through `using schema` and use a
+supported field exception such as `xml(name("client"))` to bind the existing
+native `customer` field to its new XML name. XML child order comes from the XSD
+and can differ from native declaration order. No second INI field inventory is
+required. The [working v1/v2 models](../../qualification/xsd_evolution/README.md)
+retain literal positional, integer-key and string-key bytes while their XML
+children change from `customer,note` to `note,client`.
+
+This preserves the authored native contract, not compatibility between renamed
+XML vocabularies. Use the corresponding XML schema or an application migration.
+Ambiguous automatic root associations require an explicit `--root`; ambiguous
+authored namespace associations require a supported inline namespace exception.
+The qualification verifies exact diagnostics and unchanged source, dependency
+files and existing generated output on these preflight failures. It does not
+promise cross-file atomic replacement after arbitrary filesystem I/O failures.
+Broader XSD constructs, rich export/compare/bundle coverage and OPC/3MF conformance
+retain their separate gates.
+
 ## Export and compare bound contracts
 
 Export the supported actual model contract with:

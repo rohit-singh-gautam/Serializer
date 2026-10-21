@@ -1,5 +1,17 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.19.2
+
+No compiler-driven schema, native API or saved-format migration is required.
+This patch qualifies the existing [XSD evolution workflows](qualification/xsd_evolution/README.md).
+Import changed XSDs into fresh destinations for review: surviving expanded XML
+identities retain imported IDs, while renamed identities receive different native
+names/IDs. Stable IDs do not preserve positional layouts after reordered or added
+fields. For an authored application model, keep native names/IDs/order and use
+inline XML exceptions to change XML names; defaults and behavior remain native.
+An XML rename still changes the XML contract. Select its matching schema or
+perform an application migration instead of assuming old XML will decode.
+
 ## Compiler/runtime 2.19.1
 
 No schema, model/API or saved-format migration is required. This patch qualifies

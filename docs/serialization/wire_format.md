@@ -1,5 +1,13 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.19.2** qualifies existing XSD import/binding workflows without
+changing native formats. Authored native field names, IDs and declaration order
+remain independent of mapped XML names/order. XML-only rename/reorder fixtures
+retain literal positional, integer-key and string-key bytes in every output;
+automatic import of a changed XML identity creates a different imported field.
+Adding/reordering imported fields can change positional layouts despite stable
+surviving IDs. See [XSD evolution](xsd_tooling.md#review-xsd-evolution).
+
 Compiler/runtime **2.19.1** qualifies existing package ordering and metadata
 policies without changing native fields, wire IDs, language versions, ZIP layouts
 or default writer choices. The
