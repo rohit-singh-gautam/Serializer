@@ -3,6 +3,7 @@
 #include <ledger.hpp>
 #include <rohit/managed.hpp>
 #include <rohit/managed_journal_document.hpp>
+#include <rohit/file_stream.hpp>
 #include <rohit/serializer.hpp>
 
 #include <cstddef>
@@ -74,21 +75,87 @@ codec::decode_limits document_limits() {
   return limits;
 }
 
+// Encode ordinary application JSON without interpreting a native recovery envelope.
+bytes encode_json_document(const ledger& value) {
+  const rohit::stream_limits bounds{initial_stream_bytes, max_document_bytes};
+  rohit::full_stream_auto_alloc_limits output{&bounds};
+  value.serialize_out<codec::json>(output);
+  return {output.begin(), output.begin() + output.current_offset()};
+}
+
 // Compose exact owning callbacks with native identity normalization and independent byte bounds.
 auto document_codec() {
   return managed::make_journal_document_codec<ledger>(
-      "example.ledger.json.v1",
-      [](const ledger& value) -> bytes {
-        const rohit::stream_limits bounds{initial_stream_bytes, max_document_bytes};
-        rohit::full_stream_auto_alloc_limits output{&bounds};
-        value.serialize_out<codec::json>(output);
-        return {output.begin(), output.begin() + output.current_offset()};
-      },
+      "example.ledger.json.v1", encode_json_document,
       [](std::span<const std::uint8_t> input) -> ledger {
         const auto stream = rohit::make_constant_full_stream(input.data(), input.size());
         return codec::deserialize_exact<ledger, codec::json>(stream, document_limits());
       },
       document_limits());
+}
+
+// The application owns copying/publication policy; Serializer never interprets these locators.
+void publish_host_bytes(const std::filesystem::path& path, std::span<const std::uint8_t> bytes) {
+  auto staged = path;
+  staged += ".staged";
+  {
+    rohit::file_stream output{staged, rohit::file_open_mode::create};
+    rohit::write_stream_bytes(output, bytes);
+    output.sync();
+  }
+  rohit::publish_file(staged, path, std::filesystem::exists(path));
+  rohit::sync_parent_directory(path);
+}
+
+// Exercise both application choices, then perform host publication and native confirmed Save.
+void demonstrate_origin_and_confirmed_save(bool own_copy) {
+  const temporary_document fixture;
+  const auto source = fixture.path();
+  const auto capture = source.parent_path() / "capture.json";
+  const auto owned = source.parent_path() / "owned.json";
+  const auto adapter = document_codec();
+  const auto original = encode_json_document(ledger{"Captured"});
+  publish_host_bytes(source, original);
+  publish_host_bytes(capture, original);
+  if (own_copy) { publish_host_bytes(owned, original); }
+  const auto main = own_copy ? owned : source;
+  managed::journal_options options;
+  options.document_codec = adapter;
+  const std::string origin = own_copy ? "source:17;storage:owned" : "source:17;storage:durable";
+  options.origin.assign(origin.begin(), origin.end());
+  managed::journal_prepared_save prepared;
+  bytes expected;
+  {
+    store_type store{ledger{"Captured"}};
+    store.create_journal(main, managed::journal_storage_mode::sidecar, options);
+    store.execute_transaction([](auto& tx) { tx.root().set_name("Edited"); }).throw_if_failed();
+    expected = store.save();
+  }
+  std::filesystem::remove(capture);
+  if (own_copy) { std::filesystem::remove(source); }
+  {
+    store_type recovered{ledger{}};
+    recovered.recover_journal(main, options);
+    require(recovered.save() == expected && recovered.journal_origin() == options.origin,
+            "Recovery lost owned state or provenance");
+    prepared = recovered.prepare_journal_save(options.origin);
+    // All business effects run after preparation returns, outside native durability callbacks.
+    const auto external = source.parent_path() / "published.json";
+    publish_host_bytes(external, prepared.document);
+    // Independently reread the host-published bytes before attesting native confirmation.
+    std::ifstream evidence_input{external, std::ios::binary};
+    const bytes published{std::istreambuf_iterator<char>{evidence_input}, std::istreambuf_iterator<char>{}};
+    const managed::journal_publication_evidence evidence{published.size(),
+        rohit::make_digest<rohit::digest_algorithm::sha256>(published)};
+    require(recovered.confirm_journal_save(prepared.token, evidence), "Confirmation did not activate base");
+    require(!recovered.confirm_journal_save(prepared.token, evidence), "Exact retry activated twice");
+    require(recovered.save() == expected, "Confirmed Save changed native identities/history");
+  }
+  store_type reopened{ledger{}};
+  reopened.recover_journal(main, options);
+  require(reopened.save() == expected && !reopened.journal_dirty(), "Confirmed base did not cold recover");
+  reopened.undo();
+  require(reopened.read()->name == "Captured", "Confirmed Save lost Undo history");
 }
 } // namespace
 
@@ -144,6 +211,9 @@ int main() {
         })
         .throw_if_failed();
     std::cout << "JSON Save/reopen preserved native IDs, redo and burned allocation gaps.\n";
+    demonstrate_origin_and_confirmed_save(true);
+    demonstrate_origin_and_confirmed_save(false);
+    std::cout << "Application-selected owned copies/durable originals retain origin and confirmed Save.\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

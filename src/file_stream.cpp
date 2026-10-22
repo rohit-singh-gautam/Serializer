@@ -352,7 +352,7 @@ void file_stream::sync() {
 // Persist directory entries as well as file contents on POSIX filesystems.
 void sync_parent_directory(const std::filesystem::path& path) {
 #ifdef _WIN32
-  // Publication uses same-directory MoveFileExW with WRITE_THROUGH; no portable directory fsync.
+  // Publication uses MoveFileExW with WRITE_THROUGH on the same volume; no portable directory fsync.
   static_cast<void>(path);
 #else
   const auto parent = path.parent_path().empty() ? std::filesystem::path{"."} : path.parent_path();
@@ -373,7 +373,7 @@ void sync_parent_directory(const std::filesystem::path& path) {
 #endif
 }
 
-// Publish only a fully flushed same-directory replacement; no copy/delete fallback is permitted.
+// Publish a fully flushed same-filesystem replacement; no copy/delete fallback is permitted.
 void publish_file(const std::filesystem::path& source, const std::filesystem::path& target,
                   bool replace) {
 #ifdef _WIN32

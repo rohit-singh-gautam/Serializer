@@ -248,7 +248,15 @@ complete-envelope behavior; this stream refactor does not change history retenti
 
 ## Durable decisions and files
 
-One store owns the document through its stable `<path>.lock` file. Windows uses an
+New journals group every auxiliary file in one `.<filename>.journal/` directory
+beside the main file. It is dot-prefixed and hidden on Windows. Existing flat
+layouts remain supported and continue writing their original filenames; there
+is no automatic live migration. Simultaneous new-layout and legacy metadata
+rejects. Move the closed main with its entire journal directory, and do not mix
+older writers with the new directory/lock protocol.
+
+One store owns the document through its stable `writer.lock` in that directory
+(legacy: `<path>.lock`). Windows uses an
 exclusive native handle; POSIX uses nonblocking `flock`. The lock is released by
 process exit and the lock file deliberately remains. All writers must cooperate
 and use the same canonical path; hard-link aliases and network filesystem locking
@@ -258,18 +266,20 @@ exist. External file modifications are unsupported.
 In appended mode, `<path>` contains the base header and base envelope frame,
 followed by committed snapshot/control frames. In sidecar mode, `<path>` contains only the
 base header and frame. Its generation selects
-`<path>.journal-<generation_high>-<generation_low>`, which contains a matching
+`changes-<generation_high>-<generation_low>` inside the directory (legacy:
+`<path>.journal-<generation_high>-<generation_low>`), which contains a matching
 header and subsequent frames. A missing sidecar fails recovery, including an empty
 one; a stale or substituted sidecar cannot be attached by filename alone.
 This native layout is distinct from the external-document layout below.
 
 Full Save writes and flushes a new generation first, creating the matching
 companion first in sidecar mode. It then atomically publishes the base through a
-same-directory rename/replacement. That base is the generation-selection manifest;
+same-filesystem rename/replacement, synchronizing both affected parents when
+staging and target directories differ. That base is the generation-selection manifest;
 there is no separately mutable manifest. Only after publication does the writer
 switch destinations and best-effort remove the known old companion. Failure before
 publication leaves the previous generation recoverable. Failure after publication
-may leave obsolete companions or `.pending-<generation>` files; recovery uses only
+may leave obsolete companions or `pending-<generation>` staging files; recovery uses only
 the generation selected by the base. Automatic scanning/deletion of crash leftovers
 is not implemented. Cleanup failure cannot invalidate a successful Save.
 
@@ -287,8 +297,9 @@ Callbacks must not reenter the store; their borrowed dependencies must remain li
 See the [bounded JSON example](../guides/usage.md#external-documents-with-a-differential-sidecar).
 
 Here `<path>` contains only application document bytes, not a native journal
-container. A `<path>.journal` manifest binds their exact length and SHA-256, codec
-ID and native generation header to `<path>.journal-<high>-<low>`. That companion
+container. The directory's `manifest` binds their exact length and SHA-256, codec
+ID and native generation header to `changes-<high>-<low>`. Legacy flat layouts
+retain `<path>.journal` and `<path>.journal-<high>-<low>`. That companion
 starts with a differential complete-checkpoint record against the canonical
 normalized root decoded from the original; subsequent records contain the normal
 logical model/session operations in differential form. History, identity and
@@ -297,13 +308,23 @@ pending-session metadata remain in the side channel.
 Creation can attach an existing document if its decoded values exactly match the
 store, preserving original bytes. During ordinary editing the original stays
 unchanged. Full Save stages and syncs the new document, companion and manifest,
-durably publishes `<path>.journal.pending`, replaces the main document, then
+durably publishes the directory's `manifest.pending`, replaces the main document, then
 publishes the selected manifest. Recovery chooses a manifest whose exact-byte
 digest matches the document, then admits the selected companion header/generation
 and complete baseline-frame extent/checksum before invoking the external decoder.
 It validates and repairs journal replay before completing pending publication. A
 failure after publication begins fences the writer and requires fresh recovery.
 Do not delete pending metadata or guess a generation from its filename.
+
+Compiler/runtime 2.26.0 adds [bounded opaque origin metadata and prepared/confirmed
+Save](document_origin.md). The host chooses whether this main is a full owned
+copy or a durable original. Temporary external originals/captures can disappear
+after the owned main is durably published; the main and its journal directory
+remain the recovery dependency. This is the existing differential protocol,
+without a full package per edit or shared immutable-cache resolver. Prepared Save
+persists a pinned unresolved intent; only explicit confirmation against the exact
+token and host evidence selects the proposed native base. Origin metadata never
+enters authored model fields.
 
 The [runnable external-JSON example](../../example/managed/external_document/README.md)
 demonstrates exact native Save/reopen, an undone history cursor, redo and burned

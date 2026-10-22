@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <rohit/managed_journal_document.hpp>
+#include "managed_journal_paths.hpp"
 
 #include <ledger.hpp>
 #include <rohit/managed.hpp>
@@ -14,6 +15,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <span>
 #include <stdexcept>
@@ -30,6 +32,11 @@ using store_type = managed::model_store<ledger>;
 using bytes = std::vector<std::uint8_t>;
 using mode = managed::journal_storage_mode;
 using event = managed::journal_io_event;
+
+// Construct independent host publication evidence from the bytes actually written by the host.
+managed::journal_publication_evidence publication_evidence(std::span<const std::uint8_t> document) {
+  return {document.size(), rohit::make_digest<rohit::digest_algorithm::sha256>(document)};
+}
 
 // Read exact document or companion bytes while retaining any insignificant external whitespace.
 bytes read_document_bytes(const std::filesystem::path& path) {
@@ -98,13 +105,7 @@ protected:
 
   // Locate the sole active companion after successful generation cleanup.
   std::filesystem::path companion_path() const {
-    const auto prefix = path_.filename().string() + ".journal-";
-    for (const auto& item : std::filesystem::directory_iterator{directory_}) {
-      if (item.path().filename().string().starts_with(prefix)) {
-        return item.path();
-      }
-    }
-    throw std::runtime_error{"Missing external document journal companion"};
+    return journal_test_paths::first_companion(path_);
   }
 };
 
@@ -353,7 +354,7 @@ TEST_F(managed_document_journal, interrupted_save_recovers_matching_document_gen
     recovered.recover_journal(path, options);
     EXPECT_EQ(recovered.read()->name, "Current");
     EXPECT_EQ(recovered.journal_dirty(), !published);
-    EXPECT_FALSE(std::filesystem::exists(path.string() + ".journal.pending"));
+    EXPECT_FALSE(std::filesystem::exists(journal_test_paths::manifest(path, true)));
     recovered.undo();
     EXPECT_EQ(recovered.read()->name, "Saved");
   }
@@ -378,7 +379,7 @@ TEST_F(managed_document_journal, pending_manifest_with_old_document_recovers_old
     armed = true;
     EXPECT_THROW(store.save_journal(), managed::journal_indeterminate_error);
   }
-  ASSERT_TRUE(std::filesystem::exists(path_.string() + ".journal.pending"));
+  ASSERT_TRUE(std::filesystem::exists(journal_test_paths::manifest(path_, true)));
   // Reproduce the other allowed crash ordering using the still-retained old data generation.
   write_document_bytes(path_, original);
   armed = false;
@@ -387,7 +388,7 @@ TEST_F(managed_document_journal, pending_manifest_with_old_document_recovers_old
   EXPECT_EQ(recovered.read()->name, "Current");
   EXPECT_TRUE(recovered.journal_dirty());
   EXPECT_EQ(read_document_bytes(path_), original);
-  EXPECT_FALSE(std::filesystem::exists(path_.string() + ".journal.pending"));
+  EXPECT_FALSE(std::filesystem::exists(journal_test_paths::manifest(path_, true)));
   EXPECT_NO_THROW(recovered.save_journal());
 }
 
@@ -552,6 +553,461 @@ TEST_F(managed_document_journal, stale_document_binding_rejects_before_payload_d
   write_document_bytes(companion, original_companion);
   EXPECT_NO_THROW(destination.recover_journal(path_, options));
   EXPECT_GT(decoded, 0u);
+}
+
+// A closed legacy external layout remains writable without creating a second competing lock namespace.
+TEST_F(managed_document_journal, legacy_flat_layout_recovers_and_stays_flat) {
+  const auto options = json_options();
+  bytes expected;
+  {
+    store_type store{ledger{"Saved"}};
+    store.create_journal(path_, mode::sidecar, options);
+    store.execute_transaction([](auto& edit) { edit.root().set_name("Changed"); }).throw_if_failed();
+    expected = store.save();
+  }
+  const auto folder = journal_test_paths::directory(path_);
+  // Build an old-runtime fixture only after every native handle has closed.
+  std::vector<std::filesystem::path> components;
+  for (const auto& item : std::filesystem::directory_iterator{folder}) { components.push_back(item.path()); }
+  for (const auto& component : components) {
+    const auto name = component.filename().string();
+    auto destination = path_;
+    if (name == "manifest") { destination += ".journal"; }
+    else if (name == "writer.lock") { destination += ".lock"; }
+    else if (name.starts_with("changes-")) { destination += ".journal-" + name.substr(std::string_view{"changes-"}.size()); }
+    else { FAIL() << "Unexpected legacy fixture component: " << name; }
+    std::filesystem::rename(component, destination);
+  }
+  ASSERT_TRUE(std::filesystem::remove(folder));
+  {
+    store_type recovered{ledger{}};
+    recovered.recover_journal(path_, options);
+    EXPECT_EQ(recovered.save(), expected);
+    recovered.save_journal();
+    EXPECT_EQ(recovered.read()->name, "Changed");
+    EXPECT_FALSE(std::filesystem::exists(folder));
+  }
+  store_type reopened{ledger{}};
+  EXPECT_NO_THROW(reopened.recover_journal(path_, options));
+  EXPECT_EQ(reopened.read()->name, "Changed");
+}
+
+// Grouping includes manifest publication and staging, without changing ordinary application bytes.
+TEST_F(managed_document_journal, document_metadata_stays_inside_one_directory) {
+  auto options = json_options();
+  const auto folder = journal_test_paths::directory(path_);
+  options.fault_injector = [&](event) {
+    for (const auto& item : std::filesystem::directory_iterator{directory_}) {
+      EXPECT_TRUE(item.path() == path_ || item.path() == folder) << item.path();
+    }
+  };
+  {
+    store_type store{ledger{"Saved"}};
+    store.create_journal(path_, mode::sidecar, options);
+    store.execute_transaction([](auto& edit) { edit.root().set_name("Changed"); }).throw_if_failed();
+    store.save_journal();
+  }
+  EXPECT_EQ(decode_document<codec::json>(read_document_bytes(path_)).name, "Changed");
+  EXPECT_TRUE(std::filesystem::exists(folder / "manifest"));
+  EXPECT_TRUE(std::filesystem::exists(folder / "writer.lock"));
+  EXPECT_EQ(static_cast<std::size_t>(std::distance(std::filesystem::directory_iterator{folder},
+      std::filesystem::directory_iterator{})), 3U);
+}
+
+// An ambiguous flat/directory pair is rejected before any decode or publication can choose wrong state.
+TEST_F(managed_document_journal, conflicting_layouts_are_not_guessed_or_modified) {
+  const auto options = json_options();
+  {
+    store_type store{ledger{"Saved"}};
+    store.create_journal(path_, mode::sidecar, options);
+  }
+  const auto document = read_document_bytes(path_);
+  const auto metadata = read_document_bytes(journal_test_paths::manifest(path_));
+  auto lock = path_;
+  lock += ".lock";
+  write_document_bytes(lock, {});
+  store_type recovered{ledger{}};
+  EXPECT_THROW(recovered.recover_journal(path_, options), std::invalid_argument);
+  EXPECT_EQ(read_document_bytes(path_), document);
+  EXPECT_EQ(read_document_bytes(journal_test_paths::manifest(path_)), metadata);
+}
+
+// Native path composition preserves non-ASCII filenames without converting through the active code page.
+TEST_F(managed_document_journal, unicode_document_basename_keeps_its_own_auxiliary_directory) {
+  path_ = directory_ / std::filesystem::path{u8"r\u00e9sum\u00e9.json"};
+  const auto options = json_options();
+  {
+    store_type store{ledger{"Saved"}};
+    store.create_journal(path_, mode::sidecar, options);
+  }
+  const auto folder = directory_ / std::filesystem::path{u8".r\u00e9sum\u00e9.json.journal"};
+  EXPECT_TRUE(std::filesystem::exists(folder / "manifest"));
+  store_type recovered{ledger{}};
+  EXPECT_NO_THROW(recovered.recover_journal(path_, options));
+  EXPECT_EQ(recovered.read()->name, "Saved");
+}
+
+// Provenance survives native operations while source/cache ownership remains an application choice.
+TEST_F(managed_document_journal, owned_copy_recovers_without_external_source_or_capture) {
+  auto options = json_options();
+  options.origin = {'c', 'a', 'p', 't', 'u', 'r', 'e', ':', '1', '7'};
+  const auto source = directory_ / "external.json";
+  const auto capture = directory_ / "capture.json";
+  const auto original = encode_document<codec::json>(ledger{"Source", {{10, {"Entry", 200}}}});
+  write_document_bytes(source, original);
+  write_document_bytes(capture, original);
+  // The host chooses to own a complete main instead of depending on its temporary source.
+  write_document_bytes(path_, original);
+  bytes expected;
+  std::uint32_t burned{};
+  {
+    store_type store{decode_document<codec::json>(original)};
+    store.create_journal(path_, mode::sidecar, options);
+    store.execute_transaction([&](auto& tx) { burned = tx.create_id(); tx.revert(); }).throw_if_failed();
+    store.execute_transaction([](auto& tx) { tx.root().set_name("Edited"); }).throw_if_failed();
+    store.undo();
+    store.redo();
+    EXPECT_EQ(store.journal_origin(), options.origin);
+    expected = store.save();
+  }
+  ASSERT_TRUE(std::filesystem::remove(source));
+  ASSERT_TRUE(std::filesystem::remove(capture));
+  {
+    store_type recovered{ledger{}};
+    recovered.recover_journal(path_, options);
+    EXPECT_EQ(recovered.save(), expected);
+    EXPECT_EQ(recovered.journal_origin(), options.origin);
+    recovered.save_journal();
+    recovered.undo();
+    EXPECT_EQ(recovered.read()->name, "Source");
+    recovered.redo();
+    recovered.execute_transaction([&](auto& tx) {
+      EXPECT_GT(tx.root().entries().insert(20, {"Next", 300}), burned);
+    }).throw_if_failed();
+    recovered.save_journal();
+  }
+  store_type reopened{ledger{}};
+  reopened.recover_journal(path_, options);
+  EXPECT_EQ(reopened.journal_origin(), options.origin);
+  EXPECT_EQ(reopened.read()->entries.size(), 2u);
+  const auto output = read_document_bytes(path_);
+  EXPECT_EQ(std::search(output.begin(), output.end(), options.origin.begin(), options.origin.end()),
+            output.end());
+}
+
+// Explicit bounds reject before creating native files or changing the accepted binding.
+TEST_F(managed_document_journal, origin_bounds_corruption_and_replacement_are_transactional) {
+  auto options = json_options();
+  options.max_origin_bytes = 4;
+  options.origin = {1, 2, 3, 4, 5};
+  store_type store{ledger{"Base"}};
+  const auto initial = store.save();
+  EXPECT_THROW(store.create_journal(path_, mode::sidecar, options), std::invalid_argument);
+  EXPECT_EQ(store.save(), initial);
+  EXPECT_TRUE(std::filesystem::is_empty(directory_));
+  options.origin = {1, 2, 3};
+  store.create_journal(path_, mode::sidecar, options);
+  const auto manifest = journal_test_paths::manifest(path_);
+  const auto accepted = read_document_bytes(manifest);
+  const bytes oversized{1, 2, 3, 4, 5};
+  EXPECT_THROW(store.save_journal(oversized), std::length_error);
+  EXPECT_EQ(read_document_bytes(manifest), accepted);
+  EXPECT_EQ(store.journal_origin(), options.origin);
+  const bytes replacement{4, 5};
+  store.save_journal(replacement);
+  EXPECT_EQ(store.journal_origin(), replacement);
+}
+
+// Cold admission rejects damaged and over-budget origin metadata before invoking the payload codec.
+TEST_F(managed_document_journal, invalid_origin_recovery_does_not_admit_state) {
+  auto options = json_options();
+  options.origin = {1, 2, 3, 4};
+  {
+    store_type store{ledger{"Base"}};
+    store.create_journal(path_, mode::sidecar, options);
+  }
+  const auto manifest = journal_test_paths::manifest(path_);
+  const auto original = read_document_bytes(manifest);
+  for (const bool truncate : {false, true}) {
+    auto corrupt = original;
+    if (truncate) { corrupt.pop_back(); } else { corrupt[corrupt.size() - 9] ^= 1; }
+    write_document_bytes(manifest, corrupt);
+    store_type destination{ledger{"Untouched"}};
+    const auto before = destination.save();
+    EXPECT_THROW(destination.recover_journal(path_, options), std::exception);
+    EXPECT_EQ(destination.save(), before);
+    EXPECT_EQ(read_document_bytes(manifest), corrupt);
+  }
+  write_document_bytes(manifest, original);
+  options.max_origin_bytes = 3;
+  store_type destination{ledger{"Untouched"}};
+  const auto before = destination.save();
+  EXPECT_THROW(destination.recover_journal(path_, options), std::length_error);
+  EXPECT_EQ(destination.save(), before);
+}
+
+// A lost external acknowledgement leaves a native unresolved intent; confirmation preserves Undo/IDs.
+TEST_F(managed_document_journal, prepared_save_survives_restart_and_exact_confirmation_retries) {
+  auto options = json_options();
+  options.origin = {1};
+  const bytes next_origin{2, 3};
+  managed::journal_prepared_save prepared;
+  bytes expected, original;
+  std::uint32_t burned{};
+  {
+    store_type store{ledger{"Base"}};
+    store.create_journal(path_, mode::sidecar, options);
+    original = read_document_bytes(path_);
+    store.execute_transaction([&](auto& tx) { burned = tx.create_id(); tx.revert(); }).throw_if_failed();
+    store.execute_transaction([](auto& tx) { tx.root().set_name("Prepared"); }).throw_if_failed();
+    expected = store.save();
+    prepared = store.prepare_journal_save(next_origin);
+    EXPECT_EQ(read_document_bytes(path_), original);
+    EXPECT_EQ(store.journal_origin(), options.origin);
+    EXPECT_EQ(store.save(), expected);
+    EXPECT_EQ(store.execute_transaction([](auto& tx) { tx.root().set_name("Too late"); }).status,
+              managed::transaction_status::failed);
+    EXPECT_THROW(store.undo(), std::logic_error);
+    EXPECT_THROW(store.save_journal(), std::logic_error);
+    // Simulate host publication, followed by losing its acknowledgement before native confirmation.
+    write_document_bytes(directory_ / "external.json", prepared.document);
+  }
+  const auto evidence = publication_evidence(read_document_bytes(directory_ / "external.json"));
+  {
+    store_type recovered{ledger{}};
+    recovered.recover_journal(path_, options);
+    EXPECT_EQ(recovered.save(), expected);
+    const auto unresolved = recovered.prepared_journal_save();
+    ASSERT_TRUE(unresolved);
+    EXPECT_EQ(unresolved->token, prepared.token);
+    EXPECT_EQ(unresolved->origin, next_origin);
+    auto wrong = evidence;
+    ++wrong.document_bytes;
+    EXPECT_THROW(recovered.confirm_journal_save(prepared.token, wrong), std::invalid_argument);
+    auto tampered = prepared.token;
+    tampered[16] ^= 1;
+    EXPECT_THROW(recovered.confirm_journal_save(tampered, evidence), std::invalid_argument);
+    EXPECT_EQ(read_document_bytes(path_), original);
+    EXPECT_TRUE(recovered.prepared_journal_save());
+    EXPECT_TRUE(recovered.confirm_journal_save(prepared.token, evidence));
+    EXPECT_EQ(recovered.save(), expected);
+    EXPECT_EQ(read_document_bytes(path_), prepared.document);
+    EXPECT_EQ(recovered.journal_origin(), next_origin);
+    EXPECT_FALSE(recovered.prepared_journal_save());
+    EXPECT_FALSE(recovered.confirm_journal_save(prepared.token, evidence));
+    recovered.undo();
+    EXPECT_EQ(recovered.read()->name, "Base");
+    EXPECT_TRUE(recovered.journal_dirty());
+    EXPECT_FALSE(recovered.confirm_journal_save(prepared.token, evidence));
+    EXPECT_TRUE(recovered.journal_dirty());
+    recovered.redo();
+    recovered.execute_transaction([&](auto& tx) {
+      EXPECT_GT(tx.root().entries().insert(20, {"Next", 200}), burned);
+    }).throw_if_failed();
+  }
+  store_type reopened{ledger{}};
+  reopened.recover_journal(path_, options);
+  EXPECT_EQ(reopened.journal_origin(), next_origin);
+  EXPECT_FALSE(reopened.confirm_journal_save(prepared.token, evidence));
+  EXPECT_TRUE(reopened.journal_dirty());
+  reopened.save_journal();
+}
+
+// Every interruption retains an old unresolved or newly selected checkpoint, never a guessed success.
+TEST_F(managed_document_journal, prepared_and_confirmed_save_fault_boundaries_recover) {
+  const std::vector<event> points{event::before_prepare_publish, event::after_prepare_publish,
+      event::before_confirm, event::before_replace, event::after_confirm_decision,
+      event::after_replace, event::after_publish, event::before_cleanup};
+  for (std::size_t index = 0; index < points.size(); ++index) {
+    SCOPED_TRACE(index);
+    const auto path = directory_ / ("fault-" + std::to_string(index) + ".json");
+    bool armed{};
+    auto options = json_options();
+    options.origin = {1};
+    options.fault_injector = [&](event point) {
+      if (armed && point == points[index]) { throw std::runtime_error{"Interrupted publication"}; }
+    };
+    managed::journal_prepared_save prepared;
+    bytes expected;
+    const bool preparing = index < 2;
+    {
+      store_type store{ledger{"Base"}};
+      store.create_journal(path, mode::sidecar, options);
+      store.execute_transaction([](auto& tx) { tx.root().set_name("Changed"); }).throw_if_failed();
+      expected = store.save();
+      armed = preparing;
+      if (preparing) {
+        EXPECT_THROW(store.prepare_journal_save(bytes{2}), std::exception);
+      } else {
+        prepared = store.prepare_journal_save(bytes{2});
+        armed = true;
+        if (points[index] == event::before_cleanup) {
+          EXPECT_TRUE(store.confirm_journal_save(prepared.token, publication_evidence(prepared.document)));
+        } else {
+          EXPECT_THROW(store.confirm_journal_save(prepared.token, publication_evidence(prepared.document)),
+                       std::exception);
+        }
+      }
+    }
+    armed = false;
+    store_type recovered{ledger{}};
+    recovered.recover_journal(path, options);
+    EXPECT_EQ(recovered.save(), expected);
+    const bool new_base = index >= 5;
+    EXPECT_EQ(recovered.journal_origin(), new_base ? bytes{2} : bytes{1});
+    const auto unresolved = recovered.prepared_journal_save();
+    EXPECT_EQ(unresolved.has_value(), index >= 1 && !new_base);
+    if (unresolved) {
+      EXPECT_TRUE(recovered.confirm_journal_save(unresolved->token,
+                                                publication_evidence(unresolved->document)));
+    }
+    recovered.execute_transaction([](auto& tx) { tx.root().set_name("Next"); }).throw_if_failed();
+  }
+}
+
+// Even valid outer checksums cannot substitute another activation or stale confirmation.
+TEST_F(managed_document_journal, prepared_bindings_reject_foreign_stale_and_corrupt_inputs) {
+  const auto options = json_options();
+  managed::journal_prepared_save first;
+  bytes expected;
+  {
+    store_type store{ledger{"Base"}};
+    store.create_journal(path_, mode::sidecar, options);
+    store.execute_transaction([](auto& tx) { tx.root().set_name("Next"); }).throw_if_failed();
+    expected = store.save();
+    first = store.prepare_journal_save(bytes{1});
+    auto forged = first.token;
+    forged[16] ^= 1;
+    managed::detail::journal_put_word(forged, forged.size() - 8,
+        managed::detail::checksum(std::span{forged}.first(forged.size() - 8)));
+    EXPECT_THROW(store.confirm_journal_save(forged, publication_evidence(first.document)),
+                 std::invalid_argument);
+    auto wrong_digest = publication_evidence(first.document);
+    wrong_digest.document_digest.front() ^= 1;
+    EXPECT_THROW(store.confirm_journal_save(first.token, wrong_digest), std::invalid_argument);
+    EXPECT_EQ(store.save(), expected);
+  }
+  const auto folder = journal_test_paths::directory(path_);
+  std::filesystem::path staged;
+  for (const auto& entry : std::filesystem::directory_iterator(folder)) {
+    if (entry.path().filename().string().starts_with("pending-") && entry.path().extension() != ".manifest") {
+      staged = entry.path();
+    }
+  }
+  ASSERT_FALSE(staged.empty());
+  const auto original = read_document_bytes(staged);
+  auto corrupt = original;
+  corrupt.front() ^= 1;
+  write_document_bytes(staged, corrupt);
+  {
+    store_type destination{ledger{"Untouched"}};
+    const auto before = destination.save();
+    EXPECT_THROW(destination.recover_journal(path_, options), std::invalid_argument);
+    EXPECT_EQ(destination.save(), before);
+    EXPECT_EQ(read_document_bytes(staged), corrupt);
+  }
+  write_document_bytes(staged, original);
+  store_type recovered{ledger{}};
+  recovered.recover_journal(path_, options);
+  EXPECT_TRUE(recovered.confirm_journal_save(first.token, publication_evidence(first.document)));
+  const auto second = recovered.prepare_journal_save();
+  EXPECT_THROW(recovered.confirm_journal_save(first.token, publication_evidence(first.document)),
+               std::invalid_argument);
+  EXPECT_TRUE(recovered.confirm_journal_save(second.token, publication_evidence(second.document)));
+  EXPECT_EQ(recovered.journal_origin(), (bytes{1}));
+  EXPECT_THROW(recovered.confirm_journal_save(first.token, publication_evidence(first.document)),
+               std::invalid_argument);
+  EXPECT_EQ(recovered.save(), expected);
+}
+
+// Empty provenance retains the default preparation path; native admission also checks receipt integrity.
+TEST_F(managed_document_journal, empty_origin_prepare_and_invalid_confirmed_receipt) {
+  const auto options = json_options();
+  {
+    store_type store{ledger{"Base"}};
+    store.create_journal(path_, mode::sidecar, options);
+    store.execute_transaction([](auto& tx) { tx.root().set_name("Next"); }).throw_if_failed();
+    const auto prepared = store.prepare_journal_save();
+    EXPECT_TRUE(prepared.origin.empty());
+    EXPECT_TRUE(store.confirm_journal_save(prepared.token, publication_evidence(prepared.document)));
+    EXPECT_TRUE(store.journal_origin().empty());
+  }
+  const auto path = journal_test_paths::manifest(path_);
+  auto corrupt = read_document_bytes(path);
+  ASSERT_GE(corrupt.size(), 184u + 8u);
+  corrupt[corrupt.size() - 184 - 8] ^= 1;
+  managed::detail::journal_put_word(corrupt, corrupt.size() - 8,
+      managed::detail::checksum(std::span{corrupt}.first(corrupt.size() - 8)));
+  write_document_bytes(path, corrupt);
+  store_type recovered{ledger{"Untouched"}};
+  const auto before = recovered.save();
+  EXPECT_THROW(recovered.recover_journal(path_, options), std::invalid_argument);
+  EXPECT_EQ(recovered.save(), before);
+}
+
+// Identical authored bytes do not authorize provenance from another document namespace/generation.
+TEST_F(managed_document_journal, foreign_origin_generation_rejects_before_document_decode) {
+  auto options = json_options();
+  options.origin = {1};
+  const auto foreign = directory_ / "foreign.json";
+  {
+    store_type first{ledger{"Same"}};
+    store_type other{ledger{"Same"}};
+    first.create_journal(path_, mode::sidecar, options);
+    other.create_journal(foreign, mode::sidecar, options);
+  }
+  const auto manifest = journal_test_paths::manifest(path_);
+  const auto original = read_document_bytes(manifest);
+  const auto foreign_manifest = read_document_bytes(journal_test_paths::manifest(foreign));
+  write_document_bytes(manifest, foreign_manifest);
+  bool decoded{};
+  options.document_codec = managed::make_journal_document_codec<ledger>(
+      "application/json", encode_document<codec::json>, [&](std::span<const std::uint8_t> input) {
+        decoded = true;
+        return decode_document<codec::json>(input);
+      });
+  store_type destination{ledger{"Untouched"}};
+  const auto before = destination.save();
+  EXPECT_THROW(destination.recover_journal(path_, options), std::exception);
+  EXPECT_FALSE(decoded);
+  EXPECT_EQ(destination.save(), before);
+  EXPECT_EQ(read_document_bytes(manifest), foreign_manifest);
+  write_document_bytes(manifest, original);
+}
+
+// Large user bytes are owned once; ordinary edits retain physical differential storage.
+TEST_F(managed_document_journal, owned_large_main_uses_small_physical_differences) {
+  auto options = json_options();
+  options.origin = {'o', 'w', 'n', 'e', 'd'};
+  constexpr std::size_t payload_bytes = 1024 * 1024;
+  codec::decode_limits limits;
+  limits.max_collection_elements = 2 * payload_bytes;
+  options.document_codec = managed::make_journal_document_codec<ledger>(
+      "application/json", encode_document<codec::json>, [limits](std::span<const std::uint8_t> input) {
+        const auto stream = rohit::make_constant_full_stream(input.data(), input.size());
+        return codec::deserialize_exact<ledger, codec::json>(stream, limits);
+      }, limits);
+  managed::store_options storage;
+  storage.decode = limits;
+  store_type store{ledger{std::string(payload_bytes, 'x'), {{10, {"Entry", 200}}}},
+                   managed::make_document_id(), storage};
+  store.create_journal(path_, mode::sidecar, options);
+  const auto original = read_document_bytes(path_);
+  const auto main_bytes = std::filesystem::file_size(path_);
+  const auto before = std::filesystem::file_size(companion_path());
+  for (int index = 0; index < 3; ++index) {
+    store.execute_transaction([&](auto& tx) {
+      tx.root().entries().edit(2).set_amount_minor_units(300 + index);
+    }).throw_if_failed();
+  }
+  const auto companion_bytes = std::filesystem::file_size(companion_path());
+  const auto manifest_bytes = std::filesystem::file_size(journal_test_paths::manifest(path_));
+  EXPECT_EQ(read_document_bytes(path_), original);
+  EXPECT_LT(companion_bytes, main_bytes / 8);
+  EXPECT_LT(companion_bytes - before, main_bytes / 16);
+  EXPECT_LT(manifest_bytes, 1024u);
+  std::cout << "owned-main=" << main_bytes << " manifest=" << manifest_bytes
+            << " companion=" << companion_bytes << " three-edit-growth=" << companion_bytes - before << '\n';
 }
 
 // External documents require a separate companion and cannot be mistaken for appended containers.

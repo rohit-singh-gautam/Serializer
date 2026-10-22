@@ -6,8 +6,8 @@ implementations. `MG03`'s existing inherited authorization and publication bound
 is complete within Serializer; principal binding, policy persistence and policy
 administration belong to the host. See the
 [ownership decisions and remaining mixed requirements](project/application_responsibilities.md).
-The current inventory is **805 implemented/verified, 3 will not fix and 39 pending**
-out of 847 rows. **34 are active and five are deferred subsystem requirements**.
+The current inventory is **809 implemented/verified, 3 will not fix and 39 pending**
+out of 851 rows. **34 are active and five are deferred subsystem requirements**.
 By maintainer direction on 2026-10-21, new non-C++ managed engines (`MG01`),
 the page store/index (`PG01`), lazy model/history storage (`PG02`), database sinks
 (`DB01`) and sink migration/rebaseline (`MIG03`) are deferred to linked GitHub
@@ -201,6 +201,24 @@ and actual SDK checks before the parent requirement can be checked.
 | [ ] | PG02 | — | **Deferred subsystem — [GitHub #3](https://github.com/rohit-singh-gautam/Serializer/issues/3).** Add lazy value/storage loading and the proposed paged capability selectors only after index/page lifetime and recovery contracts are implemented and measured; [Paged indexing](design/paged_indexing.md). | PG01 |
 | [ ] | DB01 | — | **Deferred subsystem — [GitHub #4](https://github.com/rohit-singh-gautam/Serializer/issues/4).** Implement and qualify an explicit database document/journal sink adapter with ownership, transactions, schema mapping and failure/recovery semantics; [Database integration](guides/database_integration.md#proposed-document-sink-boundary). | — |
 
+## Cached-origin document bridge
+
+Accepted on 2026-10-21 and implemented in 2.26.0. These generic C++ document-bridge
+additions form the completed priority batch below. Each leaf and its acceptance
+check is capped at five hours;
+split a leaf before exceeding that cap. Application storage policy, external
+publication/authentication and reconciliation remain host responsibilities under
+MG06. An application may attach native differences to a durable original or
+first publish its own complete recovery main. Shared immutable-base resolution
+and cache-dependency inventory are optional future work, not prerequisites.
+
+| Status | ID | Backend | Requirement and acceptance check | Dependencies |
+| --- | --- | --- | --- | --- |
+| [x] | D25 | C++ | 2.26 external-document sidecars retain bounded opaque origin metadata outside authored content through edits/history/Save/recovery. Corruption, wrong generation bindings and exceeded bounds reject before admission; [API](managed/document_origin.md), [executed checks](verification/verification-document-origin-2026-10-22.md). Ordinary native containers/custom sinks do not implicitly acquire this capability. | D24 |
+| [x] | D26 | C++ | Durable external Save preparation pins the accepted checkpoint, allocator/history/paired session state and expected old activation. A bounded opaque token and validated staged bytes survive restart as an explicit unresolved decision; durable mutations and client transport cannot race it. [Qualification](verification/verification-document-origin-2026-10-22.md). | D25 |
+| [x] | D27 | C++ | Confirmation checks the exact token, old activation and independently supplied publication evidence; wrong/stale/tampered inputs reject, exact retries do not reactivate or mark later edits saved. Native selection precedes dictionary replacement/retirement. Partial host-copy failure, lost acknowledgements, unchanged authored bytes and abrupt native publication controls pass; [evidence](verification/verification-document-origin-2026-10-22.md). Host effects/reconciliation remain MG06. | D26 |
+| [x] | D28 | C++ | Maintained application-controlled owned-copy/durable-original example; Windows/NTFS and Linux/ext4 each pass 129 native tests plus one inapplicable-mode skip and 480 process-recovery checks. Deleted source/capture, IDs/watermarks/Undo/session state and physical main/manifest/companion sizes are exercised. Final Windows regression passes 281/281; [scope, versions and limits](verification/verification-document-origin-2026-10-22.md). WSL mounted-filesystem failures remain QA01. | D25, D26, D27 |
+
 ## Compiler and backend proposals
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
@@ -222,7 +240,7 @@ and actual SDK checks before the parent requirement can be checked.
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | QA01 | — | Replay changed contracts on other supported platforms and remaining provider combinations with real SDKs; retain exact versions, configurations and failures; [2.14 checkpoint](verification/verification-backlog-2026-10-20.md). | — |
+| [ ] | QA01 | — | Replay changed contracts on other supported platforms and remaining provider combinations with real SDKs; retain exact versions, configurations and failures; [2.14 checkpoint](verification/verification-backlog-2026-10-20.md). WSL Windows-mounted appended-journal discard failures remain outside the passing native Windows/Linux filesystem profile; [recorded controls](verification/verification-document-origin-2026-10-22.md#toolchains-and-limits). | — |
 | [ ] | QA02 | — | Execute the independent XML/XSD/ZIP/OPC/3MF corpus, malformed-input/fault/resource cases and cross-language exchanges for each newly implemented slice. | — |
 | [ ] | QA03 | — | Measure throughput, allocations/peak memory, encoded size and generated-code size against reproducible workloads/baselines; preserve ordinary non-OPC paths; [Python compression measurements](verification/verification-python-compression-performance-2026-10-20.md). | — |
 | [ ] | QA04 | — | Qualify current editor-host behavior where a dated record identifies only shared/provider/native-interpreter checks; keep packaged/listing versions and all supported navigation synchronized when changed; [Editor navigation](editors/editor_navigation.md), [qualification records](verification/README.md). | — |

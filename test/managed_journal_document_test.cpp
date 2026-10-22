@@ -164,4 +164,38 @@ TEST(managed_journal_document, preserves_wide_document_extent_without_allocating
   EXPECT_FALSE(detail::document_matches(decoded, document_bytes));
 }
 
+// New opaque metadata is explicitly bounded, checksummed and exact; default manifests stay v1.
+TEST(managed_journal_document, origin_and_confirmation_metadata_have_exact_bounded_extents) {
+  auto manifest = make_manifest();
+  manifest.origin = {1, 0, 2, 255};
+  manifest.confirmation.assign(184, 17);
+  const auto encoded = detail::encode_document_manifest(manifest, 4096, 4);
+  EXPECT_EQ(detail::get_word(encoded, 1), 2u);
+  const auto restored = detail::decode_document_manifest(encoded, 4096, 4);
+  EXPECT_EQ(restored.origin, manifest.origin);
+  EXPECT_EQ(restored.confirmation, manifest.confirmation);
+  EXPECT_THROW(detail::decode_document_manifest(encoded, 4096, 3), std::length_error);
+  EXPECT_THROW(detail::encode_document_manifest(manifest, 4096, 3), std::length_error);
+  for (std::size_t length = 0; length < encoded.size(); ++length) {
+    EXPECT_THROW(detail::decode_document_manifest(std::span{encoded}.first(length), 4096, 4),
+                 std::exception);
+  }
+  for (std::size_t index = 0; index < encoded.size(); ++index) {
+    auto corrupt = encoded;
+    corrupt[index] ^= 1;
+    EXPECT_THROW(detail::decode_document_manifest(corrupt, 4096, 4), std::exception);
+  }
+  const auto origin_offset = codec_size_offset + 8 + manifest.codec.size();
+  for (const auto extent : {std::uint64_t{5}, std::numeric_limits<std::uint64_t>::max()}) {
+    auto corrupt = encoded;
+    detail::journal_put_word(corrupt, origin_offset, extent);
+    update_checksum(corrupt);
+    EXPECT_THROW(detail::decode_document_manifest(corrupt, 4096, 4), std::exception);
+  }
+  auto corrupt = encoded;
+  detail::journal_put_word(corrupt, origin_offset + 8 + manifest.origin.size(), 185);
+  update_checksum(corrupt);
+  EXPECT_THROW(detail::decode_document_manifest(corrupt, 4096, 4), std::invalid_argument);
+}
+
 } // namespace

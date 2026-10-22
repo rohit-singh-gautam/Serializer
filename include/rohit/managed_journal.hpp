@@ -3,10 +3,14 @@
 // See LICENSE-RUNTIME for permission to use this runtime in proprietary applications.
 #pragma once
 
+#include <rohit/digest.hpp>
+
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -37,7 +41,25 @@ enum class journal_io_event {
   after_publish,
   before_cleanup,
   before_tail_repair,
-  after_tail_repair
+  after_tail_repair,
+  before_prepare_publish,
+  after_prepare_publish,
+  before_confirm,
+  after_confirm_decision
+};
+
+// Host-supplied evidence for independently published bytes; authenticity belongs to the host.
+struct journal_publication_evidence {
+  std::uint64_t document_bytes{};
+  std::array<std::uint8_t, digest_size(digest_algorithm::sha256)> document_digest{};
+};
+
+// A durable, unresolved Save. Publish document bytes externally, then confirm the opaque token.
+// Owning buffers are bounded by journal options; no application effects run inside Serializer.
+struct journal_prepared_save {
+  std::vector<std::uint8_t> token{};
+  std::vector<std::uint8_t> document{};
+  std::vector<std::uint8_t> origin{};
 };
 
 // Adapt an application document format to canonical managed root bytes. Callbacks are synchronous,
@@ -58,6 +80,9 @@ struct journal_options {
   std::shared_ptr<const journal_document_codec> document_codec{};
   // Bound cumulative reconstructed bytes in a differential generation, independently of disk size.
   std::size_t max_replay_bytes{1024 * mebibyte};
+  // Opaque application provenance, used only on creation with a document codec.
+  std::vector<std::uint8_t> origin{};
+  std::size_t max_origin_bytes{64 * 1024};
 };
 
 namespace detail {
@@ -104,6 +129,29 @@ public:
   }
   // Report whether Save must supply a normalized, ID-free root for an application document codec.
   virtual bool uses_document_codec() const noexcept { return false; }
+  // Read the selected base's opaque provenance, independently of authored content.
+  virtual std::vector<std::uint8_t> origin() const {
+    throw std::logic_error{"Journal backend does not support origin metadata"};
+  }
+  // Replace provenance with a full native Save using the ordinary publication protocol.
+  virtual void save_document_origin(const std::vector<std::uint8_t>&,
+                                    std::span<const std::uint8_t>, std::span<const std::uint8_t>) {
+    throw std::logic_error{"Journal backend does not support origin replacement"};
+  }
+  // Pin one exact native checkpoint and proposed base; further durable mutations must reject.
+  virtual journal_prepared_save prepare_document_save(const std::vector<std::uint8_t>&,
+      std::span<const std::uint8_t>, std::span<const std::uint8_t>) {
+    throw std::logic_error{"Journal backend does not support prepared Save"};
+  }
+  // Expose an unresolved durable preparation after restart without guessing external success.
+  virtual std::optional<journal_prepared_save> prepared_save() const { return {}; }
+  // Query the mutation barrier without allocating or reading staged document bytes.
+  virtual bool has_prepared_save() const noexcept { return false; }
+  // Return true only for a newly activated base; exact retries return false without mutation.
+  virtual bool confirm_document_save(std::span<const std::uint8_t>,
+                                     const journal_publication_evidence&) {
+    throw std::logic_error{"Journal backend does not support confirmed Save"};
+  }
   // Read the last full-Save envelope lazily; custom sinks may explicitly reject this capability.
   virtual std::vector<std::uint8_t> saved_envelope() const {
     throw std::logic_error{"Journal backend does not support saved baseline reads"};

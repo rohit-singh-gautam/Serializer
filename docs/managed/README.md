@@ -40,6 +40,7 @@ remains a separate illustrative data model.
 | [Capabilities and identity](capabilities.md) | Four managed features, mandatory uint32 IDs, central configuration, collaboration allocation, and additional uses. |
 | [Collaboration sessions and locks](collaboration.md) | Session-based synchronization, advisory presence, authoritative entity/subtree locks, replica caches, leases, failure handling, and efficiency targets. |
 | [Journal](journal.md) | Appended/sidecar modes, full Save replacement and cleanup, undo cursors, durability, and crash recovery of unsaved changes. |
+| [Document origin and confirmed Save](document_origin.md) | Application-selected owned main or durable original, bounded native provenance, explicit external publication preparation, confirmation and restart reconciliation. |
 | [Data structures](data_structures.md) | Logical records and C++ excerpts generated from a schema: store ownership, identity/version tables, transactions, revision graphs, snapshots/deltas, deleted entities, and persistence. |
 | [Walkthrough schema](walkthrough.serializer) | Source for every data class in the C++ walkthrough; ordinary supported syntax, without managed runtime behavior. |
 | [Language bindings](language_bindings.md) | C++ capability templates and conditional storage, plus proposed representations in every other supported language. |

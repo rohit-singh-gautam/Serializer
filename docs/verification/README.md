@@ -7,6 +7,12 @@ configurations, and toolchains named in each report. They retain historical
 release metadata and outstanding qualification limits; a result does not imply
 that later changes or untested backend combinations passed the same checks.
 
+## 22 October 2026
+
+| Record | Scope |
+| --- | --- |
+| [Native document origin and confirmed Save](verification-document-origin-2026-10-22.md) | D25–D28: application-selected owned copies, bounded provenance, prepared/confirmed Save, physical differences; 281/281 Windows CTests and 480 recovery checks per Windows/Linux-ext4 host. |
+
 ## 21 October 2026
 
 | Record | Scope |

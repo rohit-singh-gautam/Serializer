@@ -7,7 +7,9 @@
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <span>
 #include <stdexcept>
 #include <string_view>
@@ -48,7 +50,11 @@ managed::journal_io_event parse_event(std::string_view name) {
       {"after_publish", event::after_publish},
       {"before_cleanup", event::before_cleanup},
       {"before_tail_repair", event::before_tail_repair},
-      {"after_tail_repair", event::after_tail_repair}};
+      {"after_tail_repair", event::after_tail_repair},
+      {"before_prepare_publish", event::before_prepare_publish},
+      {"after_prepare_publish", event::after_prepare_publish},
+      {"before_confirm", event::before_confirm},
+      {"after_confirm_decision", event::after_confirm_decision}};
   for (const auto& [text, value] : events) {
     if (name == text) {
       return value;
@@ -107,6 +113,28 @@ int main(int argc, char** argv) {
       store.undo();
     } else if (operation == "save") {
       store.save_journal();
+    } else if (operation == "prepare") {
+      store.prepare_journal_save(std::vector<std::uint8_t>{9});
+    } else if (operation == "confirm") {
+      const auto prepared = store.prepared_journal_save();
+      if (!prepared) { throw std::logic_error{"No prepared Save"}; }
+      auto external = path;
+      external += ".external";
+      std::ifstream input{external, std::ios::binary};
+      if (!input) { throw std::runtime_error{"Host publication evidence is missing"}; }
+      const std::vector<std::uint8_t> published{std::istreambuf_iterator<char>{input},
+                                               std::istreambuf_iterator<char>{}};
+      const managed::journal_publication_evidence evidence{published.size(),
+          rohit::make_digest<rohit::digest_algorithm::sha256>(published)};
+      store.confirm_journal_save(prepared->token, evidence);
+    } else if (operation == "inspect_prepared") {
+      const auto origin = store.journal_origin();
+      std::cout << store.prepared_journal_save().has_value() << ' '
+                << (origin.empty() ? 0 : static_cast<int>(origin.front())) << '\n';
+    } else if (operation == "hold") {
+      // Let the driver verify exclusion from another process before releasing the native lock.
+      std::cout << "locked\n" << std::flush;
+      std::cin.get();
     } else if (operation == "inspect") {
       const auto envelope =
           managed::detail::decode<managed::records::unlabeled_state_envelope>(store.save(), {});

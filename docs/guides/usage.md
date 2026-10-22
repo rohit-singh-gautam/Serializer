@@ -5,6 +5,11 @@ when assigning authentication, policy administration, external effects and custo
 migrations. These are explicit host responsibilities, not missing runtime engines.
 Library-owned compiler, codec, transaction and resource guarantees remain required.
 
+Compiler/runtime **2.26.0** adds [native origin and confirmed Save](../managed/document_origin.md).
+Applications choose whether to own a complete recovery main or attach differences
+to a durable original. Provenance stays in bounded native metadata; prepared Save
+retains an explicit unresolved decision until host publication is confirmed.
+
 Compiler/runtime **2.25.0** adds [opt-in C++ ordered XML](../serialization/ordered_xml.md):
 an owning variant array records element order without text slots or auxiliary
 metadata. Existing mappings and native bytes retain their behavior. The guide
@@ -1776,12 +1781,24 @@ their durable values and satisfy the chosen external profile's validation rules.
 The adapter does not automatically create a valid XML/OPC projection for every
 managed reference graph.
 
-Keep the main file, its `<path>.journal` manifest and selected
-`<path>.journal-<high>-<low>` companion together. A pending
-`<path>.journal.pending` manifest coordinates interrupted two-file publication.
+New journals keep the main file beside one `.<filename>.journal/` directory.
+Its `manifest`, `changes-<high>-<low>`, stable `writer.lock` and temporary
+`manifest.pending` coordinate recovery/publication. Keep the main and entire
+directory together. Existing flat layouts retain their original filenames.
 Recovery checks the exact main-file size and SHA-256 before invoking its decoder;
 external edits require a new baseline rather than attaching the old sidecar.
 Do not remove pending manifests or retired-looking companions before recovery.
+
+For a temporary source, the application can first durably publish its own full
+main and attach this same sidecar protocol there. For a durable original, it can
+attach directly and retain only differences. `journal_options::origin` supplies
+bounded opaque native provenance on creation; `journal_origin()` reads it and
+`save_journal(new_origin)` replaces it with full Save. To coordinate external
+publication, use `prepare_journal_save(new_origin)`, perform host publication
+outside Serializer, then `confirm_journal_save(token, evidence)` with independently
+verified byte count and SHA-256. After restart inspect `prepared_journal_save()`
+before resuming work. See [complete API, retries and uncertainty](../managed/document_origin.md)
+and the [maintained example](../../example/managed/external_document/README.md).
 
 Copy/literal records reuse saved bytes and repeated bytes within each record.
 They have no periodic full-snapshot fallback. Historical values, unsent changes

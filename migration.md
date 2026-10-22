@@ -1,5 +1,26 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.26.0
+
+Rebuild C++ consumers for [native origin and prepared/confirmed Save](docs/managed/document_origin.md).
+External document sidecars may store bounded opaque provenance outside the
+authored root. Existing no-origin/no-confirmation manifests retain version-one
+bytes; new metadata uses version two, accepted by current readers and rejected by
+older readers. Journal frames, schema language and existing payloads are unchanged.
+
+New journals use one hidden `.<filename>.journal/` directory for all auxiliaries,
+including the stable native writer lock and staging. Move a closed main with its
+whole directory. Existing flat layouts remain supported and stay flat; no live
+layout migration occurs. Simultaneous old/new layout metadata rejects. Older
+binaries do not share the new lock protocol, so do not mix writers on a new-layout
+document. Never manually move or replace a live lock.
+
+The host chooses a full owned main for temporary sources or a durable original
+for differences-only recovery. Prepared Save is opt-in: reconcile its durable
+unresolved state after restart and supply independently verified host publication
+evidence. It blocks durable edits/collaboration until confirmation; ordinary Save
+retains its current native publication protocol. No shared-cache resolver is added.
+
 ## Compiler/runtime 2.25.0
 
 Existing schemas, XML mappings and native encodings require no migration.

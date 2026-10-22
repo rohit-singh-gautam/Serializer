@@ -16,8 +16,19 @@
 #include <limits>
 #include <random>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 namespace rohit::managed::detail {
 namespace {
@@ -28,6 +39,69 @@ constexpr std::uint64_t record_version = 2;
 constexpr std::uint64_t differential_record_version = 3;
 constexpr std::uint64_t base_file_kind = 1;
 constexpr std::uint64_t sidecar_file_kind = 2;
+constexpr std::string_view journal_directory_suffix{".journal"};
+constexpr std::string_view journal_lock_name{"writer.lock"};
+constexpr std::string_view journal_manifest_name{"manifest"};
+constexpr std::string_view journal_pending_manifest_name{"manifest.pending"};
+constexpr std::string_view journal_prepared_name{"save.prepared"};
+constexpr std::size_t save_token_bytes = journal_save_token_bytes;
+constexpr std::uint64_t save_token_magic = 0x315641534a5a5253;
+constexpr std::size_t token_header_offset = 2 * wire_word_bytes;
+constexpr std::size_t token_sequence_offset = token_header_offset + file_header_bytes;
+constexpr std::size_t token_record_digest_offset = token_sequence_offset + wire_word_bytes;
+constexpr std::size_t token_manifest_digest_offset = token_record_digest_offset + wire_word_bytes;
+constexpr std::size_t token_document_size_offset = token_manifest_digest_offset +
+    digest_size(digest_algorithm::sha256);
+constexpr std::size_t token_document_digest_offset = token_document_size_offset + wire_word_bytes;
+static_assert(token_document_digest_offset + digest_size(digest_algorithm::sha256) + wire_word_bytes ==
+              save_token_bytes);
+
+// Reject arbitrary host tokens before inspecting fixed fields; tokens are integrity bindings, not credentials.
+void validate_save_token(std::span<const std::uint8_t> token) {
+  if (token.size() != save_token_bytes || get_word(token, 0) != save_token_magic ||
+      get_word(token, 1) != 1 || checksum(token.first(save_token_bytes - wire_word_bytes)) !=
+          get_word(token.last(wire_word_bytes), 0)) {
+    throw std::invalid_argument{"Invalid prepared journal Save token"};
+  }
+}
+
+// Compare exact borrowed byte bindings without allocating on the confirmation path.
+bool same_bytes(std::span<const std::uint8_t> left, std::span<const std::uint8_t> right) {
+  return left.size() == right.size() && std::equal(left.begin(), left.end(), right.begin());
+}
+
+// Keep auxiliary names beside the canonical document without narrowing Unicode filenames.
+std::filesystem::path journal_directory(const std::filesystem::path& path) {
+  std::filesystem::path name{"."};
+  name += path.filename().native();
+  name += journal_directory_suffix;
+  return path.parent_path() / name;
+}
+
+// Make the new dot-prefixed directory hidden in Explorer as well as Unix directory listings.
+void prepare_journal_directory(const std::filesystem::path& path) {
+  std::filesystem::create_directory(path);
+  if (std::filesystem::symlink_status(path).type() != std::filesystem::file_type::directory) {
+    throw std::invalid_argument{"Managed journal auxiliary path must be an ordinary directory"};
+  }
+#ifdef _WIN32
+  const auto attributes = GetFileAttributesW(path.c_str());
+  if (attributes == INVALID_FILE_ATTRIBUTES ||
+      (!(attributes & FILE_ATTRIBUTE_HIDDEN) &&
+       !SetFileAttributesW(path.c_str(), attributes | FILE_ATTRIBUTE_HIDDEN))) {
+    throw std::system_error{static_cast<int>(GetLastError()), std::system_category(),
+        "Hide managed journal directory"};
+  }
+#endif
+  // The parent entry must be durable before a document can select files inside it.
+  sync_parent_directory(path);
+}
+
+// A cross-directory same-filesystem publication changes both parents, including staging removal.
+void sync_publication(const std::filesystem::path& source, const std::filesystem::path& target) {
+  sync_parent_directory(target);
+  if (source.parent_path() != target.parent_path()) { sync_parent_directory(source); }
+}
 
 // Preserve nested causes without a forwarding constructor hijacking Windows Clang EH copies.
 class nested_journal_error final : public journal_indeterminate_error,
@@ -41,15 +115,28 @@ public:
 };
 
 // Bound the physical input before allocating and reading the file into memory.
-bytes read_file(const std::filesystem::path& path, const journal_options& options) {
+bytes read_file(const std::filesystem::path& path, const journal_options& options,
+                std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
   file_stream input{path, file_open_mode::read};
   const auto size = input.size();
-  if (size > options.max_file_bytes) {
+  if (size > std::min(options.max_file_bytes, max_bytes)) {
     throw std::length_error{"Managed journal file budget exceeded"};
   }
   bytes result(static_cast<std::size_t>(size));
   read_stream_exact(input, result);
   return result;
+}
+
+// Cap metadata input before allocation, independently of the potentially much larger document budget.
+journal_document_manifest read_manifest(const std::filesystem::path& path,
+                                         const journal_options& options) {
+  constexpr std::size_t fixed_metadata_bytes = journal_manifest_fixed_bytes + max_codec_id_bytes + 2 * wire_word_bytes +
+                                              save_token_bytes;
+  const auto budget = options.max_file_bytes <= fixed_metadata_bytes ||
+      options.max_origin_bytes > options.max_file_bytes - fixed_metadata_bytes
+      ? options.max_file_bytes : fixed_metadata_bytes + options.max_origin_bytes;
+  return decode_document_manifest(read_file(path, options, budget), options.max_file_bytes,
+                                   options.max_origin_bytes);
 }
 
 struct file_header {
@@ -158,6 +245,21 @@ public:
   void save_document(const bytes& envelope, std::span<const std::uint8_t> document) override;
   // Let the store supply the normalized model only when an external document adapter is active.
   bool uses_document_codec() const noexcept override;
+  // Read checked provenance from the selected native manifest.
+  bytes origin() const override;
+  // Publish replacement provenance through the existing Save decision.
+  void save_document_origin(const bytes&, std::span<const std::uint8_t>,
+                            std::span<const std::uint8_t>) override;
+  // Persist an unresolved proposed document and complete differential checkpoint.
+  journal_prepared_save prepare_document_save(const bytes&, std::span<const std::uint8_t>,
+                                              std::span<const std::uint8_t>) override;
+  // Return validated staged bytes without resolving external publication.
+  std::optional<journal_prepared_save> prepared_save() const override;
+  // Keep the unresolved-preparation mutation barrier allocation-free.
+  bool has_prepared_save() const noexcept override;
+  // Validate host evidence before activating the pinned generation, with exact retry support.
+  bool confirm_document_save(std::span<const std::uint8_t>,
+                             const journal_publication_evidence&) override;
   // Read only the selected full-Save baseline while retaining the existing writer lock.
   bytes saved_envelope() const override;
   // Publish a restored envelope with a fresh operation sequence.
@@ -170,6 +272,7 @@ public:
 
 struct file_journal::implementation {
   std::filesystem::path path{};
+  std::filesystem::path auxiliary_directory{};
   journal_options options{};
   std::unique_ptr<file_stream> lock{};
   std::unique_ptr<file_stream> writer{};
@@ -185,12 +288,36 @@ struct file_journal::implementation {
   std::unique_ptr<journal_delta_base> delta{};
   journal_document_manifest manifest{};
   bool pending_manifest{};
+  std::optional<journal_document_manifest> preparation{};
+
+  // Keep unresolved publication state under Serializer's stable writer lock.
+  std::filesystem::path prepared_path() const {
+    if (!auxiliary_directory.empty()) { return auxiliary_directory / journal_prepared_name; }
+    auto result = path;
+    result += ".journal.prepared";
+    return result;
+  }
 
   // Use a stable side-channel manifest without adding managed data to application document bytes.
   std::filesystem::path manifest_path(bool pending = false) const {
+    if (!auxiliary_directory.empty()) {
+      return auxiliary_directory / (pending ? journal_pending_manifest_name : journal_manifest_name);
+    }
     auto result = path;
     result += pending ? ".journal.pending" : ".journal";
     return result;
+  }
+
+  // The saved generation chooses exactly one companion; directory contents are never guessed.
+  std::filesystem::path companion_path(const file_header& selected) const {
+    return auxiliary_directory.empty() ? generation_path(path, selected, ".journal-")
+        : generation_path(auxiliary_directory / "changes", selected, "-");
+  }
+
+  // Temporary documents and manifests stay inside the same auxiliary directory as their journal.
+  std::filesystem::path staging_path(const file_header& selected) const {
+    return auxiliary_directory.empty() ? generation_path(path, selected, ".pending-")
+        : generation_path(auxiliary_directory / "pending", selected, "-");
   }
 
   // Invoke qualification hooks only at documented I/O boundaries.
@@ -204,6 +331,9 @@ struct file_journal::implementation {
   void require_ready() const {
     if (fenced || recovering) {
       throw journal_indeterminate_error{"Managed journal must be recovered before writing"};
+    }
+    if (preparation) {
+      throw std::logic_error{"Prepared journal Save requires host reconciliation and confirmation"};
     }
   }
 
@@ -230,7 +360,9 @@ struct file_journal::implementation {
       throw std::invalid_argument{"Unsupported managed journal storage mode"};
     }
     if (options.document_codec) {
-      replace_document(envelope, mode, existing, advance_sequence, document);
+      replace_document(envelope, mode, existing, advance_sequence, document,
+                       existing ? std::span<const std::uint8_t>{manifest.origin}
+                                : std::span<const std::uint8_t>{options.origin});
       return;
     }
     if (mode == journal_storage_mode::sidecar) {
@@ -253,10 +385,10 @@ struct file_journal::implementation {
     if (replacement.generation_high == 0 && replacement.generation_low == 0) {
       replacement.generation_low = 1;
     }
-    const auto staging = generation_path(path, replacement, ".pending-");
+    const auto staging = staging_path(replacement);
     auto destination = mode == journal_storage_mode::appended
                            ? path
-                           : generation_path(path, replacement, ".journal-");
+                           : companion_path(replacement);
     const auto old_sidecar =
         header.mode == journal_storage_mode::sidecar ? append_path : std::filesystem::path{};
     const auto encoded_header = encode_header(replacement);
@@ -295,7 +427,7 @@ struct file_journal::implementation {
     try {
       publish_file(staging, path, existing);
       event(journal_io_event::after_replace);
-      sync_parent_directory(path);
+      sync_publication(staging, path);
       event(journal_io_event::after_publish);
     } catch (...) {
       fenced = true;
@@ -325,17 +457,30 @@ struct file_journal::implementation {
 
   // Stage a data-only file and sidecar before publishing a recoverable two-file decision.
   void replace_document(const bytes& envelope, journal_storage_mode mode, bool existing,
-                         bool advance_sequence, std::span<const std::uint8_t> document);
+                         bool advance_sequence, std::span<const std::uint8_t> document,
+                         std::span<const std::uint8_t> origin, bool prepare = false);
+
+  // Reuse ordinary native publication after either synchronous staging or host confirmation.
+  void publish_document(journal_document_manifest next_manifest,
+      std::unique_ptr<journal_delta_base> next_delta, std::unique_ptr<file_stream> next_writer,
+      std::size_t checkpoint_bytes, std::size_t envelope_bytes, bool existing,
+      bool preserve_document, bool confirmed = false);
+
+  // Validate a preparation's old activation and proposed metadata before exposing staged bytes.
+  journal_prepared_save read_preparation(const journal_document_manifest& proposed) const;
 };
 
 // Bind a new managed checkpoint to exactly the document bytes selected by its durable manifest.
 void file_journal::implementation::replace_document(
     const bytes& envelope, journal_storage_mode mode, bool existing, bool advance_sequence,
-    std::span<const std::uint8_t> document) {
+    std::span<const std::uint8_t> document, std::span<const std::uint8_t> origin, bool prepare) {
   if (mode != journal_storage_mode::sidecar || document.empty()) {
     throw std::invalid_argument{"Document codecs require a sidecar and a canonical root"};
   }
   const auto& codec = *options.document_codec;
+  if (origin.size() > options.max_origin_bytes) {
+    throw std::length_error{"Managed journal origin budget exceeded"};
+  }
   if (codec.format.empty() || !codec.encode || !codec.decode) {
     throw std::invalid_argument{"Incomplete journal document codec"};
   }
@@ -373,18 +518,37 @@ void file_journal::implementation::replace_document(
   if (replacement.generation_high == 0 && replacement.generation_low == 0) {
     replacement.generation_low = 1;
   }
-  auto destination = generation_path(path, replacement, ".journal-");
-  const auto staging = generation_path(path, replacement, ".pending-");
+  auto destination = companion_path(replacement);
+  const auto staging = staging_path(replacement);
   auto manifest_staging = staging;
   manifest_staging += ".manifest";
-  const auto old_sidecar = append_path;
   const auto encoded_header = encode_header(replacement);
   journal_document_manifest next_manifest;
   std::copy(encoded_header.begin(), encoded_header.end(), next_manifest.header.begin());
   next_manifest.document_bytes = document_bytes.size();
   next_manifest.document_digest = rohit::make_digest<rohit::digest_algorithm::sha256>(document_bytes);
   next_manifest.codec = codec.format;
-  const auto manifest_bytes = encode_document_manifest(next_manifest, options.max_file_bytes);
+  next_manifest.origin.assign(origin.begin(), origin.end());
+  next_manifest.confirmation = manifest.confirmation;
+  if (prepare) {
+    next_manifest.confirmation.clear();
+    const auto proposed_bytes = encode_document_manifest(next_manifest, options.max_file_bytes,
+                                                         options.max_origin_bytes);
+    auto& token = next_manifest.confirmation;
+    token.reserve(save_token_bytes);
+    put_word(token, save_token_magic);
+    put_word(token, 1);
+    token.insert(token.end(), manifest.header.begin(), manifest.header.end());
+    put_word(token, sequence);
+    put_word(token, digest);
+    const auto binding = make_digest<digest_algorithm::sha256>(proposed_bytes);
+    token.insert(token.end(), binding.begin(), binding.end());
+    put_word(token, next_manifest.document_bytes);
+    token.insert(token.end(), next_manifest.document_digest.begin(), next_manifest.document_digest.end());
+    put_word(token, checksum(token));
+  }
+  const auto manifest_bytes = encode_document_manifest(next_manifest, options.max_file_bytes,
+                                                       options.max_origin_bytes);
   auto companion = replacement;
   companion.kind = sidecar_file_kind;
   const auto companion_header = encode_header(companion);
@@ -405,38 +569,72 @@ void file_journal::implementation::replace_document(
     output.sync();
   }
   event(journal_io_event::after_base_flush);
+  if (prepare) {
+    event(journal_io_event::before_prepare_publish);
+    try {
+      publish_file(manifest_staging, prepared_path(), false);
+      sync_parent_directory(prepared_path());
+      event(journal_io_event::after_prepare_publish);
+    } catch (...) {
+      fenced = true;
+      throw nested_journal_error{"Managed Save preparation outcome is indeterminate"};
+    }
+    preparation.emplace(std::move(next_manifest));
+    return;
+  }
+  publish_document(std::move(next_manifest), std::move(next_delta), std::move(next_writer),
+                   checkpoint.size(), envelope.size(), existing, preserve_document);
+}
+
+// The pending manifest is the existing local commit decision; the unresolved intent survives it.
+void file_journal::implementation::publish_document(journal_document_manifest next_manifest,
+    std::unique_ptr<journal_delta_base> next_delta, std::unique_ptr<file_stream> next_writer,
+    std::size_t checkpoint_bytes, std::size_t envelope_bytes, bool existing,
+    bool preserve_document, bool confirmed) {
+  const auto replacement = decode_header(next_manifest.header, base_file_kind);
+  auto destination = companion_path(replacement);
+  const auto staging = staging_path(replacement);
+  auto manifest_staging = staging;
+  manifest_staging += ".manifest";
+  const auto old_sidecar = append_path;
   event(journal_io_event::before_replace);
   try {
     // The pending manifest is a durable recovery decision. A matching new document may be selected
     // after any later interruption, including a metadata-only Save whose document bytes are equal.
     publish_file(manifest_staging, manifest_path(true), false);
-    sync_parent_directory(path);
+    sync_parent_directory(manifest_path(true));
+    if (confirmed) { event(journal_io_event::after_confirm_decision); }
     if (!preserve_document) {
       publish_file(staging, path, std::filesystem::exists(path));
-      sync_parent_directory(path);
+      sync_publication(staging, path);
     }
     event(journal_io_event::after_replace);
     publish_file(manifest_path(true), manifest_path(), existing);
-    sync_parent_directory(path);
+    sync_parent_directory(manifest_path());
     event(journal_io_event::after_publish);
   } catch (...) {
     fenced = true;
     throw nested_journal_error{"Managed document Save outcome is indeterminate"};
   }
   header = replacement;
-  sequence = replacement_sequence;
-  digest = frame.digest;
-  append_offset = file_header_bytes + frame_overhead_bytes + checkpoint.size();
+  sequence = replacement.sequence;
+  digest = replacement.base_digest;
+  append_offset = file_header_bytes + frame_overhead_bytes + checkpoint_bytes;
   append_path.swap(destination);
   writer.swap(next_writer);
   delta.swap(next_delta);
-  replay_bytes = envelope.size();
+  replay_bytes = envelope_bytes;
   std::swap(manifest, next_manifest);
+  preparation.reset();
   try {
     event(journal_io_event::before_cleanup);
     if (!old_sidecar.empty()) {
       std::error_code ignored;
       std::filesystem::remove(old_sidecar, ignored);
+    }
+    if (confirmed) {
+      std::filesystem::remove(prepared_path());
+      sync_parent_directory(prepared_path());
     }
   } catch (...) {
   }
@@ -447,13 +645,35 @@ file_journal::file_journal(const std::filesystem::path& path, journal_options op
     : state_{std::make_unique<implementation>()} {
   if (path.empty() || options.max_record_bytes == 0 ||
       options.max_replay_bytes == 0 ||
-      options.max_file_bytes < file_header_bytes + frame_overhead_bytes) {
+      options.max_file_bytes < file_header_bytes + frame_overhead_bytes ||
+      options.origin.size() > options.max_origin_bytes ||
+      (!options.document_codec && !options.origin.empty())) {
     throw std::invalid_argument{"Invalid managed journal path or limits"};
   }
   state_->path = std::filesystem::weakly_canonical(std::filesystem::absolute(path));
   state_->options = std::move(options);
   auto lock_path = state_->path;
   lock_path += ".lock";
+  auto legacy_manifest = state_->path;
+  legacy_manifest += journal_directory_suffix;
+  auto legacy_pending = legacy_manifest;
+  legacy_pending += ".pending";
+  const auto directory = journal_directory(state_->path);
+  const bool directory_exists = std::filesystem::exists(directory);
+  const bool legacy_metadata = std::filesystem::exists(lock_path) ||
+      std::filesystem::exists(legacy_manifest) || std::filesystem::exists(legacy_pending);
+  if (directory_exists && legacy_metadata) {
+    throw std::invalid_argument{"Conflicting directory and legacy flat journal layouts"};
+  }
+  // Old native containers may have been copied without their lock. Keep their existing
+  // flat generation contract; data-only documents are recognized by their manifests.
+  const bool legacy_native = !directory_exists && !state_->options.document_codec &&
+      std::filesystem::exists(state_->path);
+  if (!legacy_metadata && !legacy_native) {
+    prepare_journal_directory(directory);
+    state_->auxiliary_directory = directory;
+    lock_path = directory / journal_lock_name;
+  }
   state_->lock = std::make_unique<file_stream>(lock_path, file_open_mode::lock);
 }
 
@@ -486,6 +706,8 @@ std::unique_ptr<file_journal> file_journal::create(const std::filesystem::path& 
 std::unique_ptr<file_journal>
 file_journal::recover(const std::filesystem::path& path, journal_options options,
                       const std::function<void(bool, std::span<const std::uint8_t>)>& consume) {
+  // Creation provenance is never an authority for replacing recovered native metadata.
+  options.origin.clear();
   auto result = std::unique_ptr<file_journal>{new file_journal{path, std::move(options)}};
   auto& state = *result->state_;
   auto input = read_file(state.path, state.options);
@@ -499,12 +721,10 @@ file_journal::recover(const std::filesystem::path& path, journal_options options
     std::optional<journal_document_manifest> saved;
     std::optional<journal_document_manifest> pending;
     if (std::filesystem::exists(state.manifest_path())) {
-      saved = decode_document_manifest(read_file(state.manifest_path(), state.options),
-                                        state.options.max_file_bytes);
+      saved = read_manifest(state.manifest_path(), state.options);
     }
     if (std::filesystem::exists(state.manifest_path(true))) {
-      pending = decode_document_manifest(read_file(state.manifest_path(true), state.options),
-                                          state.options.max_file_bytes);
+      pending = read_manifest(state.manifest_path(true), state.options);
     }
     if (pending && document_matches(*pending, input)) {
       state.manifest = std::move(*pending);
@@ -517,6 +737,9 @@ file_journal::recover(const std::filesystem::path& path, journal_options options
     if (state.manifest.codec != codec.format) {
       throw std::invalid_argument{"Journal document codec does not match its saved format"};
     }
+    if (!state.manifest.confirmation.empty()) {
+      validate_save_token(state.manifest.confirmation);
+    }
     state.header = decode_header(state.manifest.header, base_file_kind);
     if (state.header.mode != journal_storage_mode::sidecar ||
         state.header.version != differential_record_version) {
@@ -524,7 +747,7 @@ file_journal::recover(const std::filesystem::path& path, journal_options options
     }
     // Admit the complete selected companion before invoking application document decoding.
     document = std::move(input);
-    state.append_path = generation_path(state.path, state.header, ".journal-");
+    state.append_path = state.companion_path(state.header);
     input = read_file(state.append_path, state.options);
     auto companion = decode_header(input, sidecar_file_kind);
     companion.kind = base_file_kind;
@@ -572,7 +795,7 @@ file_journal::recover(const std::filesystem::path& path, journal_options options
     if (state.append_offset != input.size()) {
       throw std::invalid_argument{"Trailing bytes in managed sidecar base"};
     }
-    state.append_path = generation_path(state.path, state.header, ".journal-");
+    state.append_path = state.companion_path(state.header);
     input = read_file(state.append_path, state.options);
     auto companion = decode_header(input, sidecar_file_kind);
     companion.kind = base_file_kind;
@@ -604,6 +827,15 @@ file_journal::recover(const std::filesystem::path& path, journal_options options
       consume(false, frame->payload);
     }
   }
+  if (external && std::filesystem::exists(state.prepared_path())) {
+    auto prepared = read_manifest(state.prepared_path(), state.options);
+    validate_save_token(prepared.confirmation);
+    if (!same_bytes(prepared.confirmation, state.manifest.confirmation)) {
+      // Validate staging before the store admits any recovered state or repairs the old tail.
+      state.read_preparation(prepared);
+      state.preparation.emplace(std::move(prepared));
+    }
+  }
   state.recovering = true;
   return result;
 }
@@ -626,16 +858,21 @@ void file_journal::finish_recovery() {
     writer->sync();
     // A previous Save may have failed after rename but before directory flush.
     sync_parent_directory(state.path);
+    if (!state.auxiliary_directory.empty()) { sync_parent_directory(state.append_path); }
     if (state.options.document_codec) {
       if (state.pending_manifest) {
         publish_file(state.manifest_path(true), state.manifest_path(),
                        std::filesystem::exists(state.manifest_path()));
-        sync_parent_directory(state.path);
+        sync_parent_directory(state.manifest_path());
       } else if (std::filesystem::exists(state.manifest_path(true))) {
         std::filesystem::remove(state.manifest_path(true));
-        sync_parent_directory(state.path);
+        sync_parent_directory(state.manifest_path(true));
       }
       state.pending_manifest = false;
+      if (!state.preparation && std::filesystem::exists(state.prepared_path())) {
+        std::filesystem::remove(state.prepared_path());
+        sync_parent_directory(state.prepared_path());
+      }
     }
     state.writer.swap(writer);
     state.recovering = false;
@@ -704,6 +941,151 @@ void file_journal::save_document(const bytes& envelope, std::span<const std::uin
 // Keep projection work out of native and legacy journal Save paths.
 bool file_journal::uses_document_codec() const noexcept {
   return static_cast<bool>(state_->options.document_codec);
+}
+
+// Metadata is already integrity-checked during admission and remains independent of root codecs.
+bytes file_journal::origin() const {
+  if (!state_->options.document_codec) {
+    throw std::logic_error{"Origin metadata requires an external document journal"};
+  }
+  return state_->manifest.origin;
+}
+
+// A provenance change is a native full Save, including the complete retained checkpoint.
+void file_journal::save_document_origin(const bytes& envelope,
+    std::span<const std::uint8_t> document, std::span<const std::uint8_t> origin) {
+  state_->require_ready();
+  if (!state_->options.document_codec) {
+    throw std::logic_error{"Origin metadata requires an external document journal"};
+  }
+  state_->replace_document(envelope, state_->header.mode, true, false, document, origin);
+}
+
+// Stage one complete external package only at explicit Save preparation, never per edit.
+journal_prepared_save file_journal::prepare_document_save(const bytes& envelope,
+    std::span<const std::uint8_t> document, std::span<const std::uint8_t> origin) {
+  state_->require_ready();
+  if (!state_->options.document_codec) {
+    throw std::logic_error{"Prepared Save requires an external document journal"};
+  }
+  state_->replace_document(envelope, state_->header.mode, true, false, document, origin, true);
+  return *prepared_save();
+}
+
+// Bind the expected old native activation and exact proposed bytes before returning host buffers.
+journal_prepared_save file_journal::implementation::read_preparation(
+    const journal_document_manifest& proposed) const {
+  const auto& token = proposed.confirmation;
+  validate_save_token(token);
+  if (!same_bytes(std::span<const std::uint8_t>{token}.subspan(token_header_offset, file_header_bytes), manifest.header) ||
+      get_word(token, token_sequence_offset / wire_word_bytes) != sequence ||
+      get_word(token, token_record_digest_offset / wire_word_bytes) != digest ||
+      proposed.codec != options.document_codec->format ||
+      decode_header(proposed.header, base_file_kind).sequence != sequence) {
+    throw std::invalid_argument{"Prepared Save does not match the current native activation"};
+  }
+  auto unconfirmed = proposed;
+  unconfirmed.confirmation.clear();
+  const auto encoded = encode_document_manifest(unconfirmed, options.max_file_bytes,
+                                                 options.max_origin_bytes);
+  const auto binding = make_digest<digest_algorithm::sha256>(encoded);
+  if (!same_bytes(std::span<const std::uint8_t>{token}.subspan(token_manifest_digest_offset, binding.size()),
+                  binding)) {
+    throw std::invalid_argument{"Prepared Save metadata binding does not match"};
+  }
+  const auto selected = decode_header(proposed.header, base_file_kind);
+  auto document = read_file(staging_path(selected), options);
+  if (!document_matches(proposed, document) ||
+      get_word(token, token_document_size_offset / wire_word_bytes) != document.size() ||
+      !same_bytes(std::span<const std::uint8_t>{token}.subspan(token_document_digest_offset,
+                    proposed.document_digest.size()), proposed.document_digest)) {
+    throw std::invalid_argument{"Prepared Save document binding does not match"};
+  }
+  const auto input = read_file(companion_path(selected), options);
+  auto companion = decode_header(input, sidecar_file_kind);
+  companion.kind = base_file_kind;
+  const auto frame = read_file_frame(input, file_header_bytes, selected.sequence, 0, options);
+  if (encode_header(companion) != encode_header(selected) || !frame ||
+      frame->digest != selected.base_digest || frame->end_offset != input.size()) {
+    throw std::invalid_argument{"Prepared Save checkpoint does not match its generation"};
+  }
+  return {token, std::move(document), proposed.origin};
+}
+
+// Returning a preparation never confirms it, including after external success without an acknowledgement.
+std::optional<journal_prepared_save> file_journal::prepared_save() const {
+  if (state_->fenced || state_->recovering) {
+    throw journal_indeterminate_error{"Recover the journal before inspecting prepared Save"};
+  }
+  if (!state_->preparation) { return {}; }
+  return state_->read_preparation(*state_->preparation);
+}
+
+// Inspect only the durable preparation's admitted in-memory state.
+bool file_journal::has_prepared_save() const noexcept {
+  return state_->preparation.has_value();
+}
+
+// Host evidence attests external publication; Serializer verifies its binding and publishes locally.
+bool file_journal::confirm_document_save(std::span<const std::uint8_t> token,
+                                        const journal_publication_evidence& evidence) {
+  auto& state = *state_;
+  if (state.fenced || state.recovering) {
+    throw journal_indeterminate_error{"Recover the journal before confirming Save"};
+  }
+  validate_save_token(token);
+  if (!state.options.document_codec ||
+      get_word(token, token_document_size_offset / wire_word_bytes) != evidence.document_bytes ||
+      !same_bytes(token.subspan(token_document_digest_offset, evidence.document_digest.size()),
+                  evidence.document_digest)) {
+    throw std::invalid_argument{"Publication evidence does not match prepared Save"};
+  }
+  if (!state.preparation) {
+    if (same_bytes(token, state.manifest.confirmation)) { return false; }
+    throw std::invalid_argument{"No matching prepared Save"};
+  }
+  if (!same_bytes(token, state.preparation->confirmation)) {
+    throw std::invalid_argument{"Confirmation token does not match prepared Save"};
+  }
+  const auto prepared = state.read_preparation(*state.preparation);
+  if (!document_matches(state.manifest, read_file(state.path, state.options))) {
+    throw std::invalid_argument{"Saved journal document changed during prepared Save"};
+  }
+  auto proposed = *state.preparation;
+  const auto header = decode_header(proposed.header, base_file_kind);
+  const auto input = read_file(state.companion_path(header), state.options);
+  auto companion = decode_header(input, sidecar_file_kind);
+  companion.kind = base_file_kind;
+  const auto frame = read_file_frame(input, file_header_bytes, header.sequence, 0, state.options);
+  if (encode_header(companion) != encode_header(header) || !frame ||
+      frame->digest != header.base_digest || frame->end_offset != input.size()) {
+    throw std::invalid_argument{"Prepared Save checkpoint does not match its generation"};
+  }
+  auto canonical = state.options.document_codec->decode(prepared.document);
+  if (canonical.empty() || canonical.size() > state.options.max_record_bytes) {
+    throw std::length_error{"Prepared Save canonical root budget exceeded"};
+  }
+  auto next_delta = std::make_unique<journal_delta_base>(std::move(canonical));
+  const auto envelope = next_delta->decode(frame->payload, state.options.max_record_bytes,
+                                           state.options.max_replay_bytes);
+  const auto manifest_bytes = encode_document_manifest(proposed, state.options.max_file_bytes,
+                                                       state.options.max_origin_bytes);
+  auto staging = state.staging_path(header);
+  staging += ".manifest";
+  // This scratch file may survive a failed confirmation before the durable decision.
+  {
+    file_stream output{staging, std::filesystem::exists(staging) ? file_open_mode::update
+                                                              : file_open_mode::create};
+    output.truncate(0);
+    write_stream_bytes(output, manifest_bytes);
+    output.sync();
+  }
+  auto next_writer = std::make_unique<file_stream>(state.companion_path(header), file_open_mode::update);
+  next_writer->seek(frame->end_offset);
+  state.event(journal_io_event::before_confirm);
+  state.publish_document(std::move(proposed), std::move(next_delta), std::move(next_writer),
+      frame->payload.size(), envelope.size(), true, false, true);
+  return true;
 }
 
 // Decode the saved frame lazily, without replaying or retaining the unsaved suffix.

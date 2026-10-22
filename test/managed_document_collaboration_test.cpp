@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <rohit/managed_journal_document.hpp>
+#include "managed_journal_paths.hpp"
 
 #include <ledger.hpp>
 #include <rohit/managed.hpp>
@@ -224,7 +225,83 @@ TEST_F(managed_document_collaboration, pending_manifest_selects_metadata_only_sa
   attach(recovered);
   recovered.recover_journal(path_, options);
   EXPECT_EQ(recovered.collaboration().state()->in_flight, in_flight);
-  EXPECT_FALSE(std::filesystem::exists(path_.string() + ".journal.pending"));
+  EXPECT_FALSE(std::filesystem::exists(journal_test_paths::manifest(path_, true)));
+  recovered.synchronize();
+  ASSERT_EQ(transport_.requests.size(), 2u);
+  EXPECT_EQ(transport_.requests.front(), transport_.requests.back());
+  EXPECT_EQ(authority_.sequence(), 1u);
+}
+// Prepared Save pins pending transport/session state and prevents effects until explicit confirmation.
+TEST_F(managed_document_collaboration, prepared_save_retains_unsent_session_and_blocks_transport) {
+  auto options = json_options();
+  options.origin = {1};
+  managed::journal_prepared_save prepared;
+  bytes checkpoint;
+  std::uint32_t child_id{};
+  {
+    store_type store{ledger{}};
+    attach(store);
+    store.synchronize();
+    store.create_journal(path_, managed::journal_storage_mode::sidecar, options);
+    store.execute_transaction([&](auto& tx) {
+      child_id = tx.root().entries().insert(100, {"Pending", 500});
+    }).throw_if_failed();
+    checkpoint = store.save();
+    prepared = store.prepare_journal_save(bytes{2});
+    EXPECT_THROW(store.synchronize(), std::logic_error);
+    EXPECT_TRUE(transport_.requests.empty());
+    EXPECT_EQ(store.collaboration().pending_count(), 1u);
+  }
+  {
+    store_type recovered{ledger{}};
+    attach(recovered);
+    recovered.recover_journal(path_, options);
+    EXPECT_EQ(recovered.save(), checkpoint);
+    EXPECT_EQ(recovered.collaboration().pending_count(), 1u);
+    EXPECT_TRUE(recovered.prepared_journal_save());
+    EXPECT_THROW(recovered.synchronize(), std::logic_error);
+    EXPECT_TRUE(transport_.requests.empty());
+    const managed::journal_publication_evidence evidence{prepared.document.size(),
+        rohit::make_digest<rohit::digest_algorithm::sha256>(prepared.document)};
+    EXPECT_TRUE(recovered.confirm_journal_save(prepared.token, evidence));
+    EXPECT_EQ(recovered.save(), checkpoint);
+    recovered.synchronize();
+    EXPECT_EQ(authority_.sequence(), 1u);
+    EXPECT_EQ(authority_.read()->entries.at(100).persistent_id, child_id);
+    recovered.save_journal();
+  }
+  store_type reopened{ledger{}};
+  attach(reopened);
+  reopened.recover_journal(path_, options);
+  EXPECT_EQ(reopened.journal_origin(), (bytes{2}));
+  EXPECT_EQ(reopened.collaboration().pending_count(), 0u);
+}
+
+// Confirmation preserves the exact in-flight request after the host loses a transport acknowledgement.
+TEST_F(managed_document_collaboration, prepared_save_preserves_in_flight_exact_retry) {
+  auto options = json_options();
+  bytes in_flight;
+  managed::journal_prepared_save prepared;
+  {
+    store_type store{ledger{}};
+    attach(store);
+    store.synchronize();
+    store.create_journal(path_, managed::journal_storage_mode::sidecar, options);
+    store.execute_transaction([](auto& tx) { tx.root().set_name("Pending"); }).throw_if_failed();
+    transport_.lose_reply = true;
+    EXPECT_THROW(store.synchronize(), std::runtime_error);
+    in_flight = store.collaboration().state()->in_flight;
+    ASSERT_FALSE(in_flight.empty());
+    prepared = store.prepare_journal_save(bytes{3});
+  }
+  store_type recovered{ledger{}};
+  attach(recovered);
+  recovered.recover_journal(path_, options);
+  EXPECT_EQ(recovered.collaboration().state()->in_flight, in_flight);
+  const managed::journal_publication_evidence evidence{prepared.document.size(),
+      rohit::make_digest<rohit::digest_algorithm::sha256>(prepared.document)};
+  EXPECT_TRUE(recovered.confirm_journal_save(prepared.token, evidence));
+  EXPECT_EQ(recovered.collaboration().state()->in_flight, in_flight);
   recovered.synchronize();
   ASSERT_EQ(transport_.requests.size(), 2u);
   EXPECT_EQ(transport_.requests.front(), transport_.requests.back());

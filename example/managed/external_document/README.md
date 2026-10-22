@@ -10,6 +10,13 @@ reopens the exact native state, redoes the original child identity and verifies
 that later creation cannot reuse the burned gap. It creates a unique private
 temporary directory and removes its document/companions on exit.
 
+It also runs both application storage choices: a full owned main for a temporary
+source, and differences attached directly to a durable original. The owned-copy
+case removes the external source and shared capture before native recovery.
+Both retain bounded opaque origin metadata, prepare an external Save, publish
+through separate host code, independently reread publication evidence, confirm
+the exact token, retry harmlessly, cold reopen and Undo.
+
 From a configured repository build with managed examples enabled:
 
 ```powershell
@@ -30,13 +37,15 @@ Expected output:
 
 ```text
 JSON Save/reopen preserved native IDs, redo and burned allocation gaps.
+Application-selected owned copies/durable originals retain origin and confirmed Save.
 ```
 
 Application callbacks enforce external-format resource limits and exact durable
-values. Keep the saved file, `.journal` manifest and selected generation companion
-together. A stale byte digest, foreign generation or lossy codec rejects. Full
+values. Keep the saved main and its whole `.<filename>.journal/` directory
+together. Legacy flat layouts remain supported. A stale byte digest, foreign generation or lossy codec rejects. Full
 Save updates the document; ordinary edits append native differential journal
 records. The default journal API remains appended; external formats explicitly
 select `sidecar`. This example does not add an automatic XML/OPC profile adapter.
 See the [usage contract](../../../docs/guides/usage.md#external-documents-with-a-differential-sidecar)
 and [journal guide](../../../docs/managed/journal.md).
+See [origin, confirmation and unresolved-restart rules](../../../docs/managed/document_origin.md).

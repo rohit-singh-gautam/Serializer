@@ -3,6 +3,7 @@
 #include <runtime_features.hpp>
 #include <rohit/file_stream.hpp>
 #include <rohit/managed.hpp>
+#include "managed_journal_paths.hpp"
 #include <rohit/managed_journal_document.hpp>
 #include <rohit/serializer.hpp>
 #include <gtest/gtest.h>
@@ -706,13 +707,7 @@ struct external_runtime_journal_fixture {
 
   // Locate the sole selected generation before a successful Save retires its predecessor.
   std::filesystem::path companion() const {
-    const auto prefix = path.filename().string() + ".journal-";
-    for (const auto& item : std::filesystem::directory_iterator{directory}) {
-      if (item.path().filename().string().starts_with(prefix)) {
-        return item.path();
-      }
-    }
-    throw std::runtime_error{"Missing external runtime journal companion"};
+    return journal_test_paths::first_companion(path);
   }
 
   // Read under the test's owner-thread synchronization while the native journal writer is open.
@@ -758,7 +753,7 @@ TEST(managed_runtime_features, external_document_runtime_edits_leave_all_durable
     const auto companion = fixture.companion();
     const auto recovery = external_runtime_journal_fixture::read(companion);
     const auto manifest =
-        external_runtime_journal_fixture::read(fixture.path.string() + ".journal");
+        external_runtime_journal_fixture::read(journal_test_paths::manifest(fixture.path));
     const auto sequence = store.journal_sequence();
     const auto saved = store.save();
     store
@@ -775,7 +770,7 @@ TEST(managed_runtime_features, external_document_runtime_edits_leave_all_durable
     EXPECT_EQ(store.save(), saved);
     EXPECT_EQ(external_runtime_journal_fixture::read(fixture.path), main);
     EXPECT_EQ(external_runtime_journal_fixture::read(companion), recovery);
-    EXPECT_EQ(external_runtime_journal_fixture::read(fixture.path.string() + ".journal"), manifest);
+    EXPECT_EQ(external_runtime_journal_fixture::read(journal_test_paths::manifest(fixture.path)), manifest);
   }
   store_type recovered{initial_value()};
   recovered.recover_journal(fixture.path, options);

@@ -92,6 +92,9 @@ private:
     // Acquire the store boundary before any transport or persistence callback.
     explicit operation_scope(store_collaboration& value) : owner{value} {
       owner.store_.require_idle();
+      if (owner.store_.journal_state_.sink && owner.store_.journal_state_.sink->has_prepared_save()) {
+        throw std::logic_error{"Reconcile prepared Save before collaboration operations"};
+      }
       if (owner.busy_) {
         throw std::logic_error{"Reentrant collaboration operation"};
       }
@@ -145,6 +148,29 @@ private:
     }
     // Forward the underlying document projection requirement to the owning store.
     bool uses_document_codec() const noexcept override { return sink->uses_document_codec(); }
+    // Preserve native provenance independently of the paired session checkpoint.
+    std::vector<std::uint8_t> origin() const override { return sink->origin(); }
+    // Publish origin changes with the complete supplied model/session envelope.
+    void save_document_origin(const std::vector<std::uint8_t>& bytes,
+        std::span<const std::uint8_t> document, std::span<const std::uint8_t> origin) override {
+      sink->save_document_origin(bytes, document, origin);
+    }
+    // Pin the paired session/outbox state under the underlying native preparation.
+    journal_prepared_save prepare_document_save(const std::vector<std::uint8_t>& bytes,
+        std::span<const std::uint8_t> document, std::span<const std::uint8_t> origin) override {
+      return sink->prepare_document_save(bytes, document, origin);
+    }
+    // Expose unresolved publication without invoking transport or application effects.
+    std::optional<journal_prepared_save> prepared_save() const override {
+      return sink->prepared_save();
+    }
+    // Block transport as well as local writes while a prepared checkpoint pins session state.
+    bool has_prepared_save() const noexcept override { return sink->has_prepared_save(); }
+    // Retain exact evidence and retry semantics across the session wrapper.
+    bool confirm_document_save(std::span<const std::uint8_t> token,
+                               const journal_publication_evidence& evidence) override {
+      return sink->confirm_document_save(token, evidence);
+    }
     // Expose the underlying durable sequence without creating another cursor.
     std::uint64_t sequence() const noexcept override {
       return sink->sequence();

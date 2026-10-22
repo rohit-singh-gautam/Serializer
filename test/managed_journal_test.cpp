@@ -1,4 +1,5 @@
 #include <ledger.hpp>
+#include "managed_journal_paths.hpp"
 #include <rohit/managed.hpp>
 #include <rohit/file_stream.hpp>
 #include <rohit/managed_collaboration.hpp>
@@ -55,14 +56,36 @@ protected:
     if (GetParam() == mode::appended) {
       return path_;
     }
-    for (const auto& item : std::filesystem::directory_iterator{directory_}) {
-      if (item.path().filename().string().starts_with("document.journal-")) {
-        return item.path();
-      }
-    }
-    throw std::runtime_error{"Missing test sidecar"};
+    return journal_test_paths::first_companion(path_);
   }
 };
+
+// Every auxiliary generation and staging file stays in one folder, while the OS lock remains held.
+TEST_P(managed_journal_test, one_auxiliary_directory_and_stable_writer_lock) {
+  const auto folder = journal_test_paths::directory(path_);
+  managed::journal_options options;
+  std::size_t observed{};
+  options.fault_injector = [&](event) {
+    ++observed;
+    for (const auto& item : std::filesystem::directory_iterator{directory_}) {
+      EXPECT_TRUE(item.path() == path_ || item.path() == folder) << item.path();
+    }
+    EXPECT_THROW((void)rohit::file_stream(folder / "writer.lock", rohit::file_open_mode::lock),
+        std::system_error);
+  };
+  {
+    store_type store{ledger{"Base"}};
+    store.create_journal(path_, GetParam(), options);
+    store.execute_transaction([](auto& edit) { edit.root().set_name("Changed"); }).throw_if_failed();
+    store.save_journal();
+  }
+  EXPECT_GT(observed, 0U);
+  EXPECT_TRUE(std::filesystem::is_directory(folder));
+  EXPECT_FALSE(std::filesystem::exists(path_.string() + ".lock"));
+  EXPECT_EQ(static_cast<std::size_t>(std::distance(std::filesystem::directory_iterator{directory_},
+      std::filesystem::directory_iterator{})), 2U);
+  EXPECT_NO_THROW((void)rohit::file_stream(folder / "writer.lock", rohit::file_open_mode::lock));
+}
 
 // Read exact physical fixture bytes for truncation and corruption qualification.
 bytes read_bytes(const std::filesystem::path& path) {
@@ -822,12 +845,7 @@ TEST_P(managed_journal_test, sidecar_binding_and_missing_dependency) {
     store_type other{ledger{"Other"}};
     other.create_journal(other_path, mode::sidecar);
   }
-  for (const auto& item : std::filesystem::directory_iterator{directory_}) {
-    if (item.path().filename().string().starts_with("other.journal-")) {
-      write_bytes(physical, read_bytes(item.path()));
-      break;
-    }
-  }
+  write_bytes(physical, read_bytes(journal_test_paths::first_companion(other_path)));
   {
     store_type store{ledger{}};
     EXPECT_THROW(store.recover_journal(path_), std::invalid_argument);

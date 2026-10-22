@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: 0BSD
 #include "../src/managed_journal_delta.hpp"
+#include "managed_journal_paths.hpp"
 
 #include <ledger.hpp>
 #include <rohit/file_stream.hpp>
@@ -81,10 +82,8 @@ std::filesystem::path companion_path(const std::filesystem::path& path, const by
   if (main.size() < file_header_bytes) {
     throw std::invalid_argument{"Incomplete sidecar test header"};
   }
-  auto result = path;
-  result += ".journal-" + std::to_string(managed::detail::get_word(main, 4)) + "-" +
-            std::to_string(managed::detail::get_word(main, 5));
-  return result;
+  return journal_test_paths::companion(path, managed::detail::get_word(main, 4),
+      managed::detail::get_word(main, 5));
 }
 
 // Make unchanged data large and nonrepetitive so a full-copy writer cannot hide behind easy runs.

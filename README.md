@@ -44,6 +44,13 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Release **2.26.0** adds [C++ native origin metadata and prepared/confirmed Save](docs/managed/document_origin.md).
+The application chooses an owned full recovery main or a durable original with
+differences-only sidecars. Opaque provenance stays outside authored content;
+prepared Save pins native state until host publication evidence is confirmed.
+New journals group auxiliary files in one hidden `.<filename>.journal/` directory.
+Existing flat journals retain their layout and recovery support.
+
 Release **2.25.0** adds opt-in [C++ ordered element-only XML](docs/serialization/ordered_xml.md).
 An array of typed variants preserves child order directly, without a text
 alternative or hidden order metadata. Existing models, mixed content and native
@@ -110,7 +117,7 @@ Regenerate Python package facades for cancellation checks after Save hooks:
 pre-publication cancellation preserves the old file; a failure after replacement
 reports `publication_uncertain` with the complete new archive retained.
 
-The current compiler and runtime release is **2.25.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.26.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.21.0**;

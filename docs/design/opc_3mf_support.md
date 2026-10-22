@@ -4,7 +4,7 @@
 [Implemented APIs](../serialization/xml_packages.md) · [Pending work](../pending.md)
 
 Status: implemented subsets and remaining requirements, **21 October 2026**.
-The source release is compiler/runtime **2.25.0**, schema language **1.21.0**.
+The source release is compiler/runtime **2.26.0**, schema language **1.21.0**.
 The C++ OPC builder and declarative package facades in all eleven outputs exist;
 complete 3MF support and broader profile/provider qualification remain pending. Current source qualification
 is separate from the historically checked manual example.

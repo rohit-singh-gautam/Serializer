@@ -1169,7 +1169,7 @@ if(SERIALIZER_BUILD_MANAGED)
       COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/managed_journal_crash_test.py"
         --helper "$<TARGET_FILE:managed_journal_crash_helper>"
         --directory "${CMAKE_CURRENT_BINARY_DIR}/journal_crash")
-    set_tests_properties(managed_journal_crash_test PROPERTIES TIMEOUT 180)
+    set_tests_properties(managed_journal_crash_test PROPERTIES TIMEOUT 300)
   endif()
   add_executable(managed_history_allocation_failure_test managed_history_allocation_failure_test.cpp)
   target_link_libraries(managed_history_allocation_failure_test PRIVATE Serializer::managed)

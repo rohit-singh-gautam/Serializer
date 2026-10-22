@@ -78,8 +78,8 @@ static_assert(type_check::sized_stream<file_stream>);
 
 // Persist the parent directory after publication on POSIX; Windows uses write-through publication.
 void sync_parent_directory(const std::filesystem::path& path);
-// Atomically publish a fully synced same-directory file; never fall back to copying file contents.
-// replace=false must not overwrite an existing destination. Caller syncs the parent afterwards.
+// Atomically publish a fully synced file on the same filesystem; never copy file contents as fallback.
+// replace=false must not overwrite an existing destination. Caller syncs both affected parents.
 void publish_file(const std::filesystem::path& source, const std::filesystem::path& target,
                   bool replace);
 

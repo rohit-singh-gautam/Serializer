@@ -1,4 +1,5 @@
 #include <collaboration_model.hpp>
+#include "managed_journal_paths.hpp"
 #include <gtest/gtest.h>
 #include <rohit/managed_collaboration.hpp>
 
@@ -915,9 +916,7 @@ TEST(local_collaboration, recovery_admission_precedes_tail_repair_and_notificati
     }
     auto append_path = directory / "client";
     if (mode == managed::journal_storage_mode::sidecar) {
-      for (const auto& item : std::filesystem::directory_iterator(directory)) {
-        if (item.path().filename().string().starts_with("client.journal-")) { append_path = item.path(); }
-      }
+      append_path = journal_test_paths::first_companion(append_path);
     }
     {
       std::ofstream interrupted{append_path, std::ios::binary | std::ios::app};

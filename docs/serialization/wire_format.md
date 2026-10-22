@@ -497,6 +497,44 @@ framing byte for byte. Memory buffers, standard byte streams, and `file_stream`
 share the same record writer/reader; synchronization is an explicit backend
 capability, not an additional serialized field.
 
+### External document origin metadata
+
+Compiler/runtime 2.26.0 preserves journal frame versions two/three and default
+version-one external manifests. Physical auxiliary filenames move into
+`.<filename>.journal/` for new journals; existing flat layouts stay supported.
+See the [journal layout](../managed/journal.md#durable-decisions-and-files).
+
+An external manifest with provenance or a confirmation receipt uses manifest
+version two. All integers below are little-endian uint64; SHA-256 is 32 raw bytes:
+
+| Field | Encoding |
+| --- | --- |
+| Magic, version | Existing magic `0x33434f444a5a5253`, version `2` |
+| Native generation header | Existing 72-byte header, including its checksum |
+| Document size, digest | uint64 size, SHA-256 |
+| Codec | uint64 length, 1–256 exact bytes |
+| Origin | uint64 length, opaque bytes bounded by `max_origin_bytes` |
+| Confirmation receipt | uint64 length, either zero or 184 opaque bytes |
+| Footer | Existing CRC-64/ECMA over all preceding manifest bytes |
+
+Version one omits origin/receipt length and data fields and retains its exact
+existing extent. Decoding checks exact extents, limits and checksum before
+allocating metadata. The file adapter additionally bounds physical metadata
+input before allocation and validates native generation/checkpoint/main bindings.
+No authored payload or expanded full-document SRJ is added to retain provenance.
+
+Prepared Save's native `save.prepared` is a version-two proposed manifest with a
+184-byte token receipt. The token is an opaque native integrity binding, not an
+authentication credential. Its wire fields are magic `0x315641534a5a5253`, version
+`1`, old 72-byte generation header, old operation sequence/checksum, SHA-256 of
+the proposed manifest encoded without a receipt, proposed document size/SHA-256,
+and CRC-64/ECMA over the preceding token bytes. The proposed main and ordinary
+differential checkpoint are staged separately. Preparation alone cannot select
+them. Confirmation uses the existing pending-manifest publication decision and
+retains a receipt for exact retries. See [state/recovery semantics](../managed/document_origin.md).
+
+### Managed identity encodings
+
 Schemas without managed declarations retain their codecs.
 Default managed classes serialize `persistent_id` under reserved integer key
 `1073741823` (`0x3fffffff`) or string key `persistent_id`, after their application

@@ -576,6 +576,15 @@ history resets, and ID reservations before live publication.
 `journal_dirty()` compares current values with the last full Save;
 `journal_sequence()` advances independently of the history cursor.
 
+External-document sidecars also support bounded `journal_options::origin`,
+read-only `journal_origin()`, and atomic replacement via `save_journal(origin)`.
+`prepare_journal_save(origin)` pins a durable proposed base; after host publication,
+`confirm_journal_save(token, evidence)` selects it. Inspect `prepared_journal_save()`
+after restart and reconcile unresolved host effects before resuming writes.
+See [origin and confirmed Save](document_origin.md) for exact retries, mutation
+barriers, ownership choices and native metadata bounds. New journals put all
+auxiliaries in `.<filename>.journal/`; existing flat layouts stay supported.
+
 All three transaction forms report uncertain durable writes as
 `transaction_status::indeterminate`; `throw_if_failed()` rethrows the
 `journal_indeterminate_error`. When `journal_needs_recovery()` is true, destroy

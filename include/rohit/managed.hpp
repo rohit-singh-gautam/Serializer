@@ -3194,6 +3194,90 @@ public:
     admission.commit();
   }
 
+  // Read bounded native provenance without inserting application locators into authored content.
+  std::vector<std::uint8_t> journal_origin() const
+    requires(has_journal)
+  {
+    require_idle();
+    if (!journal_state_.sink) { throw std::logic_error{"Managed store has no journal"}; }
+    return journal_state_.sink->origin();
+  }
+
+  // Full Save with atomic provenance replacement; previous binding survives preparation failures.
+  void save_journal(std::span<const std::uint8_t> origin)
+    requires(has_journal)
+  {
+    require_idle();
+    if (!journal_state_.sink) { throw std::logic_error{"Managed store has no journal"}; }
+    auto saved = snapshot_;
+    auto bytes = save();
+    if (!collaboration_state_.attachment) { check_journal_envelope(bytes); }
+    detail::resident_admission admission{
+        resident_auxiliary_, estimate_auxiliary(snapshot_, identities_, history_, &saved)};
+    const auto document = journal_document_snapshot();
+    journal_operation([&] { journal_state_.sink->save_document_origin(bytes, document, origin); });
+    journal_state_.saved_snapshot.swap(saved);
+    journal_state_.delta_count = 0;
+    admission.commit();
+  }
+
+  // Durably pin the accepted model/history/allocator/session and proposed external bytes.
+  // Mutations reject until confirmation; host effects must occur after this call returns.
+  journal_prepared_save prepare_journal_save(std::span<const std::uint8_t> origin)
+    requires(has_journal)
+  {
+    require_idle();
+    if (!journal_state_.sink) { throw std::logic_error{"Managed store has no journal"}; }
+    auto bytes = save();
+    if (!collaboration_state_.attachment) { check_journal_envelope(bytes); }
+    const auto document = journal_document_snapshot();
+    journal_prepared_save prepared;
+    journal_operation([&] {
+      prepared = journal_state_.sink->prepare_document_save(bytes, document, origin);
+    });
+    return prepared;
+  }
+
+  // Prepare without changing the currently selected opaque provenance.
+  journal_prepared_save prepare_journal_save()
+    requires(has_journal)
+  {
+    const auto origin = journal_origin();
+    return prepare_journal_save(origin);
+  }
+
+  // Expose unresolved preparation after restart; this never infers external publication success.
+  std::optional<journal_prepared_save> prepared_journal_save() const
+    requires(has_journal)
+  {
+    require_idle();
+    if (!journal_state_.sink) { throw std::logic_error{"Managed store has no journal"}; }
+    return journal_state_.sink->prepared_save();
+  }
+
+  // Adopt only the exact prepared base after host-supplied evidence; exact retries are harmless.
+  // An uncertain native publication fences writes until fresh journal recovery.
+  bool confirm_journal_save(std::span<const std::uint8_t> token,
+                             const journal_publication_evidence& evidence)
+    requires(has_journal)
+  {
+    require_idle();
+    if (!journal_state_.sink) { throw std::logic_error{"Managed store has no journal"}; }
+    auto saved = snapshot_;
+    detail::resident_admission admission{
+        resident_auxiliary_, estimate_auxiliary(snapshot_, identities_, history_, &saved)};
+    bool activated{};
+    journal_operation([&] {
+      activated = journal_state_.sink->confirm_document_save(token, evidence);
+    });
+    if (activated) {
+      journal_state_.saved_snapshot.swap(saved);
+      journal_state_.delta_count = 0;
+      admission.commit();
+    }
+    return activated;
+  }
+
   // Restore the full saved baseline/history durably; never recycle abandoned object/revision IDs.
   // Unattached/shared stores reject. Failure before replacement preserves accepted state; uncertain
   // replacement fences the writer and requires fresh recovery. Saved baseline reads are lazy.

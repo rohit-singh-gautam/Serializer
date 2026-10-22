@@ -48,10 +48,11 @@ nonzero exit code.
 ## Files and Save behavior
 
 - `appended.srj` contains its saved base plus subsequent records.
-- `sidecar.srj` contains its saved base; `sidecar.srj.journal-<high>-<low>` contains
-  subsequent records. Always retain the matching companion when moving the document.
-- Each document has a stable `.lock` file. Releasing the store releases the lock;
+- `sidecar.srj` contains its saved base; `.sidecar.srj.journal/changes-<high>-<low>`
+  contains subsequent records. Retain the whole journal directory when moving the document.
+- Each document's journal directory has a stable `writer.lock`. Releasing the store releases the lock;
   leaving this file on disk is intentional.
+- Existing flat-layout journals remain readable and retain their original filenames.
 
 Every changed commit supplies its new snapshot and compact metadata. Appended mode
 writes those bytes directly; new sidecars encode binary differences against the

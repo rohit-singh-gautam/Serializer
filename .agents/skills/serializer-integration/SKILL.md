@@ -52,8 +52,17 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-The current compiler/runtime release is **2.25.0**, with schema language
-**1.21.0**. For new C++ element-only ordered models, select
+The current compiler/runtime release is **2.26.0**, with schema language
+**1.21.0**. For external C++ documents, let the application choose an owned full
+main for temporary sources or attach native differences to a durable original.
+Use bounded `journal_options::origin` and `journal_origin()` for native opaque
+provenance, `save_journal(origin)` for atomic replacement, and
+`prepare_journal_save` / `prepared_journal_save` / `confirm_journal_save` for host
+publication and explicit restart reconciliation. Never perform host effects in
+fault hooks. See [origin and confirmed Save](../../../docs/managed/document_origin.md)
+for evidence, exact retries, unresolved mutation barriers and supported scope.
+Require `find_package(Serializer 2.26 CONFIG REQUIRED)` for these additions.
+For new C++ element-only ordered models, select
 [`ordered=member`](../../../docs/serialization/ordered_xml.md) explicitly in the
 owner's XML configuration. Use an array of owning record variants; retain native
 vector edits as the source of order, without a text branch or hidden sidecar.
@@ -609,8 +618,11 @@ For an external main file, supply bounded owning callbacks that exactly preserve
 durable values. Recovery verifies its raw-byte SHA-256 binding, companion
 generation and complete first baseline-frame extent/checksum before calling the
 decoder, restores persistent identities from side-channel metadata, and retains
-history and pending collaboration through Save. Keep the main file, its `.journal`
-manifest and selected generation companion together. Callbacks own format-specific
+history and pending collaboration through Save. New journals keep auxiliaries in
+one `.<filename>.journal/` directory (hidden on Windows); keep the main and whole
+directory together. Legacy flat layouts continue to recover and Save in place;
+do not mix older writers with the new lock layout or remove live lock files.
+Callbacks own format-specific
 parsing, resource bounds and borrowed lifetimes; do not claim automatic XML/OPC
 profile adaptation or complete standard-specific qualification. See the
 [Windows/Linux document-bridge proof](../../../docs/verification/verification-managed-document-bridge-2026-10-20.md),
