@@ -389,7 +389,7 @@ class emitter {
   std::map<const class_node*, const member*> xml_mixed_variants_{};
   std::set<const class_node*> xml_mixed_storage_only_{};
   std::string unit;
-  std::string xml_declaration_prefix;
+  std::string xml_declaration_prefix{};
   std::string go_xml_operation_name{"XmlOperationOptions"};
   behavior::checked_helpers arithmetic_helpers{};
   std::string source{};

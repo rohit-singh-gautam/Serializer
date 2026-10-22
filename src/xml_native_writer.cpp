@@ -42,6 +42,7 @@
 
 namespace rohit::serializer::writer::xml_codegen {
 namespace {
+using std::literals::string_view_literals::operator""sv;
 constexpr std::string_view kotlin_runtime =
 #include "xml_kotlin_runtime.inc"
 #include "xml_kotlin_output_runtime.inc"
@@ -72,6 +73,7 @@ constexpr std::string_view swift_runtime =
 #include "xml_swift_tokens_runtime.inc"
 #include "xml_swift_extension_tokens_runtime.inc"
 ;
+// Keep the compiler-known extent instead of scanning the large literal during constant evaluation.
 constexpr std::string_view c_runtime =
 #include "xml_c_map_runtime.inc"
 #include "xml_c_mixed_runtime.inc"
@@ -87,7 +89,7 @@ constexpr std::string_view c_runtime =
 #include "xml_c_operation_reader_runtime.inc"
 #include "xml_c_operation_identity_runtime.inc"
 #include "xml_c_extension_runtime.inc"
-;
+""sv;
 constexpr std::string_view c_extension_operation_source =
 #include "xml_c_scalar_runtime.inc"
 #include "xml_c_extension_runtime.inc"

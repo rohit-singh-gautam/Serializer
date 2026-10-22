@@ -79,8 +79,11 @@ remain unavailable for that storage representation. Use a supported explicit
 ordered mapping when direct token traversal is required. Follow the
 [legacy tree checks](../../../docs/verification/verification-legacy-cpp-wildcards-2026-10-22.md).
 
-The current compiler/runtime release is **2.28.0**, with schema language
-**1.21.0**. For external C++ documents, let the application choose an owned full
+The current compiler/runtime release is **2.28.1**, with schema language
+**1.21.0**. Patch 2.28.1 restores strict GNU compilation of XML metadata,
+declaration prefixes and large embedded runtime literals without changing
+generated contracts or application integration.
+For external C++ documents, let the application choose an owned full
 main for temporary sources or attach native differences to a durable original.
 Use bounded `journal_options::origin` and `journal_origin()` for native opaque
 provenance, `save_journal(origin)` for atomic replacement, and

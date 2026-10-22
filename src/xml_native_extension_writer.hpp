@@ -181,7 +181,8 @@ inline std::string native_extension_metadata(const xml_binding::record& contract
       wrapper.fields.push_back(entry);
       emit_frame(wrapper, callback, ":map-wrapper:" + field.source->name, {{&entry_source, item_callback}});
     } else {
-      std::vector<member> sources(field.variant_binding->alternatives.size());
+      // Value-initialize aggregate descriptors without instantiating an implicit default constructor.
+      std::vector<member> sources(field.variant_binding->alternatives.size(), member{});
       std::map<const member*, xml::name> types;
       for (std::size_t index{}; index < sources.size(); ++index) {
         const auto& alternative = field.variant_binding->alternatives[index];
