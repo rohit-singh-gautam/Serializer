@@ -43,6 +43,12 @@
 namespace rohit::serializer {
 
 namespace detail {
+// Let explicitly instrumented buffers admit native traversal; ordinary buffers compile this away.
+template <typename Stream>
+constexpr void native_output_visit(Stream& output, std::size_t count = 1U) {
+  if constexpr (requires { output.native_output_visit(count); }) { output.native_output_visit(count); }
+}
+
 // Borrow a supported value without extending its lifetime or copying its storage.
 template <typename T>
 [[nodiscard]] constexpr const T& binary_referent(const T& value) noexcept { return value; }
@@ -1533,6 +1539,7 @@ private:
 
   // Validate UTF-8 once and retain escape boundaries for the reserved, alias-safe write.
   void write_string(std::string_view text) {
+    detail::native_output_visit(out_stream, text.size());
     const auto analysis = detail::analyze_json_escaping(text);
     constexpr std::size_t quote_bytes = 2;
     if (analysis.encoded_bytes > rohit::detail::maximum_buffer_bytes - quote_bytes) {
@@ -1560,6 +1567,7 @@ public:
   // Encode a supported value or field through this protocol and advance the output cursor.
   template <typename T>
   void serialize_out(const T& value) {
+    detail::native_output_visit(out_stream);
     if constexpr (detail::json_optional<T>) {
       if (schema_values_) {
         write_bracket_open();
@@ -1629,12 +1637,14 @@ public:
   // Encode a supported value or field through this protocol and advance the output cursor.
   template <typename T> requires (type_check::vector<T> || type_check::fixed_array<T>)
   void serialize_out(const T& value) {
+    detail::native_output_visit(out_stream);
     serialize_out_list(value, [this](const T::value_type& val) { serialize_out(val); });
   }
 
   // Encode a supported value or field through this protocol and advance the output cursor.
   template <type_check::map T>
   void serialize_out(const T& value) {
+    detail::native_output_visit(out_stream);
     serialize_out_list(value,
                        [this](const T::value_type& val) { serialize_out_key_value_pair(val); });
   }
@@ -1657,6 +1667,7 @@ public:
 
   // Encode an object with no fields using both braces.
   void struct_serialize_out_empty() {
+    detail::native_output_visit(out_stream);
     write_brace_open();
     write_brace_close();
   }
@@ -2289,6 +2300,7 @@ public:
     requires(KeyType == serialize_key_type::none && sizeof...(Values) > 1 &&
              sizeof...(Values) <= constants::maximum_fixed_batch_fields)
   constexpr void struct_serialize_out_fixed(Values... values) {
+    detail::native_output_visit(out_stream, sizeof...(Values));
     constexpr auto bytes = (detail::binary_fixed_bytes<Values> + ...);
     out_stream.reserve(bytes);
     if constexpr (detail::binary_counting_stream<Stream>) {
@@ -2305,6 +2317,7 @@ public:
     requires(KeyType == serialize_key_type::integer && sizeof...(Values) > 1 &&
              sizeof...(Values) <= constants::maximum_fixed_batch_fields)
   constexpr void struct_serialize_out_fixed(std::pair<std::uint32_t, Values>... fields) {
+    detail::native_output_visit(out_stream, sizeof...(Values));
     std::size_t bytes{};
     ((bytes += detail::fixed_identifier_bytes(fields.first) + detail::binary_fixed_bytes<Values>),
      ...);
@@ -2328,6 +2341,7 @@ public:
     requires(KeyType == serialize_key_type::string && sizeof...(Values) > 1 &&
              sizeof...(Values) <= constants::maximum_fixed_batch_fields)
   constexpr void struct_serialize_out_fixed(std::pair<std::string_view, Values>... fields) {
+    detail::native_output_visit(out_stream, sizeof...(Values));
     std::size_t bytes{};
     (detail::add_fixed_named_bytes(bytes, fields.first, detail::binary_fixed_bytes<Values>), ...);
     if constexpr (TextValidation == binary_text_validation::strict) {
@@ -2355,6 +2369,7 @@ public:
     requires(KeyType == serialize_key_type::string && sizeof...(Values) > 1 &&
              sizeof...(Values) <= constants::maximum_fixed_batch_fields)
   constexpr void struct_serialize_out_fixed(std::pair<detail::binary_field_name<Names>, Values>... fields) {
+    detail::native_output_visit(out_stream, sizeof...(Values));
     constexpr auto bytes = [] {
       std::size_t total{};
       for (const auto size : {detail::binary_field_name<Names>::bytes.size() +
@@ -2463,6 +2478,7 @@ public:
   // Byte writes follow the stream reservation policy; later failures can leave prior output.
   template <typename T>
   constexpr void serialize_out(const T& value) {
+    detail::native_output_visit(out_stream);
     if constexpr (detail::json_optional<T>) {
       out_stream.append(static_cast<std::uint8_t>(value.has_value()));
       if (value) { serialize_out(*value); }
@@ -2491,6 +2507,7 @@ public:
       // Byte copying does not require the stream cursor to be aligned for wire_type.
       out_stream.append_external(&wire_value, sizeof(wire_value));
     } else if constexpr (std::is_same_v<std::string, T> || std::is_same_v<std::string_view, T>) {
+      detail::native_output_visit(out_stream, value.size());
       if (value.size() > constants::variable_four_byte_max) {
         throw std::out_of_range{"Binary variable integer exceeds the 30-bit wire range"};
       }
@@ -2519,6 +2536,7 @@ public:
       serialize_out_variable(value.size());
       using element_type = typename T::value_type;
       if constexpr (detail::binary_array_scalar<element_type>) {
+        detail::native_output_visit(out_stream, value.size());
         static_assert(std::endian::native == std::endian::little ||
                           std::endian::native == std::endian::big,
                       "Mixed-endian scalars are unsupported");
@@ -2598,6 +2616,7 @@ public:
 
   // Empty binary objects use the same terminator as any other object in their mode.
   constexpr void struct_serialize_out_empty() {
+    detail::native_output_visit(out_stream);
     struct_serialize_out_end();
   }
 }; // class binary_out_base
@@ -2711,6 +2730,7 @@ template <template <serialize_type> class Protocol, rohit::type_check::output_st
           typename Value>
 constexpr void serialize_to(Stream& output, const Value& value) {
   if constexpr (rohit::type_check::output_buffer<Stream>) {
+    detail::native_output_visit(output);
     detail::stream_protocol_t<Protocol<serialize_type::out>, Stream> encoder{output};
     value.serialize_out(encoder);
   } else {

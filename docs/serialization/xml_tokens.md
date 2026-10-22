@@ -1,49 +1,96 @@
 # Generated XML token codecs
 
-Python QName-list enumeration, defaults and fixed values retain the schema's
-ordered expanded identities. Equivalent instance aliases, child-local prefixes,
-empty lists, no-namespace items and list-valued union members are supported.
-These graphs retain their existing whole-document Python path and XML-only scope
-state; the change does not introduce tree-free decoding or a hard allocation
-ceiling. Other backend restrictions and namespace-dependent outer union
-restrictions/defaults remain gated. See the
-[executed QName-list inventory](../verification/verification-qname-lists-2026-10-21.md).
-Schema defaults/fixed lists with no-namespace items also reject an active
-nonempty instance default namespace; scopes of other QName fields remain intact.
+## XSD wildcards and positioned extensions in 2.28.0
 
-Compiler/runtime **2.16.0** retains C++/Python namespace-dependent scalar-child
-scopes by field and occurrence. Local/shadowed QName prefixes, QName-list items,
-default namespace resets and nested union branch identities survive output;
-native string values and JSON/binary encoding keep their contract. C++ direct
-and retained-tree paths share the scope store. Python selects whole-document
-decoding for these graphs. Scope metadata follows occurrence positions; editing
-or reordering indistinguishable lexical values requires keeping their namespace
-metadata associated. Valid Unicode XML mapping names and QName prefixes are
-accepted independently of the native parsing provider.
+Generated owning codecs in all eleven outputs bind `xs:any` and
+`xs:anyAttribute` from the pinned local XSD bundle. Namespace predicates retain
+`##any`, `##other`, `##local`, `##targetNamespace` and explicit URI sets, including
+the absent namespace. Element and attribute permissions are separate. Child
+slots enforce their exact particle position and occurrence interval; known
+members dispatch first. A completed known element can enter a later generated
+wildcard only where that particle permits it. Authored extension slots retain
+their explicit foreign-only permissions and never absorb known member names.
 
-Go/Java/C# add direct plain QName, QName-list and prefix-list codecs. Use Go
-`SetXMLNamespaces`, Java `setXmlNamespaces` or C# `SetXmlNamespaces` to validate
-and copy explicit authored bindings. These replace captured scopes on that record;
-nested records bind independently.
-Kotlin/Swift owning records support the same plain scalar scope contracts.
-C/Rust preserve them through XML document companions; use document decode and
-encode-with-extensions entry points. Their wrapped/nil, mixed/all, revision/magic
-and other graph combinations still have explicit capability gates.
-Namespace-dependent union/default/fixed/enumeration combinations remain gated.
-See [current executed checks](../verification/verification-qname-scopes-2026-10-20.md)
-and the [remaining requirements](../pending.md#opc-and-3mf-requirements).
+`processContents="skip"` performs no declaration validation. `lax` validates a
+matching global declaration and accepts an undeclared expanded name; `strict`
+requires a matching global declaration of the correct element/attribute kind.
+The compiler generates a private declaration inventory from the same bounded,
+local bundle. Runtime decoding never loads schemas or follows instance hints.
+Private validators reuse the generated scalar, particle, attribute, identity and
+namespace contracts. Supported named `xsi:type` derivations respect `block` and
+`final`; abstract global elements reject, while abstract types require a permitted
+concrete selection.
+`xsi:nil` validates its lexical value, nillability, fixed-value prohibition,
+required attributes and absence of content. Global attributes use actual
+attribute validation, including present-empty/default/fixed and QName scopes.
+This inventory does not add arbitrary runtime XSD type discovery or support for
+unrelated unsupported schema constructs.
 
-Compiler/runtime **2.15.0** introduced selected C++ child unions with
-QName or QName-list members. The first successful member and its expanded names
-must agree in the child and owning record namespace scopes. Optional, repeated
-and nested-union fields use that same check; child-local/shadowed bindings
-that would lose identity rejected in that release. Python supports outer enumeration and
-fixed restrictions on namespace-independent unions, comparing through the first
-successful member's primitive value space. Numeric, Boolean and string values
-remain distinct; ordered list values compare item by item. QName-dependent outer
-restrictions remain unavailable. The later Python QName-list extension above
-supersedes the original QName-list enumeration/fixed restriction. See the
-[selected qualification](../verification/verification-pending-xml-2026-10-20.md).
+Validation and retention are independent. `unknown(skip)` discards accepted
+wildcard payloads after validation. Preservation retains complete semantic
+subtrees, attributes and original namespace scopes, and validates edited retained
+content again before output. Private validation capture/replay charges actual
+work and temporary storage to the original operation; it does not reset budgets
+or charge a second retained-byte quota. The caller's independent identity, map,
+mixed and digest policies also propagate into every nested private validator.
+Declared skip paths work with zero
+preserved-byte admission. Provider-private allocations retain their documented
+cooperative boundary. Preservation or schema validity does not establish that
+the application understands a required vocabulary.
+
+Without an XSD wildcard of the corresponding kind, an owner's global
+`unknown(skip)`/`unknown(preserve)` fallback accepts only foreign namespaces.
+Core/absent namespaces, known names and explicitly configured reject URI families
+remain closed. One generated fallback slot per kind covers sequence boundaries,
+including models larger than the default slot limit. Scalar-text owners permit
+foreign attributes and end children; singleton `all` owners permit foreign
+attributes and end children, and singleton choices permit attributes/end slots.
+These mappings do not infer heterogeneous storage inside an `all` or choice
+group. Existing mapping diagnostics still apply to unsupported interior layouts.
+
+C++'s legacy repeated-choice representation with one known collection and
+wildcard branches retains its whole-tree public XML facade. It now shares
+declaration validation, required capabilities and extension slots, including the
+explicit `extension_bounds.document` policy. Direct token entry points remain
+unavailable for that representation; select explicit ordered native storage for
+the supported direct path. See the
+[legacy tree qualification](../verification/verification-legacy-cpp-wildcards-2026-10-22.md).
+
+Compiler/runtime **2.28.0** preserves QName, QName-list and selected union value
+identities in all eleven owning outputs. Enumeration, default and fixed values
+compare ordered expanded names or the first successful union member's primitive
+value space. Boolean, numeric and string families remain distinct. Restricted
+atomic and union list items retain their recursive constraints and identities.
+Schema-owned literals keep their declaration scope, including no-namespace
+values under a conflicting instance default namespace; emitted aliases preserve
+those identities without changing native string fields or JSON/binary payloads.
+See the [scalar identity qualification](../verification/verification-scalar-identities-2026-10-22.md)
+and [native companion qualification](../verification/verification-native-qname-constraints-2026-10-22.md).
+The `prefix_list` capability annotation keeps its separate application-understood
+vocabulary boundary: an XSD string default does not define namespace identities
+for prefix-list tokens.
+
+Local/shadowed prefixes, default namespace resets and nested union selection
+survive input and output. C++ direct and retained-tree paths share scope stores;
+Python uses its supported whole-document path for namespace-dependent graphs.
+These paths do not promise tree-free decoding or a hard provider allocation
+ceiling. Scope metadata follows its owning field and occurrence; when manually
+editing repeated lexical values, keep their associated scope metadata aligned.
+Valid Unicode XML names and QName prefixes are independent of provider-native
+name parsing. Go `SetXMLNamespaces`, Java `setXmlNamespaces` and C#
+`SetXmlNamespaces` validate and copy explicit owner bindings; nested records
+bind independently. Kotlin/Swift owning records retain the same scalar scopes.
+
+C/Rust use XML document companions and their document decode and
+encode-with-extensions entry points. Companion graphs include wrapped/nil
+collections, mixed/ordered typed children, all-group permutations, lifecycle
+metadata, maps and element/`xsi:type` variants. Canonical map keys keep scopes
+associated across input permutations. These combinations also preserve admitted
+foreign payloads; see the
+[executed namespace graph checks](../verification/verification-native-namespace-graphs-2026-10-22.md).
+Earlier 2.15/2.16 QName union and child-scope checkpoints remain historical
+verification records; their former outer restriction/default gates are superseded
+by 2.28.0.
 
 Compiler/runtime **2.12.0** adds direct XML codec paths without changing schema
 language **1.20.0** or native JSON/binary wire contracts. The
@@ -155,9 +202,8 @@ hexadecimal values; native protocol field identities stay unchanged. Positioned
 extension slots support reject/skip/preserve, namespace-aware capability checks
 and exact slot/count rules. Configure them with
 `Limits(xml_extensions=XmlExtensionOptions(...))`. Only preserved foreign
-subtrees retain semantic content; skipped subtrees do not. Mixed/`all` groups
-combined with new slots and legacy rich QName/wildcard combinations retain
-their explicit capability limits.
+subtrees retain semantic content; skipped subtrees do not. The 2.28.0 wildcard
+contract above supersedes the original fixed-XSD overlay restrictions.
 
 Python readonly shared/borrowed/weak value references and scoped translators also
 export through the target's XML mapping. They retain live source values without
@@ -183,9 +229,10 @@ Go adds flattened owning bases
 and generated bounded Thompson-state programs for the approved portable pattern
 subset, with independent Unicode/value-space checks. Java and C# also execute
 prepared scalar/pattern programs. Java/C# also support exact arbitrary-precision
-integer/decimal lexical values, typed and lexical lists, namespace-independent
-unions, defaults/fixed values and authoritative simpleContent. Namespace-dependent
-QName contracts retain explicit gates until their backend qualification passes.
+integer/decimal lexical values, typed and lexical lists, scoped unions,
+defaults/fixed values and authoritative simpleContent. In 2.28.0 all eleven
+outputs enforce expanded QName/list and outer-union identities; see the
+[scalar identity matrix](../verification/verification-scalar-identities-2026-10-22.md).
 Go/Java/C# map codecs enforce typed canonical
 key uniqueness and per-wrapper `XmlMapLimits`, including nested values and
 optional absent versus present-empty wrappers. Explicit Go/Java/C# presence
@@ -257,8 +304,9 @@ propagates through nested records independently of map/mixed/document limits.
 Kotlin/Swift positioned extension slots use the trailing `extensionOptions`
 policy. Supply `XmlExtensionOptions(understoodNamespaces=...)` in Kotlin or
 `XmlExtensionOptions(understoodNamespaces: ...)` in Swift; preservation permission
-does not establish semantic understanding. Slots retain only foreign attributes
-and subtrees, including their complete original namespace context and mixed text.
+does not establish semantic understanding. Authored slots retain foreign attributes
+and subtrees; generated XSD slots use the schema's namespace predicate. Both retain
+complete original namespace context and mixed text.
 Known members remain direct. `XmlExtensionLimits` bounds slots, foreign roots and
 logical preserved bytes per owner, including the shared contract's metadata
 inventory admissions; ordinary document bounds remain cumulative.
@@ -267,9 +315,9 @@ foreign slot explicitly lists that URI; future lifecycle metadata cannot become
 opaque extension content. C++ exposes its identity as `xml::model_metadata_namespace`.
 Skipping retains no foreign payload and works with zero preserved-byte admission.
 Replay preserves static field/repeated-item boundaries and rejects edits that
-remove a required retained position. Attribute-only slots also work on scalar
-text records. Child slots with scalar text, and slots combined with mixed/`all`
-storage, reject precisely. Namespace declarations introduced by an ordinary
+remove a required retained position. Scalar-text records and singleton `all`/choice
+mappings accept attributes and end-child slots. Unsupported interior heterogeneous
+placements reject precisely. Namespace declarations introduced by an ordinary
 ancestor can increase a nested owner's captured context on the first replay;
 the selected byte limit must admit that actual context rather than discount it.
 Java/C#/Go qualify the same positioned foreign-only reference contract. Java/C#
@@ -299,11 +347,12 @@ times the caller's document byte limit, with overflow checks; the original input
 modeled values and final output still obey the original limits. Extension item
 and logical preserved-byte admissions are cumulative over the whole document;
 occurrence positions/counts remain owner-local. Original input and final replay
-are checked by enabled identity/provider observers before publication. Mixed/`all`
-graphs, revision/magic combinations, extension-bearing map/variant/wrapped/nil
-owners and export/reference adapters retain explicit native companion gates.
-Fixed-XSD extension overlays remain outside this selected contract. These broader
-combinations belong to OPC-R02/R12 rather than the completed X16 reference tasks.
+are checked by enabled identity/provider observers before publication. Native
+companions also preserve extension state through wrapped/nil records, typed
+children, lifecycle metadata and supported map/variant graphs; keep sidecars
+associated with their original occurrences. Fixed-XSD overlays follow the 2.28.0
+wildcard contract above. Export-only reference adapters retain their separate
+ownership and lifetime contract.
 Non-C++ concrete owning generic instances are accepted where their
 resolved fields satisfy the selected mapping; abstract/unresolved instances
 still reject. All outputs support private/multiple owning inheritance through

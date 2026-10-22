@@ -10,7 +10,22 @@ R"packagejs(
   /** An inert source-scoped OPC relationship; external targets are never opened. */
   class Relationship { constructor(source, id, type, target, mode = 'internal') { Object.assign(this, {source, id, type, target, mode}); } }
   /** Whole unknown parts and authored scoped links, preserved without interpreting their XML. */
-  class Extensions { constructor(parts = [], relationships = []) { this.parts = parts; this.relationships = relationships; } }
+  const extensionOrigins = new WeakMap();
+  class Extensions {
+    constructor(parts = [], relationships = []) { this.parts = parts; this.relationships = relationships; }
+    /** Bind loaded dynamic identities to edited names; retained records and payloads stay unchanged. */
+    withRenames(names) {
+      const requested = names instanceof Map ? new Map(names) : new Map(Object.entries(names));
+      const remaining = new Set(requested.keys()), provenance = new Map();
+      for (const [key, record] of extensionOrigins.get(this) || []) {
+        const selected = record.slice();
+        if (selected.length === 3 && requested.has(selected[0])) { selected[1] = requested.get(selected[0]); remaining.delete(selected[0]); }
+        provenance.set(key, selected);
+      }
+      if (remaining.size) throw new PackageError(Code.InvalidOptions, 'Rename origin is not a discovered dynamic role', remaining.values().next().value);
+      const result = new Extensions(this.parts, this.relationships); extensionOrigins.set(result, provenance); return result;
+    }
+  }
   /** Unknown optional parts and links independently reject, skip or preserve; required items always reject. */
   class ExtensionPolicy {
     constructor({parts = 'reject', relationships = 'reject', isRequiredPart = null, isRequiredRelationship = null} = {}) {

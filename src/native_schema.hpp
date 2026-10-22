@@ -1,6 +1,7 @@
 #pragma once
 
 #include <rohit/serializer_creator.hpp>
+#include "xml_schema.hpp"
 
 #include <map>
 #include <string>
@@ -21,6 +22,11 @@ struct schema {
   std::map<std::string, class_auto_size_options> class_auto_sizes{};
   xml_options xml{};
   output_protocols protocols{output_protocols::all};
+  std::vector<std::shared_ptr<const xml_binding::declaration_inventory>> xml_inventories{};
+  // Append each private validation AST once after XML options have been configured.
+  void collect_xml_validators();
+  // Find the shared declaration dispatcher for authored or private validator classes.
+  [[nodiscard]] const xml_binding::declaration_inventory* inventory_for(const class_node* source) const;
 
   // Resolve flattened names and validate portable owning shapes and defaults.
   explicit schema(const std::vector<std::unique_ptr<syntax_node>>& statements);

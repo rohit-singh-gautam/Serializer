@@ -9,6 +9,8 @@ internal class SrlXmlOutput(private val limits: XmlLimits, val mapLimits: XmlMap
     fun packageRecord(): java.io.Closeable? = limits.srlPackageContext?.record()
     // Borrow only this synchronous codec's optional operation context.
     fun packageContext(): SrlXmlBudget.Operation? = limits.srlPackageContext
+    // Preserve scalar/map/mixed/identity bounds for same-operation private declaration replay.
+    fun declarationPolicy(): SrlXmlDeclaredPolicy = SrlXmlDeclaredPolicy(limits,mapLimits,mixedLimits,digestLimits,identityLimits,extensionOptions)
     // Select a schema member before validation or provider presentation begins.
     fun packageField(name: String) { limits.srlPackageContext?.member(name) }
     // Keep lexical failures attributed to their member after nested token scopes have unwound.
@@ -79,6 +81,7 @@ internal class SrlXmlOutput(private val limits: XmlLimits, val mapLimits: XmlMap
             }
         }
         stack.add(Frame(name,local,bindings=bindings,pinned=preservedScope != null,packageField=limits.srlPackageContext?.field ?: ""))
+        if (stack.size == 1 && limits.srlPackageRequiresType) limits.srlPackageRootType?.let { typeName(it) }
     }
     // Choose a generated prefix without changing the meaning of any retained opaque lexical value.
     private fun prefixFor(uri: String, preferred: String): String {

@@ -59,8 +59,12 @@ fun main(args: Array<String>) {
     check(expected != "LOAD_ERROR","invalid load published"); check(loaded.value.extensions === loaded.extensions,"owning result extension identity")
     check(loaded.value.first?.id == 11u && loaded.value.first?.label == "first","first typed payload")
     check(loaded.value.second?.id == 22u && loaded.value.second?.label == "second","second typed payload")
-    check(loaded.value.children.size == 1 && loaded.value.children[0].value.id == 33u && loaded.value.children[0].sourceIndex == 0,"dynamic child routing")
+    check(loaded.value.children.size >= 1 && loaded.value.children[0].value.id == 33u && loaded.value.children[0].sourceIndex == 0,"dynamic child routing")
     val input = Archive.Input().also { it.first = loaded.value.first; it.second = if (action == "remove_second") null else loaded.value.second; it.children = loaded.value.children; it.extensions = loaded.extensions }
+    if (name.startsWith("dynamic-")) {
+        val original="/children/child.xml"; val names=if(action=="swap_children") mapOf(original to "/children/other.xml","/children/other.xml" to original) else if(action=="remove_unreferenced_child") emptyMap() else mapOf(original to if(action=="collision_child") "/assets/blob.bin" else "/renamed/child.xml")
+        input.extensions=loaded.extensions.withRenames(names);var children=loaded.value.children.map { it.copy(name=names[it.name]?:it.name) };if(action=="remove_child"||action=="remove_unreferenced_child")children=children.drop(1);if(action=="swap_children")children=children.reversed();input.children=children
+    }
     val before = snapshot(input.extensions); val childName = input.children[0].name
     val saved = directory.resolve("$name-saved.opc"); Files.write(saved,previous)
     if (expected == "REJECT") {

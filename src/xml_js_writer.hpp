@@ -164,7 +164,18 @@ function srlXmlParse(text, limits) {
     .parseFromString(text, 'application/xml');
   srlXmlCheck(document, limits);
   if (!document.documentElement) throw new Error('Missing XML root');
+  if(limits.srlPackageVocabularies!==undefined){const root=document.documentElement,attributes=new Map();for(const attribute of Array.from(root.attributes))attributes.set(srlXmlTokenName(attribute.namespaceURI||'',attribute.localName),attribute.value);srlXmlPackageRoot(attributes,prefix=>root.lookupNamespaceURI(prefix||null)||'',limits);const marker='MustUnderstand';if(root.hasAttributeNS('http://schemas.openxmlformats.org/markup-compatibility/2006',marker))root.removeAttributeNS('http://schemas.openxmlformats.org/markup-compatibility/2006',marker);}
   return document.documentElement;
+}
+
+// Admit only the declared package root capability marker in its original provider namespace scope.
+function srlXmlPackageRoot(attributes,lookup,limits) {
+  if(limits.srlPackageVocabularies===undefined)return;
+  if(limits.srlPackageRequiresType&&!attributes.has('http://www.w3.org/2001/XMLSchema-instance\0type'))throw new Error('Required package XML type is missing');
+  const marker='http://schemas.openxmlformats.org/markup-compatibility/2006\0MustUnderstand';if(!attributes.has(marker))return;
+  const lexical=attributes.get(marker);let count=0;
+  for(const match of lexical.matchAll(/[^ \t\r\n]+/g)){const prefix=match[0];if(limits.operation){limits.operation('work',prefix.length+1,'');limits.operation('allocation',prefix.length*2,'');}if(!srlXmlCompleteName(SrlXmlNcName,prefix))throw new Error('Invalid package capability prefix');const uri=lookup(prefix);if(!uri)throw new Error('Unbound package capability prefix');let found=false;for(const candidate of limits.srlPackageVocabularies){if(limits.operation)limits.operation('work',uri.length+candidate.length,'');if(uri===candidate){found=true;break;}}if(!found)throw new Error('Required package vocabulary is not understood');++count;}
+  if(!count)throw new Error('Empty package capability declaration');attributes.delete(marker);
 }
 )xml"
 R"xml(
@@ -173,6 +184,7 @@ class SrlXmlWriter {
   constructor(limits) { this.limits=limits; this.text=''; this.bytes=0; this.nodes=0; this.depth=0; this.attributes=0; this.textBytes=0; this.namespaces=[]; this.presentation=[]; this.prefixes=[]; this.identities=[]; this.identityScopes=[]; this.head=null; }
   put(text) {
     const bytes=srlXmlUtf8Length(text); if (bytes > this.limits.maxBytes-this.bytes) throw srlXmlQuotaError('XML output byte limit');
+    if(this.limits.srlDeclarationReplay && this.limits.operation){this.limits.operation('work',text.length,this.field||'');this.limits.operation('allocation',text.length*2,this.field||'');}
     if(text==='>' && this.head!==null){const head=this.head;this.head=null;for(const observer of this.identities)observer.start(head.name,head.attributes,head.scope);}
     this.bytes+=bytes; this.text+=text;
   }
@@ -196,9 +208,10 @@ class SrlXmlWriter {
     this.field=local;if(this.limits.operation)this.limits.operation("allocation",128,local);
     if (++this.nodes > this.limits.maxNodes || ++this.depth > this.limits.maxDepth) throw srlXmlQuotaError('XML node/depth limit');
     this.charge(local); this.charge(uri);
-    const defaultUri=defaultOverride===null ? emptyDefault ? '' : uri : defaultOverride;
+    const xml=uri==='http://www.w3.org/XML/1998/namespace';
+    const defaultUri=defaultOverride===null ? xml ? this.namespaces[this.namespaces.length-1] || '' : emptyDefault ? '' : uri : defaultOverride;
     if(!uri && defaultUri)throw new Error('Default QName namespace conflicts with unnamespaced XML element');
-    let prefix='srlv';
+    let prefix=xml ? 'xml' : 'srlv';
     if(reserved)for(const [bound,namespace] of reserved)if(bound && namespace===uri){prefix=bound;break;}
     while(reserved && reserved.has(prefix) && reserved.get(prefix)!==uri)prefix+='v';
     const qualified=defaultUri!==uri && uri ? prefix+':'+local : local;
@@ -221,6 +234,7 @@ class SrlXmlWriter {
   // Declare one generated trusted prefix while charging the same logical attribute/text quantities.
   namespace(prefix,uri) {
     const selected=this.prefixes[this.prefixes.length-1];
+    if(prefix==='xml'){if(uri!=='http://www.w3.org/XML/1998/namespace')throw new Error('Invalid XML namespace binding');selected.set(prefix,uri);return;}
     if(selected.has(prefix)){if(selected.get(prefix)!==uri)throw new Error('Conflicting XML namespace declaration');return;}
     selected.set(prefix,uri);
     if(++this.attributes>this.limits.maxAttributes) throw srlXmlQuotaError('XML attribute limit');
@@ -347,7 +361,7 @@ inline std::string js_methods(const class_node& owner, const record& contract,
     const std::string& generated_name,
     const std::function<std::string(const member&)>& field_name,
     const std::function<std::string(const type_name&)>& type_identifier,
-    const xml_options& options, bool typescript = false) {
+    const xml_options& options, bool typescript = false, std::string_view declarations = "null") {
   const auto quote = [](std::string_view value) { return native::quote(value); };
   const std::set<std::string> generated_methods{"encodeXml", "decodeXml", "decodeXmlChunks", "xmlBindNamespace", "_srlXmlToken", "_srlXmlMixed", "_srlXmlRead", "_srlXmlWrite"};
   // Apply the emitter's actual naming/access profile to every authored class API.
@@ -412,7 +426,8 @@ inline std::string js_methods(const class_node& owner, const record& contract,
       quote(contract.root.local) + "),create:()=>new " + generated_name + "(),mixed:" +
       (contract.mixed ? js_mixed_metadata(owner, *contract.mixed, field_name, type_identifier) : "null") +
       ",identity:" + (contract.identity ? js_identity_metadata(*contract.identity) : "null") +
-      ",extensions:" + (contract.extensions ? js_extension_metadata(*contract.extensions, contract.fields.size()) : "null") +
+      ",extensions:" + (contract.extensions ? js_extension_metadata(*contract.extensions,
+          contract.fields.size() + (contract.mixed ? contract.mixed->children.size() : 0U), declarations) : "null") +
       ",model:" + js_lifecycle_metadata(owner, contract, field_name, type_identifier) +
       ",fields:Object.freeze([");
   for (const auto& field : contract.fields) {
@@ -437,6 +452,14 @@ inline std::string js_methods(const class_node& owner, const record& contract,
     const auto qualified = [](const xml::name& name) {
       return "srlXmlTokenName(" + native::quote(name.namespace_uri) + ',' + native::quote(name.local) + ')';
     };
+    std::string default_scope{"null"};
+    if (field.union_fixed || field.union_default) {
+      default_scope = "Object.freeze([";
+      for (const auto& [prefix, uri] : field.union_fixed ? field.union_fixed_scope : field.union_default_scope) {
+        default_scope += "Object.freeze([" + quote(prefix) + ',' + quote(uri) + "]),";
+      }
+      default_scope += "])";
+    }
     std::string default_names{"null"};
     const auto& selected_names = field.qname_list_fixed ? field.qname_list_fixed : field.qname_list_default;
     if (selected_names) {
@@ -468,7 +491,7 @@ inline std::string js_methods(const class_node& owner, const record& contract,
         ",variant:" + (field.variant_binding ? js_variant_metadata(*field.variant_binding, type_identifier) : "null") +
         ",default:" + (field.fixed_value ? quote(*field.fixed_value) : field.default_value ? quote(*field.default_value) : "null") +
         ",defaultName:" + (field.qname_fixed ? qualified(*field.qname_fixed) : field.qname_default ? qualified(*field.qname_default) : "null") +
-        ",defaultNames:" + default_names +
+        ",defaultNames:" + default_names + ",defaultScope:" + default_scope +
         ",rule:" + (leaf->type == object_type::class_type || field.map_binding || field.variant_binding ? "null" : js_scalar_metadata(field, *leaf)) +
         ",repeated:" + (field.repeated ? "true" : "false") + ",get:" + access.get +
         ",set:" + access.set + ",model:" +

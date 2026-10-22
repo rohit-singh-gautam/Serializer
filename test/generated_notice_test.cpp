@@ -97,6 +97,25 @@ protected:
 };
 } // namespace
 
+// Embedded XML pattern data retains its own notice without licensing application declarations.
+TEST(generated_notices, xml_support_preserves_unicode_component_notice) {
+  constexpr std::string_view source{
+      "serializer version 1.21.0; namespace unicode { xml(namespace(\"urn:unicode\")); "
+      "class value { public string text; } }"};
+  const auto input = rohit::make_constant_stream(source.data(), source.size());
+  const auto parsed = schema::parser::parse(input, true);
+  for (const auto language : languages) {
+    if (std::string_view{language} == "cpp") { continue; }
+    const auto output = generate(parsed, language);
+    SCOPED_TRACE(language);
+    EXPECT_NE(output.find("Third-party notice for Unicode-derived XML pattern character-range data only:"),
+        std::string::npos);
+    EXPECT_NE(output.find("UNICODE LICENSE V3"), std::string::npos);
+    EXPECT_NE(output.find("Permission is hereby granted, free of charge"), std::string::npos);
+    EXPECT_NE(output.find("associated Documentation."), std::string::npos);
+  }
+}
+
 // Full selected comment groups survive public buffer parsing and every generated language.
 TEST(generated_notices, preserves_leading_source_groups_in_all_languages) {
   constexpr std::string_view source =

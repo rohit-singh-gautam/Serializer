@@ -23,6 +23,8 @@ type SerializerPackageModelPart[T any] struct { Value T; Name, ContentType strin
 type SerializerPackageRelationship struct { Source, ID, Type, Target, Mode string }
 // SerializerPackageExtensions preserves whole-part bytes and source-local links independently.
 type SerializerPackageExtensions struct { Parts []SerializerPackageBinaryPart; Relationships []SerializerPackageRelationship }
+// SerializerPackagePartRename binds an original dynamic occurrence identity to its edited physical destination.
+type SerializerPackagePartRename struct { Role, Original, Destination string }
 // SerializerPackageUnknown selects optional capability policy; required capabilities always reject.
 type SerializerPackageUnknown uint8
 const (

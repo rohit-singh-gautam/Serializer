@@ -78,7 +78,7 @@ using alternative_name = std::function<std::string(std::string_view)>;
 [[nodiscard]] std::string mixed_read(const xml_binding::mixed_contract& mixed,
     const std::string& access, const type_name_fn& type, const field_name& field,
     const alternative_name& alternative, std::string_view language,
-    const std::string& array_initializer = {});
+    const std::string& array_initializer = {}, const std::string& extension_end = {});
 // Emit direct map tokens using backend-native typed key ordering and lexical adapters.
 [[nodiscard]] std::string map_write(const xml_binding::map_contract& map, const std::string& access,
     const type_name_fn& type, const scalar_codec& scalar, std::string_view language,
@@ -114,5 +114,5 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
     const std::string& identifier, const field_name& field, const type_name_fn& type,
     const xml_options& options, std::string_view language, const alternative_name& alternative,
     bool readonly = false, const field_name& projection = {},
-    std::string_view operation_type = "XmlOperationOptions", std::string_view operation_decoder = {});
+    std::string_view operation_type = "XmlOperationOptions", std::string_view operation_decoder = {}, int declaration_inventory = -1, std::string_view declaration_prefix = {});
 } // namespace rohit::serializer::writer::xml_portable

@@ -206,6 +206,37 @@ TEST(xml_operation, field_callbacks_validate_raw_numeric_spelling_before_convers
   EXPECT_EQ(values, (std::vector<double>{1.0, 2.0}));
 }
 
+// Empty scalar/list text takes its schema literal before validation; explicit content keeps its scope.
+TEST(xml_operation, simple_content_defaults_precede_scalar_and_list_validation) {
+  if (!xml::available()) { GTEST_SKIP(); }
+  const auto input = xml::parse("<r xmlns:p='urn:instance'/>");
+  const auto schema = xml::parse("<r xmlns:p='urn:schema'/>");
+  const xml::lexical_validator scalar = [](std::string_view text, const xml::element&,
+      xml::operation_context*) {
+    if (text != "5") { throw std::invalid_argument{"Fixed numeric text differs"}; }
+  };
+  xml::field_reader reader{input, true};
+  std::string value{};
+  reader.text_value_or(value, "5", scalar);
+  EXPECT_EQ(value, "5");
+  const xml::lexical_validator list = [](std::string_view text, const xml::element& scope,
+      xml::operation_context*) {
+    if (text != "p:a p:b" || scope.namespace_bindings.at("p") != "urn:schema") {
+      throw std::invalid_argument{"List default lost its schema scope"};
+    }
+  };
+  std::vector<std::string> values{};
+  reader.list_text_value_or(values, "p:a p:b", list, &schema);
+  EXPECT_EQ(values, (std::vector<std::string>{"p:a", "p:b"}));
+  const auto explicit_text = xml::parse("<r xmlns:p='urn:instance'>p:a p:b</r>");
+  xml::field_reader explicit_reader{explicit_text, true};
+  EXPECT_THROW(explicit_reader.list_text_value_or(values, "p:a p:b", list, &schema), std::invalid_argument);
+  const auto markup = xml::parse("<r><child/></r>");
+  xml::field_reader markup_reader{markup, true};
+  EXPECT_THROW(markup_reader.text_value_or(value, "5", scalar), std::invalid_argument);
+  EXPECT_THROW(markup_reader.list_text_value_or(values, "p:a p:b", list, &schema), std::invalid_argument);
+}
+
 // XML parsing must poll within one large provider token instead of waiting for its closing tag.
 TEST(xml_operation, interrupts_large_token_at_bounded_input_callbacks) {
   const auto document = std::string{"<record>"} + std::string(250000U, 'x') + "</record>";

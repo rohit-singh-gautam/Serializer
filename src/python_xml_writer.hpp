@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -55,6 +56,14 @@ inline std::string names(const std::vector<xml::name>& values) {
   return result + ')';
 }
 
+// Prepare selected schema literal identities without retaining lexical namespace maps at runtime.
+inline std::string union_identity(const xml_binding::scalar_value_identity& identity) {
+  std::string result = "_xml_schema_identity(" + native::quote(identity.lexical_kind) + ", " +
+      native::quote(identity.list_item_kind) + ", " + native::quote(identity.lexical_value) + ", " + names(identity.names) + ", (";
+  for (const auto& item : identity.items) { result += union_identity(item) + ','; }
+  return result + "))";
+}
+
 // Emit complete immutable scalar/union metadata rather than interpreting XSD during every codec call.
 inline std::string facets(const xml_binding::scalar_facets& value, std::string kind = {}) {
   if (!value.lexical_kind.empty()) { kind = value.lexical_kind; }
@@ -75,6 +84,8 @@ inline std::string facets(const xml_binding::scalar_facets& value, std::string k
   for (const auto& selected : value.qname_enumeration) { result += name(selected) + ","; }
   result += "), 'qname_lists': (";
   for (const auto& selected : value.qname_list_enumeration) { result += names(selected) + ','; }
+  result += "), 'union_values': (";
+  for (const auto& identity : value.union_enumeration) { result += union_identity(identity) + ','; }
   result += "), 'patterns': (";
   auto groups = value.pattern_groups;
   if (!value.patterns.empty()) { groups.push_back(value.patterns); }
@@ -99,8 +110,21 @@ inline std::string facets(const xml_binding::scalar_facets& value, std::string k
   }
   result += "), 'list_item': " + native::quote(value.list_item_kind) + ", 'union': (";
   for (const auto& alternative : value.union_members) { result += facets(alternative) + ','; }
-  return result + "), 'qname': False, 'prefix_list': False, 'fixed': None, 'fixed_qname': None, 'fixed_qname_list': None}";
+  result += "), 'item_rule': " + (value.list_item_facets.empty() ? std::string{"None"} : facets(value.list_item_facets.front()));
+  return result + ", 'qname': False, 'prefix_list': False, 'fixed': None, 'fixed_qname': None, 'fixed_qname_list': None, 'fixed_union': None}";
 }
+
+// Emit only schema aliases used to select a union literal, including explicit default absence.
+inline std::string union_scope(const xml_binding::field& value) {
+  std::string result{"{"};
+  for (const auto& [prefix, uri] : value.union_fixed ? value.union_fixed_scope : value.union_default_scope) {
+    result += native::quote(prefix) + ':' + native::quote(uri) + ',';
+  }
+  return result + '}';
+}
+
+// Determine whether any selected member needs occurrence-local namespace presentation.
+inline bool needs_namespace_state(const xml_binding::scalar_facets& value);
 
 // Bind field-only lexical adapters without changing the underlying ordinary model representation.
 inline std::string field(const xml_binding::field& value, const type_name& leaf) {
@@ -121,7 +145,11 @@ inline std::string field(const xml_binding::field& value, const type_name& leaf)
       ", 'prefix_list': " + (value.prefix_list ? "True" : "False") +
       ", 'fixed': " + (value.fixed_value ? native::quote(*value.fixed_value) : "None") +
       ", 'fixed_qname': " + (value.qname_fixed ? name(*value.qname_fixed) : "None") +
-      ", 'fixed_qname_list': " + (value.qname_list_fixed ? names(*value.qname_list_fixed) : "None") + "}";
+      ", 'fixed_qname_list': " + (value.qname_list_fixed ? names(*value.qname_list_fixed) : "None") +
+      ", 'fixed_union': " + (value.union_fixed ? union_identity(*value.union_fixed) : "None") +
+      ", 'namespace_default': " + ((value.union_fixed || value.union_default) && needs_namespace_state(value.facets) ?
+          native::quote(value.fixed_value ? *value.fixed_value : *value.default_value) : "None") +
+      ", 'namespace_default_scope': " + ((value.union_fixed || value.union_default) && needs_namespace_state(value.facets) ? union_scope(value) : "None") + "}";
   return result;
 }
 
@@ -191,7 +219,9 @@ inline std::string record(const xml_binding::record& value) {
 inline bool needs_namespace_state(const xml_binding::scalar_facets& value) {
   return value.lexical_kind == "QName" || value.list_item_kind == "QName" ||
       std::any_of(value.union_members.begin(), value.union_members.end(),
-          [](const auto& selected) { return needs_namespace_state(selected); });
+          [](const auto& selected) { return needs_namespace_state(selected); }) ||
+      std::any_of(value.list_item_facets.begin(), value.list_item_facets.end(),
+          [](const auto& item) { return needs_namespace_state(item); });
 }
 
 // Select lexical QName adapters whose presentation scopes use the whole-document path.
@@ -212,18 +242,28 @@ inline std::string extensions(const xml::extension_contract& value) {
   for (const auto& item : value.known_names) {
     result += native::quote(item.namespace_uri.empty() ? item.local : "{" + item.namespace_uri + "}" + item.local) + ',';
   }
+  result += "), 'known_attributes': (";
+  for (const auto& item : value.distinct_known_kinds ? value.known_attributes : value.known_names) {
+    result += native::quote(item.namespace_uri.empty() ? item.local : "{" + item.namespace_uri + "}" + item.local) + ',';
+  }
   result += "), 'required': (";
   for (const auto& uri : value.required_namespaces) { result += native::quote(uri) + ','; }
   result += "), 'slots': (";
   for (const auto& slot : value.slots) {
     result += "{'id': " + native::quote(slot.id) + ", 'attribute': " + (slot.attribute ? "True" : "False") +
-        ", 'position': " + std::to_string(slot.before_field) + ", 'policy': " +
+        ", 'position': " + (slot.before_field == std::numeric_limits<std::size_t>::max() ? "-1" : std::to_string(slot.before_field)) + ", 'policy': " +
         native::quote(slot.policy == xml::unknown_policy::preserve ? "preserve" :
             slot.policy == xml::unknown_policy::skip ? "skip" : "reject") +
         ", 'minimum': " + std::to_string(slot.minimum) + ", 'maximum': " +
-        (slot.maximum ? std::to_string(*slot.maximum) : "None") + ", 'namespaces': (";
+        (slot.maximum ? std::to_string(*slot.maximum) : "None") + ", 'match': " +
+        std::to_string(static_cast<int>(slot.namespace_match)) + ", 'process': " +
+        std::to_string(static_cast<int>(slot.process_contents)) + ", 'namespaces': (";
     for (const auto& uri : slot.namespaces) { result += native::quote(uri) + ','; }
     result += ")},";
+  }
+  result += "), 'known_positions': (";
+  for (const auto position : value.known_positions) {
+    result += (position == std::numeric_limits<std::size_t>::max() ? "-1" : std::to_string(position)) + ',';
   }
   return result + ")}";
 }

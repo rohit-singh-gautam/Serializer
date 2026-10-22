@@ -1,9 +1,10 @@
 # XML, compression streams and packages
 
-Compiler/runtime **2.27.0** supports [explicit ordered element-only content](ordered_xml.md)
+Compiler/runtime **2.28.0** supports [explicit ordered element-only content](ordered_xml.md)
 for owning record-variant arrays in all eleven outputs. Existing models and mixed
-content retain their behavior. Fixed-XSD grouped bindings and XSD export remain
-pending; see the [actual SDK checks](../verification/verification-ordered-xml-2026-10-22.md).
+content retain their behavior. Fixed-XSD nested/repeated sequence/choice bindings
+and XSD export preserve the complete ordered grammar; see the
+[actual SDK checks](../verification/verification-ordered-xml-2026-10-22.md).
 
 The package Save contract uses complete archive rewrites. See
 [OPC ZIP records and explicit C++ physical metadata replay](zip_metadata.md) for
@@ -51,8 +52,9 @@ metadata and explicit Node filesystem Save. Stored ZIP remains browser-import
 safe. The [actual qualification](../verification/verification-javascript-packages-2026-10-20.md)
 records independent inputs/outputs, C++ interchange and Windows publication
 faults. Version 2.17 adds automatic native XML budget propagation, supported
-storage overrides and generated application key/reference checks. Arbitrary
-replacement of a role's declared codec is unsupported.
+storage overrides and generated application key/reference checks. Version 2.28.0
+adds declared XML/JSON/BINARY_NONE pipeline selection; arbitrary undeclared codec
+replacement remains unsupported.
 
 The selected [Java package API](../languages/java_packages.md) uses Java 17
 standard providers for the same typed XML/opaque package workflow, with bounded
@@ -85,8 +87,9 @@ particle and identity validation, broader local XSD tooling, concrete model and
 projection metadata, document profiles and a separate restricted HTML fragment
 adapter. Existing C++ package facades expose owning `document_profiles()` metadata
 for declared role shape, envelope defaults, expected model/root and vocabulary.
-These compiler/reference contracts do not close dependent generated-language
-codecs; unsupported combinations still reject before output publication.
+The current generated owning codecs implement the selected scalar, identity,
+ordered-content and wildcard contracts across eleven outputs. Unsupported
+schema/storage combinations still reject before output publication.
 
 The C++ [XML event API](xml_events.md) includes a provider-independent bounded
 structural validator and a LibXml2-backed incremental UTF-8 reader. The reader
@@ -190,12 +193,13 @@ unknown attributes/children, duplicates, wrong roots/namespaces and invalid scal
 lexemes fail. Optional absence differs from an empty string. Unsupported shapes
 fail generation. Configured simple text with attributes and explicit collection
 wrappers are supported as described below. The 2.12 [token subsets](xml_tokens.md)
-add selected C++/Python nil/map/variant mappings, Python mixed content, non-C++
-concrete generics, and Go/Python inherited models. Supported explicit presence
-and map contracts also allow optional wrapped collections. XML omission,
-managed/view/revision/magic/digest mappings, optional collection items and nested
-collections remain gated. QName/list/decimal lexical handling requires its
-documented rich fixed-XSD path; specialized character/date/time/base64/hex-binary
+established nil/map/variant, mixed-content, concrete-generic and inherited mappings;
+the current [token guide](xml_tokens.md) defines their eleven-output owning
+contracts. Supported explicit presence and map contracts also allow optional
+wrapped collections. Revision/magic/digest and borrowed readonly output have their
+documented adapters; managed model XML, export-only reference input and unsupported
+nested collection shapes retain explicit diagnostics. QName/list/decimal lexical
+handling follows the documented scalar/XSD contract; specialized character/date/time/base64/hex-binary
 adapters remain unavailable. Byte integers remain ordinary numeric scalars or
 repeated elements.
 
@@ -574,9 +578,9 @@ caller-provided payloads; it does not identify or police their application meani
 These helpers do not automatically attach to native managed stores. Runtime 2.13
 adds a separate [caller-supplied document-codec adapter](../guides/usage.md#external-documents-with-a-differential-sidecar)
 with exact-byte generation binding and recoverable document/sidecar publication.
-Applications supply their supported package/XML encoder and decoder, parser
-budgets and document projection. Built-in profile integration and complete
-format/provider/platform qualification remain [pending](../pending.md).
+Generated profiles compose through the caller-supplied managed document encoder
+and decoder. The application selects its document projection, provider and parser
+budgets. Format/provider/platform qualification retains its recorded scope.
 
 ## Inline XML authoring
 
@@ -612,10 +616,10 @@ Serializer source. See [XSD binding/import](xsd_tooling.md) for associations,
 limits and backend restrictions. Importing model declarations is a separate CLI
 operation; the binding directive alone does not create classes.
 
-C++ and Python additionally support typed lexical lists, QName/prefix-list
-context, supported scalar facets/defaults, unions, patterns, restricted repeated
-choices and declared foreign XML extensions. These richer contracts reject on
-backends that cannot enforce them. C++ preservation adds an XML-only one-pointer
+All eleven owning outputs support the documented scalar/list/union facets,
+namespace scopes, portable patterns and declared XML wildcard/extension contracts.
+Repeated heterogeneous order requires its supported explicit native mapping;
+arbitrary storage layouts still reject. C++ preservation adds an XML-only one-pointer
 `xml_extensions` slot only when requested;
 its opaque storage allocates on the first retained unknown value. Use `.get()`
 to test whether storage exists and `.value()` to inspect retained data.
@@ -623,14 +627,15 @@ QName/prefix-list mappings similarly retain only their needed namespace bindings
 Compiler/runtime 2.16.0 additionally retains complete C++/Python scalar-child
 scopes by field and occurrence, including local/shadowed declarations and default
 namespace resets. Keep these XML-only scopes associated with the corresponding
-values when editing. Go/Java/C#/Kotlin/Swift support plain QName/list/prefix-list mappings with
-per-occurrence bindings. Go/Java/C# additionally support scalar/list enumeration,
-default/fixed values and selected QName/list union members; see the
-[constraint checks and remaining gates](../verification/verification-qname-constraints-2026-10-21.md).
-Kotlin/Swift also support expanded scalar/list enumeration; their namespace-dependent
-default/fixed and union combinations remain gated. All five retain QName-pattern
-aliases and prefix-list string enumeration spellings. C/Rust retain plain scalar scopes
-through their XML document companions with additional graph capability gates. See the
+values when editing. Go/Java/C#/Kotlin/Swift retain per-occurrence bindings,
+including QName/list enumeration/default/fixed and first-selected outer union
+identities in 2.28.0; see the
+[scalar checks](../verification/verification-scalar-identities-2026-10-22.md).
+The separate `prefix_list` default/fixed/export adapter requires its external
+capability contract. C/Rust retain scalar scopes and foreign extension state
+through XML document companions, including wrapped/nil records, typed mixed/ordered
+children, lifecycle metadata and supported map/variant graphs.
+See the [new graph checks](../verification/verification-native-namespace-graphs-2026-10-22.md) and
 [current namespace checks](../verification/verification-qname-scopes-2026-10-20.md).
 Unknown core names remain errors. Extension policies preserve semantic content
 and placement, not original prefixes, formatting or signatures.
@@ -796,8 +801,9 @@ Deferred start-tag/attribute presentation, retained-tree rendering and provider
 work outside an instrumented native validation/admission scope can retain only
 the part and relationship. Native field paths are not persisted into XML trees.
 Provider-local admission may also produce a codec error before a shared resource
-callback runs. The broader automatic diagnostic gate remains open for attribution
-and classification in these phases.
+callback runs. These phases do not guarantee native member-path attribution or
+shared-resource classification; the part/relationship context and original
+provider error remain the available diagnostics.
 The borrowed context and callback captures must outlive the synchronous operation.
 
 Release 2.22.0 adds generated completion checks around prepared validators,
@@ -856,8 +862,8 @@ Selected-codec C/Rust/Go entry points, JS/TS `options.codecs` and Kotlin's publi
 `xmlLimits(CodecContext)` keep caller codecs on that same ledger. Use supplied
 bridged policies rather than reconstructing them inside callbacks. Preserve their
 synchronous lifetime and declared model contract. See the backend package guides
-for typed callbacks and collision-selected helper names. Document-companion and
-other explicitly rejected XML graphs remain separate pending work.
+for typed callbacks and collision-selected helper names. Version 2.28 composes
+C/Rust XML document companions with these package adapters.
 
 Ordinary XML input remains UTF-8. C++, Python, C and Rust OPC infrastructure metadata additionally
 accepts BOM-marked UTF-16 in either byte order; its declaration must be absent or
@@ -875,5 +881,53 @@ XML entry point can retain bounded trees; token-required contracts use the new
 direct path, and bare XML callers can select `serialize_tokens` explicitly.
 Borrowed model inputs avoid duplicate owning models, but do not promise zero-copy
 XML, bounded constant memory or tree-free streaming. Non-XML generated models gain
-no package fields or runtime checks. Performance qualification and non-C++ context
-parity remain tracked in [pending work](../pending.md).
+no package fields or runtime checks. All eleven generated package pipelines share
+cumulative contexts; process-memory/performance qualification retains its separate
+measured scope.
+
+## Generated package pipelines
+
+Version 2.28 supports generated profiles in all eleven outputs with XML, native
+JSON and BINARY_NONE codecs and stored/DEFLATE compression. Schema `codec(...)`,
+`compression(...)` and `policy(fixed|defaults)` bind defaults. The existing INI
+`[package.<qualified package>]` role selectors `.codec`, `.compression`, `.policy`,
+`.vocabularies`, `.requires_type` and `.target_mode` configure the same compiled
+contract. Runtime envelope overrides select codec/compression only for default
+roles; they cannot replace the native model, XML root/type, MIME or container.
+Positional-only generation rejects JSON selection before invoking any caller codec.
+The old compression-only and selected XML-codec APIs retain their meaning.
+An XML callback supplied for a JSON/BINARY_NONE envelope rejects before invocation.
+
+XML profiles require a matching expanded `xsi:type` when configured and resolve
+root `mc:MustUnderstand` prefixes against the original root scope. Every URI must
+belong to the statically known plus explicitly declared vocabulary inventory.
+Only that authorized root marker is consumed; unknown core fields remain closed.
+Byte roles may select `internal`, `external` or `both`. External occurrences use
+the exact inert URI as their name, empty content type and empty bytes; no ZIP
+member is emitted and loading never fetches the URI. Dynamic external/both roles
+require dynamic name/media selectors and cannot parent another role.
+
+Loading retains original internal physical names as provenance. Reordering whole
+repeated parts preserves associations. Supply the generated explicit rename plan
+for intentional dynamic/repeated moves; original names compare by OPC part-name
+identity. Source scopes and internal relationships rebind simultaneously, including
+combined runtime codec selection and Save. External URI strings do not enter
+internal rename matching. Missing, ambiguous, removed and colliding targets reject
+before aggregate/file publication.
+
+C package owners retain singleton `_srl_xml_<role>` pointers and repeated
+`xml_state`; `as_input` borrows them and aggregate free owns them. Rust aggregate
+`xml_companions` owns role/original-physical-name associations independently from
+unchanged `ModelPart` and native model layouts. Retain this store with reordered
+values. Generated document adapters capture presentation independently from a
+selected decoder and borrow the exact model/sidecar during encoding. Rust adds
+`encode_renamed_profiles` and `save_renamed_profiles`; C selected helpers add
+`_encode_renamed_with_profiles` and `_save_renamed_with_profiles`. Existing methods
+remain available. XML companions never become native JSON/BINARY_NONE fields.
+
+Use the supplied callback operation/context. Native codec traversal, temporary
+XML replay, retained XML state and final publication share work/allocation and
+preserved-byte admissions with first-failure cancellation. These are logical
+resource contracts, not hard limits on opaque provider/factory internals or
+process peaks. The [executed pipeline record](../verification/verification-package-pipelines-2026-10-22.md)
+separates each actual SDK result from the pending final combined regression.

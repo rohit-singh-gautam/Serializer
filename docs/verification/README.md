@@ -11,6 +11,18 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [XML wildcard admission](verification-xml-wildcards-2026-10-22.md) | Eleven-output namespace predicates, positions/counts, strict/lax declarations, foreign fallback, compositor combinations and independent identity policies. |
+| [Legacy C++ wildcard graphs](verification-legacy-cpp-wildcards-2026-10-22.md) | Existing repeated-choice tree mappings, declaration validation, required capabilities, independent document limits and shared resource admission. |
+| [JVM wildcard validation](verification-jvm-wildcard-validation-2026-10-22.md) | Java/Kotlin strict/lax preserve/skip declaration matrices, shared resource boundaries, failure identity and generated helper-name collisions. |
+| [Native declaration operations](verification-native-declaration-operations-2026-10-22.md) | C/Rust/C#/Go strict/lax declaration codecs, shared operation budgets, zero-preservation skip, transactional replay and 300-field fallback graphs. |
+| [Generated package pipelines](verification-package-pipelines-2026-10-22.md) | OPC-R06: eleven-output XML/JSON/BINARY_NONE profiles, typed references, runtime selection, repeated-role relocation and native XML companions. |
+| [Scalar identities and constraints](verification-scalar-identities-2026-10-22.md) | OPC-R01/R03: first-selected union/list identities, QName defaults and scope, exact restrictions and independent source/export XSD checks across eleven outputs. |
+| [Unicode XML patterns](verification-unicode-xml-patterns-2026-10-22.md) | Eleven actual SDKs pass the 88-decision frozen Unicode 17 pattern corpus; bounded engine, independent provider checks and explicit provider differences. |
+| [Ordered XSD groups](verification-ordered-xsd-2026-10-22.md) | OPC-R04: eleven-output grouped/repeated ordered grammar, fixed cardinality, exact export and bounded compatibility; actual SDK input/output rejection and independent XSD checks. |
+| [Native namespace companion graphs](verification-native-namespace-graphs-2026-10-22.md) | C/Rust plain QName wrappers/nil, mixed/ordered children, all-group reorder and revision/magic metadata; 46 actual-SDK decisions, resource boundaries and existing namespace/extension regressions. |
+| [Native QName constraints and defaults](verification-native-qname-constraints-2026-10-22.md) | C/Rust scoped union/enum/default/fixed decisions across child, attribute and text placements; direct QName/list restrictions, native wire parity and explicit independent-provider default presentation controls. |
+| [Native foreign-content graphs](verification-native-extension-graphs-2026-10-22.md) | C/Rust wrapped/nil/lifecycle preservation, canonical map-key and typed variant dispatch: 180 actual SDK decisions; eight further SDKs pass 144 ordered suffix controls, with two C++ ordered/mixed GTests. |
+| [Readonly XML namespace graphs](verification-readonly-xml-graphs-2026-10-22.md) | OPC-R10: namespace-sensitive borrowed/scoped graphs in all eleven outputs, storage/lifetime controls, exact/one-tight depth and bytes, 25,000 values, and separate atomic durable-address XML rejection. |
 | [Native document origin and confirmed Save](verification-document-origin-2026-10-22.md) | D25–D28: application-selected owned copies, bounded provenance, prepared/confirmed Save, physical differences; 281/281 Windows CTests and 480 recovery checks per Windows/Linux-ext4 host. |
 
 ## 21 October 2026

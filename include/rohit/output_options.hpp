@@ -67,6 +67,8 @@ struct xml_options {
   bool scalar_attributes{false};
   // Preserve an explicit opt-out when schema-authored metadata would otherwise enable XML.
   std::optional<bool> enabled_selection{};
+  // Package-qualified role profiles stay separate from native model and XML field mappings.
+  std::map<std::string, std::map<std::string, std::string>> package_profiles{};
 };
 
 struct cpp_options {

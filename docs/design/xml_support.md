@@ -546,8 +546,10 @@ This section consolidates **all PKG01–PKG09 requirements and acceptance criter
 from the former temporary package proposal, which it replaces.
 PKG07 and acceptance gate 13 supersede the proposal's incremental-record clause
 with the user's later requirement for whole-object compression streams. The
-remaining requirements are preserved. C++ implements the documented ZIP32/OPC
-subset; generated typed profiles and general backend parity remain pending.
+requirements are preserved as the design contract. Current generated typed
+ZIP/OPC profiles cover all eleven outputs; see the
+[implemented pipeline contract](../serialization/xml_packages.md#generated-package-pipelines)
+for codec selection, cumulative contexts, companions and verified boundaries.
 
 Add an optional, **codec-independent ZIP/package layer** for single payloads,
 related typed parts and opaque attachments. Support ZIP output and input for every
@@ -631,14 +633,14 @@ Avoid combined codec identities such as `json_gzip` or `xml_zip`.
 | gzip | Implemented C++ single-member whole-message compression. |
 | zlib / raw DEFLATE | Implemented C++; distinct framing choices. |
 | Zstandard / LZ4 frame | Implemented C++ whole-message compression. |
-| ZIP stored / DEFLATE | C++ named-entry archive input/output and generated Python package support; broader parity pending. |
-| OPC | C++ and generated Python profiles over ZIP; selected XML metadata and arbitrary part bytes. Broader parity pending. |
-| Whole-object compression streams | C++ composable output wrappers and bounded whole-message input wrappers; other backends pending. |
+| ZIP stored / DEFLATE | Named-entry archive input/output and generated package facades across all eleven outputs. |
+| OPC | Generated profiles across all eleven outputs; selected standard metadata and typed/opaque part pipelines. |
+| Whole-object compression streams | C++ composable stream wrappers; all eleven outputs also expose their documented bounded whole-message helpers. |
 | Brotli / XZ / bzip2 | Not bundled; caller-written custom backends are possible. |
 
 The implemented compression helpers cover eight owning C++ codecs when XML is
 selected: XML, JSON, three native binary modes, Protobuf binary, ProtoJSON and TextProto. Other generated
-backends do not yet have equivalent bundled helpers. Preserve current exact
+backends expose their selected whole-message helper profiles. Preserve current exact
 single-frame/member, checksum, trailing-data and resource policies. XML and
 package paths require their own qualification alongside ordinary codec tests.
 [Compression contract](../serialization/compression.md)
@@ -727,8 +729,9 @@ order part
 
 The target architecture assigns scoped IDs, URI resolution and
 existence/type/cardinality checks to Serializer. The implemented C++ OPC subset
-checks scoped relationship IDs, internal target resolution and target existence;
-generated typed reference/cardinality integration remains pending. The
+checks scoped relationship IDs, internal target resolution and target existence.
+Generated typed profiles across all outputs additionally enforce declared
+cardinalities and scoped application keys/references. The
 application/profile declares what an attachment means, which roles
 are required and how many are allowed. External links remain data unless a caller
 explicitly supplies a resolver.
@@ -897,8 +900,9 @@ the new internal encoding is faster.
 
 ### OPC scope and feature wording
 
-**OPC is an optional package profile above codecs.** The C++ subset is implemented;
-other backends and generated vocabulary profiles remain pending. Target
+**OPC is an optional package profile above codecs.** Generated facades implement
+the documented profile across all eleven outputs; applications declare their
+vocabulary and domain rules. Target
 **ECMA-376 Part 2, fifth edition, December 2021**, with an explicitly documented
 supported subset. Keep plain ZIP access distinct from OPC validation. OPC is a
 reusable package contract; XML support alone does not establish its conformance.

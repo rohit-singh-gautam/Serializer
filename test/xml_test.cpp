@@ -313,8 +313,8 @@ TEST(xml, unsupported_managed_and_binary_view_projections_leave_native_generatio
   }
 }
 
-// A native mixed fragment array has no position for foreign child slots between its text fragments.
-TEST(xml, positioned_mixed_child_slots_reject_without_weakening_native_storage) {
+// Mixed fragments retain foreign suffixes while rejecting selectors with no native field boundary.
+TEST(xml, mixed_foreign_suffixes_preserve_native_storage_and_reject_unrepresentable_positions) {
   constexpr std::string_view source{"serializer version 1.20.0; "
       "class child { public string text; } class fragment { private variant(string=text,child=record) value; } "
       "class root { public array fragment content; }"};
@@ -324,11 +324,15 @@ TEST(xml, positioned_mixed_child_slots_reject_without_weakening_native_storage) 
       {"mixed", "content"}, {"mixed.child.record", "child"},
       {"extension.future.kind", "element"}, {"extension.future.namespaces", "urn:foreign"},
       {"extension.future.policy", "preserve"}};
+  const auto output = generate(source, options);
+  EXPECT_NE(output.find("xml_extension_contract"), std::string::npos);
+  EXPECT_NE(output.find("future"), std::string::npos);
+  options.xml.classes["root"].contracts.emplace("extension.future.before", "content");
   try {
     (void)generate(source, options);
-    FAIL() << "Foreign mixed child positions require an explicit native ordered representation";
+    FAIL() << "A mixed fragment collection has no independent native child-field boundary";
   } catch (const std::invalid_argument& failure) {
-    EXPECT_NE(std::string_view{failure.what()}.find("additional ordered positions"), std::string_view::npos);
+    EXPECT_NE(std::string_view{failure.what()}.find("requires an element member"), std::string_view::npos);
   }
 }
 

@@ -41,8 +41,13 @@ inline std::string swift(const package_node& package, const std::string& name,
     const std::string& helper,
     const std::function<std::string(const type_name&)>& render_type,
     const std::function<std::string(std::string_view)>& render_field,
-    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {}) {
-  const auto parts = ordered(package);
+    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {},
+    bool binary_only = false) {
+  const auto configured_package = configure_package(package, xml);
+  const auto parts = ordered(configured_package);
+  for (const auto* part : parts) {
+    if (binary_only && part->codec == "json") { throw std::invalid_argument{"JSON package pipeline disabled during generation"}; }
+  }
   const auto contract = compile_package_profile(package, xml);
   std::set<std::string> fields{};
   std::set<std::pair<std::string, std::string>> dispatch;
@@ -53,9 +58,6 @@ inline std::string swift(const package_node& package, const std::string& name,
     }
     if ((part->part_name || part->relationship_id) && (!part->max_occurs || *part->max_occurs > 1U)) {
       throw std::invalid_argument{"Repeated Swift package roles require dynamic names and generated IDs"};
-    }
-    if (part->value_type && part->codec != "xml") {
-      throw std::invalid_argument{"Swift typed package roles require XML"};
     }
   }
   // Add metadata properties without excluding any previously valid schema role name.
@@ -68,6 +70,7 @@ inline std::string swift(const package_node& package, const std::string& name,
   };
   const auto extensions_field = helper_field("extensions");
   const auto profiles_field = helper_field("profiles");
+  const auto pipelines_field = helper_field("pipelineOverrides");
   std::string output;
   const auto line = [&](const std::string& value = {}) { output += value + '\n'; };
   const auto api = [&](std::string_view type) { return helper + '.' + std::string{type}; };
@@ -83,6 +86,7 @@ inline std::string swift(const package_node& package, const std::string& name,
   }
   line("        public var " + extensions_field + " = " + api("Extensions") + "()");
   line("        public var " + profiles_field + ": [String:" + api("Compression") + "] = [:]");
+  line("        public var " + pipelines_field + ": [String:" + api("TypedPipeline") + "] = [:]");
   line("        /// Construct an empty aggregate; occurrence validation precedes publication.");
   line("        public init() {}");
   line("    }");
@@ -101,8 +105,14 @@ inline std::string swift(const package_node& package, const std::string& name,
         ", minimum:" + std::to_string(part->min_occurs) + ", maximum:" + (part->max_occurs ? std::to_string(*part->max_occurs) : "nil") +
         ", fixed:" + (part->profile_policy == "fixed" ? "true" : "false") +
         ", expectedRoot:" + (profile->decoder ? expanded(profile->decoder->root) : "nil") +
-        ", expectedType:" + (profile->decoder && profile->decoder->type ? expanded(*profile->decoder->type) : "nil") + ")");
+        ", expectedType:" + (profile->decoder && profile->decoder->type ? expanded(*profile->decoder->type) : "nil") + ", codec:" + literal(part->codec) + ", targetMode:" + literal(part->target_mode) + ", requiresType:" + (part->requires_type ? "true" : "false") + ", vocabularies:" + [&]() { std::string result{"["}; if(profile->decoder){for(const auto& uri:profile->decoder->vocabularies){result+=literal(uri)+",";}}return result+"]"; }() + ")");
   }
+  std::string declared_roles{"["};
+  for (std::size_t role_index{}; role_index < parts.size(); ++role_index) { declared_roles += "role" + std::to_string(role_index) + ","; }
+  declared_roles += ']';
+  line("    /// Resolve native envelopes and legacy compression tables before codec or provider work.");
+  line("    public static func selectProfiles(_ profiles: [String:" + api("Compression") + "] = [:], pipelines: [String:" + api("TypedPipeline") + "] = [:]) throws -> [" + api("Role") + "] { " +
+      (binary_only ? "let selected=try " + api("resolveProfiles") + "(" + declared_roles + ",profiles:profiles,pipelines:pipelines); guard !selected.contains(where: { $0.codec == \"json\" }) else { throw " + api("Failure") + "(.invalidOptions,\"JSON package pipeline disabled during generation\") }; return selected" : "try " + api("resolveProfiles") + "(" + declared_roles + ",profiles:profiles,pipelines:pipelines)") + " }");
   line("    /// Validate complete typed keys and references before aggregate or archive publication.");
   line("    private static func references(_ value: " + input + ", _ budget: " + api("Budget") + ", _ loader: " + api("Loader") + "? = nil) throws {");
   line("        let registry = " + api("References") + "(budget)");
@@ -134,31 +144,38 @@ inline std::string swift(const package_node& package, const std::string& name,
   line("    /// Encode complete schema-bound values using one cumulative package/XML/reference ledger.");
   line("    public static func encode(_ value: " + input + ", budget selected: " + api("Budget") + "? = nil) throws -> [UInt8] {");
   line("        let budget = try selected ?? " + api("Budget") + "(); try references(value,budget)");
-  line("        let composer = " + api("Composer") + "(budget:budget,profiles:value." + profiles_field + ")");
+  line("        let roles = try selectProfiles(value." + profiles_field + ",pipelines:value." + pipelines_field + ")");
+  line("        let composer = " + api("Composer") + "(budget:budget)");
   index = 0;
   for (const auto* part : parts) {
     line("        try composer." + std::string{part->value_type ? (singleton(*part) ? "single" : "models") : "binaries"} +
-        "(role" + std::to_string(index++) + ",value." + render_field(part->name) + (part->value_type ?
-        ") { model,context in try model.encodeXml(" + api("xmlLimits") + "(context)) }" : ")"));
+        "(roles[" + std::to_string(index++) + "],value." + render_field(part->name) + (part->value_type ?
+        ") { model,context in if context.codec == \"xml\" { return try model.encodeXml(" + api("xmlLimits") + "(context),extensionOptions:XmlExtensionOptions(understoodNamespaces:context.definition.vocabularies)) }; let writer=SrlWriter(context.codec == \"json\" ? .JSON : .BINARY_NONE,operation:{ kind,count in try context.consume(kind == \"allocation\" ? .decoderAllocationBytes : .workUnits,count) },maximum:context.budget.configured.maxPartBytes); try model.srlWrite(writer); try writer.finishOperation(); return writer.bytes }" : ")"));
   }
   line("        return try composer.finish(value." + extensions_field + ")");
   line("    }");
   line("    /// Decode into an unpublished local aggregate; a middle codec/reference failure returns no value.");
   line("    public static func decode(_ bytes: [UInt8], budget selected: " + api("Budget") + "? = nil, policy: " + api("ExtensionPolicy") + " = " + api("ExtensionPolicy") + "()) throws -> " + input + " {");
+  line("        try decodeProfiles(bytes,budget:selected,policy:policy)");
+  line("    }");
+  line("    /// Decode a selected native pipeline while preserving the original decode signature.");
+  line("    public static func decodeProfiles(_ bytes: [UInt8], budget selected: " + api("Budget") + "? = nil, policy: " + api("ExtensionPolicy") + " = " + api("ExtensionPolicy") + "(), profiles: [String:" + api("Compression") + "] = [:], pipelines: [String:" + api("TypedPipeline") + "] = [:]) throws -> " + input + " {");
+  line("        let roles = try selectProfiles(profiles,pipelines:pipelines)");
   line("        let budget = try selected ?? " + api("Budget") + "(); let loader = try " + api("Loader") + "(bytes,budget:budget); defer { loader.close() }");
   line("        var result = " + input + "()");
+  line("        result." + profiles_field + "=profiles; result." + pipelines_field + "=pipelines");
   index = 0;
   for (const auto* part : parts) {
     line("        result." + render_field(part->name) + " = try loader." +
         std::string{part->value_type ? (singleton(*part) ? "single" : "models") : "binaries"} +
-        "(role" + std::to_string(index++) + (part->value_type ? ") { bytes,context in try " + render_type(*part->value_type) +
-        ".decodeXml(bytes," + api("xmlLimits") + "(context)) }" : ")"));
+        "(roles[" + std::to_string(index++) + "]" + (part->value_type ? ") { bytes,context in if context.codec == \"xml\" { return try " + render_type(*part->value_type) +
+        ".decodeXml(bytes," + api("xmlLimits") + "(context),extensionOptions:XmlExtensionOptions(understoodNamespaces:context.definition.vocabularies)) }; var limits=Limits(maxBytes:context.budget.configured.maxPartBytes); limits.srlOperation={ kind,count in try context.consume(kind == \"allocation\" ? .decoderAllocationBytes : .workUnits,count) }; try context.consume(.workUnits,bytes.count); let reader=try SrlReader(bytes,context.codec == \"json\" ? .JSON : .BINARY_NONE,limits); let value=try " + render_type(*part->value_type) + ".srlCreate(reader); try reader.finish(); return value }" : ")"));
   }
   line("        try references(result,budget,loader); result." + extensions_field + " = try loader.finish(policy); try budget.check(); return result");
   line("    }");
   line("    /// Validate and stage a complete package before same-directory atomic replacement.");
   line("    public static func save(_ value: " + input + ", to path: Foundation.URL, budget selected: " + api("Budget") + "? = nil) throws {");
-  line("        let budget = try selected ?? " + api("Budget") + "(); let bytes = try encode(value,budget:budget); try " + api("saveOpc") + "(bytes,to:path,budget:budget)");
+  line("        let budget = try selected ?? " + api("Budget") + "(); let bytes = try encode(value,budget:budget); var policy=" + api("ExtensionPolicy") + "(); policy.parts = .preserve; policy.relationships = .preserve; _ = try decodeProfiles(bytes,budget:budget,policy:policy,profiles:value." + profiles_field + ",pipelines:value." + pipelines_field + "); try " + api("saveOpc") + "(bytes,to:path,budget:budget)");
   line("    }");
   line("}");
   return output;

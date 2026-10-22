@@ -31,7 +31,7 @@ struct content_particle {
 
 struct particle_contract {
   content_particle root{};
-  // Grouped/repeated heterogeneous storage still requires a generated ordered representation.
+  // Grouped/repeated heterogeneous particles require an explicit ordered owning representation.
   bool advanced{};
   // Compare complete shared particle contracts for conservative evolution diagnostics.
   bool operator==(const particle_contract&) const = default;
@@ -43,6 +43,16 @@ struct particle_limits {
   std::size_t max_states{100000U};
   std::size_t max_work_units{64U * 1024U * 1024U};
 };
+
+// State zero rejects; state one is initial. Symbols use the owning variant's stable alternative order.
+struct ordered_automaton {
+  std::vector<std::vector<std::size_t>> transitions{};
+  std::vector<bool> accepting{};
+};
+
+// Compile bounded ordered element grammars once, keeping generated readers allocation-free per event.
+[[nodiscard]] ordered_automaton compile_ordered_automaton(const particle_contract& contract,
+    std::span<const xml::name> symbols, const particle_limits& limits = {});
 
 // Compile expanded names, exact group bounds and deterministic branch attribution from pinned XSD.
 [[nodiscard]] particle_contract compile_particle_contract(const schema_bundle& bundle,

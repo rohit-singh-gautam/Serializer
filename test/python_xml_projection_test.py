@@ -25,6 +25,27 @@ def load_module(path,name):
 
 class python_xml_projection_test(unittest.TestCase):
     """Check live owner semantics, native controls, exact XML and genuine export-only restrictions."""
+    def test_scoped_qname_namespace_and_byte_failure_recovery(self):
+        """Bind only projection presentation while source strings and native protocol bytes remain borrowed."""
+        module=self.module;source=module.XmlProjectionQualifiedSource();source.current.value='p:borrowed'
+        native=[source.current.encode(protocol) for protocol in module.Protocol]
+        def export(view):
+            """Traverse live original text with independent namespace and output-byte admission."""
+            self.assertIs(view.get_value(),source.current.value)
+            with self.assertRaises(ValueError):view.encode_xml()
+            view.xml_bind_namespace('p','urn:borrowed');output=view.encode_xml()
+            self.assertEqual(view.encode_xml(module.Limits(max_bytes=len(output))),output)
+            published=b'previous output'
+            with self.assertRaises(ValueError):published=view.encode_xml(module.Limits(max_bytes=len(output)-1))
+            self.assertEqual(published,b'previous output');self.assertEqual(view.encode_xml(),output)
+            self.assertEqual([view.encode(protocol) for protocol in module.Protocol],native)
+            return output
+        with mock.patch.object(module.XmlProjectionQualifiedPayload,'__init__',side_effect=AssertionError('QName target constructed')):
+            output=source.with_project(export)
+        root=self.provider.fromstring(output);prefix,local=root.text.split(':')
+        self.assertEqual((root.nsmap[prefix],local),('urn:borrowed','borrowed'))
+        self.assertEqual([source.current.encode(protocol) for protocol in module.Protocol],native)
+
     def test_live_record_and_scalar_reference_exports_preserve_native_storage(self):
         """Borrow selected original values, including false/zero/escaped text, while target construction is forbidden."""
         module=self.module;source=module.XmlProjectionSource();source.current.number=7;source.current.label='A<&"'
@@ -102,6 +123,8 @@ class python_xml_projection_test(unittest.TestCase):
                 output=owner.with_project(export)
                 exact=extra.Limits(max_bytes=len(output))
                 self.assertEqual(owner.with_project(lambda view:export(view,exact)),output)
+                self.assertEqual(owner.with_project(lambda view:export(view,extra.Limits(max_depth=3))),output)
+                with self.assertRaises(ValueError):owner.with_project(lambda view:export(view,extra.Limits(max_depth=2)))
                 published=b'previous output'
                 with self.assertRaises(ValueError):
                     published=owner.with_project(lambda view:export(view,extra.Limits(max_bytes=len(output)-1)))
@@ -212,6 +235,20 @@ def main():
     build.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='python-xml-projection-',dir=build) as temporary:
         directory=Path(temporary);config=directory/'xml.ini'
+        address=directory/'address.serializer'
+        address.write_text('serializer version 1.20.0; class source stable_ids { public uint32 value (1); } reference address = borrowed(source.value); class envelope stable_ids { public address selected (1); }',encoding='utf-8')
+        for language,suffix in (('cpp','.hpp'),('python','.py'),('js','.mjs'),('typescript','.d.mts'),('java','.java'),('csharp','.cs'),('go','.go'),('kotlin','.kt'),('swift','.swift'),('c','.h'),('rust','.rs')):
+            destination=directory/('address_'+language+suffix)
+            command=[str(args.compiler.resolve()),'--language',language,'--input',str(address),'--'+language+'.output',str(destination)]
+            if language=='cpp':command+=['--cpp.format','false']
+            native_result=subprocess.run([*command,'--xml.enabled','false'],capture_output=True,text=True,encoding='utf-8')
+            if native_result.returncode!=0:raise AssertionError('Native address control failed for '+language+': '+native_result.stdout+native_result.stderr)
+            destination.write_bytes(b'previous output')
+            rejected=subprocess.run([*command,'--xml.enabled','true'],capture_output=True,text=True,encoding='utf-8')
+            if rejected.returncode==0 or 'address' not in rejected.stderr+rejected.stdout:
+                raise AssertionError('Durable XML address policy differs for '+language+': '+rejected.stdout+rejected.stderr)
+            if destination.read_bytes()!=b'previous output':raise AssertionError('Rejected durable address output was published: '+language)
+        print('PASS: eleven native durable-address controls and eleven atomic XML-address rejections',flush=True)
         config.write_text('[xml]\nenabled=true\nruntime_xsd=true\nvalidation_scope=both\n'+(ROOT/'test/resources/xml_projection.ini').read_text(),encoding='utf-8')
         source=ROOT/'test/resources/xml_projection.serializer';output=directory/'model.py';native=directory/'native.py'
         command=[str(args.compiler.resolve()),'--language','python','--input',str(source)]

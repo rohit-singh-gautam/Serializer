@@ -8,7 +8,7 @@ extension SrlXmlExtensions {
         _ positions: [Int], _ repeated: [Bool], _ fieldCount: Int) throws -> (position:Int,item:Int,cursor:Int) {
         var selected=cursor
         while selected < positions.count {
-            if (repeated[selected] || counts[selected] == 0) && slot(name,false,positions[selected]) != nil {
+            if let index=slot(name,false,positions[selected]), counts[selected] == 0 || repeated[selected] && (meta.slots[index].match == 0 || meta.slots[index].match == 4) {
                 return (positions[selected],counts[selected],selected)
             }
             guard counts[selected] >= minimums[selected] else { throw SerializerError.invalid("Required XML field missing before extension slot") }
@@ -22,10 +22,14 @@ extension SrlXmlExtensions {
 // Capture only an admitted opaque subtree; skip frames retain no attribute, namespace or text payload.
 fileprivate func srlXmlForeignFrame(_ name: SrlXmlName, _ attributes: [SrlXmlAttribute],
     _ scope: [WireString:String], _ tracker: SrlXmlExtensions, _ preserve: Bool,
+    _ validation: Int = 0,
     _ complete: @escaping (SrlXmlForeignNode?) throws -> Void) throws -> SrlXmlTokenFrame {
     let frame=SrlXmlTokenFrame(name)
     let node: SrlXmlForeignNode?
-    if preserve { try tracker.measure(name,attributes,scope); node=SrlXmlForeignNode(name,attributes,scope) }
+    let capture=preserve || validation != 0
+    let temporary=validation != 0 && !preserve
+    if temporary { tracker.beginTemporary() }
+    if capture { try tracker.measure(name,attributes,scope); node=SrlXmlForeignNode(name,attributes,scope) }
     else { node=nil }
     var pending=""
     // Join provider chunks, comments and CDATA into one semantic text run between opaque child elements.
@@ -37,16 +41,16 @@ fileprivate func srlXmlForeignFrame(_ name: SrlXmlName, _ attributes: [SrlXmlAtt
     }
     frame.knownChildren=[]
     frame.foreignChild = { childName, childAttributes, namespaceScope in
-        if preserve { try flush() }
-        if preserve { try tracker.charge(SrlXmlExtensions.contentEntryOverheadBytes) }
-        return try srlXmlForeignFrame(childName,childAttributes,preserve ? namespaceScope() : [:],tracker,preserve) { value in
+        if capture { try flush() }
+        if capture { try tracker.charge(SrlXmlExtensions.contentEntryOverheadBytes) }
+        return try srlXmlForeignFrame(childName,childAttributes,capture ? namespaceScope() : [:],tracker,capture) { value in
             if let value=value { node!.content.append(.element(value)) }
         }
     }
     frame.text = { text in
-        if preserve { try tracker.charge(text.utf8.count); pending.append(contentsOf:text) }
+        if capture { try tracker.charge(text.utf8.count); pending.append(contentsOf:text) }
     }
-    frame.finish = { if preserve { try flush() }; try complete(node) }
+    frame.finish = { defer { if temporary { tracker.endTemporary() } };if capture { try flush() };if validation != 0, let node=node { try tracker.validate(node,false,validation) }; try complete(preserve ? node : nil) }
     return frame
 }
 )xmlextension"

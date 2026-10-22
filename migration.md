@@ -1,5 +1,76 @@
 # Migrating to the snake_case Serializer API
 
+## XML wildcard declarations in 2.28.0
+
+Regenerate XML outputs to use exact XSD wildcard namespace predicates and
+strict/lax declaration dispatch from the original pinned bundle. Unknown
+declarations reject under `strict`; `lax` validates declarations that are present.
+`skip` retains its well-formed opaque semantics. Each slot independently selects
+reject, discard or preservation, with its original kind, position and occurrence
+bounds. General foreign fallback does not open unlisted core or local names.
+
+Retained declared subtrees are validated again when writing after edits. Private
+validation models do not change authored public models or native protocol bytes.
+Keep C/Rust XML companions beside their native values. Preserve the caller's
+single cumulative work/allocation/preservation ledger through nested validation;
+temporary DTOs require no second preservation allowance. Namespace understanding
+remains an explicit capability decision rather than a consequence of preservation.
+
+Rebuild C++ consumers with matching runtime headers: `extension_contract` gains
+an optional declaration callback and slots retain `processContents` metadata.
+The XML operation context also borrows document limits during public calls;
+explicit foreign-document limits retain precedence and caller selections are
+restored on success or failure. Existing rich C++ repeated choices retain their
+tree mapping and use the same declaration validator.
+Existing aggregate initializers retain skip defaults. Runtime-only validation
+adds no schema-language feature or editor-package change. See
+[usage](docs/guides/usage.md) and the
+[executed wildcard checks](docs/verification/verification-xml-wildcards-2026-10-22.md).
+
+## Package pipelines in 2.28.0
+
+Regenerate package outputs to select declared XML/JSON/BINARY_NONE and
+stored/DEFLATE profiles at runtime, use required root type/vocabulary checks and
+retain dynamic/repeated rename provenance. Old compression-only and selected XML
+codec calls keep their signatures/meaning. Fixed roles reject overrides; JSON
+selection rejects in positional-only generation. Keep C aggregate XML sidecars
+and Rust `xml_companions` with the original physical occurrences when reordering.
+Use explicit rename-plan APIs for intentional moves. Native models, Role/ModelPart
+layouts, wire IDs and schema language 1.21.0 remain compatible. See the
+[pipeline API details](docs/serialization/xml_packages.md#generated-package-pipelines)
+and [executed qualification](docs/verification/verification-package-pipelines-2026-10-22.md).
+
+## Scalar XML constraints in 2.28.0
+
+Regenerate all affected XML outputs and rebuild C++ consumers with matching
+headers/runtime. QName/list unions, declaration-scoped default/fixed values,
+outer enumeration and restricted atomic/union list items now share first-selected
+primitive identities in all eleven outputs. Keep occurrence namespace metadata
+with edited values; retain C/Rust document companions alongside native payloads.
+Native model fields, IDs, names and serialized protocol bytes remain compatible.
+
+Unicode category/block/name escapes and recursive class subtraction now compile
+into bounded portable pattern programs. Numeric output checks its canonical
+spelling against patterns before publication; native floating-width overflow
+remains an explicit representability rejection. `prefix_list` defaults/export
+still require their external capability contract. See the
+[executed scalar matrix](docs/verification/verification-scalar-identities-2026-10-22.md)
+and [Unicode pattern checks](docs/verification/verification-unicode-xml-patterns-2026-10-22.md).
+
+## Compiler/runtime 2.28.0
+
+Regenerate XML outputs to bind explicit ordered record-variant arrays to pinned
+XSD sequence/choice groups and use grammar-preserving export/compatibility tools.
+Readers and writers enforce complete group occurrences. Existing separate arrays
+retain their APIs and formats; migrating them to an ordered variant array requires
+an intentional schema change. See [ordered XML](docs/serialization/ordered_xml.md).
+
+C/Rust document companions support additional plain QName wrapper/nil, mixed,
+ordered, all-group and lifecycle graphs. Retain their XML-only scopes with the
+corresponding native occurrences. The completed scalar restrictions and map/variant foreign-preservation companions
+now compose with generated package profiles. Native
+fields, variant tags, schema language 1.21.0 and existing wire bytes are unchanged.
+
 ## Compiler/runtime 2.26.0
 
 Rebuild C++ consumers for [native origin and prepared/confirmed Save](docs/managed/document_origin.md).
@@ -31,7 +102,8 @@ vector edits determine output order. Fixed arrays require exact XML cardinality.
 Existing mixed-content behavior remains unchanged. Do not automatically replace
 legacy separate arrays: that changes their native API and wire shape and needs
 an explicit application migration. Fixed-XSD grouped bindings, XSD tooling and
-other backends still reject this new mapping; OPC-R04 remains open.
+other backends rejected this mapping at that checkpoint; release 2.28.0
+completes those combinations across all eleven owning outputs.
 
 ## Compiler/runtime 2.24.0
 
@@ -41,9 +113,8 @@ enumeration checks. All five retain QName pattern aliases and lexical prefix-lis
 enumeration spellings. They compare ordered expanded identities and
 retain schema aliases separately from instance bindings. Missing required fixed
 attributes now reject before candidate publication. Native model fields, wire
-IDs and schema language remain unchanged. Namespace-dependent outer union
-enumeration/fixed constraints and union defaults remain gated. Kotlin/Swift also
-retain their namespace-dependent default/fixed and union gates; see the
+IDs and schema language remain unchanged. Those outer union/default/fixed restrictions were gated at this checkpoint;
+release 2.28 implements them across all eleven outputs. See the
 [executed scope](docs/verification/verification-qname-constraints-2026-10-21.md).
 
 Rebuild C++ managed consumers and regenerate the internal collaboration record
@@ -324,7 +395,8 @@ record scopes retain the same selected member and expanded names. Child-local
 or shadowed bindings that would lose identity still reject. Python accepts outer
 enumeration/fixed restrictions on namespace-independent unions, comparing values
 through the first matching member's primitive value space. Namespace-dependent
-outer union restrictions and QName-list enumeration/fixed contracts remain gated.
+outer union restrictions and QName-list enumeration/fixed contracts were gated at
+this checkpoint and are implemented in 2.28.
 
 Generated C++/Python package loads retain discovered fixed singleton role names in
 `preserved_extensions::relocations` / `PreservedExtensions.relocations`. Pass the

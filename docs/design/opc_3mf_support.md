@@ -3,17 +3,18 @@
 [Documentation index](../README.md) · [XML/package design](xml_support.md) ·
 [Implemented APIs](../serialization/xml_packages.md) · [Pending work](../pending.md)
 
-Status: implemented subsets and remaining requirements, **22 October 2026**.
-The source release is compiler/runtime **2.27.0**, schema language **1.21.0**.
+Status: implemented contracts and application/qualification boundaries, **22 October 2026**.
+The source release is compiler/runtime **2.28.0**, schema language **1.21.0**.
 The C++ OPC builder and declarative package facades in all eleven outputs exist;
-complete 3MF support and broader profile/provider qualification remain pending. Current source qualification
+complete 3MF application semantics and unqualified provider/platform combinations
+are separate from those generic library contracts. Current source qualification
 is separate from the historically checked manual example.
 
 The [opt-in ordered element mapping](../serialization/ordered_xml.md) stores
 heterogeneous children in one native variant array. It preserves existing field
 and mixed-content behavior and adds no implicit storage migration. It is a
-non-XSD slice of OPC-R04 in all eleven owning outputs; complete repeated/grouped
-XSD binding remains pending. The [portable SDK checks](../verification/verification-ordered-xml-2026-10-22.md)
+mapping in all eleven owning outputs, including fixed-XSD repeated/grouped
+sequence/choice binding and grammar-preserving export. The [portable SDK checks](../verification/verification-ordered-xml-2026-10-22.md)
 retain the parent requirement's remaining boundaries.
 
 The name of the standard is **Open Packaging Conventions (OPC)**. OPC provides
@@ -39,8 +40,8 @@ These exclusions do not waive mandatory URI/ZIP/OPC behavior.
 | Package and part relationships | Generate/parse `.rels`, resolve internal targets, check generic uniqueness and target existence. | Supply relationship roles, sources, IDs, targets, cardinalities and allowed target modes. |
 | Part content | Encode/decode supported typed parts and transport opaque bytes. | Supply model values, attachments and the correct codec for each declared role. |
 | References | Provide bounded generic key/reference helpers and transactional loading primitives. | Declare identity scopes and reference meaning; enforce definition order, allowed resource types and domain rules. |
-| Unknown data | Provide generic bounded policies. C++ whole-part and declared XML extension reject/skip/preserve retain the needed context; other-backend parity remains pending. | Decide supported extension namespaces and which capabilities are required; apply the format's preservation rules. |
-| Resource limits | Enforce configured archive, codec, allocation, reference and work limits; generated C++ profiles compose their XML automatically. | Choose appropriate limits and explicitly charge custom callback work to the shared budget. |
+| Unknown data | Provide bounded whole-part and declared XML extension reject/skip/preserve policies in all eleven outputs, retaining original relationship/namespace context. | Decide supported extension namespaces and which capabilities are required; apply the format's preservation rules. |
+| Resource limits | Enforce configured archive, codec, allocation, reference and work limits; generated profiles compose their selected payload pipeline automatically. | Choose appropriate limits and explicitly charge custom callback work to the shared budget. |
 | Geometry and printing | Supply general schema behavior and validation hooks where supported. | Enforce geometry, unit, build and manufacturing semantics; decide supported 3MF extensions. |
 | File publication | Stage and finalize full Saves; report failures and uncertain publication. | Choose the destination and application recovery policy. Do not infer a managed journal bridge. |
 | Verification | Test generic compiler/runtime contracts and backend parity. | Qualify the selected 3MF implementation against its declared edition, extensions and corpus. |
@@ -112,10 +113,12 @@ This document retains responsibility boundaries, design rationale and examples;
 it does not maintain a second completion list. Application vocabulary and geometry
 remain application responsibilities.
 
-OPC-R10 extends the existing [value-reference](../schema/value_references.md)
-and [scoped-translator](../schema/references.md) contracts to XML. Selected generated
+XML supports the existing [value-reference](../schema/value_references.md)
+and [scoped-translator](../schema/references.md) contracts. Selected generated
 readonly value-reference and scoped projection output graphs are checked in all
-eleven outputs; broader graph, resource and stress qualification remains pending.
+eleven outputs, including namespace-sensitive companions, exact/one-tight limits
+and large borrowed collections; see the
+[current graph record](../verification/verification-readonly-xml-graphs-2026-10-22.md).
 Durable typed address XML is still rejected. Value
 projection is distinct from serializing durable typed
 addresses: an external value projection must emit payload values, not Serializer
@@ -665,24 +668,24 @@ not a promise that every reported failure leaves the old file. `write` targets a
 borrowed stream and can leave a partial prefix on failure. Native Serializer
 history, journals and session/outbox state are not inserted into the package.
 
-The generated facade supports C++ and Python and is XML-typed. Other backends reject
-package declarations explicitly; broader OPC-R07 parity remains pending. General codec/profile
-selection and additional standard OPC services remain separate work. For a 3MF
+Generated facades support all eleven outputs and select declared XML/JSON/BINARY_NONE
+or byte pipelines with stored/DEFLATE envelopes. Fixed/default policies, runtime
+selection, per-part XML companions and inert external byte targets follow the
+[package pipeline contract](../serialization/xml_packages.md#generated-package-pipelines). For a 3MF
 profile, declare its actual model MIME, StartPart role, expected XML root and
 supported resource/extension rules. This generic package example does not supply
 those domain contracts or prove 3MF conformance.
 
-The C++/Python XML subset checks supported XSD patterns through its selected
-provider. Typed numeric/list input checks use the original normalized lexical
+All eleven outputs check supported XSD patterns through bounded portable programs.
+Typed numeric/list input checks use the original normalized lexical
 value; output checks use canonical spelling and can reject when that spelling
 does not satisfy the pattern. Original numeric formatting is not retained.
-Wildcards enforce namespace, position and occurrence policy; `lax`/`skip` foreign
-content can use declared extension slots, while `strict` foreign data rejects
-until known-schema dispatch exists. QName enums/defaults use expanded identity;
-Python QName-list enumeration/default/fixed constraints retain ordered expanded
-schema identities, including enumerated lists inside union members; other
-backends and selected union/QName combinations
-remain explicitly rejected as listed in the XSD tooling contract. Required capabilities always
+Wildcards enforce namespace, kind, position and occurrence policy. Strict/lax
+dispatch uses the pinned local declaration inventory, independently of retention;
+see the [wildcard contract](../serialization/xml_tokens.md#xsd-wildcards-and-positioned-extensions-in-2280).
+QName/list and outer-union constraints retain ordered expanded identities in all
+eleven outputs. Unsupported schema/storage combinations remain explicit in the
+XSD tooling contract. Required capabilities always
 need the declared vocabulary's checks. No lexical XML or signature preservation
 is implied.
 

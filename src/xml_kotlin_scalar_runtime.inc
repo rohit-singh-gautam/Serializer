@@ -12,6 +12,34 @@ internal class SrlXmlRule(private val kind: String, private val whitespace: Stri
     private val members: Array<SrlXmlRule>, private val fixed: String?) {
     private var qnames: Array<SrlXmlName> = emptyArray()
     private var qnameLists: Array<Array<SrlXmlName>> = emptyArray()
+    private var unionConstants: Array<UnionValue> = emptyArray()
+    private var fixedUnion: UnionValue? = null
+    private var listItem: SrlXmlRule? = null
+    // Prepare one complete atomic/union item rule without altering builtin list fast paths.
+    fun listItemRule(item: SrlXmlRule): SrlXmlRule { listItem=item; return this }
+    private var schemaScope: Map<String,String>? = null
+    private var schemaDefault: String? = null
+    // Prepare trusted schema aliases separately from every occurrence's input vocabulary.
+    fun namespaceDefault(text: String, scope: Map<String,String>): SrlXmlRule { schemaDefault=text; schemaScope=scope; return this }
+    // Borrow immutable schema bindings only when this declaration supplies its absent/empty default.
+    fun inputScope(text: String?, scope: Map<String,String>, attribute: Boolean): Map<String,String> =
+        if(text==null || !attribute && text.isEmpty()) schemaScope ?: scope else scope
+    // Omit a defaulted owner scalar only when its exact lexical value and selected schema scope agree.
+    fun matchesDefault(text: String, scope: Map<String,String>): Boolean =
+        text==schemaDefault && schemaScope?.all { (prefix,uri) -> (scope[prefix] ?: "")==uri }==true
+    // An authored empty string must not silently acquire a different value on XML replay.
+    fun outputScoped(raw: String, namespace: (String)->String?, maximumItems: Int, operation: SrlXmlBudget.Operation?): String {
+        require(raw.isNotEmpty() || schemaDefault.isNullOrEmpty()) { "Empty XML union would activate a different schema default" }
+        return checkScoped(raw,namespace,maximumItems,operation)
+    }
+    // Keep the selected primitive and expanded schema identities independent of instance aliases.
+    class UnionValue(kind: String, listKind: String, val text: String, val names: Array<SrlXmlName>, val items: Array<UnionValue> = emptyArray()) {
+        val rule=SrlXmlRule(kind,"preserve",arrayOf("","","",""),-1,-1,-1,emptyArray(),false,emptyArray(),listKind,emptyArray(),null)
+    }
+    // Prepare complete immutable enumeration metadata before publishing the generated rule.
+    fun unionValues(values: Array<UnionValue>): SrlXmlRule { unionConstants=values; return this }
+    // Preserve a fixed union value's schema-owned selected identity.
+    fun unionFixed(value: UnionValue): SrlXmlRule { fixedUnion=value; return this }
     // Prepare schema-owned expanded identities before exposing the immutable generated rule.
     fun namespaceValues(names: Array<SrlXmlName>, lists: Array<Array<SrlXmlName>>): SrlXmlRule {
         qnames=names; qnameLists=lists; return this
@@ -20,11 +48,16 @@ internal class SrlXmlRule(private val kind: String, private val whitespace: Stri
     class Work(var remaining: Int = srlXmlMaxPatternWork, val maximumItems: Int = srlXmlMaxListItems,
         private val operation: SrlXmlBudget.Operation? = null) {
         var namespace: ((String) -> String?)? = null
+        var selected: SrlXmlRule? = null
         var callbackFailure: kotlin.Throwable? = null
         // Charge before scanning or traversing a prepared instruction.
         fun spend(units: Int) {
             try { operation?.charge("work",units.toLong()) } catch (failure: kotlin.Throwable) { callbackFailure=failure; throw failure }
             if (units < 0 || units > remaining) throw SrlXmlScalarLimit("Portable XML regex work limit exceeded"); remaining -= units
+        }
+        // Admit temporary expanded-name storage before resolving occurrence-local aliases.
+        fun allocate(bytes: Long) {
+            try { operation?.charge("allocation",bytes) } catch (failure: kotlin.Throwable) { callbackFailure=failure; throw failure }
         }
     }
     // Normalize only XML whitespace; preserve all other Unicode separators byte-for-byte.
@@ -88,7 +121,9 @@ internal class SrlXmlRule(private val kind: String, private val whitespace: Stri
         return left.compareTo(right)
     }
     // Validate the complete normalized candidate before native conversion or output publication.
-    fun check(raw: String, maximumItems: Int = srlXmlMaxListItems): String = check(raw,Work(maximumItems=maximumItems))
+    fun check(raw: String, maximumItems: Int = srlXmlMaxListItems): String {
+        val checked=check(raw,Work(maximumItems=maximumItems)); return if (members.isEmpty()) checked else raw
+    }
     // Package-only classification leaves ordinary scalar-limit exception behavior untouched.
     fun check(raw: String, maximumItems: Int, operation: SrlXmlBudget.Operation?): String =
         try { check(raw,maximumItems) } catch (failure: SrlXmlScalarLimit) { operation?.limit(failure.message ?: "XML scalar resource limit"); throw failure }
@@ -96,24 +131,25 @@ internal class SrlXmlRule(private val kind: String, private val whitespace: Stri
     fun checkScoped(raw: String, namespace: (String) -> String?, maximumItems: Int, operation: SrlXmlBudget.Operation?): String {
         operation?.charge("allocation",128L+raw.length*4L)
         val work=Work(maximumItems=maximumItems,operation=operation); work.namespace=namespace
-        return try { check(raw,work) } catch (failure: SrlXmlScalarLimit) { if(work.callbackFailure===failure)throw failure; operation?.limit(failure.message ?: "XML scalar resource limit"); throw failure }
+        return try { val checked=check(raw,work); if(members.isEmpty()) checked else raw } catch (failure: SrlXmlScalarLimit) { if(work.callbackFailure===failure)throw failure; operation?.limit(failure.message ?: "XML scalar resource limit"); throw failure }
     }
     // Borrow captured bindings without copying the input's admitted namespace map.
     fun checkScoped(raw: String, scope: Map<String,String>, maximumItems: Int, operation: SrlXmlBudget.Operation?): String =
         checkScoped(raw,{ scope[it] },maximumItems,operation)
     // A union's invalid lexical branch may fall through; a depleted operation budget may not.
     private fun check(raw: String, work: Work): String {
-        work.spend(raw.length); val text=normalize(raw); lexical(text)
+        work.spend(raw.length); var text=if(members.isEmpty()) normalize(raw) else raw; if(members.isEmpty()) lexical(text)
+        var selected=this
         if (members.isNotEmpty()) {
             var matched=false
-            for (member in members) { try { member.check(text,work); matched=true; break } catch (failure: SrlXmlScalarLimit) { throw failure } catch (_: IllegalArgumentException) { } }
+            for (member in members) { try { text=member.check(text,work); selected=work.selected!!; matched=true; break } catch (failure: SrlXmlScalarLimit) { throw failure } catch (_: IllegalArgumentException) { work.callbackFailure?.let { throw it } } }
             require(matched) { "XML union has no matching member" }
         }
         var count=text.codePointCount(0,text.length).toLong()
-        if (listKind.isNotEmpty()) { val items=tokens(text,work.maximumItems); count=items.size.toLong(); val rule=itemRule(listKind); for (item in items) rule.check(item,work) }
+        if (listKind.isNotEmpty()) { val items=tokens(text,work.maximumItems); count=items.size.toLong(); val rule=listItem ?: itemRule(listKind); for (item in items) rule.check(item,work) }
         require((length < 0 || count == length) && (minimum < 0 || count >= minimum) && (maximum < 0 || count <= maximum)) { "XML length facet failed" }
         for (index in bounds.indices) { if (bounds[index].isEmpty()) continue; val order=compare(text,bounds[index]); require(order != null && when(index) { 0->order >= 0; 1->order <= 0; 2->order > 0; else->order < 0 }) { "XML numeric facet failed" } }
-        require(enumeration.isEmpty() || qnames.isNotEmpty() || qnameLists.isNotEmpty() || enumeration.any { compare(text,normalize(it)) == 0 }) { "XML enumeration facet failed" }
+        require(enumeration.isEmpty() || qnames.isNotEmpty() || qnameLists.isNotEmpty() || enumeration.indices.any { if(unionConstants.isNotEmpty()) constantEqual(text,selected,unionConstants[it],work) else if(members.isEmpty()) compare(text,normalize(enumeration[it])) == 0 else unionEqual(text,selected,enumeration[it],work) }) { "XML enumeration facet failed" }
         work.namespace?.let { namespace ->
             if (kind == "QName" || listKind == "QName") {
                 val items=if (listKind == "QName") tokens(text,work.maximumItems) else listOf(text)
@@ -124,10 +160,39 @@ internal class SrlXmlRule(private val kind: String, private val whitespace: Stri
                 }) { "XML QName-list enumeration facet failed" }
             }
         }
-        require(fixed == null || compare(text,normalize(fixed)) == 0) { "XML fixed value differs" }
+        require(fixed == null || fixedUnion?.let { constantEqual(text,selected,it,work) } ?: if(members.isEmpty()) compare(text,normalize(fixed)) == 0 else unionEqual(text,selected,fixed,work)) { "XML fixed value differs" }
         require(!finite || (if (kind == "float") srlXmlFloat32(text).isFinite() else srlXmlFloat(text).isFinite())) { "XML finite facet failed" }
         for (group in groups) require(group.any { it.matches(text,work) }) { "XML portable pattern facet failed" }
-        return text
+        work.selected=selected; return text
+    }
+    // Preserve primitive family identity across independent authored union alternatives.
+    private fun valueFamily(): String = if(listKind.isNotEmpty()) "list:"+itemRule(listKind).valueFamily() else if(integerKind() || kind == "decimal") "decimal" else if(kind in setOf("boolean","float","double","anyURI","QName")) kind else "string"
+    // Compare exact normalized values without converting arbitrary precision numbers to binary64.
+    private fun identityEqual(first: String, other: SrlXmlRule, second: String, work: Work): Boolean {
+        work.spend(first.length+second.length+1); if(valueFamily()!=other.valueFamily()) return false)xmlscalar"
+R"xmlscalar(
+        if(listKind.isNotEmpty()) { val left=tokens(first,work.maximumItems); val right=tokens(second,work.maximumItems); if(left.size!=right.size)return false; val item=itemRule(listKind);val otherItem=itemRule(other.listKind);return left.indices.all { item.identityEqual(left[it],otherItem,right[it],work) } }
+        return if(valueFamily()=="decimal") java.math.BigDecimal(first).compareTo(java.math.BigDecimal(second))==0 else compare(first,second)==0
+    }
+    // Select each schema literal with the same first-successful-member rule as the instance.
+    private fun unionEqual(text: String, selected: SrlXmlRule, allowed: String, work: Work): Boolean {
+        for(member in members) { val expected=try { member.check(allowed,work) } catch(failure: SrlXmlScalarLimit) { throw failure } catch(_: IllegalArgumentException) { work.callbackFailure?.let { throw it };continue }; return selected.identityEqual(text,work.selected!!,expected,work) };return false
+    }
+    // Match the selected family and ordered schema names before accepting equivalent source aliases.
+    private fun constantEqual(text: String, selected: SrlXmlRule, expected: UnionValue, work: Work): Boolean {
+        if(selected.listKind.isEmpty()!=expected.rule.listKind.isEmpty())return false
+        if(selected.listKind.isNotEmpty() && (expected.items.isNotEmpty() || expected.text.isEmpty())) {
+            val values=tokens(text,work.maximumItems);if(values.size!=expected.items.size)return false
+            val item=selected.listItem ?: itemRule(selected.listKind)
+            return values.indices.all { val value=item.check(values[it],work);constantEqual(value,work.selected!!,expected.items[it],work) }
+        }
+        if(selected.valueFamily()!=expected.rule.valueFamily())return false
+        if(selected.kind!="QName" && selected.listKind!="QName")return selected.identityEqual(text,expected.rule,expected.text,work)
+        val namespace=work.namespace ?: throw IllegalArgumentException("Missing XML union namespace scope")
+        val items=if(selected.listKind=="QName") tokens(text,work.maximumItems) else listOf(text)
+        work.allocate(items.size*64L+text.length*4L)
+        if(items.size!=expected.names.size)return false
+        return items.indices.all { val name=srlXmlTypeQName(items[it],namespace);work.spend(name.local.length+name.namespace.length+1);name==expected.names[it] }
     }
     // Preserve normalized empty payloads when an empty element would activate a nonempty default.
     fun output(raw: String, fallback: String, maximumItems: Int = srlXmlMaxListItems): String {

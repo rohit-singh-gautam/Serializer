@@ -4,6 +4,7 @@
 
 #include "xml_js_model_writer.hpp"
 #include "xml_js_variant_writer.hpp"
+#include "xml_ordered_writer.hpp"
 
 #include <functional>
 #include <initializer_list>
@@ -43,6 +44,8 @@ inline std::string js_mixed_metadata(const class_node& owner, const mixed_contra
   std::string result = "Object.freeze({get:" + access.get + ",set:" + access.set + ",fragment:()=>" +
       type_identifier(fragment_type) + "._srlXmlMixed,textIndex:" + std::to_string(mixed.text_alternative) +
       ",elementOnly:" + (mixed.element_only ? "true" : "false") +
+      ",grammar:" + xml_codegen::ordered_table(mixed) +
+      ",accepting:" + xml_codegen::ordered_accepting(mixed) +
       ",extent:" + std::to_string(mixed.source->fixed_extent) +
       ",children:Object.freeze([";
   for (const auto& child : mixed.children) {

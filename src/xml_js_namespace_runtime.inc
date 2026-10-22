@@ -8,7 +8,7 @@ const srlXmlNamespaceRules=new WeakMap();
 // Cache whether a complete rule can select a namespace-dependent primitive or list member.
 function srlXmlNeedsNamespace(rule) {
   if(srlXmlNamespaceRules.has(rule))return srlXmlNamespaceRules.get(rule);
-  const selected=rule.kind==='QName' || rule.listItem==='QName' || rule.prefixList || rule.union.some(srlXmlNeedsNamespace);
+  const selected=rule.kind==='QName' || rule.listItem==='QName' || rule.prefixList || rule.union.some(srlXmlNeedsNamespace) || rule.itemRule && srlXmlNeedsNamespace(rule.itemRule);
   srlXmlNamespaceRules.set(rule,selected);return selected;
 }
 
@@ -66,6 +66,10 @@ function srlXmlFieldScope(owner,field,index) {
 // Resolve schema-default QName spellings in schema scope rather than the input document's vocabulary.
 function srlXmlReadField(field,text,limits,scope,bindings,defaulted=false) {
   limits.operationField=field.native;
+  if(defaulted && field.defaultScope!==null && field.defaultScope!==undefined){
+    if(limits.operation)limits.operation("allocation",128+field.defaultScope.length*128,field.native);
+    scope={parent:null,bindings:new Map(field.defaultScope)};
+  }
   if(defaulted && field.defaultName!==null && field.defaultName!==undefined){
     const colon=text.indexOf(':'),prefix=colon<0 ? '' : text.slice(0,colon),separator=field.defaultName.indexOf('\0');
     scope={parent:scope,bindings:new Map([[prefix,field.defaultName.slice(0,separator)]])};
@@ -87,17 +91,25 @@ function srlXmlPrepareField(owner,field,value,limits,index=0) {
   limits.operationField=field.native;
   const bindings=new Map();bindings.srlXmlTrackSelection=srlXmlNeedsNamespace(field.rule);
   const text=field.write(value,limits,field,srlXmlFieldScope(owner,field,index),bindings);
-  return {text,bindings,selection:bindings.srlXmlSelection};
+  if(field.defaultScope!==null && field.defaultScope!==undefined && text==='' && field.default!=='')throw new Error('Empty XML union would activate a different schema default');
+  let omitDefault=false;
+  if(bindings.srlXmlSelection && text===field.default && (field.mode!=='attribute' || field.minimum===0)){
+    const expected=new Map();expected.srlXmlTrackSelection=true;
+    srlXmlReadField(field,text,limits,null,expected,true);
+    omitDefault=srlXmlUnionConstantEqual(bindings.srlXmlSelection,expected.srlXmlSelection);
+  }
+  if(omitDefault)bindings.clear();
+  return {text,bindings,selection:bindings.srlXmlSelection,omitDefault};
 }
 
 // Reject generated presentation aliases that change the first selected leaf or its expanded value identity.
 function srlXmlCheckPreparedNamespace(field,scalar,output) {
-  if(!scalar.selection)return;
+  if(!scalar.selection || scalar.omitDefault)return;
   let scope=null;for(const bindings of output.prefixes)scope={parent:scope,bindings};
   const checked=new Map();checked.srlXmlTrackSelection=true;
   srlXmlCheckedText(scalar.text,field.rule,output.limits,scope,checked);
   const selected=checked.srlXmlSelection;
-  if(selected.rule!==scalar.selection.rule || !srlXmlScalarEqual(selected.value,scalar.selection.value)) {
+  if(selected.rule!==scalar.selection.rule || !srlXmlUnionConstantEqual(selected,scalar.selection)) {
     throw new Error('XML scalar namespace presentation changes its selected member or value identity');
   }
 }
@@ -131,10 +143,15 @@ function srlXmlReconcilePrepared(prepared,bindings,limits) {
     }
   }
   const values=scalar=>Array.isArray(scalar.selection.value) ? scalar.selection.value : [scalar.selection.value];
-  const namespaced=scalar=>scalar.selection && (scalar.selection.rule.kind==='QName' ||
-    scalar.selection.rule.listItem==='QName' || scalar.selection.rule.prefixList);
+  const namespaceSelection=selection=>selection && (selection.rule.kind==='QName' ||
+    selection.rule.listItem==='QName' || selection.rule.prefixList ||
+    selection.items && selection.items.some(namespaceSelection));
+  const namespaced=scalar=>!scalar.omitDefault && namespaceSelection(scalar.selection);
+  const namespaceNames=selection=>selection.items ? selection.items.flatMap(namespaceNames) :
+    selection.rule.kind==='QName' || selection.rule.listItem==='QName' ?
+      (Array.isArray(selection.value)?selection.value:[selection.value]) : [];
   for(const scalar of prepared.values())if(namespaced(scalar) && !scalar.selection.rule.prefixList &&
-      values(scalar).some(name=>name.startsWith('\0'))){
+      namespaceNames(scalar.selection).some(name=>name.startsWith('\0'))){
     if(bindings.has('') && bindings.get('')!=='')throw new Error('Opaque default namespace conflicts with QName value');
     bindings.set('','');
   }
@@ -142,7 +159,7 @@ function srlXmlReconcilePrepared(prepared,bindings,limits) {
     if(!namespaced(scalar)){srlXmlMergeBindings(bindings,scalar.bindings);continue;}
     const prefixes=scalar.selection.rule.prefixList;
     charge('allocation',128+2*scalar.text.length+values(scalar).length*128);
-    scalar.text=values(scalar).map(name=>{
+    const renderName=(name,prefixes)=>{
       charge('work',name.length);
       const separator=name.indexOf('\0'),uri=name.slice(0,separator),local=name.slice(separator+1);
       if(!uri){if(prefixes)throw new Error('XML prefix list requires a namespace');return local;}
@@ -150,7 +167,15 @@ function srlXmlReconcilePrepared(prepared,bindings,limits) {
       for(const [prefix,bound] of bindings)if(bound===uri && (!prefixes || prefix)){selected=prefix;break;}
       if(selected===null){let index=0;do{charge('work',1);selected='q'+index++;}while(bindings.has(selected) || reserved.has(selected));charge('allocation',128+2*(selected.length+uri.length));bindings.set(selected,uri);}
       return selected ? selected+(prefixes ? '' : ':'+local) : local;
-    }).join(' ');
+    };
+    // Atomic union items keep ordinary strings and qualify only selected QName values.
+    const render=(selection,text)=>{
+      if(selection.items){let index=0;return text.replace(/[^ \t\r\n]+/g,token=>render(selection.items[index++],token));}
+      if(selection.rule.kind==='QName')return renderName(selection.value,false);
+      if(selection.rule.listItem==='QName' || selection.rule.prefixList)return selection.value.map(name=>renderName(name,selection.rule.prefixList)).join(' ');
+      return text;
+    };
+    scalar.text=render(scalar.selection,scalar.text);
   }
 }
 )jsnamespace"

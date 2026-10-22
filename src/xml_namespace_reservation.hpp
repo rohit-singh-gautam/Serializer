@@ -17,13 +17,15 @@ namespace rohit::serializer::writer::xml_codegen {
 inline bool namespace_lexical_facets(const xml_binding::scalar_facets& facets) {
   return !facets.patterns.empty() || !facets.pattern_groups.empty() ||
       std::any_of(facets.union_members.begin(), facets.union_members.end(),
-          [](const auto& member) { return namespace_lexical_facets(member); });
+          [](const auto& member) { return namespace_lexical_facets(member); }) ||
+      std::any_of(facets.list_item_facets.begin(), facets.list_item_facets.end(),
+          [](const auto& item) { return namespace_lexical_facets(item); });
 }
 
 // Select owner values whose union branch or lexical QName spelling observes the default vocabulary.
 inline bool namespace_owner_union(const xml_binding::field& field) {
   return (field.attribute || field.text) && xml_portable::namespace_dependent(field) &&
-      (!field.facets.union_members.empty() || (!field.prefix_list &&
+      (!field.facets.union_members.empty() || !field.facets.list_item_facets.empty() || (!field.prefix_list &&
           !xml_portable::typed_list(field) && namespace_lexical_facets(field.facets)));
 }
 

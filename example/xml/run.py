@@ -49,6 +49,8 @@ def build_c(args, runner, directory, source_root=SOURCE):
     sdk.run(command)
     sdk.run(['cmake', '--build', build, '--config', 'Release', '--parallel', '2'])
     executable = build / ('Release/serializer_xml_c.exe' if os.name == 'nt' else 'serializer_xml_c')
+    if os.name == 'nt' and not executable.is_file():
+        executable = build / 'serializer_xml_c.exe'
     if prefix and os.name == 'nt':
         for library in (prefix / 'bin').glob('*.dll'):
             shutil.copyfile(library, executable.parent / library.name)

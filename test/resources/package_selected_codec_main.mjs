@@ -38,7 +38,8 @@ for (const resource of ['references', 'workUnits', 'decoderAllocationBytes']) {
       check(!tight, 'one-tight selected resource accepted');
     } catch (failure) {
       check(tight && failure instanceof P.Error && failure.code === 'resource_limit', 'selected native resource classification');
-      check(!!failure.part && !!failure.fieldPath && !!failure.relationshipId, 'selected native quota location');
+      check(!!failure.part && !!failure.fieldPath && !!failure.relationshipId,
+        'selected native quota location: '+resource+' '+JSON.stringify(failure));
     }
   }
 }

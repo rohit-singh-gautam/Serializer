@@ -113,9 +113,17 @@ func main() throws {
     check(expected != "LOAD_ERROR","Invalid load published")
     check(loaded.first?.id == 11 && loaded.first?.label == "first","First payload")
     check(loaded.second?.id == 22 && loaded.second?.label == "second","Second payload")
-    check(loaded.children.count == 1 && loaded.children[0].value.id == 33 && loaded.children[0].sourceIndex == 0,"Dynamic child routing")
+    check(loaded.children.count >= 1 && loaded.children[0].value.id == 33 && loaded.children[0].sourceIndex == 0,"Dynamic child routing")
     var input = A.Input(); input.first = loaded.first; input.second = action == "remove_second" ? nil : loaded.second
     input.children = loaded.children; input.extensions = loaded.extensions; input.profiles = loaded.profiles
+    if name.hasPrefix("dynamic-") {
+        let original="/children/child.xml"
+        let names: [String:String] = action == "swap_children" ? [original:"/children/other.xml","/children/other.xml":original] : action == "remove_unreferenced_child" ? [:] : [original:action == "collision_child" ? "/assets/blob.bin" : "/renamed/child.xml"]
+        input.extensions = try loaded.extensions.withRenames(names)
+        input.children = loaded.children.map { P.ModelPart($0.value,name:names[$0.name] ?? $0.name,contentType:$0.contentType,sourceIndex:$0.sourceIndex) }
+        if action == "remove_child" || action == "remove_unreferenced_child" { input.children.removeFirst() }
+        if action == "swap_children" { input.children.reverse() }
+    }
     let before = snapshot(input.extensions), child = input.children[0].name
     if expected == "REJECT" {
         try rejected { _ = try A.encode(input) }; try rejected { try A.save(input,to:destination) }

@@ -160,10 +160,11 @@ Selectors support public persistent strings and fixed-width integers. Complete
 candidate checks reject duplicate scoped values, missing keys and target-model
 mismatches, while permitting forward references and exact `uint64` boundaries.
 Nested, optional/container and inherited selectors remain unsupported.
-Typed payload graphs that require XML document companions for QName/list/prefix
-scopes or preserved XML extension slots reject, including nested/inherited uses.
-Keep those graphs outside this package profile until companion integration is
-implemented; ordinary native/XML document APIs retain their existing support.
+Typed payload graphs with QName/list/prefix scopes or preserved XML extension
+slots compose through per-part XML companions, including supported nested and
+inherited graphs. Keep the aggregate-owned sidecars with their native parts;
+`as_input` borrows both for encoding. See [Profile pipelines and XML companions](#profile-pipelines-and-xml-companions)
+for ownership, selected codecs and runtime envelope selection.
 Compiler/runtime 2.18.0 admits supported XSD key/unique/keyref graphs through
 operation-aware native codecs. Each complete key, unique or keyref tuple spends
 one reference before equal keyrefs are deduplicated. Nested owners keep separate
@@ -234,3 +235,20 @@ core validation; see the [common metadata corpus](../verification/verification-o
 This selected owning profile does not close the broader official 3MF corpus,
 all XML graph combinations or other platform gates in
 [the backlog](../pending.md).
+
+## Profile pipelines and XML companions
+
+Version 2.28 composes the [generated profile pipeline](../serialization/xml_packages.md#generated-package-pipelines)
+with namespace/foreign XML graph roles. Singleton Value `_srl_xml_<role>` and
+repeated part `xml_state` pointers own presentation independently from native
+models; `as_input` borrows them. Free the aggregate once, after all borrowed
+inputs finish. Keep whole repeated occurrences together during reordering.
+Selected document callbacks prepare XML presentation without constructing the
+model first and encode the exact borrowed payload under the supplied operation.
+
+Selected helpers `_encode_renamed_with_profiles` and `_save_renamed_with_profiles`
+combine explicit dynamic/repeated rename provenance with runtime envelope
+selection. Old APIs and model/role/budget layouts retain their contracts. XML
+sidecars never become native JSON/BINARY_NONE fields. Preservation callbacks
+share the same operation and admit owned bytes before capture. See the
+[actual SDK and archive checks](../verification/verification-package-pipelines-2026-10-22.md).

@@ -31,10 +31,23 @@ inline std::string js_pattern_metadata(const xml::portable_pattern& program) {
 }
 
 // Retain recursive list/union restrictions and exact expanded QName facet identities.
+inline std::string js_union_identity(const scalar_value_identity& identity) {
+  std::string result = "srlXmlSchemaIdentity(" + native::quote(identity.lexical_kind) + ',' +
+      native::quote(identity.list_item_kind) + ',' + native::quote(identity.lexical_value) + ",Object.freeze([";
+  for (const auto& name : identity.names) {
+    result += "srlXmlTokenName(" + native::quote(name.namespace_uri) + ',' + native::quote(name.local) + "),";
+  }
+  result += "]),Object.freeze([";
+  for (const auto& item : identity.items) { result += js_union_identity(item) + ','; }
+  return result + "]))";
+}
+
+// Keep fixed field identities separate from recursive reusable scalar alternatives.
 inline std::string js_scalar_facets(const scalar_facets& facets, const std::string& fallback,
     const std::optional<std::string>& fixed = {}, const std::optional<xml::name>& fixed_name = {},
     bool qname = false, bool prefix_list = false,
-    const std::optional<std::vector<xml::name>>& fixed_names = {}) {
+    const std::optional<std::vector<xml::name>>& fixed_names = {},
+    const std::optional<scalar_value_identity>& fixed_union = {}) {
   const auto kind = qname ? std::string{"QName"} : facets.lexical_kind.empty() ? fallback : facets.lexical_kind;
   std::string result = "Object.freeze({kind:" + native::quote(kind) + ",whitespace:" + native::quote(facets.whitespace) +
       ",finite:" + (facets.finite ? "true" : "false");
@@ -74,7 +87,10 @@ inline std::string js_scalar_facets(const scalar_facets& facets, const std::stri
   for (const auto& alternative : facets.union_members) {
     result += js_scalar_facets(alternative, "string") + ',';
   }
-  result += "])";
+  result += "]),itemRule:" + (facets.list_item_facets.empty() ? std::string{"null"} : js_scalar_facets(facets.list_item_facets.front(), "string"));
+  result += ",unionValues:Object.freeze([";
+  for (const auto& identity : facets.union_enumeration) { result += js_union_identity(identity) + ','; }
+  result += "]),fixedUnion:" + (fixed_union ? js_union_identity(*fixed_union) : "null");
   result += ",enumeration:Object.freeze([";
   for (const auto& item : facets.enumeration) { result += native::quote(item) + ','; }
   result += "]),patterns:Object.freeze([";
@@ -99,7 +115,7 @@ inline std::string js_scalar_metadata(const field& value, const type_name& leaf)
   const auto fallback = leaf.type == object_type::enum_type ? std::string{"string"} :
       found == kinds.end() ? leaf.name : found->second;
   return js_scalar_facets(value.facets, fallback, value.fixed_value, value.qname_fixed, value.qname,
-      value.prefix_list, value.qname_list_fixed);
+      value.prefix_list, value.qname_list_fixed, value.union_fixed);
 }
 
 } // namespace rohit::serializer::writer::xml_binding

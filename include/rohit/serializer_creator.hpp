@@ -56,6 +56,7 @@
 // onespace: ' ' | '\t' | '\n' | '\r'
 
 namespace rohit::serializer {
+namespace writer::xml_binding { struct record; }
 namespace exception {
 class bad_identifier : public rohit::exception::base_parser {
 public:
@@ -786,6 +787,8 @@ struct class_node : public syntax_node {
   std::string named_generic_source{};
   std::vector<type_name> named_generic_arguments{}; // Concrete identity without changing template emission.
   xml_authoring_options xml{};
+  // Private imported validators retain their prepared binding independently of writer-local schema instances.
+  std::shared_ptr<const writer::xml_binding::record> prepared_xml_validation{};
   std::optional<std::uint64_t> explicit_class_id{}; // Stable managed identity override, independent of layout.
   // Initialize this object from the supplied storage or value state.
   class_node(object_type type, std::string&& name, namespace_node* parent_namespace,
@@ -815,6 +818,7 @@ struct class_node : public syntax_node {
         reserved_names{std::move(rhs.reserved_names)},
         named_generic_source{std::move(rhs.named_generic_source)},
         named_generic_arguments{std::move(rhs.named_generic_arguments)}, xml{std::move(rhs.xml)},
+        prepared_xml_validation{std::move(rhs.prepared_xml_validation)},
         explicit_class_id{rhs.explicit_class_id} {}
   // Return the sole version discriminator, or null for an unchanged unversioned contract.
   const member* version_member() const {
@@ -882,6 +886,9 @@ struct package_part_declaration {
   std::string profile_policy{"defaults"};
   std::vector<package_key_declaration> keys{};
   std::vector<package_reference_declaration> references{};
+  std::vector<std::string> vocabularies{};
+  bool requires_type{};
+  std::string target_mode{"internal"};
 };
 
 // Compiler-owned package metadata generates a facade; it adds no model-instance fields.

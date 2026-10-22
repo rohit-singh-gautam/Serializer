@@ -1,0 +1,10 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+#include <string_view>
+
+namespace rohit::serializer::writer {
+// Retain the exact third-party notice with generated Unicode-derived XML pattern ranges.
+inline constexpr std::string_view unicode_data_license{R"unicode_license(@serializer_unicode_license@)unicode_license"};
+} // namespace rohit::serializer::writer

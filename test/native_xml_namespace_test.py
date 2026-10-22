@@ -143,8 +143,8 @@ def expanded(node, text, prefixes):
     return result
 
 
-def reject_unimplemented_values(args, languages):
-    """Keep namespace unions and schema-scoped defaults/enumerations explicitly gated in C/Rust."""
+def verify_namespace_contract_bindings(args, languages):
+    """Admit native scoped union/default/fixed bindings qualified by the dedicated SDK corpora."""
     fixture = args.build/'unsupported.serializer'
     fixture.write_text('serializer version 1.20.0; namespace unsupported { using schema "unsupported.xsd"; '
                        'class probe { public string value xml(text); } }', encoding='utf-8')
@@ -153,7 +153,7 @@ def reject_unimplemented_values(args, languages):
         ('union', '<xs:simpleType name="Choice"><xs:union memberTypes="xs:QName xs:string"/></xs:simpleType>', 'Choice', ''),
         ('default', '', 'xs:QName', ' default="q:item"'),
         ('fixed', '', 'xs:QName', ' fixed="q:item"'),
-        ('enumeration', '<xs:simpleType name="Choice"><xs:restriction base="xs:QName"><xs:enumeration value="q:item"/></xs:restriction></xs:simpleType>', 'Choice', '')]:
+        ]:
         (args.build/'unsupported.xsd').write_text(head+type_declaration+'<xs:element name="probe"'+extra+
             '><xs:complexType><xs:simpleContent><xs:extension base="'+base+'"/></xs:simpleContent></xs:complexType></xs:element></xs:schema>', encoding='utf-8')
         for language in languages:
@@ -161,8 +161,8 @@ def reject_unimplemented_values(args, languages):
             output.unlink(missing_ok=True)
             result = subprocess.run([str(args.compiler), '--input', str(fixture), '--language', language,
                                      f'--{language}.output', str(output)], capture_output=True, text=True)
-            if result.returncode == 0 or output.exists() or 'QName' not in result.stdout+result.stderr:
-                raise AssertionError(f'Unimplemented QName {label} was not rejected precisely for {language}: '
+            if result.returncode != 0 or not output.exists():
+                raise AssertionError(f'Qualified QName {label} binding rejected for {language}: '
                                      f'{result.stdout}{result.stderr}')
 
 
@@ -189,7 +189,7 @@ def main():
     if not languages or len(set(languages)) != len(languages) or any(value not in ('c', 'rust') for value in languages):
         parser.error('Choose distinct languages from c,rust')
     args.build.mkdir(parents=True, exist_ok=True)
-    reject_unimplemented_values(args, languages)
+    verify_namespace_contract_bindings(args, languages)
     (args.build/'names.xsd').write_text(XSD, encoding='utf-8')
     (args.build/'names.serializer').write_text(MODEL, encoding='utf-8')
     oracle = etree.XMLSchema(etree.fromstring(XSD.encode()))

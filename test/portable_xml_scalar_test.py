@@ -387,8 +387,7 @@ def rejected_bindings(args, languages):
             output = directory / sdk.OUTPUTS[language]; output.write_text('preserve existing output', encoding='utf-8'); outputs.append(output)
             command += [f'--{language}.output', str(output)]
         result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', timeout=60)
-        if diagnostic == 'QName list enumeration' and all(
-                language in ('go', 'java', 'csharp', 'kotlin', 'swift') for language in languages):
+        if diagnostic in ('QName union defaults', 'QName list enumeration', 'union fixed values', 'union enumeration', 'list item restrictions'):
             if result.returncode != 0 or any(path.read_text(encoding='utf-8') == 'preserve existing output' for path in outputs):
                 raise AssertionError(f'Supported QName enumeration failed: {result.stdout} {result.stderr}')
             continue

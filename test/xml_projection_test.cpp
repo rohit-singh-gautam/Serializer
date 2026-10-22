@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include <map>
 #include <memory>
 #include <numeric>
 #include <stdexcept>
@@ -61,6 +62,38 @@ TEST(xml_projection, scoped_translator_uses_target_xml_contract) {
     EXPECT_EQ(owning.number, source.current.number);
     EXPECT_EQ(owning.label, source.current.label);
   });
+}
+
+// Namespace-dependent scalar projection lends source text while the view owns only its presentation.
+TEST(xml_projection, scoped_qname_projection_preserves_source_and_failure_boundaries) {
+  xml_projection::qualified_source source{};
+  source.current.value = "p:borrowed";
+  xml::limits bounds{};
+  bounds.max_tree_bytes = 0U;
+  const std::map<std::string, std::string> namespaces{{"p", "urn:borrowed"}};
+  source.with_project([&](auto view) {
+    static_assert(!requires(decltype(view)& selected) {
+      selected.xml_bind_namespaces(std::map<std::string, std::string>{});
+    });
+    EXPECT_EQ(&view.get_value(), &source.current.value);
+    EXPECT_THROW((void)xml::serialize_tokens(view, bounds), std::invalid_argument);
+    view.xml_bind_namespaces(namespaces);
+    const auto bytes = xml::serialize_tokens(view, bounds);
+    const auto tree = xml::parse(xml::serialize(view));
+    EXPECT_EQ(xml::resolve_qname(tree.text, tree), (xml::name{"borrowed", "urn:borrowed"}));
+    const auto node = xml::parse(bytes);
+    EXPECT_EQ(xml::resolve_qname(node.text, node), (xml::name{"borrowed", "urn:borrowed"}));
+    auto exact = bounds;
+    exact.max_output_bytes = bytes.size();
+    EXPECT_EQ(xml::serialize_tokens(view, exact), bytes);
+    --exact.max_output_bytes;
+    std::string previous{"previous output"};
+    EXPECT_THROW(previous = xml::serialize_tokens(view, exact), std::length_error);
+    EXPECT_EQ(previous, "previous output");
+    EXPECT_EQ(xml::serialize_tokens(view, bounds), bytes);
+  });
+  EXPECT_EQ(source.current.value, "p:borrowed");
+  EXPECT_TRUE(source.current.xml_namespace_bindings.empty());
 }
 
 // Synchronous direct output pins weak owners through root namespace selection and every field visit.
@@ -140,6 +173,11 @@ TEST(xml_projection, large_scoped_arrays_keep_storage_and_transactional_output) 
     auto exact = bounds;
     exact.max_output_bytes = expected.size();
     EXPECT_EQ(xml::serialize_tokens(view, exact), expected);
+    auto depth = bounds;
+    depth.max_depth = 2U;
+    EXPECT_EQ(xml::serialize_tokens(view, depth), expected);
+    depth.max_depth = 1U;
+    EXPECT_THROW((void)xml::serialize_tokens(view, depth), std::length_error);
     --exact.max_output_bytes;
     std::string published{"previous output"};
     EXPECT_THROW(published = xml::serialize_tokens(view, exact), std::length_error);

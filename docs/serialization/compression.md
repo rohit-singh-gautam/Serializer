@@ -279,8 +279,10 @@ tests with zlib **1.3.1.zlib-ng**, stdlib Zstandard **1.5.7**, and python-lz4
 **4.4.5** using liblz4 **1.9.4**. The run includes present/absent-provider behavior,
 independent standard producer/consumer exchanges and all four native protocols.
 It includes callback close/reentry and first-failure regressions and records
-`PY-Z01` through `PY-Z10`; other platform/provider combinations and
-broader nested XML/package cumulative contexts remain open. Selected whole-message
+`PY-Z01` through `PY-Z10`; other platform/provider combinations retain separate
+qualification. Generated package/XML operations now share one cumulative context
+across all eleven outputs; see the [package pipeline contract](xml_packages.md#generated-package-pipelines).
+Selected whole-message
 framing/error/limit parity is now
 [qualified for all eleven outputs](../verification/verification-compression-parity-2026-10-20.md).
 See the

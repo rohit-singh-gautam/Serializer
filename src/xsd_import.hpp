@@ -7,6 +7,7 @@
 #include <vector>
 
 namespace rohit::serializer::writer::xml_binding {
+struct schema_bundle;
 // Import policy identifies generated declarations and the retained fixed schema dependency.
 struct import_options {
   std::string namespace_name{"imported"};
@@ -23,4 +24,6 @@ struct import_result {
 // Unsupported constraints fail rather than producing a weaker contract; no resource is fetched.
 [[nodiscard]] import_result import_xsd(const std::filesystem::path& input,
                                       const import_options& options = {});
+// Reuse an already pinned bundle without file access; options.schema_location supplies its entry identity.
+[[nodiscard]] import_result import_xsd(const schema_bundle& bundle, const import_options& options);
 } // namespace rohit::serializer::writer::xml_binding

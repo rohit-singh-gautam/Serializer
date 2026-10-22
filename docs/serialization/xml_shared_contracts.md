@@ -9,8 +9,10 @@ The new INI selections bind checked compiler IR and have reference validators.
 Compiler/runtime **2.12.0** adds generated C++/Python presence and map mappings,
 C++ element-tag variants, Python element/`xsi:type` variants and Python ordered
 mixed content; see [token codecs and their supported subsets](xml_tokens.md).
-Positioned-slot codecs (X16), C++ `xsi:type` variants, and the corresponding
-contracts in other languages remain pending. An unsupported valid contract reaches a clear backend
+Version 2.28.0 implements the selected owning presence/mixed/map/variant and
+positioned-extension contracts in all eleven outputs, including scoped `xsi:type`
+and strict/lax XSD wildcard dispatch. See the current token guide for supported
+storage combinations. An unsupported valid contract reaches a clear backend
 capability error before generated output is published; an invalid contract fails
 its configuration or binding checks first. Binding a contract does not enable a
 codec or authorize publishing a decoded model. Existing generated XML mappings
@@ -268,10 +270,18 @@ conversion and complete-document validation remain separate.
 
 ## Positioned extension slots and required capabilities
 
-Unknown content requires explicit foreign namespace slots. Each slot chooses
+Authored extension content uses explicit foreign namespace slots. Each slot chooses
 `reject`, `skip` or `preserve`, its attribute/element kind, occurrence limits and
 an element position. Unknown core names, empty-namespace names and known fields
 cannot enter these slots, even under a permissive operation-context policy.
+Generated fixed-XSD wildcard slots instead retain their schema namespace
+predicate, kind, position and occurrence bounds. They support `skip`, `lax` and
+`strict` declaration validation independently of retention. An owner's global
+unknown fallback remains foreign-only and excludes known/core names and explicit
+reject URI families. See the
+[2.28.0 wildcard contract](xml_tokens.md#xsd-wildcards-and-positioned-extensions-in-2280)
+for the pinned declaration inventory, nil/type handling and supported compositor
+positions; these generated predicates do not broaden authored URI slots.
 
 ```text
 serializer version 1;

@@ -9,6 +9,7 @@ public enum Protocol: Int, CaseIterable { case JSON, BINARY_NONE, BINARY_INTEGER
 /// Immutable per-message limits; collection entries accumulate across fields.
 public enum ReadPolicy { case STRICT, COMPATIBLE, FLEXIBLE }
 public struct Limits {
+    fileprivate var srlOperation: ((String,Int) throws -> Void)?
     public let readPolicy: ReadPolicy
     public let maxBytes: Int
     public let maxStringBytes: Int
@@ -58,6 +59,23 @@ private func srlVersionParts(_ value: String, _ count: Int) throws -> [UInt16] {
 // Compare bounded numeric components instead of their string spelling.
 private func srlVersionCompare(_ a: String, _ b: String, _ count: Int) -> Int { guard let x = try? srlVersionParts(a, count), let y = try? srlVersionParts(b, count) else { return 2 }; for i in 0..<count { if x[i] != y[i] { return x[i] < y[i] ? -1 : 1 } }; return 0 }
 fileprivate final class SrlWriter {
+    private let operation: ((String,Int) throws -> Void)?
+    private let maximum: Int
+    private var operationFailure: (any Error)?
+    // Fence private bytes on the first failed admission, retaining nonthrowing native scalar APIs.
+    private func admit(_ count: Int) -> Bool {
+        if operationFailure != nil { return false }
+        do {
+            guard count >= 0, count <= maximum-bytes.count else { throw SerializerError.invalid("Message byte limit") }
+            try operation?("work",count+1); try operation?("allocation",count); return true
+        } catch { operationFailure=error; return false }
+    }
+    // Admit one native scalar byte before mutating privately staged output.
+    private func append(_ byte: UInt8) { if admit(1) { bytes.append(byte) } }
+    // Admit complete scalar storage before appending its existing byte sequence.
+    private func append<Bytes: Collection>(contentsOf value: Bytes) where Bytes.Element == UInt8 { if admit(value.count) { bytes.append(contentsOf:value) } }
+    // Surface the first original operation failure before any native payload can escape.
+    func finishOperation() throws { if let failure=operationFailure { throw failure }; try operation?("work",0) }
     // Write canonical JSON text or count-free binary uint16 components.
     func version(_ value: String, _ count: Int) throws { let parts = try srlVersionParts(value, count); if json() { try text(value) } else { for n in parts { integer(UInt64(n), 2, true) } } }
 
@@ -70,24 +88,24 @@ fileprivate final class SrlWriter {
     }
     private var depth = 0
     // Reserve modest initial capacity; each encoding owns its result.
-    init(_ protocolValue: Protocol) { self.protocolValue = protocolValue; bytes.reserveCapacity(256) }
+    init(_ protocolValue: Protocol, operation: ((String,Int) throws -> Void)? = nil, maximum: Int = Int.max) { self.protocolValue = protocolValue; self.operation=operation; self.maximum=maximum; if operation == nil { bytes.reserveCapacity(256) } }
     // Test the active protocol.
     func json() -> Bool { protocolValue == .JSON }
     // Append validated numeric text or punctuation.
-    func raw(_ value: String) { bytes.append(contentsOf: value.utf8) }
+    func raw(_ value: String) { append(contentsOf: value.utf8) }
     // Write Serializer's two-bit compact length tag.
     func compact(_ value: Int) throws {
         guard value >= 0 && value <= 0x3fffffff else { throw SerializerError.invalid("Compact integer range") }
         let extra = value <= 63 ? 0 : value <= 16383 ? 1 : value <= 4194303 ? 2 : 3
-        bytes.append(UInt8(extra << 6 | value >> (extra*8)))
-        if extra > 0 { for i in stride(from: extra-1, through: 0, by: -1) { bytes.append(UInt8(truncatingIfNeeded: value >> (i*8))) } }
+        append(UInt8(extra << 6 | value >> (extra*8)))
+        if extra > 0 { for i in stride(from: extra-1, through: 0, by: -1) { append(UInt8(truncatingIfNeeded: value >> (i*8))) } }
     }
     // Preserve fixed-width integer bit patterns and exact decimal spelling.
     func integer(_ value: UInt64, _ width: Int, _ unsigned: Bool) {
         if json() {
             if unsigned { raw(String(value)) }
             else { let shift = (8-width)*8; raw(String(Int64(bitPattern: value << shift) >> shift)) }
-        } else { for i in 0..<width { bytes.append(UInt8(truncatingIfNeeded: value >> (i*8))) } }
+        } else { for i in 0..<width { append(UInt8(truncatingIfNeeded: value >> (i*8))) } }
     }
     // Encode unsigned compact fields with explicit strict or low-30-bit prefix behavior.
     func compactValue(_ value: UInt64, _ width: Int, _ prefix: Bool, _ strict: Bool) throws {
@@ -96,13 +114,13 @@ fileprivate final class SrlWriter {
             if strict && value > 0x3fffffff { throw SerializerError.invalid("Compact prefix integer range") }
             let payload = value & 0x3fffffff
             let extra = payload <= 63 ? 0 : payload <= 16383 ? 1 : payload <= 4194303 ? 2 : 3
-            bytes.append(UInt8(extra << 6) | UInt8(payload >> (extra*8)))
-            if extra > 0 { for i in stride(from: extra-1, through: 0, by: -1) { bytes.append(UInt8(truncatingIfNeeded: payload >> (i*8))) } }
+            append(UInt8(extra << 6) | UInt8(payload >> (extra*8)))
+            if extra > 0 { for i in stride(from: extra-1, through: 0, by: -1) { append(UInt8(truncatingIfNeeded: payload >> (i*8))) } }
             return
         }
         var remaining = value
-        while remaining >= 0x80 { bytes.append(UInt8(remaining & 0x7f) | 0x80); remaining >>= 7 }
-        bytes.append(UInt8(remaining))
+        while remaining >= 0x80 { append(UInt8(remaining & 0x7f) | 0x80); remaining >>= 7 }
+        append(UInt8(remaining))
     }
     // Preserve binary32 bits; reject nonfinite JSON numbers.
     func float32(_ value: Float) throws {
@@ -115,23 +133,24 @@ fileprivate final class SrlWriter {
         else { integer(value.bitPattern, 8, true) }
     }
     // Encode canonical booleans.
-    func boolean(_ value: Bool) { if json() { raw(value ? "true" : "false") } else { bytes.append(value ? 1 : 0) } }
+    func boolean(_ value: Bool) { if json() { raw(value ? "true" : "false") } else { append(value ? 1 : 0) } }
     // Escape JSON controls while copying UTF-8 directly to the output buffer.
     func text(_ value: String) throws {
-        if !json() { try compact(value.utf8.count); bytes.append(contentsOf: value.utf8); return }
-        bytes.append(34)
+        if let operation { for _ in value.utf8 { try operation("work",1) } }
+        if !json() { try compact(value.utf8.count); append(contentsOf: value.utf8); return }
+        append(34)
         let hex = Array("0123456789abcdef".utf8)
         for byte in value.utf8 {
-            if byte == 34 || byte == 92 { bytes.append(92); bytes.append(byte) }
-            else if byte < 32 { bytes.append(contentsOf: [92,117,48,48,hex[Int(byte >> 4)],hex[Int(byte & 15)]]) }
-            else { bytes.append(byte) }
+            if byte == 34 || byte == 92 { append(92); append(byte) }
+            else if byte < 32 { append(contentsOf: [92,117,48,48,hex[Int(byte >> 4)],hex[Int(byte & 15)]]) }
+            else { append(byte) }
         }
-        bytes.append(34)
+        append(34)
     }
     // Encode an ASCII JSON character or an unrestricted binary byte.
     func character(_ value: UInt8) throws {
         if json() { guard value <= 127 else { throw SerializerError.invalid("Non-ASCII JSON char") }; try text(String(UnicodeScalar(value))) }
-        else { bytes.append(value) }
+        else { append(value) }
     }
     // Select enum names only in the native contexts that use names.
     func enumeration(_ value: Int, _ names: [String], _ collection: Bool) throws {
@@ -139,23 +158,24 @@ fileprivate final class SrlWriter {
         if json() || (protocolValue == .BINARY_STRING && !collection) { try text(names[value]) } else { try compact(value) }
     }
     // Bound recursive object traversal before writing fields.
-    func beginObject() throws { depth += 1; guard depth <= 64 else { throw SerializerError.invalid("Encode depth limit") }; if json() { bytes.append(123) } }
+    func beginObject() throws { try finishOperation(); try operation?("work",1); depth += 1; guard depth <= 64 else { throw SerializerError.invalid("Encode depth limit") }; if json() { append(123) } }
     // Append cached schema keys without repeating UTF-8 conversion.
     func field(_ id: Int, _ key: Int, _ first: Bool) throws {
-        if json() { if !first { bytes.append(44) }; bytes.append(contentsOf: srlFields[key].json) }
+        try finishOperation(); try operation?("work",1)
+        if json() { if !first { append(44) }; append(contentsOf: srlFields[key].json) }
         else if protocolValue == .BINARY_INTEGER { try compact(id) }
-        else if protocolValue == .BINARY_STRING { bytes.append(contentsOf: srlFields[key].binary) }
+        else if protocolValue == .BINARY_STRING { append(contentsOf: srlFields[key].binary) }
     }
     // Finish protocol framing and leave the object.
-    func endObject() { if json() { bytes.append(125) } else if protocolValue != .BINARY_NONE { bytes.append(0) }; depth -= 1 }
+    func endObject() { if json() { append(125) } else if protocolValue != .BINARY_NONE { append(0) }; depth -= 1 }
     // Start a collection with its actual element count.
     // Encode optional presence with one binary byte and zero/one JSON entries.
-    func beginOptional(_ present: Bool) throws { if json() { bytes.append(91) } else { integer(present ? 1 : 0, 1, true) } }
-    func beginArray(_ count: Int) throws { if json() { bytes.append(91) } else { try compact(count) } }
+    func beginOptional(_ present: Bool) throws { if json() { append(91) } else { integer(present ? 1 : 0, 1, true) } }
+    func beginArray(_ count: Int) throws { try finishOperation(); try operation?("work",count+1); if json() { append(91) } else { try compact(count) } }
     // Separate JSON collection entries.
-    func element(_ index: Int) { if json() && index != 0 { bytes.append(44) } }
+    func element(_ index: Int) { if json() && index != 0 { append(44) } }
     // Finish a JSON collection.
-    func endArray() { if json() { bytes.append(93) } }
+    func endArray() { if json() { append(93) } }
 }
 fileprivate struct SrlKey { let id: Int; let name: String? }
 fileprivate final class SrlReader {
@@ -184,10 +204,11 @@ fileprivate final class SrlReader {
         guard data.count <= limits.maxBytes else { throw SerializerError.invalid("Message byte limit") }
         self.data = data; self.protocolValue = protocolValue; self.limits = limits
     }
-    // Test the selected protocol.
+    // Test the selected protocol.)serializer"
+R"serializer(
     func json() -> Bool { protocolValue == .JSON }
     // Validate length before indexing or arithmetic on input slices.
-    private func requireBytes(_ count: Int) throws { guard count >= 0 && count <= data.count-offset else { throw SerializerError.invalid("Truncated input") } }
+    private func requireBytes(_ count: Int) throws { try limits.srlOperation?("work",count+1); guard count >= 0 && count <= data.count-offset else { throw SerializerError.invalid("Truncated input") } }
     // Skip exactly JSON whitespace.
     private func whitespace() { while offset < data.count && (data[offset] == 32 || data[offset] == 9 || data[offset] == 10 || data[offset] == 13) { offset += 1 } }
     // Require one delimiter without accepting trailing commas.
@@ -272,11 +293,12 @@ R"serializer(            if b >= 48 && b <= 57 { digit = b-48 } else if b >= 65 
     func text() throws -> String {
         if !json() {
             let count = try compact(); guard count <= limits.maxStringBytes else { throw SerializerError.invalid("String limit") }; try requireBytes(count)
+            try limits.srlOperation?("allocation",count*2)
             guard let value = String(validating: data[offset..<offset+count], as: UTF8.self) else { throw SerializerError.invalid("Invalid UTF-8") }; offset += count; return value
         }
         try expect(34); let start = offset; var bytes: [UInt8] = []
         while true {
-            try requireBytes(1); let byte = data[offset]; offset += 1
+            try requireBytes(1); try limits.srlOperation?("allocation",8); let byte = data[offset]; offset += 1
             guard offset-start-1 <= limits.maxStringBytes else { throw SerializerError.invalid("String limit") }
             if byte == 34 { break }; guard byte >= 32 else { throw SerializerError.invalid("Unescaped control") }
             if byte != 92 { bytes.append(byte); continue }
@@ -306,7 +328,7 @@ R"serializer(            if b >= 48 && b <= 57 { digit = b-48 } else if b >= 65 
         guard names.indices.contains(value) else { throw SerializerError.invalid("Unknown enum") }; return value
     }
     // Check nesting before traversing fields.
-    func beginObject() throws { depth += 1; guard depth <= limits.maxDepth else { throw SerializerError.invalid("Depth limit") }; if json() { try expect(123) } }
+    func beginObject() throws { try limits.srlOperation?("work",1); try limits.srlOperation?("allocation",64); depth += 1; guard depth <= limits.maxDepth else { throw SerializerError.invalid("Depth limit") }; if json() { try expect(123) } }
     // Return positional IDs or keyed names while retaining duplicate occurrences.
     func key(_ ids: [Int], _ cursor: Int) throws -> SrlKey? {
         if protocolValue == .BINARY_NONE { return cursor < ids.count ? SrlKey(id: ids[cursor], name: nil) : nil }
@@ -319,12 +341,12 @@ R"serializer(            if b >= 48 && b <= 57 { digit = b-48 } else if b >= 65 
     // Validate binary collection lengths before allocation.
     func beginArray() throws -> Int { if json() { try expect(91); return -1 }; let count = try compact(); guard count <= limits.maxElements-elements else { throw SerializerError.invalid("Element limit") }; return count }
     // Reserve fixed-width arrays only after validating their minimum byte requirement.
-    func capacity(_ count: Int, _ width: Int) throws -> Int { if count < 0 { return 0 }; if width > 0 && count > (data.count-offset)/width { throw SerializerError.invalid("Truncated array") }; return width == 0 ? min(count, 256) : count }
+    func capacity(_ count: Int, _ width: Int) throws -> Int { if count < 0 { return 0 }; if width > 0 && count > (data.count-offset)/width { throw SerializerError.invalid("Truncated array") }; let capacity = width == 0 ? min(count, 256) : count; guard capacity <= Int.max/max(width,8) else { throw SerializerError.invalid("Array allocation overflow") }; try limits.srlOperation?("allocation",capacity*max(width,8)); return capacity }
     // Charge collection slots before reading their values.
     func nextElement(_ index: Int, _ count: Int) throws -> Bool {
         if !json() { if index == count { return false } }
         else { whitespace(); try requireBytes(1); if data[offset] == 93 { offset += 1; return false }; if index != 0 { try expect(44) } }
-        guard elements < limits.maxElements else { throw SerializerError.invalid("Element limit") }; elements += 1; return true
+        guard elements < limits.maxElements else { throw SerializerError.invalid("Element limit") }; try limits.srlOperation?("allocation",8); try limits.srlOperation?("work",1); elements += 1; return true
     }
     // Require exact consumption before exposing the owning candidate.
     func finish() throws { if json() { whitespace() }; guard offset == data.count else { throw SerializerError.invalid("Trailing input") } }

@@ -59,10 +59,48 @@ TEST(xml_pattern, unicode_and_xsd_semantics_agree_with_provider) {
 
 // Unsupported dialect constructs fail at compilation rather than receiving different host meanings.
 TEST(xml_pattern, unsupported_and_malformed_expressions_reject) {
-  for (const auto expression : {"\\p{L}", "\\d", "\\i", "\\w", "\\1", "(?=a)", "(?:a)",
-      "[a-z-[aeiou]]", "[a", "[]", "[z-a]", "(", "a)", "*a", "a**", "a{2,1}", "a{,2}", "a{2", "a\\"}) {
+  for (const auto expression : {"\\p{Unknown}", "\\p{IsUnknown}", "\\pL", "\\p{", "\\p{}", "\\1", "(?=a)", "(?:a)",
+      "[a-z-[aeiou]x]", "[a-\\d]", "[\\d-a]", "[a", "[]", "[z-a]", "(", "a)", "*a", "a**", "a{2,1}", "a{,2}", "a{2", "a\\"}) {
     EXPECT_THROW((void)xml::compile_portable_pattern(expression), std::invalid_argument) << expression;
   }
+}
+
+// Lower actual XSD set operations and official Unicode properties to provider-independent ranges.
+TEST(xml_pattern, unicode_properties_shorthands_and_subtraction) {
+  const std::vector<std::pair<std::string, std::vector<std::string>>> corpus{
+      {R"(\p{L}+)", {"abc", "\xc3\xa9", "\xe6\xbc\xa2", "17", ""}},
+      {R"(\p{Lu}\p{Ll})", {"Ab", "\xce\x91\xce\xb2", "AA", "aB"}},
+      {R"([\p{L}-[AEIOUaeiou]]+)", {"bc", "\xce\xb2", "a", "bee", "17"}},
+      {R"([a-z-[d-f-[e]]]+)", {"abceg", "eee", "d", "f", "azd"}},
+      {R"([^a-z-[0-9]]+)", {"ABC", "!", "a", "5", ""}},
+      {R"(\p{IsGreek}+)", {"\xce\xb1", "\xce\x91\xce\xb2", "a", "7"}},
+      {R"(\d+)", {"17", "\xd9\xa1\xd9\xa2", "a", ""}},
+      {R"(\s+)", {" \t\r\n", "\xc2\xa0", "x", ""}},
+      {R"(\w+)", {"abc17", "\xce\xb1", "+", "_", " ", "!"}},
+      {R"(\i\c*)", {"Name-17", "_a", ":a", "\xce\xb1", "17", " a"}},
+      {R"(\P{L}+)", {"17!", " ", "a", "\xce\xb1"}}};
+  for (const auto& [expression, values] : corpus) {
+    const auto portable = xml::compile_portable_pattern(expression);
+    if (xml::available()) {
+      const xml::prepared_pattern reference{expression};
+      for (const auto& value : values) {
+        // libxml2's Unicode range sentinel and nested-subtraction defects are covered independently by JAXP SDK fixtures.
+        if ((expression == R"(\p{L}+)" && value == "\xe6\xbc\xa2") || expression == "[a-z-[d-f-[e]]]+") { continue; }
+        EXPECT_EQ(portable.matches(value), reference.matches(value)) << expression << ": " << value;
+      }
+    }
+  }
+  EXPECT_TRUE(xml::compile_portable_pattern(R"(\p{L})").matches("\xe6\xbc\xa2"));
+  EXPECT_TRUE(xml::compile_portable_pattern(R"(\i)").matches("\xf0\x9f\x98\x80"));
+  EXPECT_TRUE(xml::compile_portable_pattern(R"(\p{Cn})").matches("\xcd\xb8"));
+  EXPECT_FALSE(xml::compile_portable_pattern("[a-[a]]").matches("a"));
+  EXPECT_TRUE(xml::compile_portable_pattern("[a-z-[d-f-[e]]]+").matches("abceg"));
+  EXPECT_TRUE(xml::compile_portable_pattern("[a-z-[d-f-[e]]]+").matches("eee"));
+  EXPECT_TRUE(xml::compile_portable_pattern(R"(\p{IsCyrillicSupplementary})").matches("\xd4\x80"));
+  xml::pattern_limits limits{}; limits.max_nesting_depth = 1U;
+  EXPECT_THROW((void)xml::compile_portable_pattern("[a-z-[b-y-[c-x]]]", limits), std::length_error);
+  limits = {}; limits.max_work_units = 20U;
+  EXPECT_THROW((void)xml::compile_portable_pattern(R"(\p{L})", limits), std::length_error);
 }
 
 // Bounded and nullable repetitions preserve exact cardinality without recursive backtracking.

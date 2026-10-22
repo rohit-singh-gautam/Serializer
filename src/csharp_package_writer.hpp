@@ -42,21 +42,22 @@ inline std::string csharp(const package_node& package, const std::string& name,
     std::string_view qualified_name, const std::string& helper,
     const std::function<std::string(const type_name&)>& render_type,
     const std::function<std::string(std::string_view)>& render_field,
-    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {}) {
-  const auto parts = ordered(package);
+    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {}, bool binary_none_only = false) {
+  const auto configured_package = configure_package(package, xml);
+  const auto parts = ordered(configured_package);
   const auto contract = compile_package_profile(package, xml);
   std::set<std::string> fields{"Extensions"};
   std::set<std::pair<std::string, std::string>> dispatch;
   for (const auto* part : parts) {
+    if (binary_none_only && part->value_type && part->codec == "json") {
+      throw std::invalid_argument{"JSON package profile requires the JSON native protocol"};
+    }
     if (!fields.insert(render_field(part->name)).second ||
         !dispatch.emplace(part->source, part->relationship).second) {
       throw std::invalid_argument{"C# package field or role dispatch collision: " + part->name};
     }
     if ((part->part_name || part->relationship_id) && (!part->max_occurs || *part->max_occurs > 1U)) {
       throw std::invalid_argument{"Repeated package roles require dynamic names and generated relationship IDs"};
-    }
-    if (part->value_type && part->codec != "xml") {
-      throw std::invalid_argument{"C# typed package roles currently require XML"};
     }
   }
   const auto nested = [&](std::string candidate) {
@@ -67,11 +68,14 @@ inline std::string csharp(const package_node& package, const std::string& name,
   };
   const auto input = nested("Input"), value = nested("Value");
   const auto profiles_method = nested("SelectProfiles"), references_method = nested("CheckReferences");
+  const auto encode_profiles = nested("EncodeProfiles"), load_profiles = nested("LoadProfiles"), load_pipeline = nested("LoadWithPipelineProfiles");
   std::string profiles_field{"ProfileOverrides"};
   while (std::any_of(parts.begin(), parts.end(),
       [&](const auto* part) { return render_field(part->name) == profiles_field; })) {
     profiles_field += '_';
   }
+  std::string pipelines_field{"PipelineOverrides"};
+  while (std::any_of(parts.begin(), parts.end(), [&](const auto* part) { return render_field(part->name) == pipelines_field; })) { pipelines_field += '_'; }
   std::string output;
   const auto line = [&](const std::string& text = {}) { output += text + '\n'; };
   const auto api = [&](std::string_view type) { return helper + "." + std::string{type}; };
@@ -90,6 +94,7 @@ inline std::string csharp(const package_node& package, const std::string& name,
   }
   line("    public " + api("Extensions") + " Extensions = new();");
   line("    public global::System.Collections.Generic.IReadOnlyDictionary<string,string>? " + profiles_field + ";");
+  line("    public global::System.Collections.Generic.IReadOnlyDictionary<string,"+api("PipelineProfile")+">? "+pipelines_field+";");
   line("  }");
   line("  public sealed class " + value + " : " + input + " { }");
   std::size_t index{};
@@ -100,13 +105,16 @@ inline std::string csharp(const package_node& package, const std::string& name,
       return literal(selected.namespace_uri.empty() ? selected.local : "{" + selected.namespace_uri + "}" + selected.local);
     };
     const auto optional = [&](const auto& item) { return item ? literal(*item) : "null"; };
+    std::string vocabularies{"global::System.Array.AsReadOnly(new string[]{"};
+    if (profile->decoder) { for (const auto& uri : profile->decoder->vocabularies) { vocabularies += literal(uri)+','; } }
+    vocabularies += "})";
     line("  private static readonly " + api("Role") + " Role" + std::to_string(index++) + " = new(" +
         literal(part->name) + "," + optional(part->part_name) + "," + optional(part->content_type) + "," +
         literal(part->source) + "," + literal(part->relationship) + "," +
         optional(part->relationship_id) + "," + literal(part->compression) + "," + std::to_string(part->min_occurs) + "L," +
         (part->max_occurs ? std::to_string(*part->max_occurs) : "-1") + "L," + literal(part->profile_policy) + "," +
         (profile->decoder ? expanded(profile->decoder->root) : "null") + "," +
-        (profile->decoder && profile->decoder->type ? expanded(*profile->decoder->type) : "null") + ");");
+        (profile->decoder && profile->decoder->type ? expanded(*profile->decoder->type) : "null") + "){Codec="+literal(part->value_type?part->codec:"bytes")+",TargetMode="+literal(part->target_mode)+",RequiresType="+(part->requires_type?"true":"false")+",Vocabularies="+vocabularies+"};");
   }
   std::string declared_roles;
   for (std::size_t role_index{}; role_index < parts.size(); ++role_index) {
@@ -114,6 +122,7 @@ inline std::string csharp(const package_node& package, const std::string& name,
   }
   line("  // Resolve only declared storage overrides and retain immutable expected model identities.");
   line("  public static " + api("Role") + "[] " + profiles_method + "(global::System.Collections.Generic.IReadOnlyDictionary<string,string>? profiles=null)=>" + helper + ".ResolveProfiles(new[]{" + declared_roles + "},profiles);");
+  line("  public static "+api("Role")+"[] "+profiles_method+"(global::System.Collections.Generic.IReadOnlyDictionary<string,string>? profiles,global::System.Collections.Generic.IReadOnlyDictionary<string,"+api("PipelineProfile")+">? pipelines)=>"+helper+".ResolveProfiles(new[]{"+declared_roles+"},profiles,pipelines);");
   line("  // Validate compiler-declared keys and forward references before publication.");
   line("  private static void " + references_method + "(" + input + " value," + api("Budget") + " budget,global::System.Func<string,int," + api("PayloadLocation") + ">? locate=null) {");
   line("    var references=new " + api("ReferenceIndex") + "(budget);");
@@ -145,28 +154,39 @@ inline std::string csharp(const package_node& package, const std::string& name,
   line("    references.Validate();");
   line("  }");
   line("  public static byte[] Encode(" + input + " value," + api("Budget") + "? budget=null) {");
-  line("    global::System.ArgumentNullException.ThrowIfNull(value);budget?" "?=new();" + references_method + "(value,budget);var profiles=" + profiles_method + "(value." + profiles_field + ");var composer=new " + api("Composer") + "(budget);");
+  line("    global::System.ArgumentNullException.ThrowIfNull(value);return "+encode_profiles+"(value,budget??new(),"+profiles_method+"(value."+profiles_field+",value."+pipelines_field+"));}");
+  line("  // Traverse one resolved envelope snapshot without changing the caller's profile bindings.");
+  line("  private static byte[] "+encode_profiles+"("+input+" value,"+api("Budget")+" budget,"+api("Role")+"[] profiles){"+references_method+"(value,budget);var composer=new "+api("Composer")+"(budget);");
+  if (binary_none_only) { line("    foreach(var profile in profiles)if(profile.Codec==\"json\")throw new "+api("PackageError")+"("+api("Code")+".InvalidState,\"JSON native protocol is disabled\");"); }
   index = 0;
   for (const auto* part : parts) {
     line("    composer." + std::string{part->value_type ? (singleton(*part) ? "Single" : "Models") : "Binaries"} +
-        "(profiles[" + std::to_string(index++) + "],value." + render_field(part->name) +
-        (part->value_type ? ",static (model,limits)=>model.EncodeXml(limits,null)" : "") + ");");
+        "(profiles[" + std::to_string(index) + "],value." + render_field(part->name) +
+        (part->value_type ? ",(model,limits)=>{if(profiles["+std::to_string(index)+"].Codec==\"xml\")return model.EncodeXml(limits,null);var output=new SrlWriter(profiles["+std::to_string(index)+"].Codec==\"json\"?Protocol.JSON:Protocol.BINARY_NONE,limits);model.Write(output);return output.bytes();}" : "") + ");");
+    ++index;
   }
   line("    return composer.Finish(value.Extensions);");
   line("  }");
   line("  public static void Write(global::System.IO.Stream destination," + input + " value," + api("Budget") + "? budget=null){budget?" "?=new();" + helper + ".Write(destination,Encode(value,budget),budget);}");
   line("  public static " + api("Result") + "<" + value + "> Load(object source," + api("Budget") + "? budget=null," + api("ExtensionPolicy") + "? policy=null,global::System.Action<" + value + "," + api("Budget") + ">? validate=null) {");
+  line("    return "+load_pipeline+"(source,null,budget,policy,validate);}");
+  line("  // Apply selected native/XML profiles before opening a borrowed input source.");
+  line("  public static "+api("Result")+"<"+value+"> "+load_pipeline+"(object source,global::System.Collections.Generic.IReadOnlyDictionary<string,"+api("PipelineProfile")+">? pipelines,"+api("Budget")+"? budget=null,"+api("ExtensionPolicy")+"? policy=null,global::System.Action<"+value+","+api("Budget")+">? validate=null)=>"+load_profiles+"(source,"+profiles_method+"(null,pipelines),budget??new(),policy,validate);");
+  line("  // Keep a single closed envelope snapshot through complete candidate validation.");
+  line("  private static "+api("Result")+"<"+value+"> "+load_profiles+"(object source,"+api("Role")+"[] profiles,"+api("Budget")+" budget,"+api("ExtensionPolicy")+"? policy,global::System.Action<"+value+","+api("Budget")+">? validate){");
+  if (binary_none_only) { line("    foreach(var profile in profiles)if(profile.Codec==\"json\")throw new "+api("PackageError")+"("+api("Code")+".InvalidState,\"JSON native protocol is disabled\");"); }
   line("    budget?" "?=new();using var loader=new " + api("Loader") + "(source,budget);var value=new " + value + "();");
   index = 0;
   for (const auto* part : parts) {
     line("    value." + render_field(part->name) + "=loader." + std::string{part->value_type ?
-        (singleton(*part) ? "Single" : "Models") : "Binaries"} + "(Role" + std::to_string(index++) +
-        (part->value_type ? ",static (bytes,limits)=>" + render_type(*part->value_type) + ".DecodeXml(bytes,limits,null)" : "") + ");");
+        (singleton(*part) ? "Single" : "Models") : "Binaries"} + "(profiles[" + std::to_string(index) + "]" +
+        (part->value_type ? ",(bytes,limits)=>profiles["+std::to_string(index)+"].Codec==\"xml\"?"+render_type(*part->value_type)+".DecodeXml(bytes,limits,null):"+render_type(*part->value_type)+".Decode(bytes,profiles["+std::to_string(index)+"].Codec==\"json\"?Protocol.JSON:Protocol.BINARY_NONE,limits)" : "") + ");");
+    ++index;
   }
   line("    " + references_method + "(value,budget,loader.Location);");
   line("    return loader.Finish(value,policy,validate,static (candidate,extensions)=>candidate.Extensions=extensions);");
   line("  }");
-  line("  public static void Save(string path," + input + " value," + api("Budget") + "? budget=null,global::System.Action<" + value + "," + api("Budget") + ">? validate=null,global::System.Action<string>? fault=null){budget?" "?=new();byte[] bytes=Encode(value,budget);Load(bytes,budget,new(" + api("Unknown") + ".Preserve," + api("Unknown") + ".Preserve),validate);" + helper + ".Save(path,bytes,budget,fault);}");
+  line("  public static void Save(string path," + input + " value," + api("Budget") + "? budget=null,global::System.Action<" + value + "," + api("Budget") + ">? validate=null,global::System.Action<string>? fault=null){budget?" "?=new();var profiles="+profiles_method+"(value."+profiles_field+",value."+pipelines_field+");byte[] bytes="+encode_profiles+"(value,budget,profiles);"+load_profiles+"(bytes,profiles,budget,new(" + api("Unknown") + ".Preserve," + api("Unknown") + ".Preserve),validate);" + helper + ".Save(path,bytes,budget,fault);}");
   line("}");
   return output;
 }

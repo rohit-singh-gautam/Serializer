@@ -4,6 +4,7 @@
 
 #include "native_schema.hpp"
 #include "xml_schema.hpp"
+#include "xml_ordered_writer.hpp"
 
 #include <functional>
 #include <string>
@@ -20,6 +21,7 @@ inline std::string c_mixed_method(const xml_binding::mixed_contract& mixed, cons
   const auto quote = [](std::string_view value) { return native::quote(value); };
   const auto text = "fragment->" + variant + '_' + native::snake(mixed.text_branch);
   line("{");
+  line(ordered_start(mixed, "c"));
   if (input) {
     line(collection_type + "_clear(&" + member + ");");
     if (!mixed.element_only) { line("size_t text_bytes=0;"); }
@@ -49,6 +51,7 @@ inline std::string c_mixed_method(const xml_binding::mixed_contract& mixed, cons
     for (const auto& child : mixed.children) {
       line(std::string{mixed.element_only && &child == mixed.children.data() ? "if" : "} else if"} + " (srl_xml_input_name(input,XML_READER_TYPE_ELEMENT," + quote(child.qualified_name.local) + ',' + quote(child.qualified_name.namespace_uri) + ")) {");
       line("fragment->" + variant + "_index=" + std::to_string(child.alternative) + "u;");
+      line(ordered_step(mixed, std::to_string(child.alternative), "c", "return false;"));
       line(read(*child.value_type, child.qualified_name, "fragment->" + variant + '_' + native::snake(child.branch)));
     }
     line("} else { return false; } }");
@@ -70,11 +73,13 @@ inline std::string c_mixed_method(const xml_binding::mixed_contract& mixed, cons
     }
     for (const auto& child : mixed.children) {
       line("case " + std::to_string(child.alternative) + "u: {");
+      line(ordered_step(mixed, std::to_string(child.alternative), "c", "return false;"));
       line(write(*child.value_type, child.qualified_name, "fragment->" + variant + '_' + native::snake(child.branch)));
       line("break; }");
     }
     line("default: return false; } }");
   }
+  line(ordered_finish(mixed, "c", "return false;"));
   line("}");
   return result;
 }

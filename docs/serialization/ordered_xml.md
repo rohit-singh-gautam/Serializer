@@ -1,10 +1,11 @@
 # Ordered element-only XML
 
-Compiler/runtime **2.27.0**, schema language **1.21.0**. This additive mapping
+Compiler/runtime **2.28.0**, schema language **1.21.0**. This additive mapping
 preserves heterogeneous child order in one native collection in all eleven
-owning outputs. C++ support began in 2.25.0. It does not close
-[OPC-R04](../pending.md#opc-and-3mf-requirements): fixed-XSD grouped/repeated
-bindings and XSD export remain explicitly unsupported.
+owning outputs. C++ support began in 2.25.0. Fixed-XSD sequence/choice groups bind
+to the same explicit storage; generated readers and writers enforce their full
+occurrence grammar. XSD export retains that grammar and excludes fragment helper
+records. See [OPC-R04](../pending.md#opc-and-3mf-requirements).
 
 ## Schema and mapping
 
@@ -102,11 +103,24 @@ are unchanged. Do not automatically replace two existing arrays with this model:
 that would change the application's native API and wire layout and requires an
 intentional schema migration. Existing separate-array schemas remain unchanged.
 
-Fixed XSD binding and XSD export/compatibility tooling currently
-reject this mapping before publishing generated files. Repeated XSD group
-boundaries and arbitrary compositor validation remain
-in OPC-R04. Supporting unconstrained ordered elements does not implement those
-grammar checks. The [original C++ verification](../verification/verification-ordered-xml-2026-10-21.md)
+With `--xml.xsd`, each alternative must bind the complex type of its expanded
+child name in the pinned schema. The XSD supplies nested sequence/choice and
+named-group boundaries, minimums and finite/unbounded maximums. Generation compiles
+a bounded deterministic cursor; input and output advance that cursor for each
+typed child and require an accepting state before publication. Whitespace between
+elements consumes no grammar occurrence. Compilation bounds apply to states,
+transition cells, depth and work, including very large finite schema bounds.
+
+`--xml.export-xsd` and bundle export emit the same sequence/choice grammar and
+ordinary payload types. An unbound dynamic array exports a zero-or-more choice;
+an unbound fixed array exports its exact extent. Fixed storage bound to an XSD
+requires that same exact grammar extent for export. Native variants are owning
+record alternatives; wildcard/all content, nil child alternatives and text branches
+require their separate mappings. Existing flat arrays cannot supply cross-array
+order and continue to reject grouped binding. Declaration import of these new
+ordered layouts remains a separate schema-authoring capability.
+
+The [original C++ verification](../verification/verification-ordered-xml-2026-10-21.md)
 and [portable verification](../verification/verification-ordered-xml-2026-10-22.md)
 state the actual executed scopes. Existing schemas require regeneration to gain
 the new non-C++ XML entry points; native names, field IDs, alternative order,

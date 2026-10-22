@@ -106,7 +106,8 @@ fun main() {
                 checkValue(!tight, "one-tight selected quota accepted")
             } catch (failure: P.PackageError) {
                 checkValue(tight && failure.code == P.Code.RESOURCE_LIMIT, "selected quota classification")
-                checkValue(failure.part.isNotEmpty() && failure.fieldPath.isNotEmpty() && failure.relationshipId.isNotEmpty(), "selected quota physical and native context")
+                checkValue(failure.part.isNotEmpty() && failure.fieldPath.isNotEmpty() && failure.relationshipId.isNotEmpty(),
+                    "selected quota physical and native context: $resource part=${failure.part} field=${failure.fieldPath} link=${failure.relationshipId}")
             }
         }
     }

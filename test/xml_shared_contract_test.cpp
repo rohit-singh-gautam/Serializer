@@ -192,7 +192,7 @@ TEST(xml_shared_contract, ordered_element_only_configuration) {
   for (const auto language : {"python", "js", "typescript", "go", "java", "csharp", "kotlin", "swift", "c", "rust"}) {
     EXPECT_NO_THROW(binding::validate_backend(contract, language)) << language;
   }
-  EXPECT_THROW(binding::validate_backend(contract, "xsd"), std::invalid_argument);
+  EXPECT_NO_THROW(binding::validate_backend(contract, "xsd"));
 }
 
 // Explicit selection never changes legacy mixed semantics or accepts a partially configured mapping.

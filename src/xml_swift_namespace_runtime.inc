@@ -6,6 +6,14 @@ R"xmlnamespace(
 fileprivate struct SrlXmlNamespaceState {
     var owner: [WireString:String] = [:]
     var fields: [String:[[WireString:String]]] = [:]
+    // Share namespace dictionaries through value semantics without copying the borrowed payload.
+    mutating func project(_ key: String, _ source: SrlXmlNamespaceState, _ sourceKey: String) throws {
+        for (prefix,uri) in source.owner {
+            guard owner[prefix] == nil || WireString(owner[prefix]!) == WireString(uri) else { throw SerializerError.invalid("Conflicting projected XML namespace scopes") }
+            owner[prefix]=uri
+        }
+        fields[key]=source.fields[sourceKey]
+    }
     // Append only after a complete scalar validates in its original provider scope.
     mutating func scalar(_ key: String, _ scope: [WireString:String]) {
         fields[key,default:[]].append(scope)
@@ -24,6 +32,10 @@ fileprivate final class SrlXmlNamespaceOutput {
             merged[prefix]=uri
         }
         owner=merged
+    }
+    // Preserve an absent/defaulted owner scalar without rebinding another field's presentation alias.
+    func schemaDefault(_ key: String, _ text: String, _ rule: SrlXmlRule) -> Bool {
+        rule.matchesDefault(text,state.fields[key]?.first ?? owner)
     }
     // Recover scalar scopes in field order; newly authored occurrences use the owner's vocabulary.
     func scope(_ key: String) -> [WireString:String] {

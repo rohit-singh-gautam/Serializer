@@ -16,6 +16,7 @@ not change schema syntax, generated APIs, or serialized formats.
 | Schema compiler, parser, generators, and compiler API library | [`LICENSE`](../../LICENSE), GPL-3.0-or-later | Run the generator as a build tool; deliberate compiler API linkage uses `Serializer::serializer_lib` |
 | Input `.serializer` schemas | Terms chosen by their copyright holders | Their notices and any applicable conditions remain in force |
 | Third-party dependencies | Each dependency's own license | Preserve any conditions applicable to the dependencies you distribute |
+| Frozen Unicode character-property data used by XML patterns | [`LICENSE-UNICODE`](../../LICENSE-UNICODE), Unicode License V3 | Preserve the Unicode copyright and permission notice with redistributed data or associated documentation |
 
 The compiler API headers are `<rohit/serializer_creator.hpp>`,
 `<rohit/output_options.hpp>`, and `<rohit/schema_compatibility.hpp>`. They are not
@@ -62,6 +63,11 @@ preamble to the whole generated file. Its output carries the schema authors'
 notices and minimal generation provenance. Required notices from included schemas
 remain applicable to their contributions; the entry schema's license does not
 replace them.
+
+Generated non-C++ XML support includes a separate Unicode data notice because its
+portable pattern programs can embed Unicode-derived character ranges. This notice
+applies to that data, and does not assign a license to application declarations or
+the entire generated file. C++ uses the installed runtime's frozen data and license.
 
 Third-party schemas and dependencies keep their own conditions. These permissions
 cover Serializer-authored code and do not certify that every algorithm, provider,
@@ -170,8 +176,8 @@ parser, generator, and schema-compatibility callers. Running
 the compiler library into your application. Distribution of the compiler itself
 continues to require its GPL terms.
 
-Source and installed packages include `LICENSE`, `LICENSE-RUNTIME`, and
-`LICENSE-GENERATED`. Verify the resolved package revision and license files:
+Source and installed packages include `LICENSE`, `LICENSE-RUNTIME`,
+`LICENSE-GENERATED`, and `LICENSE-UNICODE`. Verify the resolved package revision and license files:
 older published packages may predate the split. Third-party compression libraries
 and other dependencies retain their own terms. These permissions do not promise
 that every possible application, schema, or dependency is free of third-party

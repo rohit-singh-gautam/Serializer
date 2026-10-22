@@ -6,6 +6,7 @@
 #include "xml_native_model_writer.hpp"
 #include "xml_portable_projection_writer.hpp"
 #include "xml_namespace_reservation.hpp"
+#include "xml_ordered_writer.hpp"
 
 #include <rohit/html.hpp>
 
@@ -31,6 +32,7 @@ const std::string_view go_runtime =
 #include "xml_go_html_runtime.inc"
 #include "xml_go_model_runtime.inc"
 #include "xml_go_extension_runtime.inc"
+#include "xml_go_declarations_runtime.inc"
     ;
 // Retain exact schema strings in generated native source.
 std::string quote(std::string_view value) { return native::quote(value); }
@@ -43,7 +45,9 @@ bool namespace_scalar(const xml_binding::field& field) {
   const auto dependent = [&](auto&& self, const xml_binding::scalar_facets& facets) -> bool {
     return facets.lexical_kind == "QName" || facets.list_item_kind == "QName" ||
         std::any_of(facets.union_members.begin(), facets.union_members.end(),
-            [&](const auto& branch) { return self(self, branch); });
+            [&](const auto& branch) { return self(self, branch); }) ||
+        std::any_of(facets.list_item_facets.begin(), facets.list_item_facets.end(),
+            [&](const auto& item) { return self(self, item); });
   };
   return field.qname || field.prefix_list || dependent(dependent, field.facets);
 }
@@ -55,12 +59,14 @@ bool namespace_enumeration(const xml_binding::field& field) {
 bool namespace_constraints(const xml_binding::field& field) {
   return namespace_enumeration(field) || field.qname_fixed || field.qname_list_fixed ||
       field.qname_default || field.qname_list_default ||
-      (namespace_scalar(field) && (!field.facets.union_members.empty() ||
+      (namespace_scalar(field) && (!field.facets.union_members.empty() || !field.facets.list_item_facets.empty() ||
           xml_codegen::namespace_lexical_facets(field.facets) ||
           (field.prefix_list && !field.facets.enumeration.empty())));
 }
 // Bind schema lexical aliases privately so an instance's shadowed prefixes cannot change a default.
 std::map<std::string, std::string> default_bindings(const xml_binding::field& field) {
+  if (field.union_fixed) { return field.union_fixed_scope; }
+  if (field.union_default) { return field.union_default_scope; }
   const auto& lexical = field.fixed_value ? field.fixed_value : field.default_value;
   std::vector<xml::name> names{};
   if (field.qname_fixed || field.qname_default) {
@@ -91,7 +97,7 @@ std::string go_default_scope(const xml_binding::field& field) {
 }
 // Keep QName, QName-list and namespace-prefix-list semantics distinct during token traversal.
 std::string namespace_mode(const xml_binding::field& field) {
-  return field.prefix_list ? "2" : !field.facets.union_members.empty() ? "3" :
+  return field.prefix_list ? "2" : (!field.facets.union_members.empty() || !field.facets.list_item_facets.empty()) ? "3" :
       field.facets.list_item_kind == "QName" ? "1" : "0";
 }
 // Select the statically known leaf beneath one supported presence/collection modifier.
@@ -162,6 +168,7 @@ std::string record_name(std::string value) {
 std::string scalar_facets(const xml_binding::field& field,
                           const std::string& prepared_rule, bool output = false) {
   if (prepared_rule.empty()) { return {}; }
+  if (output && namespace_scalar(field) && (!field.facets.union_members.empty() || !field.facets.list_item_facets.empty())) { return {}; }
   const auto& fallback = field.fixed_value ? field.fixed_value : field.default_value;
   std::string result{std::string{output?"output":"input"}+".budget.field="+quote(field.source->name)+"\n"};
   if (!output && fallback && !field.attribute) { result += "if srlText==\"\"{srlText=" + quote(*fallback) + "}\n"; }
@@ -198,6 +205,14 @@ std::string pattern_program(const xml::portable_pattern& pattern) {
 std::string go_scalar_rule(const xml_binding::field& field) {
   const auto count = [](std::optional<std::size_t> extent) { return extent ? std::to_string(*extent) : "-1"; };
   const auto bound = [](const std::optional<std::string>& value) { return quote(value.value_or("")); };
+  const auto identity_literal = [&](auto&& self, const xml_binding::scalar_value_identity& identity) -> std::string {
+    std::string result = "srlXmlUnionValue{kind:" + quote(identity.lexical_kind) + ",listKind:" + quote(identity.list_item_kind) +
+        ",text:" + quote(identity.lexical_value) + ",names:[]srlxml.Name{";
+    for (const auto& name : identity.names) { result += qualified(name) + ','; }
+    result += "},items:[]srlXmlUnionValue{";
+    for (const auto& item : identity.items) { result += self(self, item) + ','; }
+    return result + "}}";
+  };
   const auto rule = [&](auto&& self, const xml_binding::scalar_facets& facets,
                         const std::optional<std::string>& fixed) -> std::string {
     std::string result{"srlXmlRule{kind:" + quote(facets.lexical_kind) + ",whitespace:" + quote(facets.whitespace) +
@@ -225,22 +240,38 @@ std::string go_scalar_rule(const xml_binding::field& field) {
       for (const auto& item : items) { result += qualified(item) + ','; }
       result += "},";
     }
-    return result + "}}";
+    result += "},unionValues:[]srlXmlUnionValue{";
+    for (const auto& identity : facets.union_enumeration) { result += identity_literal(identity_literal, identity) + ','; }
+    result += '}';
+    if (!facets.list_item_facets.empty()) {
+      auto item_rule = self(self, facets.list_item_facets.front(), {});
+      if (namespace_scalar(field)) { item_rule.pop_back(); item_rule += ",keepNamespaceLexical:true}"; }
+      result += ",listItem:&" + item_rule;
+    }
+    return result + "}";
   };
   auto result = rule(rule, field.facets, field.fixed_value);
-  if (namespace_scalar(field) && (xml_codegen::namespace_lexical_facets(field.facets) ||
+  if (field.union_fixed) {
+    result.pop_back();
+    result += ",unionFixed:&" + identity_literal(identity_literal, *field.union_fixed) + '}';
+  }
+  if (namespace_scalar(field) && (!field.facets.union_members.empty() || xml_codegen::namespace_lexical_facets(field.facets) ||
       (field.prefix_list && !field.facets.enumeration.empty()))) {
     result.pop_back();
     result += ",keepNamespaceLexical:true}";
   }
-  if (field.qname_default || field.qname_fixed || field.qname_list_default || field.qname_list_fixed) {
+  if (field.qname_default || field.qname_fixed || field.qname_list_default || field.qname_list_fixed ||
+      (namespace_scalar(field) && (field.union_default || field.union_fixed))) {
     result.pop_back();
     const auto& fallback = field.fixed_value ? field.fixed_value : field.default_value;
     result += ",hasDefault:true,defaultText:" + quote(fallback.value_or("")) +
         ",defaultScope:" + go_default_scope(field) + ",defaultAttribute:" +
-        (field.attribute && field.min_occurs == 0U ? "true" : "false") + ",defaultNames:[]srlxml.Name{";
+        (field.attribute && field.min_occurs == 0U ? "true" : "false") + ",defaultContent:" +
+        (field.attribute ? "false" : "true") + ",defaultNames:[]srlxml.Name{";
     if (field.qname_fixed || field.qname_default) {
       result += qualified(field.qname_fixed ? *field.qname_fixed : *field.qname_default) + ',';
+    } else if (field.union_default || field.union_fixed) {
+      for (const auto& name : field.union_fixed ? field.union_fixed->names : field.union_default->names) { result += qualified(name) + ','; }
     } else {
       for (const auto& name : field.qname_list_fixed ? *field.qname_list_fixed : *field.qname_list_default) {
         result += qualified(name) + ',';
@@ -432,7 +463,7 @@ std::string decode_presence(const xml_binding::field& field, const std::string& 
 
 // Join one native list privately, checking its item/text limits before emitting any field tokens.
 std::string encode_list(const xml_binding::field& field, const std::string& access,
-    const type_name_fn& type, const std::string& rule, std::size_t field_index, bool readonly) {
+    const type_name_fn& type, const std::string& rule, std::size_t field_index, bool) {
   const bool optional = field.source->type_name_list.front().is_optional();
   const auto selected = optional ? "(*" + access + ')' : access;
   std::string out{"{\n"};
@@ -448,7 +479,7 @@ std::string encode_list(const xml_binding::field& field, const std::string& acce
   const auto qualify = [&] {
     if (!namespace_scalar(field)) { return std::string{}; }
     std::string result{"srlScope:=map[string]string(nil)\n"};
-    if (!readonly) {
+    {
       result += "if scopes:=value.srlXmlNamespaces[" + std::to_string(field_index) +
           "];len(scopes)!=0{srlScope=scopes[0]}else if fallback:=value.srlXmlNamespaces[-1];len(fallback)!=0{srlScope=fallback[0]}\n";
     }
@@ -492,7 +523,7 @@ std::string decode_list_value(const xml_binding::field& field, const std::string
 
 // Select optional attributes/children or required simple content without retaining XML subtrees.
 std::string decode_list(const xml_binding::field& field, const std::string& access,
-    const type_name_fn& type, const std::string& rule, std::size_t field_index) {
+    const type_name_fn& type, const std::string& rule, std::size_t field_index, bool text_extensions = false) {
   const bool optional = field.source->type_name_list.front().is_optional();
   const auto& fallback = field.fixed_value ? field.fixed_value : field.default_value;
   std::string out{"{\n"};
@@ -512,8 +543,8 @@ std::string decode_list(const xml_binding::field& field, const std::string& acce
   } else if (field.text) {
     out += "if fields.used!=len(fields.attrs){return nil,fmt.Errorf(\"Unexpected XML attribute\")}\n";
     out += namespace_scalar(field)
-        ? "srlText,srlScope,srlErr:=input.namespaceText(1,&" + rule + ");if srlErr!=nil{return nil,srlErr}\n"
-        : "srlText,srlErr:=input.text();if srlErr!=nil{return nil,srlErr}\n";
+        ? "srlText,srlScope,srlErr:=input." + std::string{text_extensions ? "namespacePrefixText" : "namespaceText"} + "(1,&" + rule + ");if srlErr!=nil{return nil,srlErr}\n"
+        : "srlText,srlErr:=input." + std::string{text_extensions ? "prefixText" : "text"} + "();if srlErr!=nil{return nil,srlErr}\n";
     out += decode_list_value(field, access, type, rule, field_index);
   } else {
     if (optional) { out += "srlPresent,srlErr:=input.has(" + qualified(field.qualified_name) + ");if srlErr!=nil{return nil,srlErr};if srlPresent{\n"; }
@@ -531,6 +562,7 @@ std::string encode_mixed(const xml_binding::mixed_contract& mixed, const std::st
     const field_name& field, const alternative_name& alternative) {
   const auto storage = field(*mixed.variant);
   std::string out{"{\nsrlMixed:=srlXmlMixedBudget{limits:output.mixedLimits}\n"};
+  out += xml_codegen::ordered_start(mixed, "go");
   if (mixed.source->fixed_extent != 0U) {
     out += "if len(" + access + ")!=" + std::to_string(mixed.source->fixed_extent) + "{return fmt.Errorf(\"XML mixed fixed extent mismatch\")}\n";
   }
@@ -542,19 +574,24 @@ std::string encode_mixed(const xml_binding::mixed_contract& mixed, const std::st
   }
   for (const auto& child : mixed.children) {
     const auto selected = "srlFragment." + storage + alternative(child.branch);
-    out += "case " + std::to_string(child.alternative) + ":\nif " + selected + "==nil{return fmt.Errorf(\"Nil XML mixed child\")}\nif err:=" +
+    out += "case " + std::to_string(child.alternative) + ":\n" +
+        xml_codegen::ordered_step(mixed, std::to_string(child.alternative), "go", "return fmt.Errorf(\"Ordered XSD content mismatch\")") +
+        "if " + selected + "==nil{return fmt.Errorf(\"Nil XML mixed child\")}\nif err:=" +
         selected + ".srlXmlEncode(output," + qualified(child.qualified_name) + ");err!=nil{return err}\n";
   }
-  return out + "default:return fmt.Errorf(\"Invalid XML mixed alternative\")\n}\n}\n}\n";
+  return out + "default:return fmt.Errorf(\"Invalid XML mixed alternative\")\n}\n}\n" +
+      xml_codegen::ordered_finish(mixed, "go", "return fmt.Errorf(\"Incomplete ordered XSD content\")") + "}\n";
 }
 
 // Consume logical text runs/known children into a complete private native fragment sequence.
 std::string decode_mixed(const xml_binding::mixed_contract& mixed, const std::string& access,
-    const type_name_fn& type, const field_name& field, const alternative_name& alternative) {
+    const type_name_fn& type, const field_name& field, const alternative_name& alternative,
+    const std::string& extension_end = {}) {
   const auto fragment = type(leaf(*mixed.source));
   const auto create = "New" + record_name(fragment) + "()";
   const auto storage = field(*mixed.variant);
-  std::string out{"{\nif fields.used!=len(fields.attrs){return nil,fmt.Errorf(\"Unexpected XML mixed attribute\")}\nsrlMixed:=srlXmlMixedBudget{limits:input.mixedLimits}\nsrlMixedValues:=make([]" + fragment + ",0)\nfor{\n"};
+  std::string out{"{\nif fields.used!=len(fields.attrs){return nil,fmt.Errorf(\"Unexpected XML mixed attribute\")}\nsrlMixed:=srlXmlMixedBudget{limits:input.mixedLimits}\nsrlMixedValues:=make([]" + fragment + ",0)\n"};
+  out += xml_codegen::ordered_start(mixed, "go") + "for{\n";
   out += std::string{"srlEvent,srlErr:=input."} + (mixed.element_only ? "peek" : "mixedEvent") + "();if srlErr!=nil{return nil,srlErr}\n";
   if (!mixed.element_only) {
     out += "if srlEvent.kind=='t'{\nsrlText,srlErr:=input.mixedText(&srlMixed);if srlErr!=nil{return nil,srlErr};if srlText==\"\"{continue}\nsrlFragment:=" + create +
@@ -563,23 +600,33 @@ std::string decode_mixed(const xml_binding::mixed_contract& mixed, const std::st
   }
   out += "if srlEvent.kind!='s'{break}\nswitch srlEvent.name{\n";
   for (const auto& child : mixed.children) {
-    out += "case " + qualified(child.qualified_name) + ":\nif srlErr=srlMixed.fragment();srlErr!=nil{return nil,srlErr}\nsrlChild,srlErr:=srlXmlDecode" +
+    out += "case " + qualified(child.qualified_name) + ":\n" +
+        xml_codegen::ordered_step(mixed, std::to_string(child.alternative), "go", "return nil,fmt.Errorf(\"Ordered XSD content mismatch\")") +
+        "if srlErr=srlMixed.fragment();srlErr!=nil{return nil,srlErr}\nsrlChild,srlErr:=srlXmlDecode" +
         record_name(type(*child.value_type)) + "(input," + qualified(child.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\nsrlFragment:=" + create +
         "\nsrlFragment." + storage + "Index=" + std::to_string(child.alternative) + "\nsrlFragment." + storage + alternative(child.branch) +
         "=srlChild\nsrlMixedValues=append(srlMixedValues,srlFragment)\n";
   }
-  out += "default:return nil,fmt.Errorf(\"Unknown XML mixed child\")\n}\n}\n";
+  if (extension_end.empty()) {
+    out += "default:return nil,fmt.Errorf(\"Unknown XML mixed child\")\n}\n}\n";
+  } else {
+    out += "default:if err:=srlExtensions.readAt(input," + extension_end + ",0," +
+        (mixed.element_only ? "false" : "true") + ");err!=nil{return nil,err}\n" +
+        "srlEnd,srlErr:=input.mixedEvent();if srlErr!=nil{return nil,srlErr};if srlEnd.kind!='e'{return nil,fmt.Errorf(\"Content follows an XML end extension slot\")}\n}\n}\n";
+  }
   if (mixed.source->fixed_extent != 0U) {
     out += "if len(srlMixedValues)!=" + std::to_string(mixed.source->fixed_extent) + "{return nil,fmt.Errorf(\"XML mixed fixed extent mismatch\")}\n";
   }
-  return out + access + "=srlMixedValues\n}\n";
+  return out + xml_codegen::ordered_finish(mixed, "go", "return nil,fmt.Errorf(\"Incomplete ordered XSD content\")") + access + "=srlMixedValues\n}\n";
 }
 } // namespace
 
 bool supports_all(const xml_binding::record& contract) {
   if (contract.all_groups.size() != 1U || contract.all_groups.front().minimum > 1U ||
-      !contract.choices.empty() || !contract.wildcards.empty() || contract.mixed ||
-      contract.extensions) {
+      !contract.choices.empty() || std::any_of(contract.wildcards.begin(), contract.wildcards.end(),
+          [](const auto& wildcard) { return !wildcard.attribute; }) || contract.mixed ||
+        (contract.extensions && std::any_of(contract.extensions->slots.begin(), contract.extensions->slots.end(),
+            [&](const auto& slot) { return !slot.attribute && slot.before_field != contract.fields.size(); }))) {
     return false;
   }
   const auto& alternatives = contract.all_groups.front().alternatives;
@@ -597,7 +644,9 @@ bool supports_all(const xml_binding::record& contract) {
 
 bool supports_choices(const xml_binding::record& contract) {
   if (contract.choices.size() != 1U || contract.choices.front().repeated ||
-      !contract.all_groups.empty() || !contract.wildcards.empty() || contract.mixed || contract.extensions) {
+      !contract.all_groups.empty() || contract.mixed ||
+      (contract.extensions && std::any_of(contract.extensions->slots.begin(), contract.extensions->slots.end(),
+          [&](const auto& slot) { return !slot.attribute && slot.before_field != contract.fields.size(); }))) {
     return false;
   }
   const auto& choice = contract.choices.front();
@@ -717,6 +766,15 @@ std::string scalar_rule(const xml_binding::field& field, std::size_t index, std:
     }
     return count ? std::to_string(*count) + 'L' : "-1L";
   };
+  // Literal items retain their first-selected families independently of their containing list declaration.
+  const auto identity_literal = [&](auto&& self, const xml_binding::scalar_value_identity& identity) -> std::string {
+    std::string result = "new SrlXmlRule.UnionValue(" + std::string{string_array} + quote(identity.lexical_kind) + ',' +
+        quote(identity.list_item_kind) + ',' + quote(identity.lexical_value) + "}," + (java ? "new String[][]{" : "new string[][]{");
+    for (const auto& name : identity.names) { result += std::string{string_array} + quote(name.namespace_uri) + ',' + quote(name.local) + "},"; }
+    result += "},new SrlXmlRule.UnionValue[]{";
+    for (const auto& item : identity.items) { result += self(self, item) + ','; }
+    return result + "})";
+  };
   // Union branches retain independent restrictions and share the operation's bounded evaluator.
   const auto rule = [&](auto&& self, const xml_binding::scalar_facets& facets,
                         const std::optional<std::string>& fixed) -> std::string {
@@ -759,14 +817,28 @@ std::string scalar_rule(const xml_binding::field& field, std::size_t index, std:
     for (const auto& values : facets.qname_list_enumeration) { result += names(values) + ','; }
     result += "})";
   }
+  if (!facets.union_enumeration.empty()) {
+    result += std::string{java ? ".unionValues(" : ".UnionValues("} + "new SrlXmlRule.UnionValue[]{";
+    for (const auto& identity : facets.union_enumeration) { result += identity_literal(identity_literal, identity) + ','; }
+    result += "})";
+  }
+  if (!facets.list_item_facets.empty()) {
+    auto item_rule = self(self, facets.list_item_facets.front(), {});
+    if (namespace_scalar(field)) { item_rule += java ? ".namespaceLexical()" : ".NamespaceLexical()"; }
+    result += std::string{java ? ".listItem(" : ".ListItem("} + item_rule + ')';
+  }
   return result;
   };
   auto expression = rule(rule, field.facets, field.fixed_value);
-  if (namespace_scalar(field) && (xml_codegen::namespace_lexical_facets(field.facets) ||
+  if (field.union_fixed) {
+    expression += std::string{java ? ".unionFixed(" : ".UnionFixed("} + identity_literal(identity_literal, *field.union_fixed) + ')';
+  }
+  if (namespace_scalar(field) && (!field.facets.union_members.empty() || xml_codegen::namespace_lexical_facets(field.facets) ||
       (field.prefix_list && !field.facets.enumeration.empty()))) {
     expression += java ? ".namespaceLexical()" : ".NamespaceLexical()";
   }
-  if (field.qname_default || field.qname_fixed || field.qname_list_default || field.qname_list_fixed) {
+  if (field.qname_default || field.qname_fixed || field.qname_list_default || field.qname_list_fixed ||
+      (namespace_scalar(field) && (field.union_default || field.union_fixed))) {
     const auto& fallback = field.fixed_value ? field.fixed_value : field.default_value;
     expression += std::string{java ? ".namespaceDefault(" : ".NamespaceDefault("} +
         quote(fallback.value_or("")) + ',' + (java ? "new String[][]{" : "new string[][]{");
@@ -779,9 +851,11 @@ std::string scalar_rule(const xml_binding::field& field, std::size_t index, std:
       expression += std::string{string_array} + quote(name.namespace_uri) + ',' + quote(name.local) + "},";
     };
     if (field.qname_fixed || field.qname_default) { add_name(field.qname_fixed ? *field.qname_fixed : *field.qname_default); }
-    else { for (const auto& name : field.qname_list_fixed ? *field.qname_list_fixed : *field.qname_list_default) { add_name(name); } }
-    expression += "}," + std::string{field.fixed_value ? "true" : "false"} + ',' +
-        (field.attribute && field.min_occurs == 0U ? "true" : "false") + ')';
+    else if (field.union_default || field.union_fixed) {
+      for (const auto& name : field.union_fixed ? field.union_fixed->names : field.union_default->names) { add_name(name); }
+    } else { for (const auto& name : field.qname_list_fixed ? *field.qname_list_fixed : *field.qname_list_default) { add_name(name); } }
+    expression += "}," + std::string{field.fixed_value && !field.union_fixed ? "true" : "false"} + ',' +
+        (field.attribute && field.min_occurs == 0U ? "true" : "false") + ',' + (field.attribute ? "false" : "true") + ')';
   }
   return std::string{java ? "private static final SrlXmlRule " : "private static readonly SrlXmlRule "} +
       scalar_rule_name(index, language) + " = " + expression + ';';
@@ -816,6 +890,7 @@ std::string scalar_input(const xml_binding::field& field, std::size_t index,
   const auto text = fallback && !namespace_scalar(field) ? std::string{"SrlXmlRule."} +
       (language == "java" ? "defaultText(" : "DefaultText(") + expression + ',' +
       quote(*fallback) + ',' + (field.attribute ? "true" : "false") + ')' : namespaced;
+  if (namespace_scalar(field) && (!field.facets.union_members.empty() || !field.facets.list_item_facets.empty())) { return text; }
   return needs_scalar_rule(field) ? scalar_rule_name(index, language) +
       (language == "java" ? ".check(" : ".Check(") + text + ',' +
       (language == "java" ? "input.listLimit(),input.budget" : "input.ListLimit,input.Operation") + ')' : text;
@@ -829,6 +904,7 @@ std::string scalar_output(const xml_binding::field& field, std::size_t index,
       (java ? "output(output," : "Output(output,") + std::to_string(index) + ',' +
       (typed_list(field) ? "0" : "srlNamespaceIndex++") + ',' + expression + ',' + namespace_mode(field) + ',' +
       (needs_scalar_rule(field) ? scalar_rule_name(index, language) : "null") + ')' : expression;
+  if (namespace_scalar(field) && (!field.facets.union_members.empty() || !field.facets.list_item_facets.empty())) { return text; }
   if (!needs_scalar_rule(field)) { return text; }
   const auto limit = java ? "output.listLimit(),output.budget" : "output.ListLimit,output.Operation";
   return scalar_rule_name(index, language) + (fallback && !field.attribute ?
@@ -1097,6 +1173,7 @@ std::string extension_runtime(std::string_view language) {
       }; }
   if (language == "csharp") { return constants + std::string{
 #include "xml_csharp_extension_runtime.inc"
+#include "xml_csharp_declarations_runtime.inc"
       }; }
   if (language == "go") { return constants; }
   throw std::invalid_argument{"Unsupported portable XML extension runtime"};
@@ -1110,6 +1187,7 @@ std::string mixed_write(const xml_binding::mixed_contract& mixed, const std::str
   const auto storage = java ? field(*mixed.variant) : "SrlXmlMixed";
   const auto count = access + (java ? mixed.source->modifier == member::modifier_type::array ? ".length" : ".size()" : ".Count");
   std::string out{"{\nif(" + access + (java ? "==null" : " is null") + ")throw new " + error + "(\"Null XML mixed sequence\");\n"};
+  out += xml_codegen::ordered_start(mixed, language);
   if (mixed.source->fixed_extent != 0U) {
     out += "if(" + count + "!=" + std::to_string(mixed.source->fixed_extent) + ")throw new " + error + "(\"XML mixed fixed extent mismatch\");\n";
   }
@@ -1124,22 +1202,25 @@ std::string mixed_write(const xml_binding::mixed_contract& mixed, const std::str
   }
   for (const auto& child : mixed.children) {
     const auto selected = "srlFragment." + storage + alternative(child.branch);
-    out += "case " + std::to_string(child.alternative) + ":\nif(" + selected + (java ? "==null" : " is null") +
+    out += "case " + std::to_string(child.alternative) + ":\n" +
+        xml_codegen::ordered_step(mixed, std::to_string(child.alternative), language, "throw new " + std::string{error} + "(\"Ordered XSD content mismatch\");") + "if(" + selected + (java ? "==null" : " is null") +
         ")throw new " + error + "(\"Null XML mixed child\");\n" + selected + (java ? ".xmlWrite(output," : ".XmlWrite(output,") +
         expanded(child.qualified_name) + ");break;\n";
   }
-  return out + "default:throw new " + error + "(\"Invalid XML mixed alternative\");\n}\n}\n}\n";
+  return out + "default:throw new " + error + "(\"Invalid XML mixed alternative\");\n}\n}\n" +
+      xml_codegen::ordered_finish(mixed, language, "throw new " + std::string{error} + "(\"Incomplete ordered XSD content\");") + "}\n";
 }
 
 std::string mixed_read(const xml_binding::mixed_contract& mixed, const std::string& access,
     const type_name_fn& type, const field_name& field, const alternative_name& alternative,
-    std::string_view language, const std::string& array_initializer) {
+    std::string_view language, const std::string& array_initializer, const std::string& extension_end) {
   const bool java = language == "java";
   const auto error = java ? "IllegalArgumentException" : "System.FormatException";
   const auto storage = java ? field(*mixed.variant) : "SrlXmlMixed";
   const auto fragment = type(leaf(*mixed.source));
   const auto expanded = [](const xml::name& name) { return quote(name.namespace_uri.empty() ? name.local : "{" + name.namespace_uri + "}" + name.local); };
   std::string out{"{\n"};
+  out += xml_codegen::ordered_start(mixed, language);
   out += java ? "if(!fields.attributes.isEmpty())throw new IllegalArgumentException(\"Unexpected XML mixed attribute\");\nvar srlMixed=new SrlXmlMixedBudget(input.mixedLimits);\nvar srlMixedValues=new java.util.ArrayList<" + fragment + ">();\n" :
       "if(fields.Attributes.Count!=0)throw new System.FormatException(\"Unexpected XML mixed attribute\");\nvar srlMixed=new SrlXmlMixedBudget(input.MixedLimits,input.Operation);\nvar srlMixedValues=new System.Collections.Generic.List<" + fragment + ">();\n";
   const auto kind = java ? "input.kind" : "input.Kind";
@@ -1156,13 +1237,21 @@ std::string mixed_read(const xml_binding::mixed_contract& mixed, const std::stri
   out += "if(" + std::string{kind} + "!='s')break;\n";
   out += java ? "switch(input.name()){\n" : "switch(input.Name){\n";
   for (const auto& child : mixed.children) {
-    out += "case " + expanded(child.qualified_name) + ":{\nsrlMixed." + (java ? "fragment();\n" : "Fragment();\n") +
+    out += "case " + expanded(child.qualified_name) + ":{\n" +
+        xml_codegen::ordered_step(mixed, std::to_string(child.alternative), language, "throw new " + std::string{error} + "(\"Ordered XSD content mismatch\");") + "srlMixed." + (java ? "fragment();\n" : "Fragment();\n") +
         "var srlFragment=new " + fragment + "();\nsrlFragment." + storage + "Index=" + std::to_string(child.alternative) +
         ";\nsrlFragment." + storage + alternative(child.branch) + '=' + type(*child.value_type) +
         (java ? ".xmlRead(input," : ".XmlRead(input,") + expanded(child.qualified_name) + ");\n" +
         (java ? "srlMixedValues.add(srlFragment);\n" : "srlMixedValues.Add(srlFragment);\n") + "break;\n}\n";
   }
-  out += "default:throw new " + std::string{error} + "(\"Unknown XML mixed child\");\n}\n}\n";
+  if (extension_end.empty()) {
+    out += "default:throw new " + std::string{error} + "(\"Unknown XML mixed child\");\n}\n}\n";
+  } else {
+    out += "default:srlExtensions." + std::string{java ? "readAt" : "ReadAt"} + "(input," + extension_end + ",0," +
+        (mixed.element_only ? "true" : "false") + ");\nif(" + kind + "!='e')throw new " + error +
+        "(\"Content follows an XML end extension slot\");break;\n}\n}\n";
+  }
+  out += xml_codegen::ordered_finish(mixed, language, "throw new " + std::string{error} + "(\"Incomplete ordered XSD content\");");
   const auto count = java ? "srlMixedValues.size()" : "srlMixedValues.Count";
   if (mixed.source->fixed_extent != 0U) {
     out += "if(" + std::string{count} + "!=" + std::to_string(mixed.source->fixed_extent) + ")throw new " + error + "(\"XML mixed fixed extent mismatch\");\n";
@@ -1452,8 +1541,9 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
     const std::string& identifier, const field_name& field, const type_name_fn& type,
     const xml_options& options, std::string_view language, const alternative_name& alternative,
     bool readonly, const field_name& projection, std::string_view operation_type,
-    std::string_view operation_decoder) {
+    std::string_view operation_decoder, int declaration_inventory, std::string_view declaration_prefix) {
   if (language != "go") { throw std::invalid_argument{"Unsupported XML portable methods"}; }
+  const std::string declaration_policy = declaration_prefix.empty() ? "srlXmlDeclaration" : std::string{declaration_prefix};
   const bool export_graph = readonly || xml_codegen::native_xml_export_graph(object);
   const bool namespace_values = std::any_of(contract.fields.begin(), contract.fields.end(), namespace_scalar);
   const bool namespace_reservations = xml_codegen::namespace_union_graph(object, xml_binding::schema{options});
@@ -1515,7 +1605,7 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
   std::string pattern_declarations{};
   if(contract.extensions)for(const auto& source_field:object.member_list)if(field(source_field)=="srlXmlPreserved")throw std::invalid_argument{"Go XML extension state collides with a native field"};
   const auto extension_name="srlXmlExtensionContract"+identifier;
-  if(contract.extensions)pattern_declarations+="// Immutable foreign-only permissions and prepared slot lookups.\nvar "+extension_name+'='+xml_codegen::portable_extension_metadata(*contract.extensions,quote,qualified,"go")+"\n";
+  if(contract.extensions)pattern_declarations+="// Immutable foreign-only permissions and prepared slot lookups.\nvar "+extension_name+'='+xml_codegen::portable_extension_metadata(*contract.extensions,quote,qualified,"go",declaration_inventory)+"\n";
   const auto identity_name = "srlXmlIdentityScope" + identifier;
   if (contract.identity) {
     pattern_declarations += "// Immutable owner-local tuple paths and exact builtin value spaces.\nvar " +
@@ -1538,7 +1628,7 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
       "// EncodeXMLWithDigestLimits bounds nested owning digests without changing earlier option structs.\nfunc (value *" + identifier + ") EncodeXMLWithDigestLimits(digests XmlDigestLimits,policies ...XmlOptions)([]byte,error){return value.EncodeXMLWithAllPolicies(DefaultXmlMapLimits(),DefaultXmlMixedLimits(),DefaultXmlIdentityLimits(),digests,policies...)}\n"
       "// EncodeXMLWithAllPolicies validates every independent policy before graph traversal.\nfunc (value *" + identifier + ") EncodeXMLWithAllPolicies(maps XmlMapLimits,mixed XmlMixedLimits,identity XmlIdentityLimits,digests XmlDigestLimits,policies ...XmlOptions)([]byte,error){return value.EncodeXMLWithAllBounds(maps,mixed,identity,digests,DefaultXmlExtensionOptions(),policies...)}\n// EncodeXMLWithExtensionOptions carries explicit vocabulary understanding and opaque storage bounds.\nfunc (value *" + identifier + ") EncodeXMLWithExtensionOptions(extensions XmlExtensionOptions,policies ...XmlOptions)([]byte,error){return value.EncodeXMLWithAllBounds(DefaultXmlMapLimits(),DefaultXmlMixedLimits(),DefaultXmlIdentityLimits(),DefaultXmlDigestLimits(),extensions,policies...)}\n// EncodeXMLWithAllBounds validates each independent policy before complete owning traversal.\nfunc (value *" + identifier + ") EncodeXMLWithAllBounds(maps XmlMapLimits,mixed XmlMixedLimits,identity XmlIdentityLimits,digests XmlDigestLimits,extensions XmlExtensionOptions,policies ...XmlOptions)([]byte,error){\nvar extensionErr error;extensions,extensionErr=srlXmlExtensionOptions(extensions);if extensionErr!=nil{return nil,extensionErr}\nif err:=srlXmlMapPolicy(maps);err!=nil{return nil,err}\nif err:=srlXmlMixedPolicy(mixed);err!=nil{return nil,err}\nif err:=srlXmlIdentityPolicy(identity);err!=nil{return nil,err}\nif err:=srlXmlDigestPolicy(digests);err!=nil{return nil,err}\n"};
   out.insert(0, pattern_declarations);
-  if (namespace_values && !readonly) {
+  if (namespace_values) {
     out.insert(0, "// SetXMLNamespaces replaces XML-only field scopes for native-authored QName values.\n"
         "// Bindings are copied; native fields and serialization protocols retain their existing values.\n"
         "func (value *" + identifier + ") SetXMLNamespaces(bindings map[string]string)error{\n"
@@ -1570,7 +1660,7 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
   if (!options.runtime_xsd) { out += "if policy.Validator!=nil{return nil,fmt.Errorf(\"Runtime XSD was not enabled during generation\")}\n"; }
   out += "output:=srlXmlOutputStart(policy.Limits,maps)\noutput.budget.operation=policy.Operation\noutput.mixedLimits=mixed\noutput.identityLimits=identity\noutput.digestLimits=digests\noutput.extensionOptions=extensions\n";
   if (namespace_reservations) { out += "output.namespaceReserveOnly=true;err=value.srlXmlEncode(output," + qualified(contract.root) + ");output.namespaceReserveOnly=false;if err!=nil{return nil,err}\n"; }
-  out += "if err=value.srlXmlEncode(output," + qualified(contract.root) + ");err!=nil{return nil,err}\ndata,err:=output.finish();if err!=nil{return nil,err}\n";
+  out += "var srlRootTypes []srlxml.Name;if policy.requiresType{identity,failure:=srlXmlExpandedName(policy.ExpectedType);if failure!=nil{return nil,failure};srlRootTypes=[]srlxml.Name{identity}}\nif err=value.srlXmlEncode(output," + qualified(contract.root) + ",srlRootTypes...);err!=nil{return nil,err}\ndata,err:=output.finish();if err!=nil{return nil,err}\n";
   if (options.runtime_xsd && options.validation_scope != "input") {
     out += "if policy.Validator!=nil{if err=output.budget.charge(\"work\",0);err!=nil{return nil,err};if err=policy.Validator.ValidateXML(data);err!=nil{return nil,err};if err=output.budget.charge(\"work\",0);err!=nil{return nil,err}}\n";
   }
@@ -1590,7 +1680,7 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
   } else {
   out += "var extensionErr error;extensions,extensionErr=srlXmlExtensionOptions(extensions);if extensionErr!=nil{return nil,extensionErr}\nif err:=srlXmlMapPolicy(maps);err!=nil{return nil,err}\nif err:=srlXmlMixedPolicy(mixed);err!=nil{return nil,err}\nif err:=srlXmlIdentityPolicy(identity);err!=nil{return nil,err}\nif err:=srlXmlDigestPolicy(digests);err!=nil{return nil,err}\npolicy,err:=srlXmlOptions(policies);if err!=nil{return nil,err}\n";
   if (!options.runtime_xsd) { out += "if policy.Validator!=nil{return nil,fmt.Errorf(\"Runtime XSD was not enabled during generation\")}\n"; }
-  out += "input,err:=srlXmlInputStart(data,policy.Limits,maps);if err!=nil{return nil,err}\ninput.budget.operation=policy.Operation\ninput.mixedLimits=mixed\ninput.identityLimits=identity\ninput.digestLimits=digests\ninput.extensionOptions=extensions\nif policy.ExpectedRoot!=\"\"{event,failure:=input.peek();if failure!=nil{return nil,failure};if srlXmlIdentityName(event.name)!=policy.ExpectedRoot{return nil,fmt.Errorf(\"Unexpected package XML root\")}}\nif policy.ExpectedType!=\"\"{expected:=srlxml.Name{Local:policy.ExpectedType};if strings.HasPrefix(policy.ExpectedType,\"{\"){end:=strings.Index(policy.ExpectedType,\"}\");if end<0{return nil,fmt.Errorf(\"Invalid expected XML type\")};expected.Space=policy.ExpectedType[1:end];expected.Local=policy.ExpectedType[end+1:]};if err:=input.expectType(expected,false);err!=nil{return nil,err}}\nvalue,err:=srlXmlDecode" + identifier + "(input," + qualified(contract.root) + ");if err!=nil{return nil,err}\nif err=input.finish();err!=nil{return nil,err}\n";
+  out += "input,err:=srlXmlInputStart(data,policy.Limits,maps);if err!=nil{return nil,err}\ninput.budget.operation=policy.Operation\ninput.mixedLimits=mixed\ninput.identityLimits=identity\ninput.digestLimits=digests\ninput.extensionOptions=extensions\nif policy.ExpectedRoot!=\"\"{event,failure:=input.peek();if failure!=nil{return nil,failure};if srlXmlIdentityName(event.name)!=policy.ExpectedRoot{return nil,fmt.Errorf(\"Unexpected package XML root\")}}\nif policy.packageProfile{if err:=input.packageCapabilities(policy.vocabularies);err!=nil{return nil,err}}\nif policy.ExpectedType!=\"\"{expected,failure:=srlXmlExpandedName(policy.ExpectedType);if failure!=nil{return nil,failure};if err:=input.expectType(expected,policy.requiresType);err!=nil{return nil,err}}\nvalue,err:=srlXmlDecode" + identifier + "(input," + qualified(contract.root) + ");if err!=nil{return nil,err}\nif err=input.finish();err!=nil{return nil,err}\n";
   if (options.runtime_xsd && options.validation_scope != "output") {
     out += "if policy.Validator!=nil{if err=input.budget.charge(\"work\",0);err!=nil{return nil,err};if err=policy.Validator.ValidateXML(data);err!=nil{return nil,err};if err=input.budget.charge(\"work\",0);err!=nil{return nil,err}}\n";
   }
@@ -1620,9 +1710,7 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
       out += optional ? "if " + access + "!=nil{\n" : "{\n";
       out += output_errors(encode_scalar(leaf(source), optional ? "(*" + access + ')' : access, type));
       out += "srlOwnerScope:=map[string]string(nil)\n";
-      if (!readonly) {
-        out += "if scopes:=value.srlXmlNamespaces[" + std::to_string(index) + "];len(scopes)!=0{srlOwnerScope=scopes[0]}else if fallback:=value.srlXmlNamespaces[-1];len(fallback)!=0{srlOwnerScope=fallback[0]}\n";
-      }
+      out += "if scopes:=value.srlXmlNamespaces[" + std::to_string(index) + "];len(scopes)!=0{srlOwnerScope=scopes[0]}else if fallback:=value.srlXmlNamespaces[-1];len(fallback)!=0{srlOwnerScope=fallback[0]}\n";
       out += "srlPreferred,srlRequired,srlPreferenceErr:=output.namespacePreferredDefault(srlText,srlOwnerScope,&" + patterns.at(&source) +
           ");if srlPreferenceErr!=nil{return srlPreferenceErr};if srlRequired{if srlOwnerDefaultSet&&srlOwnerDefault!=srlPreferred{return fmt.Errorf(\"Conflicting XML union owner defaults\")};srlOwnerDefault=srlPreferred;srlOwnerDefaultSet=true}\n}\n";
     }
@@ -1631,7 +1719,7 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
     out+="srlScope:=map[string]string{}\n";
     if(!readonly)out+="if value.srlXmlPreserved!=nil{srlScope=value.srlXmlPreserved.scope}\n";
     if (owner_union) { out += "if srlOwnerDefaultSet&&srlScope[\"\"]!=srlOwnerDefault{return fmt.Errorf(\"Conflicting XML union and preserved defaults\")}\n"; }
-    out+="srlExtensions,srlExtensionErr:=srlXmlExtensionTracker(&"+extension_name+",srlScope,output.extensionOptions,"+std::string{readonly?"nil":"value.srlXmlPreserved"}+");if srlExtensionErr!=nil{return srlExtensionErr}\nif err:=output.openScoped(name,srlScope);err!=nil{return err}\n";
+    out+="srlExtensions,srlExtensionErr:=srlXmlExtensionTracker(&"+extension_name+",srlScope,output.extensionOptions,"+std::string{readonly?"nil":"value.srlXmlPreserved"}+","+declaration_policy+"OutputPolicy(output));if srlExtensionErr!=nil{return srlExtensionErr}\nif err:=output.openScoped(name,srlScope);err!=nil{return err}\n";
   } else if (namespace_values || namespace_reservations) {
     out += "if err:=output.openScoped(name,map[string]string{\"\":" + std::string{owner_union ? "srlOwnerDefault" : "\"\""} + "});err!=nil{return err}\n";
   } else { out += "if err:=output.open(name);err!=nil{return err}\n"; }
@@ -1726,10 +1814,6 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
         const auto namespace_value = [&] {
           if (!namespace_scalar(mapped)) { return std::string{}; }
           const auto constraint = namespace_constraints(mapped) ? ",&" + patterns.at(&source) : "";
-          if (readonly) {
-            return "srlQualified,srlNamespaceErr:=output.namespaceValue(srlText," + namespace_mode(mapped) +
-                ",nil" + constraint + ");if srlNamespaceErr!=nil{return srlNamespaceErr};srlText=srlQualified\nsrlNamespaceIndex++\n";
-          }
           return "srlScope:=map[string]string(nil)\nsrlScopes:=value.srlXmlNamespaces[" +
               std::to_string(&mapped - contract.fields.data()) + "]\n" +
               "if srlNamespaceIndex<len(srlScopes){srlScope=srlScopes[srlNamespaceIndex]}else if fallback:=value.srlXmlNamespaces[-1];len(fallback)!=0{srlScope=fallback[0]}\n" +
@@ -1763,7 +1847,7 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
   if (contract.mixed) {
     out += encode_mixed(*contract.mixed, "value." + member_paths.at(contract.mixed->source), field, alternative);
   }
-  if(contract.extensions)out+="if err:=srlExtensions.emitAt(output,"+std::to_string(contract.fields.size())+",0);err!=nil{return err}\nif err:=srlExtensions.finishOutput();err!=nil{return err}\n";
+  if(contract.extensions)out+="if err:=srlExtensions.emitAt(output,"+std::to_string(contract.fields.size()+(contract.mixed?contract.mixed->children.size():0U))+",0);err!=nil{return err}\nif err:=srlExtensions.finishOutput();err!=nil{return err}\n";
   out += contract.identity ? "if err:=output.close();err!=nil{return err}\nreturn output.identityFinish(srlIdentity)\n" : "return output.close()\n";
   out += "}\n";
   if (readonly) { return out; }
@@ -1774,7 +1858,7 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
   if (contract.identity) {
     out += "srlIdentity,srlIdentityErr:=input.identityScope(&" + identity_name + ");if srlIdentityErr!=nil{return nil,srlIdentityErr}\n";
   }
-  if(contract.extensions)out+="if _,err:=input.peek();err!=nil{return nil,err}\nsrlExtensions,srlExtensionErr:=srlXmlExtensionTracker(&"+extension_name+",input.namespaces,input.extensionOptions,nil);if srlExtensionErr!=nil{return nil,srlExtensionErr}\n";
+  if(contract.extensions)out+="if _,err:=input.peek();err!=nil{return nil,err}\nsrlExtensions,srlExtensionErr:=srlXmlExtensionTracker(&"+extension_name+",input.namespaces,input.extensionOptions,nil,"+declaration_policy+"InputPolicy(input));if srlExtensionErr!=nil{return nil,srlExtensionErr}\n";
   out += "fields,err:=input.open(name);if err!=nil{return nil,err}\nvalue:=New" + identifier + "()\n";
   if (const auto* revision = contract.model.revision) {
     out += "{\nsrlText,_,srlErr:=fields.attribute(" + qualified({"revision", std::string{xml_binding::model_metadata_namespace}}) +
@@ -1788,8 +1872,8 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
   }
   // Consume attributes independently of their declared field order.
   for (const bool attributes : {true, false}) {
-    if (all && !attributes) { continue; }
     if(contract.extensions&&!attributes)out+="for index,attribute:=range fields.attrs{if attribute.Name.Local!=\"\"{if err:=srlExtensions.attribute(attribute);err!=nil{return nil,err};fields.attrs[index].Name=srlxml.Name{};fields.used++}}\n";
+    if (all && !attributes) { continue; }
     for (const auto& mapped : contract.fields) {
       if (mapped.attribute != attributes) { continue; }
       const auto& source = *mapped.source;
@@ -1797,7 +1881,7 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
       const auto active = active_scope(source, out);
       if (typed_list(mapped)) {
         out += decode_list(mapped, "value." + member_paths.at(&source), type, patterns.at(&source),
-            static_cast<std::size_t>(&mapped - contract.fields.data()));
+            static_cast<std::size_t>(&mapped - contract.fields.data()), contract.extensions.has_value());
         continue;
       }
       if (needs_presence(mapped)) {
@@ -1856,13 +1940,13 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
       } else if (mapped.text) {
         out += "if fields.used!=len(fields.attrs){return nil,fmt.Errorf(\"Unexpected XML attribute\")}\n";
         out += namespace_scalar(mapped)
-            ? "srlText,srlScope,srlErr:=input.namespaceText(" + namespace_mode(mapped) +
+            ? "srlText,srlScope,srlErr:=input." + std::string{contract.extensions ? "namespacePrefixText" : "namespaceText"} + "(" + namespace_mode(mapped) +
                 (patterns.contains(&source) ? ",&" + patterns.at(&source) : "") + ");if srlErr!=nil{return nil,srlErr}\n"
-            : "srlText,srlErr:=input.text();if srlErr!=nil{return nil,srlErr}\n";
+            : "srlText,srlErr:=input." + std::string{contract.extensions ? "prefixText" : "text"} + "();if srlErr!=nil{return nil,srlErr}\n";
       } else {
         if (mapped.wrapper) { out += "wrapper,srlErr:=input.open(" + qualified(*mapped.wrapper) + ");if srlErr!=nil{return nil,srlErr}\n"; }
         out += "srlCount:=0\nfor {\nsrlPresent,srlErr:=input.has(" + qualified(mapped.qualified_name) + ");if srlErr!=nil{return nil,srlErr};if !srlPresent{break}\n";
-        if (max) { out += "if srlCount>=" + std::to_string(*max) + "{return nil,fmt.Errorf(\"XML child order/cardinality mismatch\")}\n"; }
+        if (max) { out += "if srlCount>=" + std::to_string(*max) + (contract.extensions ? "{break}\n" : "{return nil,fmt.Errorf(\"XML child order/cardinality mismatch\")}\n"); }
         if (scalar.type == object_type::class_type) {
           out += "srlValue,srlErr:=srlXmlDecode" + record_name(type(scalar)) + "(input," + qualified(mapped.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\n";
         } else {
@@ -1899,6 +1983,7 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
         out += "value." + member_paths.at(mapped.source) + "=nil\n";
       }
     }
+    if (contract.extensions) { out += "srlAllChildren:\n"; }
     out += "for {\nsrlEvent,srlErr:=input.peek();if srlErr!=nil{return nil,srlErr};if srlEvent.kind!='s'{break}\nswitch srlEvent.name{\n";
     for (std::size_t index{}; index < contract.fields.size(); ++index) {
       const auto& mapped = contract.fields[index];
@@ -1937,7 +2022,7 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
           (mapped.source->type_name_list.front().is_optional() ? "&srlValue" : "srlValue") +
           "\n" + seen + "=true;srlAllCount++\n";
     }
-    out += "default:return nil,fmt.Errorf(\"Unexpected XML all child\")\n}\n}\n";
+    out += contract.extensions ? "default:break srlAllChildren\n}\n}\n" : "default:return nil,fmt.Errorf(\"Unexpected XML all child\")\n}\n}\n";
     if (contract.all_groups.front().minimum == 0U) { out += "if srlAllCount!=0{\n"; }
     else { out += "_ = srlAllCount\n"; }
     for (std::size_t index{}; index < contract.fields.size(); ++index) {
@@ -1951,10 +2036,12 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
   }
   const bool has_text = std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.text; });
   if (contract.mixed) {
-    out += decode_mixed(*contract.mixed, "value." + member_paths.at(contract.mixed->source), type, field, alternative);
+    out += decode_mixed(*contract.mixed, "value." + member_paths.at(contract.mixed->source), type, field, alternative,
+        contract.extensions ? std::to_string(contract.fields.size()+contract.mixed->children.size()) : std::string{});
   }
-  if(contract.extensions)out+="if err:=srlExtensions.readAt(input,"+std::to_string(contract.fields.size())+",0);err!=nil{return nil,err}\nif err:=srlExtensions.finish();err!=nil{return nil,err}\nvalue.srlXmlPreserved=srlExtensions.state\n";
-  if (!has_text) { out += "if err=fields.finish();err!=nil{return nil,err}\n"; }
+  if(contract.extensions)out+="if err:=srlExtensions.readAt(input,"+std::to_string(contract.fields.size()+(contract.mixed?contract.mixed->children.size():0U))+",0"+(has_text ? ",true" : "")+");err!=nil{return nil,err}\nif err:=srlExtensions.finish();err!=nil{return nil,err}\nvalue.srlXmlPreserved=srlExtensions.state\n";
+  if (has_text && contract.extensions) { out += "if err=fields.finishTextExtensions();err!=nil{return nil,err}\n"; }
+  else if (!has_text) { out += "if err=fields.finish();err!=nil{return nil,err}\n"; }
   if (contract.identity) { out += "if err=input.identityFinish(srlIdentity);err!=nil{return nil,err}\n"; }
   out += choice_check(contract, [&](const member& source) { return "value." + member_paths.at(&source); }, "go");
   return out + "return value,nil\n}\n";

@@ -5,6 +5,7 @@
 #include "xml_csharp_writer.hpp"
 #include "xml_native_writer.hpp"
 #include "xml_portable_writer.hpp"
+#include "xml_portable_declarations_writer.hpp"
 #include "javascript_package_writer.hpp"
 #include "go_package_writer.hpp"
 #include "csharp_package_writer.hpp"
@@ -27,6 +28,7 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <memory>
 #include <regex>
 #include <set>
 #include <stdexcept>
@@ -382,9 +384,12 @@ class emitter {
   target language;
   const portable_options& options;
   xml_binding::schema xml_schema_;
+  std::vector<std::shared_ptr<const xml_binding::declaration_inventory>> xml_inventories_{};
+  std::map<const class_node*, const xml_binding::declaration_inventory*> xml_owner_inventories_{};
   std::map<const class_node*, const member*> xml_mixed_variants_{};
   std::set<const class_node*> xml_mixed_storage_only_{};
   std::string unit;
+  std::string xml_declaration_prefix;
   std::string go_xml_operation_name{"XmlOperationOptions"};
   behavior::checked_helpers arithmetic_helpers{};
   std::string source{};
@@ -680,6 +685,51 @@ class emitter {
       }
       nodes.push_back(value.get());
     }
+  }
+  // Retain imported validator AST and register each private codec once before generation resolves names.
+  void collect_xml_validators() {
+    if (!options.xml.enabled) { return; }
+    for (std::size_t index{}; index < nodes.size(); ++index) {
+      if (nodes[index]->type != object_type::class_type) { continue; }
+      const auto* owner = static_cast<const class_node*>(nodes[index]);
+      // Mixed fragment helpers are native storage; only their owning record has an XML contract.
+      if (xml_mixed_storage_only_.contains(owner)) { continue; }
+      const auto contract = xml_schema_.bind(*owner);
+      const auto inventory = contract.declarations;
+      if (!inventory) { continue; }
+      xml_owner_inventories_.emplace(owner, inventory.get());
+      if (std::any_of(xml_inventories_.begin(), xml_inventories_.end(),
+          [&](const auto& stored) { return stored->storage == inventory->storage; })) { continue; }
+      xml_inventories_.push_back(inventory);
+      xml_schema_.register_inventory(inventory);
+      for (const auto& [validator, unused] : inventory->validator_indices) {
+        (void)unused;
+        xml_owner_inventories_.emplace(validator, inventory.get());
+      }
+      for (const auto& group : inventory->statements()) { register_nodes(group); }
+    }
+  }
+  // Resolve one shared declaration dispatcher for authored owners and imported nested validator classes.
+  const xml_binding::declaration_inventory* xml_inventory_for(const class_node& owner) const {
+    const auto found = xml_owner_inventories_.find(&owner);
+    return found == xml_owner_inventories_.end() ? nullptr : found->second;
+  }
+  // Associate authored and imported private owners with the same immutable pinned inventory.
+  int xml_declaration_inventory(const class_node& owner) const {
+    const auto* inventory = xml_inventory_for(owner);
+    if (!inventory) { return -1; }
+    const auto found = std::find_if(xml_inventories_.begin(), xml_inventories_.end(),
+        [&](const auto& stored) { return stored.get() == inventory; });
+    if (found == xml_inventories_.end()) { throw std::logic_error{"Missing XML declaration inventory"}; }
+    return static_cast<int>(std::distance(xml_inventories_.begin(), found));
+  }
+  // Defer shared declaration-table lookup until all private JavaScript classes have initialized.
+  std::string js_declarations_for(const class_node& owner) const {
+    const auto* inventory = xml_inventory_for(owner);
+    if (!inventory) { return "null"; }
+    const auto found = std::find_if(xml_inventories_.begin(), xml_inventories_.end(),
+        [&](const auto& stored) { return stored.get() == inventory; });
+    return "()=>srlXmlDeclarations" + std::to_string(std::distance(xml_inventories_.begin(), found));
   }
   // Validate native names, default construction, and the supported owning subset.
   void validate() {
@@ -2661,8 +2711,8 @@ class emitter {
       const auto alternatives = [&](std::string_view alias) { return name(std::string{alias}, true, true); };
       const auto getter = [&](const member& item) { return field("get_" + item.name, access_type::public_access) + "()"; };
       source += language == target::go ? xml_portable::methods(object, contract, std::string{view}, fields, types,
-          options.xml, "go", alternatives, true, getter, go_xml_operation_name) :
-          xml_csharp::methods(object, contract, options.xml, view, fields, types, alternatives, false, true, getter);
+          options.xml, "go", alternatives, true, getter, go_xml_operation_name, {}, xml_declaration_inventory(object), xml_declaration_prefix) :
+          xml_csharp::methods(object, contract, options.xml, view, fields, types, alternatives, false, true, getter, xml_declaration_inventory(object), xml_declaration_prefix);
     }
     auto result = std::move(source); source = std::move(saved_source); level = saved_level;
     return result;
@@ -2860,7 +2910,10 @@ class emitter {
           [&](const auto& item) { return type(item); },
           [&](auto item, auto access) { return field(item, access); },
           [&](const auto& item) { return default_value(item); },
-          [&](const auto& method, auto view) { return translator_codecs(method, view); });
+          [&](const auto& method, auto view) { return translator_codecs(method, view); }, false,
+          [&](const auto&) {
+            return options.xml.enabled ? "  // XML-only bindings belong to this synchronous view, never its native payload.\n  srlXmlNamespaces map[int][]map[string]string\n" : std::string{};
+          });
       comparisons(value);
     }
     line("// Encode one complete message into independent storage.");
@@ -2982,7 +3035,7 @@ class emitter {
         if (language == target::go) {
           source += xml_portable::methods(value, contract, identifier, field_name, type_name,
                                           options.xml, "go", alternative_name, false, {}, go_xml_operation_name,
-                                          [&]{std::string candidate="Decode"+identifier+"XMLWithOperation";while(globals.contains(candidate)){candidate+="_2";}globals.insert(candidate);return candidate;}());
+                                          [&]{std::string candidate="Decode"+identifier+"XMLWithOperation";while(globals.contains(candidate)){candidate+="_2";}globals.insert(candidate);return candidate;}(), xml_declaration_inventory(value), xml_declaration_prefix);
         } else if (language == target::csharp) {
           const bool needs_base_bridges = std::any_of(names.begin(), names.end(), [&](const auto& entry) {
             if (entry.first->type != object_type::class_type) { return false; }
@@ -2992,10 +3045,10 @@ class emitter {
             });
           });
           source += xml_csharp::methods(value, contract, options.xml, identifier, field_name,
-              type_name, alternative_name, needs_base_bridges);
+              type_name, alternative_name, needs_base_bridges, false, {}, xml_declaration_inventory(value), xml_declaration_prefix);
         } else {
           source += xml_binding::js_methods(value, contract, identifier, field_name, type_name,
-                                            options.xml);
+                                            options.xml, false, js_declarations_for(value));
         }
       }
     }
@@ -3104,9 +3157,10 @@ public:
       collect_mixed(collect_mixed, values);
     }
     register_nodes(values);
+    collect_xml_validators();
     if (language == target::go) {
       for (const auto* package : packages) {
-        for (const auto suffix : {"Input", "Value", "LoadOptions", "SaveOptions", "Encode", "Write", "Load", "Save"}) {
+        for (const auto suffix : {"Input", "Value", "LoadOptions", "SaveOptions", "Encode", "Write", "Load", "Save", "EncodeWithProfiles", "EncodeWithPipelineProfiles", "LoadWithPipelineProfiles", "SaveWithPipelineProfiles", "EncodeRenamed", "SaveRenamed", "DynamicPaths"}) {
           if (!globals.insert(names.at(package) + suffix).second) {
             throw std::invalid_argument{"Go package companion name collision: " + names.at(package) + suffix};
           }
@@ -3132,6 +3186,12 @@ public:
         language == target::csharp ? std::function<std::string(const type_name&)>{[&](const auto& value) { return type(value); }} :
         std::function<std::string(const type_name&)>{});
     validate();
+    if (options.xml.enabled && (language == target::go || language == target::csharp)) {
+      xml_declaration_prefix = language == target::go ? "srlXmlWildcardValidation" : "SrlXmlWildcardValidation";
+      while (std::any_of(globals.begin(), globals.end(), [&](const auto& symbol) {
+        return symbol.starts_with(xml_declaration_prefix);
+      })) { xml_declaration_prefix += "_2"; }
+    }
     if(language==target::go&&options.xml.enabled){
       while(globals.contains(go_xml_operation_name)){go_xml_operation_name+="_2";}
       globals.insert(go_xml_operation_name);
@@ -3140,7 +3200,7 @@ public:
         [&](const auto& node) { return names.at(&node); },
         [&](const auto name) { return field(name, language == target::go ?
             access_type::private_access : access_type::public_access); });
-    source += generated_license_notice(values);
+    source += generated_license_notice(values, "//", false, options.xml.enabled);
     if (language == target::go) {
       validate_name(options.package_name, language);
       line("package " + options.package_name);
@@ -3166,7 +3226,7 @@ public:
         auto xml_runtime=xml_portable::runtime("go");
         constexpr std::string_view marker{"@xml_operation_options@"};
         for(std::size_t offset{};(offset=xml_runtime.find(marker,offset))!=std::string::npos;offset+=go_xml_operation_name.size()){xml_runtime.replace(offset,marker.size(),go_xml_operation_name);}
-        source += xml_runtime;
+        source += xml_codegen::portable_declaration_alias(xml_runtime, "go", xml_declaration_prefix);
       }
       source += behavior::helpers("go", arithmetic_helpers);
     } else if (language == target::csharp) {
@@ -3194,7 +3254,7 @@ public:
       csharp_package_prefix = csharp_package_name(globals);
       source += "// Generated C# package helper name: " + csharp_package_prefix + '\n';
       source += package_codegen::csharp_runtime(csharp_package_prefix, compression_prefix, !packages.empty());
-      if (options.xml.enabled) { source += xml_csharp::runtime(); }
+      if (options.xml.enabled) { source += xml_codegen::portable_declaration_alias(xml_csharp::runtime(), "csharp", xml_declaration_prefix); }
       source += behavior::helpers("csharp", arithmetic_helpers);
     } else if (language == target::js) {
       source += behavior::preambles(values, "js");
@@ -3234,6 +3294,47 @@ public:
         object(static_cast<const class_node&>(*node));
       }
     }
+    if (language == target::js && options.xml.enabled) {
+      for (std::size_t index{}; index < xml_inventories_.size(); ++index) {
+        const auto& inventory = *xml_inventories_[index];
+        line("const srlXmlDeclarations" + std::to_string(index) + "=new Map([");
+        for (const auto& declaration : inventory.globals) {
+          if (!declaration.validator_index) { continue; }
+          const auto codec = [&](std::size_t selected) {
+            const auto found = std::find_if(inventory.validator_indices.begin(), inventory.validator_indices.end(),
+                [&](const auto& entry) { return entry.second == selected; });
+            if (found == inventory.validator_indices.end()) {
+              throw std::invalid_argument{"Missing JavaScript wildcard validation codec"};
+            }
+            return names.at(found->first);
+          };
+          std::string selected_types{"new Map(["};
+          for (const auto& derived : declaration.type_validators) {
+            selected_types += "[srlXmlTokenName(" + quote(derived.qualified_name.namespace_uri) + ',' + quote(derived.qualified_name.local) +
+                "),{model:" + codec(derived.validator_index) + ",nilModel:" +
+                (derived.nil_validator_index ? codec(*derived.nil_validator_index) : "null") +
+                ",abstract:" + (derived.abstract_type ? "true" : "false") + "}],";
+          }
+          selected_types += "])";
+          const auto& root = declaration.qualified_name;
+          line("[" + quote(declaration.attribute ? "a" : "e") + "+srlXmlTokenName(" + quote(root.namespace_uri) + ',' + quote(root.local) + ')' +
+              ",{" + "model:" + codec(*declaration.validator_index) +
+              ",nilModel:" + (declaration.nil_validator_index ? codec(*declaration.nil_validator_index) : "null") +
+              ",nillable:" + (declaration.nillable ? "true" : "false") +
+              ",abstract:" + (declaration.abstract_element ? "true" : "false") +
+              ",fixed:" + (declaration.fixed_value ? "true" : "false") + ",type:" +
+              (declaration.declared_type ? "srlXmlTokenName(" + quote(declaration.declared_type->namespace_uri) + ',' +
+                  quote(declaration.declared_type->local) + ')' : "null") +
+              ",abstractType:" + (declaration.abstract_type ? "true" : "false") + ",types:" + selected_types + "}],");
+        }
+        line("]);");
+      }
+    }
+    if (options.xml.enabled && (language == target::go || language == target::csharp)) {
+      source += xml_codegen::portable_declaration_dispatch(xml_inventories_,
+          [&](const class_node& owner) { return names.at(&owner); },
+          [&](std::string_view value) { return quote(value); }, language == target::go ? "go" : "csharp", xml_declaration_prefix);
+    }
     for (const auto* package : packages) {
       if (language == target::go) {
         auto selected_prefix = "SerializerPackageCodecs" + names.at(package);
@@ -3247,23 +3348,23 @@ public:
           }
           selected_prefix = selected_base + '_' + std::to_string(++selected_suffix);
         }
-        for (const auto suffix : {"Encode", "Load", "Write", "Save", "LoadCanonical", "LoadCanonicalWithCodecs", "LoadMode"}) {
+        for (const auto suffix : {"Encode", "Load", "Write", "Save", "LoadCanonical", "LoadCanonicalWithCodecs", "LoadMode", "EncodePipeline", "LoadPipelineMode", "EncodeRenamed"}) {
           globals.insert(selected_prefix + suffix);
         }
         source += package_codegen::go(*package, names.at(package), go_package_prefix,
             [&](const auto& value) { return type(value); },
-            [&](const auto value) { return field(value); }, [&](const auto value) { return quote(value); },options.xml,selected_prefix);
+            [&](const auto value) { return field(value); }, [&](const auto value) { return quote(value); },options.xml,selected_prefix, options.protocols == output_protocols::binary_none);
       } else if (language == target::csharp) {
         const auto qualified_name = (options.namespace_name.empty() ? "" : options.namespace_name + ".") +
             unit + "." + names.at(package);
         source += package_codegen::csharp(*package, names.at(package), qualified_name, csharp_package_prefix,
             [&](const auto& value) { return type(value); },
             [&](const auto value) { return field(value); },
-            [&](const auto value) { return quote(value); }, options.xml);
+            [&](const auto value) { return quote(value); }, options.xml, options.protocols == output_protocols::binary_none);
       } else {
         source += package_codegen::javascript(*package, names.at(package), javascript_package_name(globals),
             language == target::typescript, [&](const auto& value) { return type(value); },
-            [&](const auto value) { return field(value); }, [&](const auto value) { return quote(value); },options.xml);
+            [&](const auto value) { return field(value); }, [&](const auto value) { return quote(value); },options.xml, options.protocols == output_protocols::binary_none);
       }
     }
     if (language == target::csharp) {
@@ -3295,24 +3396,25 @@ std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements
     comparison_schema.class_auto_sizes = options.class_auto_sizes;
     comparison_schema.xml = options.xml;
     comparison_schema.protocols = options.protocols;
+    comparison_schema.collect_xml_validators();
     if (language == "c") {
-      return behavior::finalize_mappings(generated_license_notice(statements) + native::c(comparison_schema) +
+      return behavior::finalize_mappings(generated_license_notice(statements, "//", false, options.xml.enabled) + native::c(comparison_schema) +
           (options.xml.enabled ? xml_codegen::generate_native(comparison_schema, options.xml, language) : ""));
     }
     if (language == "swift") {
-      return behavior::finalize_mappings(generated_license_notice(statements) + native::swift(comparison_schema) +
+      return behavior::finalize_mappings(generated_license_notice(statements, "//", false, options.xml.enabled) + native::swift(comparison_schema) +
           (options.xml.enabled ? xml_codegen::generate_native(comparison_schema, options.xml, language) : ""));
     }
     if (language == "kotlin") {
-      return behavior::finalize_mappings(generated_license_notice(statements) +
+      return behavior::finalize_mappings(generated_license_notice(statements, "//", false, options.xml.enabled) +
              native::kotlin(comparison_schema, options.package_name) +
              (options.xml.enabled ? xml_codegen::generate_native(comparison_schema, options.xml, language) : ""));
     }
     if (language == "rust") {
-      return behavior::finalize_mappings(generated_license_notice(statements) + native::rust(comparison_schema));
+      return behavior::finalize_mappings(generated_license_notice(statements, "//", false, options.xml.enabled) + native::rust(comparison_schema));
     }
     if (language == "python") {
-      return behavior::finalize_mappings(generated_license_notice(statements, "#") + native::python(comparison_schema));
+      return behavior::finalize_mappings(generated_license_notice(statements, "#", false, options.xml.enabled) + native::python(comparison_schema));
     }
   }
   const auto selected = language == "js"       ? target::js

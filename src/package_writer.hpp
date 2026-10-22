@@ -143,8 +143,17 @@ inline std::string cpp(const package_node& package,
     const std::function<std::string(std::string_view)>& render_name,
     const std::function<std::string(const type_name&)>& render_type,
     const std::function<std::string(std::string_view)>& field_name,
-    const xml_options& xml = {}) {
-  const auto parts = ordered(package);
+    const xml_options& xml = {}, bool supports_json = true) {
+  const auto configured_package = configure_package(package, xml);
+  const auto parts = ordered(configured_package);
+  if (!supports_json) {
+    const auto profile = compile_package_profile(package, xml);
+    for (const auto& part : profile.parts) {
+      if (part.decoder && part.envelope.format == document::payload_format::json) {
+        throw std::invalid_argument{"C++ JSON package profile requires native protocols all: " + part.role};
+      }
+    }
+  }
   const auto package_name = render_name(package.name);
   const auto profiles_method = package_name == "select_profiles" ? "select_profiles_metadata" : "select_profiles";
   std::string profiles_field{"profiles"};
@@ -173,6 +182,12 @@ inline std::string cpp(const package_node& package,
   const auto storage = [&](const package_part_declaration& part) {
     return "::rohit::serializer::package::profile_storage(srl_profiles, " + quote(part.name) + ")";
   };
+  const auto read_model = [&](const package_part_declaration& part, const std::string& type) {
+    return "::rohit::serializer::package::read_profile_part<" + type + (supports_json ? "" : ", false") + ">(srl_bytes, srl_shared, srl_part.name, ::rohit::serializer::package::profile_options(srl_profiles, " + quote(part.name) + "), srl_loader.current_relationship_id())";
+  };
+  const auto write_model = [&](const package_part_declaration& part, const std::string& media, const std::string& value) {
+    return std::string{"::rohit::serializer::package::write_profile_part"} + (supports_json ? "" : "<false>") + "(srl_writer, srl_name, " + media + ", " + value + ", ::rohit::serializer::package::profile_options(srl_profiles, " + quote(part.name) + "), srl_relationship_id);";
+  };
   const auto references = [&](const package_part_declaration& part, const std::string& model,
                               const std::string& location, const std::string& relationship_id) {
     for (const auto& key : part.keys) {
@@ -193,8 +208,12 @@ inline std::string cpp(const package_node& package,
   output += cpp_profile_metadata(package, xml, package_name);
   line("  // Resolve runtime storage choices while keeping generated model/root identities fixed.");
   line("  static auto " + std::string{profiles_method} + "(const ::rohit::serializer::package::profile_overrides& srl_runtime = {}) {");
-  line("    return ::rohit::serializer::package::resolve_profiles(" +
+  line("    auto srl_selected = ::rohit::serializer::package::resolve_profiles(" +
       std::string{package_name == "document_profiles" ? "document_profiles_metadata" : "document_profiles"} + "(), srl_runtime);");
+  if (!supports_json) {
+    line("    for (const auto& srl_profile : srl_selected) { if (srl_profile.decoder && srl_profile.envelope.format == ::rohit::serializer::document::payload_format::json) { throw ::rohit::serializer::package::error{::rohit::serializer::package::error_code::unsupported_feature, \"JSON is excluded by cpp.protocols binary_none\", {}, 0, 0, 0, srl_profile.role}; } }");
+  }
+  line("    return srl_selected;");
   line("  }");
   line("  // Borrow every resource for the synchronous Save; no model payload is copied here.");
   line("  struct input {");
@@ -263,11 +282,12 @@ inline std::string cpp(const package_node& package,
   line("  static auto load(::std::istream& srl_source,");
   line("      ::rohit::serializer::package::limits srl_limits = {},");
   line("      ::rohit::serializer::package::extension_policy srl_policy = {},");
-  line("      const ::std::function<void(const value&, ::rohit::serializer::package::budget&)>& srl_validate = {}) {");
+  line("      const ::std::function<void(const value&, ::rohit::serializer::package::budget&)>& srl_validate = {},");
+  line("      const ::rohit::serializer::package::profile_overrides& srl_runtime_profiles = {}) {");
   line("    auto srl_budget = ::std::make_shared<::rohit::serializer::package::budget>(::std::move(srl_limits));");
   line("    ::rohit::serializer::package::opc_reader srl_reader{srl_source, srl_budget};");
   line("    ::rohit::serializer::package::reference_index<::std::string> srl_references{*srl_budget};");
-  line("    const auto srl_profiles = " + std::string{profiles_method} + "();");
+  line("    const auto srl_profiles = " + std::string{profiles_method} + "(srl_runtime_profiles);");
   line("    ::std::vector<::rohit::serializer::package::part_relocation> srl_relocations;");
   line("    auto srl_result = ::rohit::serializer::package::load_opc<value>(srl_reader,");
   line("        [&](value& srl_value, auto& srl_loader) {");
@@ -275,11 +295,15 @@ inline std::string cpp(const package_node& package,
     line("      ::std::vector<::std::string> " + local(*part) + "_sources;");
     if (part->source == "/") {
       line("      for (const auto& srl_source_name : ::std::vector<::std::string>{\"/\"}) {");
+      line("        constexpr ::std::size_t srl_source_index{};");
     } else {
       const auto found = std::find_if(parts.begin(), parts.end(), [&](const auto* source) { return source->name == part->source; });
       line("      for (const auto& srl_source_name : " + local(**found) + "_sources) {");
+      line("        const auto srl_source_index = static_cast<::std::size_t>(&srl_source_name - " + local(**found) + "_sources.data());");
     }
-    line("        srl_loader.read_related(srl_source_name, " + quote(part->relationship) + ", " +
+    const bool external_targets = part->target_mode != "internal";
+    const auto count = external_targets ? "srl_value." + member(*part) + ".size()" : local(*part) + "_sources.size()";
+    line("        srl_loader." + std::string{external_targets ? "read_related_modes" : "read_related"} + "(srl_source_name, " + quote(part->relationship) + ", " +
         quote(part->content_type.value_or("")) + ",");
     line("            [&](::std::span<const ::std::uint8_t> srl_bytes, const auto& srl_part, auto& srl_shared) {");
     if (part->profile_policy == "fixed") {
@@ -287,7 +311,11 @@ inline std::string cpp(const package_node& package,
           part->compression + ") { throw ::rohit::serializer::package::error{::rohit::serializer::package::error_code::invalid_state, \"Fixed package storage mismatch\", srl_part.name}; }");
     }
     line("          ::rohit::serializer::package::remember_source(" + local(*part) + "_sources, srl_part.name, srl_shared);");
-    line("          ::rohit::serializer::package::require_occurrences(" + local(*part) + "_sources.size(), 0U, " +
+    if (!part->part_name) {
+      line("          srl_shared.consume(::rohit::serializer::package::resource::metadata_bytes, sizeof(::rohit::serializer::package::part_relocation) + 2U * srl_part.name.size() + " + std::to_string(part->name.size()) + "U, srl_part.name);");
+      line("          srl_relocations.push_back({srl_part.name, srl_part.name, " + quote(part->name) + "});");
+    }
+    line("          ::rohit::serializer::package::require_occurrences(" + (external_targets ? "(" + count + " + 1U)" : count) + ", 0U, " +
         maximum(*part) + ", " + quote(part->name) + ");");
     if (part->value_type) {
       const auto type = render_type(*part->value_type);
@@ -300,22 +328,29 @@ inline std::string cpp(const package_node& package,
         line("            srl_shared.consume(::rohit::serializer::package::resource::metadata_bytes, " + std::to_string(part->part_name->size()) + "U, srl_part.name);");
         line("            srl_relocations.push_back({srl_part.name, " + quote(*part->part_name) + "});");
         line("          }");
-        line("          srl_value." + member(*part) + " = ::rohit::serializer::package::read_xml_part<" + type + ">(srl_bytes, srl_shared, srl_part.name, ::rohit::serializer::package::profile_dispatch(srl_profiles, " + quote(part->name) + "));");
+        line("          srl_value." + member(*part) + " = " + read_model(*part, type) + ";");
         references(*part, part->min_occurs == 0U ? "(*srl_value." + member(*part) + ")" :
             "srl_value." + member(*part), "srl_part.name", "::std::string{srl_loader.current_relationship_id()}");
       } else {
         line("          srl_value." + member(*part) + ".push_back({srl_part.name, srl_part.content_type,");
-        line("              ::rohit::serializer::package::read_xml_part<" + type + ">(srl_bytes, srl_shared, srl_part.name, ::rohit::serializer::package::profile_dispatch(srl_profiles, " + quote(part->name) + "))});");
+        line("              " + read_model(*part, type) + ", srl_source_index});");
         references(*part, "srl_value." + member(*part) + ".back().value", "srl_part.name", "::std::string{srl_loader.current_relationship_id()}");
       }
     } else {
       line("          srl_shared.consume(::rohit::serializer::package::resource::decoder_allocation_bytes, srl_bytes.size(), srl_part.name);");
-      line("          srl_value." + member(*part) + ".push_back({srl_part, {srl_bytes.begin(), srl_bytes.end()}, {}});");
+      line("          srl_value." + member(*part) + ".push_back({srl_part, {srl_bytes.begin(), srl_bytes.end()}, {}, srl_source_index});");
     }
     line("        }, 0U, (::std::numeric_limits<::std::size_t>::max)(), " +
-        std::string{part->content_type ? "false" : "true"} + ");");
+        std::string{part->content_type ? "false" : "true"} + (external_targets ? ", " + std::string{part->target_mode == "external" ? "false" : "true"} + ", [&](const auto& srl_link, auto& srl_shared) {" : ");"));
+    if (external_targets) {
+      line("          ::rohit::serializer::package::require_occurrences(" + count + " + 1U, 0U, " + maximum(*part) + ", " + quote(part->name) + ");");
+      line("          srl_shared.consume_at(::rohit::serializer::package::resource::decoder_allocation_bytes, sizeof(::rohit::serializer::package::opaque_part) + srl_link.target.size(), {srl_link.source, " + quote(part->name) + ", {}, srl_link.id});");
+      line("          srl_value." + member(*part) + ".push_back({{srl_link.target, {}}, {}, {}, srl_source_index});");
+      line("        });");
+    }
+    line("        (void)srl_source_index;");
     line("      }");
-    line("      ::rohit::serializer::package::require_occurrences(" + local(*part) + "_sources.size(), " +
+    line("      ::rohit::serializer::package::require_occurrences(" + count + ", " +
         std::to_string(part->min_occurs) + "U, " + maximum(*part) + ", " + quote(part->name) + ");");
   }
   line("      srl_references.validate();");
@@ -340,7 +375,7 @@ inline std::string cpp(const package_node& package,
       line("      const auto srl_name = " + quote(*part->part_name) + ";");
       line("      const auto srl_relationship_id = " + id + ";");
       references(*part, "(*" + field + ")", "srl_name", "srl_relationship_id");
-      line("      ::rohit::serializer::package::write_xml_part(srl_writer, srl_name, " + quote(*part->content_type) + ", *" + field + ", " + storage(*part) + ", srl_relationship_id);");
+      line("      " + write_model(*part, quote(*part->content_type), "*" + field));
     } else {
       line("    for (::std::size_t srl_index{}; srl_index < " + field + ".size(); ++srl_index) {");
       line("      const auto& srl_item = " + field + "[srl_index];");
@@ -350,8 +385,19 @@ inline std::string cpp(const package_node& package,
       if (part->value_type) {
         line("      if (!srl_item.value) { throw ::std::invalid_argument{\"Package typed resource is unbound\"}; }");
         references(*part, "(*srl_item.value)", "::std::string{srl_name}", "srl_relationship_id");
-        line("      ::rohit::serializer::package::write_xml_part(srl_writer, srl_name, " + media + ", *srl_item.value, " + storage(*part) + ", srl_relationship_id);");
+        line("      " + write_model(*part, media, "*srl_item.value"));
       } else {
+        if (part->target_mode != "internal") {
+          std::string parent{"\"/\""};
+          if (part->source != "/") {
+            const auto found = std::find_if(parts.begin(), parts.end(), [&](const auto* value) { return value->name == part->source; });
+            parent = "::rohit::serializer::package::require_source(" + local(**found) + "_sources, srl_item.source_index, " + quote(part->name) + ")";
+          }
+          line("      if (" + std::string{part->target_mode == "external" ? "true" : "srl_item.content_type.empty()"} + ") {");
+          line("        if (!srl_item.content_type.empty() || !srl_item.bytes.empty()) { throw ::rohit::serializer::package::error{::rohit::serializer::package::error_code::invalid_relationship, \"External package role requires empty media type and payload\", ::std::string{srl_name}}; }");
+          line("        srl_writer.add_relationship({" + parent + ", srl_relationship_id, " + quote(part->relationship) + ", ::std::string{srl_name}, ::rohit::serializer::package::target_mode::external}); continue;");
+          line("      }");
+        }
         line("      srl_writer.add_part(srl_name, " + media + ", srl_item.bytes, " + storage(*part) + ");");
       }
     }
@@ -366,7 +412,12 @@ inline std::string cpp(const package_node& package,
     line("    }");
   }
   line("    srl_references.validate();");
-  line("    if (srl_input.extensions) { ::rohit::serializer::package::write_preserved(srl_writer, *srl_input.extensions); }");
+  line("    if (srl_input.extensions) { ::rohit::serializer::package::write_preserved(srl_writer, *srl_input.extensions, [&](const auto& srl_move) {");
+  for (const auto* part : parts) {
+    if (part->part_name) { continue; }
+    line("      if (srl_move.dynamic_role == " + quote(part->name) + ") { return ::std::find(" + local(*part) + "_sources.begin(), " + local(*part) + "_sources.end(), srl_move.canonical) != " + local(*part) + "_sources.end(); }");
+  }
+  line("      (void)srl_move; return false; }); }");
   line("  }");
   line("};");
   return output;

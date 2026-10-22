@@ -480,12 +480,19 @@ public:
 // Preserve the pinned dependency graph and identity alongside the generated declarative source.
 import_result import_xsd(const std::filesystem::path& input, const import_options& options) {
   const auto bundle = read_schema_bundle(input);
-  importer compiler{*bundle, options};
+  auto selected = options;
+  if (selected.schema_location.empty()) { selected.schema_location = std::filesystem::absolute(input).generic_string(); }
+  return import_xsd(*bundle, selected);
+}
+
+// Import exactly the immutable component graph already admitted by the schema owner.
+import_result import_xsd(const schema_bundle& bundle, const import_options& options) {
+  if (options.schema_location.empty()) { throw std::invalid_argument{"Pinned XSD import requires its entry schema_location"}; }
+  importer compiler{bundle, options};
   import_result result;
-  result.schema_text = compiler.generate(options.schema_location.empty()
-      ? std::filesystem::absolute(input).generic_string() : options.schema_location);
-  result.bundle_identity = bundle->identity;
-  for (const auto& document : bundle->documents) { result.dependencies.push_back(document.path); }
+  result.schema_text = compiler.generate(options.schema_location);
+  result.bundle_identity = bundle.identity;
+  for (const auto& document : bundle.documents) { result.dependencies.push_back(document.path); }
   return result;
 }
 } // namespace rohit::serializer::writer::xml_binding

@@ -59,10 +59,12 @@ function srlXmlExtensionBindings(bindings) {
 
 // Enforce one owner-local slot inventory and retain only explicitly preserved foreign payloads.
 class SrlXmlExtensions {
-  constructor(meta,scope,options) {
+  constructor(meta,scope,options,validationLimits=null) {
     this.meta=meta;this.scope=scope;this.options=options;this.bounds=options.limits;
-    if(meta.slots.length>this.bounds.maxSlots || meta.known.length>this.bounds.maxItems || meta.required.length>this.bounds.maxItems)throw srlXmlQuotaError('XML extension slot limit');
+    if(meta.slots.length>this.bounds.maxSlots || meta.known.length>this.bounds.maxItems || meta.knownAttributes.length>this.bounds.maxItems || meta.required.length>this.bounds.maxItems)throw srlXmlQuotaError('XML extension slot limit');
     this.counts=meta.slots.map(()=>0);this.items=0;this.bytes=0;this.state=null;this.known=new Set(meta.known);
+    this.process=0;this.validationLimits=validationLimits;
+    this.temporaryDepth=validationLimits && validationLimits.srlDeclarationReplay ? 1 : 0;this.temporaryBytes=0;
     const understood=new Set(options.understoodNamespaces),required=[...meta.required];let count=0;
     for(const matched of options.requiredPrefixes.matchAll(/[^ \t\r\n]+/g)){
       if(count>=this.bounds.maxItems)throw srlXmlQuotaError('XML required-vocabulary item limit');++count;
@@ -74,13 +76,19 @@ class SrlXmlExtensions {
   }
   // Admit logical retained bytes before corresponding owning payload storage is created.
   charge(size) {
-    if(size>this.bounds.maxPreservedBytes-this.bytes)throw srlXmlQuotaError('XML extension preserved-byte limit');this.bytes+=size;
+    if(this.temporaryDepth){const limits=this.validationLimits||new XmlLimits(),maximum=Math.min(Number.MAX_SAFE_INTEGER,limits.maxBytes+limits.maxTextBytes+limits.maxNodes*128);if(size>maximum-this.temporaryBytes)throw srlXmlQuotaError('XML declaration temporary-byte limit');this.temporaryBytes+=size;}
+    else{if(size>this.bounds.maxPreservedBytes-this.bytes)throw srlXmlQuotaError('XML extension preserved-byte limit');this.bytes+=size;}
+    if(this.validationLimits && this.validationLimits.operation){this.validationLimits.operation('work',size,this.validationLimits.operationField||'');this.validationLimits.operation('allocation',size,this.validationLimits.operationField||'');if(!this.temporaryDepth)this.validationLimits.operation('preserved',size,this.validationLimits.operationField||'');}
   }
   // Locate an exact foreign URI/field boundary; core and statically known expanded names remain closed.
   slot(name,attribute,position=null) {
     const uri=name.slice(0,name.indexOf('\0'));
-    if(!uri || uri===this.meta.core || uri==='urn:serializer:xml:model' || this.known.has(name))return -1;
-    return this.meta.slots.findIndex(slot=>slot.attribute===attribute && (attribute || slot.position===position) && slot.namespaces.includes(uri));
+    if(uri==='urn:serializer:xml:model' || attribute && this.meta.knownAttributes.includes(name))return -1;
+    return this.meta.slots.findIndex((slot,index)=>{
+      if(slot.attribute!==attribute || !attribute && slot.position>=0 && slot.position!==position)return false;
+      if(!attribute && this.known.has(name)){const knownPosition=this.meta.knownPositions[this.meta.known.indexOf(name)];if(!slot.match || slot.match===4 || !(knownPosition>=0 && knownPosition<position || this.counts[index]<slot.minimum))return false;}
+      return slot.match===1 || (slot.match===3 || slot.match===4 ? !slot.namespaces.includes(uri) : slot.namespaces.includes(uri));
+    });
   }
   // Enforce policy, root-item admission and occurrence counts before traversing an unknown owner item.
   admit(name,attribute,position=null) {
@@ -88,7 +96,9 @@ class SrlXmlExtensions {
     if(index<0 || slot.policy==='reject')throw new Error('XML extension has no permitted slot');
     if(this.items>=this.bounds.maxItems)throw srlXmlQuotaError('XML extension item/occurrence limit');
     if(slot.maximum!==null && this.counts[index]>=slot.maximum)throw new Error('XML extension item/occurrence limit');
-    ++this.items;++this.counts[index];return slot.policy==='preserve';
+    ++this.items;++this.counts[index];this.process=slot.process||0;
+    if(this.process && (!this.meta.declarations || !this.meta.declarations().has((attribute?'a':'e')+name))){if(this.process===2)throw new Error('Strict XML wildcard requires a global declaration');this.process=0;}
+    return slot.policy==='preserve';
   }
   // Account one complete namespace context, including declarations needed only by opaque lexical values.
   scopeSize(scope) {
@@ -103,7 +113,8 @@ class SrlXmlExtensions {
   }
   // Preserve only attributes admitted by their explicit foreign-vocabulary slot.
   attribute(name,value) {
-    if(this.admit(name,true)){this.charge(48+srlXmlUtf8Length(name)+srlXmlUtf8Length(value));this.storage().attributes.set(name,value);}
+    const preserve=this.admit(name,true);if(this.process)this.validate({name,attributes:new Map([[name,value]]),scope:srlXmlExtensionScope(this.scope),content:[]},true,this.process);
+    if(preserve){this.charge(48+srlXmlUtf8Length(name)+srlXmlUtf8Length(value));this.storage().attributes.set(name,value);}
   }
   // Attach a completely captured foreign root at its original static-field/repeated-child boundary.
   child(position,item,node) {
@@ -124,13 +135,46 @@ class SrlXmlExtensions {
   finish() {
     for(let index=0;index<this.counts.length;++index)if(this.counts[index]<this.meta.slots[index].minimum)throw new Error('Required XML extension occurrence missing');
   }
+  // Reuse the generated declaration codec under the caller's original admission and cancellation operation.
+  validate(node,attribute,process) {
+    if(!process)return;
+    const selected=this.meta.declarations ? this.meta.declarations().get((attribute?'a':'e')+node.name) : null;
+    if(!selected){if(process===2)throw new Error('Strict XML wildcard requires a global declaration');return;}
+    if(selected.abstract)throw new Error('Abstract XML declaration cannot appear directly');
+    let model=selected.model,nilModel=selected.nilModel,abstractType=selected.abstractType;
+    const type=node.attributes.get(srlXmlTokenTypeName);
+    if(type!==undefined){
+      const identity=srlXmlVariantQName(type,{parent:null,bindings:node.scope});
+      if(identity!==selected.type){const derived=selected.types.get(identity);if(!derived)throw new Error('Unexpected declared XML type');model=derived.model;nilModel=derived.nilModel;abstractType=derived.abstract;}
+      if(this.validationLimits && this.validationLimits.operation)this.validationLimits.operation('allocation',node.attributes.size*48,this.validationLimits.operationField||'');
+      const attributes=new Map(node.attributes);attributes.delete(srlXmlTokenTypeName);node={...node,attributes};
+    }
+    if(abstractType)throw new Error('Abstract XML type cannot appear directly');
+    if(node.name!==model._srlXmlToken.root)node={...node,name:model._srlXmlToken.root};
+    const nil=node.attributes.has(srlXmlTokenNilName) ? srlXmlTrim(node.attributes.get(srlXmlTokenNilName)) : undefined;
+    if(nil!==undefined){
+      if(!selected.nillable || !['true','false','1','0'].includes(nil))throw new Error('Invalid declared XML nil state');
+      if(nil==='true' || nil==='1'){
+        if(node.content.some(value=>typeof value!=='string' || value.length) || selected.fixed)throw new Error('Nil XML declaration contains a value');
+        if(!nilModel)throw new Error('Missing nil XML validation codec');model=nilModel;
+      }
+      const attributes=new Map(node.attributes);attributes.delete(srlXmlTokenNilName);node={...node,attributes};
+    }
+    const limits=new XmlLimits(this.validationLimits || {});
+    limits.srlDeclarationReplay=true;
+    delete limits.expectedType;delete limits.srlPackageVocabularies;delete limits.srlPackageRequiresType;
+    ++this.temporaryDepth;
+    try{const output=new SrlXmlWriter(limits);srlXmlExtensionEmit(output,this,node);srlXmlTokenDecode(model._srlXmlToken,[output.text],limits,true);}
+    finally{--this.temporaryDepth;}
+  }
 }
 
 // Capture one permitted foreign subtree, or discard skip payloads while retaining only parser frames.
 class SrlXmlForeignFrame {
-  constructor(name,attributes,scope,tracker,preserve) {
-    this.name=name;this.scope=scope;this.tracker=tracker;this.preserve=preserve;this.wrapper=false;this.identity=null;
-    this.value=preserve ? tracker.node(name,attributes,scope) : null;this.pending='';
+  constructor(name,attributes,scope,tracker,preserve,validation=0) {
+    this.name=name;this.scope=scope;this.tracker=tracker;this.retain=preserve;this.validation=validation;this.preserve=preserve||!!validation;this.wrapper=false;this.identity=null;
+    this.temporary=!!validation&&!preserve;if(this.temporary)++tracker.temporaryDepth;
+    this.value=this.preserve ? tracker.node(name,attributes,scope) : null;this.pending='';
   }
   // Finish only semantic text runs so provider byte/chunk boundaries do not change preserved storage.
   flush() {
@@ -150,7 +194,7 @@ class SrlXmlForeignFrame {
   }
   // Return one complete semantic foreign node, or no retained value for skip.
   finish() {
-    if(this.preserve)this.flush();return this.value;
+    if(this.preserve)this.flush();try{this.tracker.validate(this.value,false,this.validation);}finally{if(this.temporary)--this.tracker.temporaryDepth;}return this.retain ? this.value : null;
   }
 }
 
@@ -166,12 +210,13 @@ function srlXmlExtensionOutput(owner,meta,output) {
   if(authored)for(const [prefix,uri] of authored.authored){
     if(state && scope.has(prefix) && scope.get(prefix)!==uri)throw new Error('Authored namespace conflicts with preserved XML vocabulary');scope.set(prefix,uri);
   }
-  const tracker=new SrlXmlExtensions(meta,{parent:null,bindings:scope},output.limits.extensions);
+  const tracker=new SrlXmlExtensions(meta,{parent:null,bindings:scope},output.limits.extensions,output.limits);
   if(state){
     tracker.charge(64+tracker.scopeSize(state.scope));
     for(const [name,value] of state.attributes){
       srlXmlExtensionName(name);srlXmlCharacters(value);
       if(!tracker.admit(name,true))throw new Error('Preserved XML attribute no longer has a preserve slot');
+      tracker.validate({name,attributes:new Map([[name,value]]),scope,content:[]},true,tracker.process);
       tracker.charge(48+srlXmlUtf8Length(name)+srlXmlUtf8Length(value));
     }
     let position=-1,item=-1;
@@ -208,6 +253,7 @@ function srlXmlExtensionAt(extension,output,position,item=0) {
     if(entry.position<position || entry.position===position && entry.item<item)throw new Error('Preserved XML extension no longer fits edited field position');
     if(entry.position!==position || entry.item!==item)return;
     if(!tracker.admit(entry.node.name,false,position))throw new Error('Preserved XML child no longer has a preserve slot');
+    tracker.validate(entry.node,false,tracker.process);
     tracker.charge(24);srlXmlExtensionEmit(output,tracker,entry.node);++extension.cursor;
   }
 }

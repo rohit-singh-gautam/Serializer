@@ -11,6 +11,7 @@
 #include "reference_portable_writer.hpp"
 #include "comparison_writer.hpp"
 #include "xml_schema.hpp"
+#include "xml_ordered_writer.hpp"
 #include "python_package_writer.hpp"
 #include "python_xml_writer.hpp"
 #include "python_xml_identity.hpp"
@@ -221,7 +222,8 @@ class python_emitter {
     }
     const auto contract = xml_contract.bind(value);
     const bool root_list_scope = std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) {
-      return (field.attribute || field.text) && (field.qname_list_fixed || field.qname_list_default);
+      return (field.attribute || field.text) && (field.qname_list_fixed || field.qname_list_default ||
+          ((field.union_fixed || field.union_default) && python_xml::needs_namespace_state(field.facets)));
     });
     const bool root_empty_default = std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) {
       const auto& names = field.qname_list_fixed ? field.qname_list_fixed : field.qname_list_default;
@@ -268,8 +270,8 @@ class python_emitter {
       choices += "), " + std::to_string(empty ? 0U : choice.minimum) + ", " + std::to_string(choice.maximum) + "),";
     }
     line(choices + ")");
-    bool token_supported = !python_xml::needs_namespace_state(contract) && contract.wildcards.empty() &&
-        (!contract.unknown || *contract.unknown == xml_unknown_policy::reject) &&
+    bool token_supported = !python_xml::needs_namespace_state(contract) &&
+        (!contract.unknown || *contract.unknown == xml_unknown_policy::reject || contract.extensions) &&
         std::none_of(contract.choices.begin(), contract.choices.end(),
             [](const auto& selected) { return selected.repeated; });
     line("_xml_token_fields = (");
@@ -350,7 +352,17 @@ class python_emitter {
     model_binding += ", 'magic': " + (contract.model.magic ? quote(*contract.model.magic) : "None") +
         ", 'required': " + (contract.model.digest || contract.model.revision || contract.model.magic ? "True" : "False") + "}";
     line(model_binding);
-    line("_xml_extensions = " + (contract.extensions ? python_xml::extensions(*contract.extensions) : "None"));
+    auto extension_metadata = contract.extensions ? python_xml::extensions(*contract.extensions) : "None";
+    if (contract.extensions) {
+      if (const auto* inventory = model.inventory_for(&value)) {
+        const auto selected = std::find_if(model.xml_inventories.begin(), model.xml_inventories.end(),
+            [&](const auto& item) { return item.get() == inventory; });
+        extension_metadata.pop_back();
+        extension_metadata += ", 'declarations': lambda: _XML_DECLARATIONS_" +
+            std::to_string(std::distance(model.xml_inventories.begin(), selected)) + '}';
+      }
+    }
+    line("_xml_extensions = " + extension_metadata);
     line("_xml_token_supported = " + std::string{token_supported ? "True" : "False"});
     std::string all_groups{"_xml_token_all = ("};
     for (const auto& group : contract.all_groups) {
@@ -374,6 +386,8 @@ class python_emitter {
           ", 'index': " + quote(variant + "_index") + ", 'text_index': " + std::to_string(selected.text_alternative) +
           ", 'text_member': " + quote(variant + "_" + snake(selected.text_branch)) +
           ", 'element_only': " + (selected.element_only ? "True" : "False") +
+          ", 'grammar': " + xml_codegen::ordered_table(selected) +
+          ", 'accepting': " + xml_codegen::ordered_accepting(selected) +
           ", 'extent': " + std::to_string(selected.source->fixed_extent) + ", 'children': (";
       for (const auto& child : selected.children) {
         auto payload = xml_token_value(*child.value_type, child.qualified_name, false);
@@ -485,8 +499,20 @@ class python_emitter {
         }
         const bool child_scope = scoped_value && !item.attribute && !item.text;
         const auto scope = child_scope ? "child[4]" : "node[4]";
-        return "_xml_checked(" + (child_scope ? "srl_namespace_text" : raw) + ", " + rule + ", " + scope + ", budget.context)";
+        return "_xml_output_checked(" + (child_scope ? "srl_namespace_text" : raw) + ", " + rule + ", " + scope + ", budget.context)";
       };
+      const bool omit_schema_default = scoped_value && (item.union_default || item.union_fixed) &&
+          (!item.attribute || item.min_occurs == 0U);
+      if (omit_schema_default) {
+        line("srl_default_scope = _xml_scalar_scope_open(state, " + field_index + ", " +
+            (item.repeated && !item.list ? "srl_item_index" : "0") + ", node[4], budget, " + rule + ", " + raw + ")");
+        open("if _xml_schema_default_matches(" + raw + ", " + rule + ", srl_default_scope, budget.context)");
+        if (item.text) { line("node[3] = ''"); }
+        else if (item.attribute) { line("pass"); }
+        else { line(parent + "[2].append(budget.node(" + expanded(item.qualified_name) + ", " + child_depth + "))"); }
+        --indent;
+        open("else");
+      }
       if (item.text) {
         line("if len(node) > 6: node[6][0] = budget.context");
         line("node[3] = budget.text(" + lexical() + ")");
@@ -504,6 +530,7 @@ class python_emitter {
         line("child[3] = budget.text(" + lexical() + ")");
         line(parent + "[2].append(child)");
       }
+      if (omit_schema_default) { --indent; }
       if (item.repeated && !item.list) {
         --indent;
         if (!item.wrapper) {
@@ -545,7 +572,10 @@ class python_emitter {
         if (!item.attribute && (item.default_value || item.fixed_value)) {
           const auto qualified = item.qname_fixed ? item.qname_fixed : item.qname_default;
           const auto qualified_list = item.qname_list_fixed ? item.qname_list_fixed : item.qname_list_default;
-          const auto fallback = qualified_list ? "fields.list_default(" + field_index + ", " +
+          const auto fallback = (item.union_fixed || item.union_default) && scoped_value ?
+              "fields.union_default(" + field_index + ", " + (item.repeated && !item.list ? "srl_item_index" : "0") + ',' +
+              quote(item.fixed_value ? *item.fixed_value : *item.default_value) + ',' + python_xml::union_scope(item) + ')' :
+              qualified_list ? "fields.list_default(" + field_index + ", " +
               (item.repeated && !item.list ? "srl_item_index" : "0") + ", " +
               (item.text ? "node" : expression) + ", " + python_xml::names(*qualified_list) + ")" : qualified && root_list_scope && item.text ?
               "fields.list_default(" + field_index + ", 0, node, " + python_xml::names(std::vector<xml::name>{*qualified}) + ")" : qualified ? "_xml_qualify_qname(" + python_xml::name(*qualified) + ", " +
@@ -573,7 +603,9 @@ class python_emitter {
         if (item.default_value || item.fixed_value) {
           const auto qualified = item.qname_fixed ? item.qname_fixed : item.qname_default;
           const auto qualified_list = item.qname_list_fixed ? item.qname_list_fixed : item.qname_list_default;
-          const auto fallback = qualified_list ? "fields.list_default(" + field_index + ", 0, node, " + python_xml::names(*qualified_list) + ")" :
+          const auto fallback = (item.union_fixed || item.union_default) && scoped_value ?
+              "fields.union_default(" + field_index + ",0," + quote(item.fixed_value ? *item.fixed_value : *item.default_value) + ',' + python_xml::union_scope(item) + ')' :
+              qualified_list ? "fields.list_default(" + field_index + ", 0, node, " + python_xml::names(*qualified_list) + ")" :
               qualified && root_list_scope ? "fields.list_default(" + field_index + ", 0, node, " + python_xml::names(std::vector<xml::name>{*qualified}) + ")" :
               qualified ? "_xml_qualify_qname(" + python_xml::name(*qualified) + ", node[4], fields.reserved_prefixes())" :
               quote(item.fixed_value ? *item.fixed_value : *item.default_value);
@@ -1672,7 +1704,7 @@ class python_emitter {
 
 public:
   // Bind the validated schema for one output module.
-  explicit python_emitter(const schema& value) : model{value}, xml_contract{value.xml} {
+  explicit python_emitter(const schema& value) : model{value}, xml_contract{value.xml, value.xml_inventories} {
     if (model.xml.enabled) {
       for (const auto* node : model.nodes) {
         if (node->type != object_type::class_type) { continue; }
@@ -1767,6 +1799,60 @@ public:
       line(names + ")");
     }
     if (model.xml.enabled) {
+      for (std::size_t index{}; index < model.xml_inventories.size(); ++index) {
+        const auto& inventory = *model.xml_inventories[index];
+        line("_XML_DECLARATIONS_" + std::to_string(index) + " = {");
+        ++indent;
+        for (const auto& declaration : inventory.globals) {
+          if (!declaration.validator_index) { continue; }
+          const auto selected = std::find_if(inventory.validator_indices.begin(), inventory.validator_indices.end(),
+              [&](const auto& entry) { return entry.second == *declaration.validator_index; });
+          if (selected == inventory.validator_indices.end()) {
+            throw std::invalid_argument{"Missing Python wildcard validation codec"};
+          }
+          const auto& root = declaration.qualified_name;
+          const auto& codec_root = inventory.validators[*declaration.validator_index].root;
+          const auto codec = [&](std::size_t codec_index) {
+            const auto found = std::find_if(inventory.validator_indices.begin(), inventory.validator_indices.end(),
+                [&](const auto& entry) { return entry.second == codec_index; });
+            if (found == inventory.validator_indices.end()) {
+              throw std::invalid_argument{"Missing Python selected type validation codec"};
+            }
+            return model.names.at(found->first);
+          };
+          std::string types{"{"};
+          for (const auto& derived : declaration.type_validators) {
+            const auto& derived_root = inventory.validators[derived.validator_index].root;
+            types += quote(derived.qualified_name.namespace_uri.empty() ? derived.qualified_name.local :
+                "{" + derived.qualified_name.namespace_uri + "}" + derived.qualified_name.local) + ": (" +
+                codec(derived.validator_index) + ", " +
+                (derived.nil_validator_index ? codec(*derived.nil_validator_index) : "None") + ", " +
+                (derived.abstract_type ? "True" : "False") + ", " +
+                quote(derived_root.namespace_uri.empty() ? derived_root.local : "{" + derived_root.namespace_uri + "}" + derived_root.local) + "),";
+          }
+          types += '}';
+          std::string nil_model{"None"};
+          if (declaration.nil_validator_index) {
+            const auto nil = std::find_if(inventory.validator_indices.begin(), inventory.validator_indices.end(),
+                [&](const auto& entry) { return entry.second == *declaration.nil_validator_index; });
+            if (nil == inventory.validator_indices.end()) {
+              throw std::invalid_argument{"Missing Python nil wildcard validation codec"};
+            }
+            nil_model = model.names.at(nil->first);
+          }
+          line("(" + std::string{declaration.attribute ? "True" : "False"} + ", " +
+              quote(root.namespace_uri.empty() ? root.local : "{" + root.namespace_uri + "}" + root.local) +
+              "): (" + model.names.at(selected->first) + ", " + (declaration.nillable ? "True" : "False") +
+              ", " + (declaration.abstract_element ? "True" : "False") + ", " + nil_model + ", " +
+              (declaration.fixed_value ? "True" : "False") + ", " +
+              (declaration.declared_type ? quote(declaration.declared_type->namespace_uri.empty() ? declaration.declared_type->local :
+                  "{" + declaration.declared_type->namespace_uri + "}" + declaration.declared_type->local) : "None") + ", " +
+              quote(codec_root.namespace_uri.empty() ? codec_root.local : "{" + codec_root.namespace_uri + "}" + codec_root.local) + ", " +
+              (declaration.abstract_type ? "True" : "False") + ", " + types + "),");
+        }
+        --indent;
+        line("}");
+      }
       for (const auto* node : model.nodes) {
         if (node->type != object_type::class_type) { continue; }
         const auto& selected = static_cast<const class_node&>(*node);
@@ -1779,7 +1865,7 @@ public:
       output += package_codegen::python(*package, model.names.at(package),
           [&](const auto& selected) { return type(selected); },
           [&](const auto selected) { return field(selected); },
-          [&](const auto selected) { return quote(selected); }, model.xml);
+          [&](const auto selected) { return quote(selected); }, model.xml, model.protocols == output_protocols::binary_none);
     }
     return output;
   }

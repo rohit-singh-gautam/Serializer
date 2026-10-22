@@ -95,7 +95,7 @@ public static final class @package_name@ {
       try {
         if (limits.checkCancelled != null) limits.checkCancelled.run();
         if(policyFailure!=null)throw policyException();
-        if (limits.deadlineNanos != null && System.nanoTime()-limits.deadlineNanos >= 0)
+        if (limits.deadlineNanos != null && java.lang.System.nanoTime()-limits.deadlineNanos >= 0)
           throw new PackageError(Code.DEADLINE_EXCEEDED,"Package deadline exceeded");
       } catch(java.io.IOException|RuntimeException|Error failure) {
         if(policyFailure==null)policyFailure=failure;throw policyException();
@@ -317,7 +317,7 @@ R"packagejava(
           state.poll();int requested=Math.min(CHUNK_BYTES,count-position);
           byte[] block=source.readAt(offset+position,requested);state.poll();
           if(block==null || block.length==0 || block.length>requested)throw new java.io.IOException("Invalid or truncated package random read");
-          System.arraycopy(block,0,result,position,block.length);position+=block.length;
+          java.lang.System.arraycopy(block,0,result,position,block.length);position+=block.length;
         }
         return result;
       } finally {state.budget.release(count);}

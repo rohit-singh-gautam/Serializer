@@ -12,8 +12,8 @@ type XmlValidator interface { ValidateXML([]byte) error }
 type XmlOptions struct { Limits XmlLimits; Validator XmlValidator }
 // @xml_operation_options@ adds operation-owned admission without changing positional XmlOptions literals.
 type @xml_operation_options@ struct { Options XmlOptions; Operation func(string,int64,string)error; ExpectedRoot,ExpectedType string }
-type srlXmlOperationValidator struct { validator XmlValidator; operation func(string,int64,string)error; root,expectedType string }
-type srlXmlSelectedOptions struct { XmlOptions; Operation func(string,int64,string)error; ExpectedRoot,ExpectedType string }
+type srlXmlOperationValidator struct { validator XmlValidator; operation func(string,int64,string)error; root,expectedType string; packageProfile,requiresType bool; vocabularies []string }
+type srlXmlSelectedOptions struct { XmlOptions; Operation func(string,int64,string)error; ExpectedRoot,ExpectedType string; packageProfile,requiresType bool; vocabularies []string }
 // ValidateXML preserves the caller provider when a policy is inspected outside generated entry points.
 func (v srlXmlOperationValidator) ValidateXML(data []byte)error{if v.validator!=nil{return v.validator.ValidateXML(data)};return nil}
 // Policy snapshots the additional context while preserving ordinary provider ownership and legacy options.
@@ -51,7 +51,7 @@ func (b *srlXmlBudget) namespaceValue(prefix,uri string)error{
 func srlXmlOptions(values []XmlOptions) (srlXmlSelectedOptions,error) {
   if len(values)>1 { return srlXmlSelectedOptions{},fmt.Errorf("Expected at most one XML policy") }
   selected:=DefaultXmlOptions();if len(values)==1{selected=values[0]};value:=srlXmlSelectedOptions{XmlOptions:selected}
-  if context,ok:=selected.Validator.(srlXmlOperationValidator);ok{value.Validator=context.validator;value.Operation=context.operation;value.ExpectedRoot=context.root;value.ExpectedType=context.expectedType}
+  if context,ok:=selected.Validator.(srlXmlOperationValidator);ok{value.Validator=context.validator;value.Operation=context.operation;value.ExpectedRoot=context.root;value.ExpectedType=context.expectedType;value.packageProfile=context.packageProfile;value.requiresType=context.requiresType;value.vocabularies=context.vocabularies}
   l:=value.Limits; if l.MaxBytes<0||l.MaxTextBytes<0||l.MaxNodes<0||l.MaxAttributes<0||l.MaxDepth<0 { return value,fmt.Errorf("Negative XML limit") }
   return value,nil
 }
@@ -109,11 +109,11 @@ func srlXmlParse(data []byte, limits XmlLimits) (*srlXmlNode,error) {
   }
   if root==nil||len(stack)!=0 { return nil,fmt.Errorf("Incomplete XML document") }; return root,nil
 }
-type srlXmlSink struct { text strings.Builder; maximum int }
+type srlXmlSink struct { text strings.Builder; maximum int; budget *srlXmlBudget }
 // A single lookahead event replaces retained input trees for generated readers.
 type srlXmlInputToken struct { kind byte; name srlxml.Name; attrs []srlxml.Attr; text string; closed map[string]string }
 type srlXmlInputFrame struct { raw srlxml.Name; changes []srlXmlBindingChange }
-type srlXmlInput struct { decoder *srlxml.Decoder; budget srlXmlBudget; mapLimits XmlMapLimits; mixedLimits XmlMixedLimits; identityLimits XmlIdentityLimits; digestLimits XmlDigestLimits; extensionOptions XmlExtensionOptions; identities []*srlXmlIdentity; stack []srlXmlInputFrame; namespaces map[string]string; look *srlXmlInputToken; seen, root, captureNamespaces bool; namespaceBytes int }
+type srlXmlInput struct { decoder *srlxml.Decoder; budget srlXmlBudget; mapLimits XmlMapLimits; mixedLimits XmlMixedLimits; identityLimits XmlIdentityLimits; digestLimits XmlDigestLimits; extensionOptions XmlExtensionOptions; identities []*srlXmlIdentity; stack []srlXmlInputFrame; namespaces map[string]string; look *srlXmlInputToken; seen, root, captureNamespaces bool; declarationValidation bool; namespaceBytes int }
 // Bind the original byte slice after complete-message byte and UTF-8 admission checks.
 func srlXmlInputStart(data []byte,limits XmlLimits,maps ...XmlMapLimits)(*srlXmlInput,error) {
   if len(data)>limits.MaxBytes{return nil,srlXmlLimitError("XML input limit exceeded")};if !utf8.Valid(data){return nil,fmt.Errorf("Invalid XML UTF-8")}
@@ -173,6 +173,19 @@ func (r *srlXmlInput) has(name srlxml.Name)(bool,error){event,err:=r.peek();retu
 func (r *srlXmlInput) expectType(expected srlxml.Name,required bool)error{
   selected,err:=r.typeIdentity(required);if err!=nil{return err};if selected.Local!=""&&selected!=expected{return fmt.Errorf("Conflicting XML variant type")};return nil
 }
+// packageCapabilities resolves only authorized root MustUnderstand metadata in its original scope.
+// Every other unknown attribute remains visible to the ordinary strict typed decoder.
+func (r *srlXmlInput) packageCapabilities(vocabularies []string)error{
+  event,err:=r.peek();if err!=nil{return err};if event.kind!='s'{return fmt.Errorf("Missing package XML root")}
+  for index,attribute:=range event.attrs{if attribute.Name.Space!="http://schemas.openxmlformats.org/markup-compatibility/2006"||attribute.Name.Local!="MustUnderstand"{continue}
+    prefixes:=strings.FieldsFunc(attribute.Value,func(r rune)bool{return r==' '||r=='\t'||r=='\r'||r=='\n'})
+    if len(prefixes)==0{return fmt.Errorf("Empty package MustUnderstand vocabulary")}
+    for _,prefix:=range prefixes{if !srlXmlExtensionNcName(prefix){return fmt.Errorf("Invalid package MustUnderstand prefix")};uri,ok:=r.namespaces[prefix];if !ok||uri==""{return fmt.Errorf("Undeclared package MustUnderstand prefix")};understood:=false;for _,candidate:=range vocabularies{if candidate==uri{understood=true;break}};if !understood{return fmt.Errorf("Unsupported package MustUnderstand vocabulary")}}
+    event.attrs=append(event.attrs[:index],event.attrs[index+1:]...);return nil
+  };return nil
+}
+// srlXmlExpandedName recovers immutable package dispatch metadata without lexical prefix guesses.
+func srlXmlExpandedName(identity string)(srlxml.Name,error){name:=srlxml.Name{Local:identity};if strings.HasPrefix(identity,"{"){end:=strings.IndexByte(identity,'}');if end<1||end==len(identity)-1{return name,fmt.Errorf("Invalid expected XML type")};name.Space=identity[1:end];name.Local=identity[end+1:]};return name,nil}
 // Resolve one explicit type identity before advancing outside the payload namespace scope.
 func (r *srlXmlInput) typeIdentity(required bool)(srlxml.Name,error){
   event,err:=r.peek();if err!=nil{return srlxml.Name{},err};if event.kind!='s'{return srlxml.Name{},fmt.Errorf("Missing XML variant payload")}
@@ -200,6 +213,8 @@ func (r *srlXmlInput) presence(name srlxml.Name,absent,nilAllowed bool)(byte,err
 R"serializer(
 // Collect only one scalar's text, including split CDATA/entity token boundaries.
 func (r *srlXmlInput) text()(string,error){var value strings.Builder;for{var event *srlXmlInputToken;if r.look!=nil{event=r.look;r.look=nil}else{var err error;event,err=r.read();if err!=nil{return "",err}};if event.kind=='e'{return value.String(),nil};if event.kind!='t'{return "",fmt.Errorf("XML scalar has markup")};value.WriteString(event.text)}}
+// Leave the first opaque child or owner end pending after a contiguous scalar prefix.
+func (r *srlXmlInput) prefixText()(string,error){var value strings.Builder;for{event,err:=r.mixedEvent();if err!=nil{return "",err};if event.kind!='t'{return value.String(),nil};value.WriteString(event.text);r.look=nil}}
 // Decode scalar content and reject all attributes before consuming its end token.
 func (r *srlXmlInput) scalar(name srlxml.Name)(string,error){fields,err:=r.open(name);if err!=nil{return "",err};if len(fields.attrs)!=0{return "",fmt.Errorf("XML scalar has markup")};return r.text()}
 // Confirm the complete document after the root candidate has been checked.
@@ -209,13 +224,15 @@ type srlXmlInputFields struct { input *srlXmlInput; attrs []srlxml.Attr; used in
 func (f *srlXmlInputFields) attribute(name srlxml.Name,required bool)(string,bool,error){for i,a:=range f.attrs{if a.Name==name{f.attrs[i].Name=srlxml.Name{};f.used++;return a.Value,true,nil}};if required{return "",false,fmt.Errorf("Required XML attribute missing")};return "",false,nil}
 // Exhaust every attribute and close exactly one record or wrapper.
 func (f *srlXmlInputFields) finish()error{if f.used!=len(f.attrs){return fmt.Errorf("Unexpected XML attribute")};event,err:=f.input.peek();if err!=nil{return err};if event.kind!='e'{return fmt.Errorf("Unexpected XML field")};f.input.look=nil;return nil}
+// Do not discard late scalar whitespace after consuming a foreign suffix.
+func (f *srlXmlInputFields) finishTextExtensions()error{if f.used!=len(f.attrs){return fmt.Errorf("Unexpected XML attribute")};event,err:=f.input.mixedEvent();if err!=nil{return err};if event.kind!='e'{return fmt.Errorf("Unexpected XML scalar extension content")};f.input.look=nil;return nil}
 // Reject oversized serialized output before growing its byte storage.
-func (w *srlXmlSink) Write(data []byte)(int,error) { if len(data)>w.maximum-w.text.Len() { return 0,srlXmlLimitError("XML output limit exceeded") }; return w.text.Write(data) }
+func (w *srlXmlSink) Write(data []byte)(int,error) { if len(data)>w.maximum-w.text.Len() { return 0,srlXmlLimitError("XML output limit exceeded") }; if w.budget!=nil{if err:=w.budget.charge("work",int64(len(data)));err!=nil{return 0,err};if err:=w.budget.charge("allocation",int64(len(data)));err!=nil{return 0,err}};return w.text.Write(data) }
 // Retain only the pending start tag and namespace of each active ancestor.
 type srlXmlOutputFrame struct { start srlxml.StartElement; expanded srlxml.Name; pending bool; inherited string; manual,scoped bool; attributes map[srlxml.Name]bool; identityAttributes map[string]string; unqualifiedQName bool }
-type srlXmlOutput struct { budget srlXmlBudget; mapLimits XmlMapLimits; mixedLimits XmlMixedLimits; identityLimits XmlIdentityLimits; digestLimits XmlDigestLimits; extensionOptions XmlExtensionOptions; identities []*srlXmlIdentity; sink srlXmlSink; encoder *srlxml.Encoder; stack []srlXmlOutputFrame; namespaceReserved map[string]struct{}; namespaceReservedBytes int; skipNamespaceAttribute, namespaceReserveOnly bool; namespaceScanDepth int }
+type srlXmlOutput struct { budget srlXmlBudget; mapLimits XmlMapLimits; mixedLimits XmlMixedLimits; identityLimits XmlIdentityLimits; digestLimits XmlDigestLimits; extensionOptions XmlExtensionOptions; identities []*srlXmlIdentity; sink srlXmlSink; encoder *srlxml.Encoder; stack []srlXmlOutputFrame; namespaceReserved map[string]struct{}; namespaceReservedBytes int; skipNamespaceAttribute, namespaceReserveOnly, suppressNamespaceText bool; namespaceScanDepth int; declarationValidation bool }
 // Create operation-local output; no model value or descendant node is retained.
-func srlXmlOutputStart(limits XmlLimits,maps ...XmlMapLimits)*srlXmlOutput { mapLimits:=DefaultXmlMapLimits();if len(maps)!=0{mapLimits=maps[0]};result:=&srlXmlOutput{budget:srlXmlBudget{limits:limits},mapLimits:mapLimits,mixedLimits:DefaultXmlMixedLimits(),identityLimits:DefaultXmlIdentityLimits(),digestLimits:DefaultXmlDigestLimits(),extensionOptions:DefaultXmlExtensionOptions(),sink:srlXmlSink{maximum:limits.MaxBytes}};result.encoder=srlxml.NewEncoder(&result.sink);return result }
+func srlXmlOutputStart(limits XmlLimits,maps ...XmlMapLimits)*srlXmlOutput { mapLimits:=DefaultXmlMapLimits();if len(maps)!=0{mapLimits=maps[0]};result:=&srlXmlOutput{budget:srlXmlBudget{limits:limits},mapLimits:mapLimits,mixedLimits:DefaultXmlMixedLimits(),identityLimits:DefaultXmlIdentityLimits(),digestLimits:DefaultXmlDigestLimits(),extensionOptions:DefaultXmlExtensionOptions(),sink:srlXmlSink{maximum:limits.MaxBytes}};result.sink.budget=&result.budget;result.encoder=srlxml.NewEncoder(&result.sink);return result }
 // Flush attributes before the first child or scalar text token.
 func (w *srlXmlOutput) seal()error { if len(w.stack)==0{return nil};frame:=&w.stack[len(w.stack)-1];if !frame.pending{return nil};if frame.start.Name.Space!=""{if err:=w.budget.namespaceValue("",frame.start.Name.Space);err!=nil{return err}};if frame.start.Name.Space==""&&frame.inherited!=""{if err:=w.budget.namespaceValue("","");err!=nil{return err};frame.start.Attr=append(frame.start.Attr,srlxml.Attr{Name:srlxml.Name{Local:"xmlns"},Value:""})};if err:=w.identityStart(frame);err!=nil{return err};frame.pending=false;return w.encoder.EncodeToken(frame.start) }
 // Admit one start token before retaining its bounded pending tag.
@@ -272,11 +289,11 @@ func (w *srlXmlOutput) typeName(identity srlxml.Name)error{
 }
 )serializer"
 R"serializer(// Validate and escape a scalar directly into bounded output storage.
-func (w *srlXmlOutput) text(text string)error { if err:=w.budget.textValue(text);err!=nil{return err};if err:=w.seal();err!=nil{return err};for _,identity:=range w.identities{if !identity.complete{if err:=identity.text(text);err!=nil{return err}}};return w.encoder.EncodeToken(srlxml.CharData(text)) }
+func (w *srlXmlOutput) text(text string)error { if err:=w.budget.textValue(text);err!=nil{return err};if err:=w.seal();err!=nil{return err};for _,identity:=range w.identities{if !identity.complete{if err:=identity.text(text);err!=nil{return err}}};if w.suppressNamespaceText{w.suppressNamespaceText=false;return nil};return w.encoder.EncodeToken(srlxml.CharData(text)) }
 // Complete one active element without retaining its finished contents.
 func (w *srlXmlOutput) close()error { if len(w.stack)==0{return fmt.Errorf("Unexpected XML end")};if err:=w.seal();err!=nil{return err};last:=len(w.stack)-1;for _,identity:=range w.identities{if !identity.complete{if err:=identity.end(w.identityNamespace);err!=nil{return err}}};end:=w.stack[last].start.End();w.stack=w.stack[:last];return w.encoder.EncodeToken(end) }
 // Publish bytes only after every generated element and output bound succeeds.
-func (w *srlXmlOutput) finish()([]byte,error) { if len(w.stack)!=0||len(w.identities)!=0{return nil,fmt.Errorf("Incomplete XML output or identity scope")};if err:=w.encoder.Flush();err!=nil{return nil,err};return []byte(w.sink.text.String()),nil }
+func (w *srlXmlOutput) finish()([]byte,error) { if len(w.stack)!=0||len(w.identities)!=0{return nil,fmt.Errorf("Incomplete XML output or identity scope")};if err:=w.encoder.Flush();err!=nil{return nil,err};if err:=w.budget.charge("allocation",int64(w.sink.text.Len()));err!=nil{return nil,err};return []byte(w.sink.text.String()),nil }
 // Emit deterministic data XML without a private envelope or external resources.
 func srlXmlWrite(node *srlXmlNode, limits XmlLimits)([]byte,error) {
   output:=srlXmlOutputStart(limits)

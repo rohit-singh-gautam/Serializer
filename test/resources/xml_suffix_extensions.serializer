@@ -1,0 +1,8 @@
+serializer version 1.21.0;
+namespace suffix_models {
+  using schema "xml_suffix_extensions.xsd";
+  class all { public string first; public optional<string> second; }
+}
+namespace prefix {
+  class text { public string value xml(text); }
+}

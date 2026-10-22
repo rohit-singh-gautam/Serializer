@@ -27,6 +27,8 @@ public static final class Limits {
   public interface XmlOperation { void consume(String resource,long amount,String field); }
   public final XmlOperation xmlOperation;
   public String xmlExpectedRoot,xmlExpectedType;
+  private boolean xmlPackageProfile,xmlRequiresType;
+  private java.util.List<String> xmlVocabularies=java.util.List.of();
 
   /** Construct a nonnegative resource policy. */
   public Limits(int maxBytes, int maxStringBytes, int maxElements, int maxDepth) { this(maxBytes, maxStringBytes, maxElements, maxDepth, ReadPolicy.STRICT); }
@@ -78,6 +80,8 @@ private static java.lang.String utf8(byte[] bytes, int offset, int length) {
     throw new java.lang.IllegalArgumentException("Invalid UTF-8 string", error);
   }
 }
+/** Measure exact UTF8 without temporary storage and reject unpaired UTF16 surrogates. */
+private static int nativeUtf8Length(String value){long size=0;for(int index=0;index<value.length();++index){char unit=value.charAt(index);if(Character.isHighSurrogate(unit)){if(index+1>=value.length()||!Character.isLowSurrogate(value.charAt(++index)))throw new IllegalArgumentException("Invalid UTF-16 string");size+=4;}else if(Character.isLowSurrogate(unit))throw new IllegalArgumentException("Invalid UTF-16 string");else size+=unit<128?1:unit<2048?2:3;if(size>Integer.MAX_VALUE)throw new IllegalArgumentException("Native string size overflow");}return (int)size;}
 
 /** Compare UTF-8 byte sequences in the same order as C++ string map keys. */
 private static int compareText(java.lang.String first, java.lang.String second) {
@@ -88,6 +92,21 @@ private static int compareText(java.lang.String first, java.lang.String second) 
 private static final class Writer {
   /** Keep the buffer helper inside the already reserved writer scope. */
   private static final class SizeBuffer extends java.io.ByteArrayOutputStream {
+    private final Limits limits;
+    /** Preserve the ordinary native encoder's existing buffer behavior. */
+    SizeBuffer(){super();limits=null;}
+    /** Delay package-owned buffer allocation until its operation admits the actual growth. */
+    SizeBuffer(Limits limits){super(0);this.limits=limits;}
+    /** Admit complete output growth before mutating the private buffer. */
+    private void reserve(int amount){if(limits==null)return;if(amount<0||amount>limits.maxBytes-count)throw new IllegalArgumentException("Native output byte limit");if(limits.xmlOperation!=null)limits.xmlOperation.consume("work",amount,"");int needed=count+amount;if(needed<=buf.length)return;int capacity=buf.length==0?Math.min(256,limits.maxBytes):buf.length;while(capacity<needed){if(capacity>limits.maxBytes/2){capacity=needed;break;}capacity*=2;}if(limits.xmlOperation!=null)limits.xmlOperation.consume("allocation",capacity,"");buf=java.util.Arrays.copyOf(buf,capacity);}
+    /** Write one already validated byte after operation admission. */
+    @Override public synchronized void write(int value){if(limits==null){super.write(value);return;}reserve(1);buf[count++]=(byte)value;}
+    /** Copy a checked byte range only after its complete allocation and work admission. */
+    @Override public synchronized void write(byte[] value,int offset,int length){java.util.Objects.checkFromIndexSize(offset,length,value.length);if(limits==null){super.write(value,offset,length);return;}reserve(length);java.lang.System.arraycopy(value,offset,buf,count,length);count+=length;}
+    /** Keep the JDK convenience entry point on the same accounting path. */
+    @Override public void writeBytes(byte[] value){write(value,0,value.length);}
+    /** Admit the final exact-size independently owning result before copying the buffer. */
+    @Override public synchronized byte[] toByteArray(){if(limits!=null&&limits.xmlOperation!=null)limits.xmlOperation.consume("allocation",count,"");return super.toByteArray();}
     /** Backpatch already-written fixed-width bytes without copying the surrounding message. */
     void patchInteger(int position, long value, int width) {
       if (position < 0 || width > count - position) {
@@ -103,19 +122,26 @@ private static final class Writer {
 
   private static final int COMPACT_MAX = 0x3fffffff;
   final Protocol protocol;
-  final SizeBuffer bytes = new SizeBuffer();
+  final SizeBuffer bytes;
+  final Limits limits;
   int depth;
 
   /** Create an isolated encoding session. */
   Writer(Protocol protocol) {
     this.protocol = java.util.Objects.requireNonNull(protocol);
+    this.limits=null;this.bytes=new SizeBuffer();
   }
+  /** Share one package-owned native operation without changing ordinary public encode APIs. */
+  Writer(Protocol protocol,Limits limits){this.protocol=java.util.Objects.requireNonNull(protocol);this.limits=java.util.Objects.requireNonNull(limits);this.bytes=new SizeBuffer(limits);}
+  /** Admit traversal and temporary storage before a generated native encoder owns it. */
+  void consume(String resource,long amount){if(limits!=null&&limits.xmlOperation!=null)limits.xmlOperation.consume(resource,amount,"");}
 
   /** Report whether this session uses JSON. */
   boolean json() { return protocol == Protocol.JSON; }
 
   /** Write ASCII punctuation or numeric text. */
   void raw(java.lang.String value) {
+    consume("allocation",value.length());
     bytes.writeBytes(value.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
   }
 
@@ -200,6 +226,7 @@ private static final class Writer {
 
   /** Encode UTF-8 with compact binary length or JSON escaping. */
   void text(java.lang.String value) {
+    if(limits!=null){int size=nativeUtf8Length(value);if(size>limits.maxStringBytes)throw new IllegalArgumentException("Native string limit");consume("work",value.length());consume("allocation",3L*value.length()+size);}
     byte[] encoded = utf8(value);
     if (!json()) {
       compact(encoded.length);
@@ -224,6 +251,7 @@ private static final class Writer {
 
   /** Bound recursive output and begin an object. */
   void beginObject() {
+    consume("work",1);
     if (++depth > DEFAULT_MAX_DEPTH) {
       throw new java.lang.IllegalArgumentException("Encode depth limit exceeded");
     }
@@ -236,7 +264,8 @@ private static final class Writer {
       if (!first) { bytes.write(','); }
       text(name);
       bytes.write(':');
-    } else if (protocol == Protocol.BINARY_INTEGER) { compact(id); }
+    } else if (protocol == Protocol.BINARY_INTEGER) { compact(id); })java"
+R"java(
     else if (protocol == Protocol.BINARY_STRING) { text(name); }
   }
 
@@ -253,6 +282,7 @@ private static final class Writer {
   }
   /** Begin a collection with its element count where binary requires one. */
   void beginArray(int count) {
+    consume("work",count);
     if (json()) { bytes.write('['); }
     else { compact(count); }
   }
@@ -266,6 +296,8 @@ private static final class Writer {
 
 /** Bounded cursor shared by all nested generated readers in one message. */
 private static final class Reader {
+  /** Admit decoder work and retained values while preserving package callback failure identity. */
+  void consume(String resource,long amount){if(limits.xmlOperation!=null)limits.xmlOperation.consume(resource,amount,"");}
   /** Read exactly the declared dotted component count. */
   String version(int count) { String value; if (json()) value = text(); else { StringBuilder text = new StringBuilder(); for (int i = 0; i < count; ++i) { if (i != 0) text.append('.'); text.append(integer(2, true)); } value = text.toString(); } srlVersionParts(value, count); return value; }
   /** Consume bounded JSON extensions only under the flexible policy. */
@@ -307,6 +339,7 @@ private static final class Reader {
   /** Require a bounded slice without overflow. */
   void require(int length) {
     if (length < 0 || length > bytes.length - offset) { throw error("Truncated input"); }
+    consume("work",length);
   }
 
 )java"
@@ -351,6 +384,7 @@ R"java(  /** Consume only the four JSON whitespace characters. */
       ++offset;
     }
     if (start == offset) { throw error("Missing JSON token"); }
+    consume("work",offset-start);consume("allocation",2L*(offset-start));
     return new java.lang.String(bytes, start, offset - start, java.nio.charset.StandardCharsets.US_ASCII);
   }
 
@@ -474,11 +508,13 @@ R"java(      java.lang.String mantissa = value.split("[eE]", 2)[0];
       int length = compact();
       if (length > limits.maxStringBytes) { throw error("java.lang.String limit exceeded"); }
       require(length);
+      consume("allocation",4L*length);
       java.lang.String value = utf8(bytes, offset, length);
       offset += length;
       return value;
     }
     expect('"');
+    consume("allocation",32);
     java.lang.StringBuilder value = new java.lang.StringBuilder();
     int start = offset;
     int segment = offset;
@@ -487,10 +523,12 @@ R"java(      java.lang.String mantissa = value.split("[eE]", 2)[0];
       int current = java.lang.Byte.toUnsignedInt(bytes[offset++]);
       if (offset - start - 1 > limits.maxStringBytes) { throw error("java.lang.String limit exceeded"); }
       if (current == '"' || current == '\\') {
+        consume("allocation",6L*(offset-segment-1)+2);
         value.append(utf8(bytes, segment, offset - segment - 1));
         if (current == '"') {
+          consume("allocation",2L*value.length());
           java.lang.String result = value.toString();
-          if (utf8(result).length > limits.maxStringBytes) { throw error("java.lang.String limit exceeded"); }
+          if ((limits.xmlOperation==null?utf8(result).length:nativeUtf8Length(result)) > limits.maxStringBytes) { throw error("java.lang.String limit exceeded"); }
           return result;
         }
         require(1);
@@ -514,6 +552,7 @@ R"java(      java.lang.String mantissa = value.split("[eE]", 2)[0];
 
   /** Bound object nesting before descending. */
   void beginObject() {
+    consume("work",1);consume("allocation",64);
     if (++depth > limits.maxDepth) { throw error("Depth limit exceeded"); }
     if (json()) { expect('{'); }
   }
@@ -550,6 +589,7 @@ R"java(      java.lang.String mantissa = value.split("[eE]", 2)[0];
     if (width != 0 && count > (bytes.length - offset) / width) {
       throw error("Truncated array");
     }
+    if(count>=0)consume("allocation",(long)count*(width==0?Long.BYTES:width));
   }
 
   /** Consume separators and charge one cumulative collection entry. */
@@ -561,6 +601,7 @@ R"java(      java.lang.String mantissa = value.split("[eE]", 2)[0];
       if (index != 0) { expect(','); }
     } else if (index == count) { return false; }
     if (elements == limits.maxElements) { throw error("Element limit exceeded"); }
+    consume("work",1);if(json())consume("allocation",Long.BYTES);
     ++elements;
     return true;
   }

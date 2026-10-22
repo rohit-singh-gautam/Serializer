@@ -36,15 +36,21 @@ fn srl_version_parts(value: &str, count: usize) -> SrlResult<Vec<u16>> {
 }
 /// Order numeric components without textual comparison.
 fn srl_version_compare(a: &str, b: &str, count: usize) -> SrlResult<i32> { let x = srl_version_parts(a, count)?; let y = srl_version_parts(b, count)?; Ok(match x.cmp(&y) { std::cmp::Ordering::Less => -1, std::cmp::Ordering::Equal => 0, std::cmp::Ordering::Greater => 1 }) }
-struct SrlWriter { protocol: Protocol, bytes: Vec<u8>, depth: usize }
-impl SrlWriter {
+struct SrlWriter<'a> { protocol: Protocol, bytes: Vec<u8>, depth: usize, operation:Option<&'a mut dyn FnMut(&str,usize)->SrlResult<()>>, maximum:usize }
+impl<'a> SrlWriter<'a> {
     /// Write canonical text or count-free binary components.
     fn version(&mut self, value: &str, count: usize) -> SrlResult<()> { let parts = srl_version_parts(value, count)?; if self.json() { self.text(value) } else { for part in parts { self.integer(part as u64, 2, true)?; } Ok(()) } }
 
     /// Create isolated owned output storage.
-    fn new(protocol: Protocol) -> Self { Self { protocol, bytes: Vec::new(), depth: 0 } }
+    fn new(protocol: Protocol) -> Self { Self { protocol, bytes: Vec::new(), depth: 0, operation:None, maximum:usize::MAX } }
+    /// Attach one borrowed package ledger without changing ordinary native entry points.
+    fn new_with_operation(protocol:Protocol,maximum:usize,operation:&'a mut dyn FnMut(&str,usize)->SrlResult<()>)->Self {let mut value=Self::new(protocol);value.operation=Some(operation);value.maximum=maximum;value}
+    /// Admit source traversal and private storage before any mutation.
+    fn consume(&mut self,kind:&str,count:usize)->SrlResult<()> {if let Some(operation)=&mut self.operation{operation(kind,count)?;}Ok(())}
     /// Grow output with checked allocation before copying bytes.
     fn put(&mut self, bytes: &[u8]) -> SrlResult<()> {
+        if bytes.len()>self.maximum-self.bytes.len(){return Err(Error("Message byte limit"));}
+        self.consume("work",bytes.len().saturating_add(1))?;self.consume("allocation",bytes.len())?;
         self.bytes.try_reserve(bytes.len()).map_err(|_| Error("Output allocation"))?;
         self.bytes.extend_from_slice(bytes); Ok(())
     }
@@ -100,6 +106,7 @@ impl SrlWriter {
     }
     /// Encode valid Rust strings without a second complete JSON buffer.
     fn text(&mut self, value: &str) -> SrlResult<()> {
+        self.consume("work",value.len().saturating_add(1))?;
         if !self.json() { self.compact(value.len())?; return self.put(value.as_bytes()); }
         self.put(b"\"")?;
         let mut start = 0;
@@ -126,11 +133,13 @@ impl SrlWriter {
     }
     /// Bound recursion before traversing fields.
     fn begin_object(&mut self) -> SrlResult<()> {
+        self.consume("work",1)?;
         self.depth += 1; if self.depth > 64 { return Err(Error("Encode depth limit")); }
         if self.json() { self.put(b"{")?; } Ok(())
     }
     /// Append pre-encoded immutable schema key bytes.
     fn field(&mut self, id: usize, key: usize, first: bool) -> SrlResult<()> {
+        self.consume("work",1)?;
         if self.json() { if !first { self.put(b",")?; } self.put(SRL_FIELDS[key].0) }
         else if self.protocol == Protocol::BinaryInteger { self.compact(id) }
         else if self.protocol == Protocol::BinaryString { self.put(SRL_FIELDS[key].1) }
@@ -144,14 +153,14 @@ impl SrlWriter {
     /// Write array length or JSON opening delimiter.
     /// Write optional framing with a single binary presence byte.
     fn begin_optional(&mut self, present: bool) -> SrlResult<()> { if self.json() { self.put(b"[") } else { self.integer(u64::from(present), 1, true) } }
-    fn begin_array(&mut self, count: usize) -> SrlResult<()> { if self.json() { self.put(b"[") } else { self.compact(count) } }
+    fn begin_array(&mut self, count: usize) -> SrlResult<()> { self.consume("work",count.saturating_add(1))?; if self.json() { self.put(b"[") } else { self.compact(count) } }
     /// Separate JSON array entries.
     fn element(&mut self, index: usize) -> SrlResult<()> { if self.json() && index != 0 { self.put(b",")?; } Ok(()) }
     /// Close a JSON array.
     fn end_array(&mut self) -> SrlResult<()> { if self.json() { self.put(b"]")?; } Ok(()) }
 }
 enum SrlKey { Id(u32), Name(String) }
-struct SrlReader<'a> { data: &'a [u8], protocol: Protocol, limits: Limits, offset: usize, depth: usize, elements: usize }
+struct SrlReader<'a> { data: &'a [u8], protocol: Protocol, limits: Limits, offset: usize, depth: usize, elements: usize, operation:Option<&'a mut dyn FnMut(&str,usize)->SrlResult<()>> }
 impl<'a> SrlReader<'a> {
     /// Decode exactly the declared count of revision components.
     fn version(&mut self, count: usize) -> SrlResult<String> { let value = if self.json() { self.text()? } else { let mut text = String::new(); for i in 0..count { if i != 0 { text.push('.'); } write!(&mut text, "{}", self.integer(2, true)?).map_err(|_| Error("Revision formatting"))?; } text }; srl_version_parts(&value, count)?; Ok(value) }
@@ -168,12 +177,17 @@ impl<'a> SrlReader<'a> {
     /// Borrow input only for this decode operation.
     fn new(data: &'a [u8], protocol: Protocol, limits: Limits) -> SrlResult<Self> {
         if data.len() > limits.max_bytes { return Err(Error("Message byte limit")); }
-        Ok(Self { data, protocol, limits, offset: 0, depth: 0, elements: 0 })
+        Ok(Self { data, protocol, limits, offset: 0, depth: 0, elements: 0, operation:None })
     }
+    /// Attach a synchronous package context while borrowing input only for the native decode call.
+    fn new_with_operation(data:&'a [u8],protocol:Protocol,limits:Limits,operation:&'a mut dyn FnMut(&str,usize)->SrlResult<()>)->SrlResult<Self>{let mut value=Self::new(data,protocol,limits)?;value.operation=Some(operation);Ok(value)}
+    /// Admit native work or storage without replacing the caller's first operation failure.
+    fn consume(&mut self,kind:&str,count:usize)->SrlResult<()> {if let Some(operation)=&mut self.operation{operation(kind,count)?;}Ok(())}
     /// Test the selected protocol.
     fn json(&self) -> bool { self.protocol == Protocol::Json }
     /// Check bounds before taking a borrowed input slice.
     fn take(&mut self, count: usize) -> SrlResult<&'a [u8]> {
+        self.consume("work",count.saturating_add(1))?;
         if count > self.data.len()-self.offset { return Err(Error("Truncated input")); }
         let start = self.offset; self.offset += count; Ok(&self.data[start..self.offset])
     }
@@ -265,11 +279,13 @@ R"serializer(    /// Reject malformed compact fields and range overflow before p
     fn text(&mut self) -> SrlResult<String> {
         if !self.json() {
             let count = self.compact()?; if count > self.limits.max_string_bytes { return Err(Error("String limit")); }
+            self.consume("allocation",count)?;
             return Ok(std::str::from_utf8(self.take(count)?).map_err(|_| Error("Invalid UTF-8"))?.to_owned());
         }
         self.expect(b'"')?; let start = self.offset; let mut value = Vec::new();
         loop {
             let byte = self.take(1)?[0];
+            self.consume("allocation",8)?;
             if self.offset-start-1 > self.limits.max_string_bytes { return Err(Error("String limit")); }
             if byte == b'"' { break; }
             if byte < 32 { return Err(Error("Unescaped control")); }
@@ -304,7 +320,7 @@ R"serializer(                b'"' | b'\\' | b'/' => value.push(escaped), b'b' =>
         if index >= names.len() { return Err(Error("Unknown enum")); } Ok(index)
     }
     /// Check object nesting before allocating children.
-    fn begin_object(&mut self) -> SrlResult<()> { self.depth += 1; if self.depth > self.limits.max_depth { return Err(Error("Depth limit")); } if self.json() { self.expect(b'{')?; } Ok(()) }
+    fn begin_object(&mut self) -> SrlResult<()> { self.consume("work",1)?;self.consume("allocation",64)?;self.depth += 1; if self.depth > self.limits.max_depth { return Err(Error("Depth limit")); } if self.json() { self.expect(b'{')?; } Ok(()) }
     /// Yield positional IDs or keyed names, preserving repeated occurrences.
     fn key(&mut self, ids: &[u32], cursor: &mut usize) -> SrlResult<Option<SrlKey>> {
         if self.protocol == Protocol::BinaryNone { let value = ids.get(*cursor).copied(); *cursor += 1; return Ok(value.map(SrlKey::Id)); }
@@ -324,16 +340,16 @@ R"serializer(                b'"' | b'\\' | b'/' => value.push(escaped), b'b' =>
         let count = self.compact()?; if count > self.limits.max_elements-self.elements { return Err(Error("Element limit")); } Ok(Some(count))
     }
     /// Reserve fixed-width arrays only after checking their minimum input size.
-    fn capacity(&self, count: Option<usize>, width: usize) -> SrlResult<usize> {
+    fn capacity(&mut self, count: Option<usize>, width: usize) -> SrlResult<usize> {
         let count = count.unwrap_or(0);
         if width != 0 && count > (self.data.len()-self.offset)/width { return Err(Error("Truncated array")); }
-        Ok(if width == 0 { count.min(256) } else { count })
+        let capacity=if width == 0 { count.min(256) } else { count };self.consume("allocation",capacity.checked_mul(width.max(8)).ok_or(Error("Array allocation overflow"))?)?;Ok(capacity)
     }
     /// Charge each collection element and reject trailing commas.
     fn next_element(&mut self, index: usize, count: Option<usize>) -> SrlResult<bool> {
         if let Some(count) = count { if index == count { return Ok(false); } }
         else { self.whitespace(); if self.data.get(self.offset) == Some(&b']') { self.offset += 1; return Ok(false); } if index != 0 { self.expect(b',')?; } }
-        if self.elements == self.limits.max_elements { return Err(Error("Element limit")); } self.elements += 1; Ok(true)
+        if self.elements == self.limits.max_elements { return Err(Error("Element limit")); } self.consume("work",1)?;self.consume("allocation",8)?;self.elements += 1; Ok(true)
     }
     /// Require exact consumption before exposing the fresh decoded object.
     fn finish(&mut self) -> SrlResult<()> { if self.json() { self.whitespace(); } if self.offset != self.data.len() { return Err(Error("Trailing input")); } Ok(()) }

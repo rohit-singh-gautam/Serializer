@@ -1,5 +1,41 @@
 # Wire format and decoding contract
 
+## XML wildcard declarations in 2.28
+
+Generated XML wildcard slots retain their namespace predicate, attribute/element
+kind, particle position and occurrence bounds. `processContents="skip"` admits
+well-formed opaque content without declaration validation. `lax` validates a
+matching global declaration from the pinned XSD bundle and otherwise permits
+opaque content; `strict` rejects a missing declaration. Matching declarations
+use their complete scalar, attribute and content-model contracts, including
+admitted derived types and nil rules. No provider lookup, network schema fetch
+or instance-selected schema replaces this compiler-owned inventory.
+
+Validation precedes discard or retention and repeats before preserved content
+is emitted. Temporary private DTOs share the active operation's work/allocation
+ledger without adding a second opaque-preservation charge. Caller-selected
+preservation bounds and required-vocabulary understanding remain independent.
+General skip/preserve fallback applies to foreign namespaces only; authored
+positions and XSD wildcard predicates retain their own exact permissions.
+
+Wildcard metadata, private validation DTOs and occurrence namespace/foreign
+companions add no native JSON/binary fields, IDs or variant tags. Keep native
+C/Rust document companions with their associated values. Rebuild C++ clients
+against matching headers/runtime after regeneration; see the
+[wildcard verification record](../verification/verification-xml-wildcards-2026-10-22.md).
+
+## Package profile envelopes in 2.28
+
+Generated package roles select their declared XML, native JSON or BINARY_NONE
+codec inside an ordinary stored/DEFLATE ZIP member. Native protocol bytes and
+field IDs are unchanged; no additional native wrapper is inserted. XML-only
+namespace/foreign companions remain outside native payloads, including C/Rust
+aggregate companion stores. Inert External byte relationships carry the exact URI
+and no physical member. Explicit dynamic/repeated rename provenance changes OPC
+part names and internal source/target references together, preserving opaque bytes
+and external URIs. See the [pipeline contract](xml_packages.md#generated-package-pipelines)
+and [actual SDK evidence](../verification/verification-package-pipelines-2026-10-22.md).
+
 ## Native merge ancestry
 
 Compiler/runtime 2.24.0 adds an explicitly enabled collaboration model command
@@ -77,8 +113,10 @@ journal or collaboration formats. Capability requirement profiles and routed PMR
 limits are native configuration, not serialized metadata. Python QName-list
 schema restrictions retain ordered expanded identities through XML-only state;
 ordinary string/list fields and their native IDs/bytes are unchanged. Schema
-language remains **1.21.0**. The supported combinations and remaining QName/export
-gates are recorded in the [QName-list verification](../verification/verification-qname-lists-2026-10-21.md).
+language remains **1.21.0**. The [QName-list verification](../verification/verification-qname-lists-2026-10-21.md)
+records that checkpoint's supported combinations and then-open export gates;
+the [2.28 scalar matrix](../verification/verification-scalar-identities-2026-10-22.md)
+records the later eleven-output completion.
 
 Compiler/runtime **2.20.1** fixes Java/C#/Kotlin/Swift XML namespace-declaration
 accounting without changing native or XML representations. Generated declarations
@@ -263,6 +301,10 @@ without changing native bytes, stored model fields or native variant tags.
 Only an explicit owner mapping activates it. Migrating an existing pair of
 arrays to a variant array changes the schema's native shape and requires an
 intentional migration; the generator does not perform that rewrite.
+
+Compiler/runtime **2.28.0** adds fixed-XSD ordered grammar cursors and broader
+C/Rust namespace companion graphs. Their transition metadata and retained scopes
+are XML-only; native model fields, branch tags and protocol encodings are unchanged.
 
 Compiler/runtime **2.3.0** adds opt-in generated XML entry points with a separate
 expanded-name/attribute/ordered-child mapping. Existing JSON/binary protocol IDs,

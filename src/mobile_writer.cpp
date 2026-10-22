@@ -1152,6 +1152,10 @@ class mobile_emitter {
     const auto saved_indent = indent;
     output.clear(); indent = 2;
     const auto& target = ::rohit::serializer::conversion::record(method.target);
+    if (model.xml.enabled && !swift) {
+      line("// Expose the borrowed source only to generated synchronous XML traversal.");
+      line("internal val srlXmlSource get() = srl_source");
+    }
     auto projected = translator::output_fields(method, swift ? "swift" : "kotlin", [&](auto value, auto) { return field(value); });
     magic_declaration(target);
     line("// Encode readonly projections without constructing the target model.");
@@ -1760,7 +1764,7 @@ public:
   mobile_emitter(const schema& value, bool apple, std::string_view package)
       : model{value}, swift{apple} {
     if (model.xml.enabled) {
-      const xml_binding::schema bindings{model.xml};
+      const xml_binding::schema bindings{model.xml, model.xml_inventories};
       for (const auto* node : model.nodes) {
         if (node->type != object_type::class_type) { continue; }
         const auto& owner = static_cast<const class_node&>(*node);
@@ -1898,14 +1902,14 @@ public:
         output += package_codegen::kotlin(*package, model.names.at(package), kotlin_package_helper_,
             [&](const auto& value) { return type(value); },
             [&](const auto value) { return field(value); },
-            [&](const auto value) { return quote(value); }, model.xml);
+            [&](const auto value) { return quote(value); }, model.xml, model.protocols == output_protocols::binary_none);
       }
     } else {
       for (const auto* package : model.packages) {
         output += package_codegen::swift(*package, model.names.at(package), swift_package_helper_,
             [&](const auto& value) { return type(value); },
             [&](const auto value) { return field(value); },
-            [&](const auto value) { return quote(value); }, model.xml);
+            [&](const auto value) { return quote(value); }, model.xml, model.protocols == output_protocols::binary_none);
       }
     }
     return output;

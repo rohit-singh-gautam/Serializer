@@ -4,6 +4,7 @@
 
 #include "xml_schema.hpp"
 #include "xml_portable_writer.hpp"
+#include "xml_native_scalar_identity_writer.hpp"
 
 #include <rohit/xml_pattern.hpp>
 
@@ -54,7 +55,8 @@ inline std::string rust_scalar_rule(const xml_binding::field& field,
     return value ? "Some(" + std::to_string(*value) + ")" : "None";
   };
   const auto rule = [&](auto&& self, const xml_binding::scalar_facets& facets,
-                        const std::optional<std::string>& fixed) -> std::string {
+                        const std::optional<std::string>& fixed,
+                        const std::optional<xml_binding::scalar_value_identity>& fixed_identity) -> std::string {
     std::string result = "SrlXmlRule{kind:" + quote(facets.lexical_kind) +
         ",whitespace:" + quote(facets.whitespace) + ",bounds:[";
     for (const auto* bound : {&facets.min_inclusive, &facets.max_inclusive, &facets.min_exclusive, &facets.max_exclusive}) {
@@ -62,7 +64,10 @@ inline std::string rust_scalar_rule(const xml_binding::field& field,
     }
     result += "],length:" + extent(facets.length) + ",minimum:" + extent(facets.min_length) +
         ",maximum:" + extent(facets.max_length) + ",enumeration:&[";
-    for (const auto& value : facets.enumeration) { result += quote(value) + ','; }
+    if (facets.qname_enumeration.empty() && facets.qname_list_enumeration.empty() &&
+        facets.union_enumeration.empty()) {
+      for (const auto& value : facets.enumeration) { result += quote(value) + ','; }
+    }
     result += "],finite:" + std::string{facets.finite ? "true" : "false"} + ",groups:&[";
     auto groups = facets.pattern_groups;
     if (!facets.patterns.empty()) { groups.push_back(facets.patterns); }
@@ -72,10 +77,17 @@ inline std::string rust_scalar_rule(const xml_binding::field& field,
       result += "],";
     }
     result += "],list_kind:" + quote(facets.list_item_kind) + ",members:&[";
-    for (const auto& member : facets.union_members) { result += self(self, member, {}) + ','; }
-    return result + "],fixed:" + (fixed ? "Some(" + quote(*fixed) + ")" : "None") + '}';
+    for (const auto& member : facets.union_members) { result += self(self, member, {}, {}) + ','; }
+    result += "],fixed:" + (fixed && !fixed_identity ? "Some(" + quote(*fixed) + ")" : "None") +
+        ",namespace_dependent:" + (native_scalar_uses_namespaces(facets) ? "true" : "false") + ",identities:&[";
+    for (const auto& identity : native_scalar_identities(facets)) { result += rust_scalar_identity(identity, quote) + ','; }
+    return result + "],fixed_identity:" + (fixed_identity ? "Some(" + rust_scalar_identity(*fixed_identity, quote) + ")" : "None") +
+        ",item_rule:" + (facets.list_item_facets.empty() ? "None" : "Some(&" + self(self, facets.list_item_facets.front(), {}, {}) + ')') + ",schema_default:None}";
   };
-  return rule(rule, field.facets, field.fixed_value);
+  auto result = rule(rule, field.facets, field.fixed_value, native_scalar_fixed_identity(field));
+  const auto fallback = native_scalar_default_lexical(field);
+  if (fallback) { result.replace(result.rfind("schema_default:None}"), std::string_view{"schema_default:None}"}.size(), "schema_default:Some(" + quote(*fallback) + ")}"); }
+  return result;
 }
 
 // Emit file-scope C11 immutable tables in dependency order, without compound-literal lifetime assumptions.
@@ -115,8 +127,12 @@ inline std::string c_scalar_declaration(const std::string& identifier, const xml
   };
   // Recursive union members retain their own builtin type, whitespace and restrictions.
   const auto rule = [&](auto&& self, const std::string& name, const xml_binding::scalar_facets& facets,
-                        const std::optional<std::string>& fixed) -> std::string {
-    if (!facets.enumeration.empty()) {
+                        const std::optional<std::string>& fixed,
+                        const std::optional<xml_binding::scalar_value_identity>& fixed_identity) -> std::string {
+    const bool lexical_enumeration = !facets.enumeration.empty() &&
+        facets.qname_enumeration.empty() && facets.qname_list_enumeration.empty() &&
+        facets.union_enumeration.empty();
+    if (lexical_enumeration) {
       declarations += "static const char* const " + name + "_enumeration[]={";
       for (const auto& value : facets.enumeration) { declarations += quote(value) + ','; }
       declarations += "};\n";
@@ -137,22 +153,62 @@ inline std::string c_scalar_declaration(const std::string& identifier, const xml
     if (!facets.union_members.empty()) {
       std::string members;
       for (std::size_t index{}; index < facets.union_members.size(); ++index) {
-        members += self(self, name + "_member_" + std::to_string(index), facets.union_members[index], {}) + ',';
+        members += self(self, name + "_member_" + std::to_string(index), facets.union_members[index], {}, {}) + ',';
       }
       declarations += "static const srl_xml_scalar_rule " + name + "_members[]={" + members + "};\n";
+    }
+    if (!facets.list_item_facets.empty()) {
+      const auto item = self(self, name + "_item", facets.list_item_facets.front(), {}, {});
+      declarations += "static const srl_xml_scalar_rule " + name + "_item=" + item + ";\n";
+    }
+    const auto identities = native_scalar_identities(facets);
+    const auto identity_value = [&](auto&& self, const xml_binding::scalar_value_identity& identity, const std::string& stem) -> std::string {
+      if (!identity.names.empty()) {
+        declarations += "static const srl_xml_scalar_expanded_name " + stem + "[]={";
+        for (const auto& item : identity.names) { declarations += '{' + quote(item.namespace_uri) + ',' + quote(item.local) + "},"; }
+        declarations += "};\n";
+      }
+      if (!identity.items.empty()) {
+        std::string items;
+        for (std::size_t index{}; index < identity.items.size(); ++index) {
+          items += self(self, identity.items[index], stem + "_item_" + std::to_string(index)) + ',';
+        }
+        declarations += "static const srl_xml_scalar_identity " + stem + "_items[]={" + items + "};\n";
+      }
+      return '{' + quote(identity.lexical_kind) + ',' + quote(identity.list_item_kind) + ',' +
+          quote(identity.lexical_value) + ',' + (identity.names.empty() ? "NULL" : stem) + ',' +
+          std::to_string(identity.names.size()) + "u," + (identity.items.empty() ? "NULL" : stem + "_items") + ',' +
+          std::to_string(identity.items.size()) + "u}";
+    };
+    if (!identities.empty()) {
+      std::string values;
+      for (std::size_t index{}; index < identities.size(); ++index) {
+        values += identity_value(identity_value, identities[index], name + "_identity_names_" + std::to_string(index)) + ',';
+      }
+      declarations += "static const srl_xml_scalar_identity " + name + "_identities[]={" + values + "};\n";
+    }
+    if (fixed_identity) {
+      const auto value = identity_value(identity_value, *fixed_identity, name + "_fixed_names");
+      declarations += "static const srl_xml_scalar_identity " + name + "_fixed_identity=" + value + ";\n";
     }
     std::string result = '{' + quote(facets.lexical_kind) + ',' + quote(facets.whitespace) + ",{ ";
     for (const auto* bound : {&facets.min_inclusive, &facets.max_inclusive, &facets.min_exclusive, &facets.max_exclusive}) {
       result += quote(bound->value_or("")) + ',';
     }
     result += "}," + extent(facets.length) + ',' + extent(facets.min_length) + ',' + extent(facets.max_length) + ',' +
-        (facets.enumeration.empty() ? "NULL" : name + "_enumeration") + ',' + std::to_string(facets.enumeration.size()) + "u," +
+        (lexical_enumeration ? name + "_enumeration" : "NULL") + ',' + std::to_string(lexical_enumeration ? facets.enumeration.size() : 0U) + "u," +
         (facets.finite ? "true" : "false") + ',' + (groups.empty() ? "NULL" : name + "_groups") + ',' + std::to_string(groups.size()) + "u," +
         quote(facets.list_item_kind) + ',' + (facets.union_members.empty() ? "NULL" : name + "_members") + ',' +
-        std::to_string(facets.union_members.size()) + "u," + (fixed ? quote(*fixed) : "NULL") + '}';
+        std::to_string(facets.union_members.size()) + "u," + (fixed && !fixed_identity ? quote(*fixed) : "NULL") + ',' +
+        (native_scalar_uses_namespaces(facets) ? "true" : "false") + ',' +
+        (identities.empty() ? "NULL" : name + "_identities") + ',' + std::to_string(identities.size()) + "u," +
+        (fixed_identity ? '&' + name + "_fixed_identity" : "NULL") + ',' +
+        (facets.list_item_facets.empty() ? "NULL" : '&' + name + "_item") + ",NULL}";
     return result;
   };
-  const auto initializer = rule(rule, identifier, field.facets, field.fixed_value);
+  auto initializer = rule(rule, identifier, field.facets, field.fixed_value, native_scalar_fixed_identity(field));
+  const auto fallback = native_scalar_default_lexical(field);
+  if (fallback) { initializer.replace(initializer.size() - std::string_view{"NULL}"}.size(), std::string_view{"NULL}"}.size(), quote(*fallback) + '}'); }
   return declarations + "static const srl_xml_scalar_rule " + identifier + '=' + initializer + ";\n";
 }
 } // namespace rohit::serializer::writer::xml_codegen

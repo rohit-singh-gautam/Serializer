@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: 0BSD
 // Serializer runtime template source; emitted support may also be used under 0BSD.
 R"packagejava(
+  /** Reserve retained origin-map copies while the original role and relationship are known. */
+  private static final long relocationCopyAdmissionBytes=64L;
   /** Parsed standard infrastructure retains payload metadata without reading external targets. */
   private static final class Opc {
     final java.util.Map<String,PartMetadata> parts=new java.util.LinkedHashMap<>();
@@ -121,15 +123,22 @@ R"packagejava(
   }
   /** Declarative schema roles keep generated typed access independent of reflection. */
   public static final class Role {
+    public final String codec,targetMode;public final boolean requiresType;public final java.util.List<String> vocabularies;
     public final String policy,expectedRoot,expectedType,role;
     public final String field,name,contentType,source,relationship,id,compression;public final long minimum,maximum;
     /** Retain immutable schema constants; a negative maximum means unbounded. */
     public Role(String field,String name,String contentType,String source,String relationship,String id,String compression,long minimum,long maximum){this(field,name,contentType,source,relationship,id,compression,minimum,maximum,"defaults",null,null,field);}
     /** Bind fixed envelope and immutable expected XML identities. */
-    public Role(String field,String name,String contentType,String source,String relationship,String id,String compression,long minimum,long maximum,String policy,String root,String type,String role){this.field=field;this.name=name;this.contentType=contentType;this.source=source;this.relationship=relationship;this.id=id;this.compression=compression;this.minimum=minimum;this.maximum=maximum;this.role=role;this.policy=policy;this.expectedRoot=root;this.expectedType=type;}
+    public Role(String field,String name,String contentType,String source,String relationship,String id,String compression,long minimum,long maximum,String policy,String root,String type,String role){this(field,name,contentType,source,relationship,id,compression,minimum,maximum,policy,root,type,role,"xml","internal",false,java.util.List.of());}
+    /** Bind closed native/XML envelopes and authorized XML capabilities without replacing old constructors. */
+    public Role(String field,String name,String contentType,String source,String relationship,String id,String compression,long minimum,long maximum,String policy,String root,String type,String role,String codec,String targetMode,boolean requiresType,java.util.List<String> vocabularies){this.field=field;this.name=name;this.contentType=contentType;this.source=source;this.relationship=relationship;this.id=id;this.compression=compression;this.minimum=minimum;this.maximum=maximum;this.role=role;this.policy=policy;this.expectedRoot=root;this.expectedType=type;this.codec=codec;this.targetMode=targetMode;this.requiresType=requiresType;this.vocabularies=java.util.List.copyOf(vocabularies);}
   }
+  /** Override only a declared part's codec/storage envelope; null components retain schema defaults. */
+  public record PipelineProfile(String codec,String compression) {}
   /** Resolve one closed compression override without replacing the payload identity. */
-  public static Role selectProfile(Role role,java.util.Map<String,String> profiles) throws java.io.IOException {String selected=profiles.getOrDefault(role.role,role.compression);if(!(selected.equals("stored")||selected.equals("deflate"))||role.policy.equals("fixed")&&!selected.equals(role.compression))throw new PackageError(Code.INVALID_OPTIONS,"Conflicting package profile override","",0,role.field,"","");return new Role(role.field,role.name,role.contentType,role.source,role.relationship,role.id,selected,role.minimum,role.maximum,role.policy,role.expectedRoot,role.expectedType,role.role);}
+  public static Role selectProfile(Role role,java.util.Map<String,String> profiles) throws java.io.IOException {return selectProfile(role,profiles,java.util.Map.of());}
+  /** Resolve compatible storage maps and explicit codec/storage envelopes before payload interpretation. */
+  public static Role selectProfile(Role role,java.util.Map<String,String> profiles,java.util.Map<String,PipelineProfile> pipelines)throws java.io.IOException{String storage=profiles.getOrDefault(role.role,role.compression),codec=role.codec;PipelineProfile selected=pipelines.get(role.role);if(selected!=null){if(selected.codec()!=null)codec=selected.codec();if(selected.compression()!=null){if(profiles.containsKey(role.role)&&!storage.equals(selected.compression()))throw new PackageError(Code.INVALID_OPTIONS,"Conflicting package storage overrides");storage=selected.compression();}}if(!(storage.equals("stored")||storage.equals("deflate"))||!(role.codec.equals("bytes")?codec.equals("bytes"):java.util.List.of("xml","json","binary_none").contains(codec))||role.policy.equals("fixed")&&(!storage.equals(role.compression)||!codec.equals(role.codec)))throw new PackageError(Code.INVALID_OPTIONS,"Conflicting package profile override","",0,role.field,"","");return new Role(role.field,role.name,role.contentType,role.source,role.relationship,role.id,storage,role.minimum,role.maximum,role.policy,role.expectedRoot,role.expectedType,role.role,codec,role.targetMode,role.requiresType,role.vocabularies);}
   /** Complete typed application inventory; no caller callback implements the declared checks. */
   public static final class References {
     private final Budget budget;private final java.util.Map<String,String> keys=new java.util.HashMap<>();private final java.util.List<String[]> pending=new java.util.ArrayList<>();private String part="",id="";
@@ -156,9 +165,9 @@ R"packagejava(
   private static @outer_name@.Limits nativeLimits(State state,Role role,String part,String id) throws java.io.IOException {
     int bytes=arraySize(state.budget.limits.maxPartBytes,Integer.MAX_VALUE-8,"");
     int elements=(int)Math.min(1000000,state.budget.remaining(Resource.WORK_UNITS));var limits=new @outer_name@.Limits(bytes,bytes,elements,64,@outer_name@.ReadPolicy.STRICT,(resource,amount,field)->{
-      try{Resource selected=switch(resource){case "allocation"->Resource.DECODER_ALLOCATION_BYTES;case "reference"->Resource.REFERENCES;default->Resource.WORK_UNITS;};state.consume(selected,amount,part);}
+      try{Resource selected=switch(resource){case "allocation"->Resource.DECODER_ALLOCATION_BYTES;case "reference"->Resource.REFERENCES;case "preserved"->Resource.PRESERVED_BYTES;default->Resource.WORK_UNITS;};state.consume(selected,amount,part);}
       catch(java.io.IOException failure){if(state.first==null){PackageError located=failure instanceof PackageError value?new PackageError(value.code,value.getMessage(),part,0,role.field+(field.isEmpty()?"":"."+field),"",id):null;state.first=located==null?failure:located;}throw new IllegalArgumentException("Package native admission failed",failure);}
-    });limits.xmlExpectedRoot=role.expectedRoot;limits.xmlExpectedType=role.expectedType;return limits;
+    });limits.xmlExpectedRoot=role.expectedRoot;limits.xmlExpectedType=role.expectedType;limits.xmlPackageProfile=true;limits.xmlRequiresType=role.requiresType;limits.xmlVocabularies=role.vocabularies;return limits;
   }
   /** Attach only role context to model-codec failures without copying payload excerpts. */
   private static PackageError codec(Role role,String name,String id,Exception cause) {var failure=new PackageError(cause instanceof SrlXmlRule.LimitFailure?Code.RESOURCE_LIMIT:Code.CODEC,"Package typed XML codec rejected part",name,0,role.field,"",id);failure.initCause(cause);return failure;}
@@ -178,7 +187,7 @@ R"packagejava(
     java.util.Map<String,String> moves=null;var destinations=new java.util.HashMap<String,String>();var absent=new java.util.HashSet<String>();
     for(var item:extensions.origins.entrySet()) {
       String origin=item.getValue().get(0),canonical=item.getValue().get(1);state.consume(Resource.WORK_UNITS,origin.length()+canonical.length()+1L,origin);
-      var active=sources.get(item.getKey());if(active==null||!active.contains(canonical)){state.consume(Resource.DECODER_ALLOCATION_BYTES,64L+2L*origin.length(),origin);absent.add(fold(origin));continue;}if(origin.equals(canonical))continue;
+      partName(origin,false);partName(canonical,false);var active=sources.get(item.getValue().size()==3?item.getValue().get(2):item.getKey());if(active==null||!active.contains(canonical)){state.consume(Resource.DECODER_ALLOCATION_BYTES,64L+2L*origin.length(),origin);absent.add(fold(origin));continue;}if(origin.equals(canonical))continue;
       state.consume(Resource.DECODER_ALLOCATION_BYTES,160L+4L*(origin.length()+canonical.length()),origin);
       if(moves==null)moves=new java.util.HashMap<>();String key=fold(origin),destination=fold(canonical),prior=moves.putIfAbsent(key,canonical),owner=destinations.putIfAbsent(destination,key);
       if(prior!=null&&!prior.equals(canonical)||owner!=null&&!owner.equals(key))throw error(Code.INVALID_RELATIONSHIP,"Conflicting canonical package relocation",origin);
@@ -228,7 +237,7 @@ R"packagejava(    private final State state;private final java.util.Map<String,j
     }
     /** Retain opaque occurrences as whole bytes without XML/model interpretation. */
     public void binaries(Role role,java.util.List<BinaryPart> values) throws java.io.IOException {
-      state.begin();try{java.util.Objects.requireNonNull(values);occurs(role,values.size());var discovered=new java.util.ArrayList<String>();int index=0;for(BinaryPart item:values){state.poll();if(item==null||item.data==null)throw error(Code.CODEC,"Missing binary role value","");add(role,item.data,item.name,item.contentType,item.sourceIndex,index++,discovered);}sources.put(role.field,discovered);}
+      state.begin();try{java.util.Objects.requireNonNull(values);occurs(role,values.size());var discovered=new java.util.ArrayList<String>();int index=0;for(BinaryPart item:values){state.poll();if(item==null||item.data==null)throw error(Code.CODEC,"Missing binary role value","");if(item.contentType.isEmpty()&&(role.targetMode.equals("external")||role.targetMode.equals("both"))){if(item.data.length!=0)throw error(Code.INVALID_OPTIONS,"External role cannot carry payload bytes",item.name);uri(item.name,false);String source=parent(role,item.sourceIndex,item.name);state.consume(Resource.WORK_UNITS,item.name.length()+1L,source);state.consume(Resource.DECODER_ALLOCATION_BYTES,256L+2L*item.name.length(),source);links.add(new Relationship(source,role.id==null?"srl_"+role.field+"_"+index:role.id,role.relationship,item.name,"external"));++index;continue;}if(role.targetMode.equals("external"))throw error(Code.INVALID_OPTIONS,"External role requires an inert URI and empty content type",item.name);add(role,item.data,item.name,item.contentType,item.sourceIndex,index++,discovered);}sources.put(role.field,discovered);}
       catch(java.io.IOException|RuntimeException|Error failure){state.closed=true;throw state.fail(failure);}finally{state.busy=false;}
     }
     /** Complete standard metadata after independently preserved extension parts/links are supplied. */
@@ -253,7 +262,7 @@ R"packagejava(
       finally{state.busy=false;if(state.closed&&opened!=null){try{opened.close();}catch(java.io.IOException cleanup){state.first.addSuppressed(cleanup);}}}
     }
     /** Retain metadata/routing context for one selected declared role occurrence. */
-    private record Occurrence(PartMetadata metadata,int parent,String id) {}
+    private record Occurrence(PartMetadata metadata,int parent,String id,boolean external) {}
     private final java.util.Map<String,java.util.List<Occurrence>> referenceLocations=new java.util.HashMap<>();
     private java.util.Map<String,java.util.List<String>> origins=java.util.Map.of();
     /** Reuse already retained discovery records so loaded selector diagnostics keep authored IDs. */
@@ -265,16 +274,17 @@ R"packagejava(
       var values=new java.util.ArrayList<Occurrence>();var discovered=new java.util.ArrayList<String>();
       for(int parent=0;parent<parents.size();++parent)for(int index=0;index<opc.links.size();++index) {
         state.consume(Resource.WORK_UNITS,1,"");Relationship link=opc.links.get(index);if(!fold(link.source).equals(fold(parents.get(parent)))||!link.type.equals(role.relationship))continue;
-        if(!link.mode.equals("internal"))throw new PackageError(Code.INVALID_RELATIONSHIP,"Declared role requires an internal target",link.source,0,role.field,"",link.id);
+        if(link.mode.equals("external")){if(!role.targetMode.equals("external")&&!role.targetMode.equals("both"))throw new PackageError(Code.INVALID_RELATIONSHIP,"Declared role requires an internal target",link.source,0,role.field,"",link.id);state.consume(Resource.DECODER_ALLOCATION_BYTES,256L+2L*link.target.length(),link.source);selected.add(index);values.add(new Occurrence(new PartMetadata(link.target,"",null),parent,link.id,true));continue;}if(role.targetMode.equals("external"))throw new PackageError(Code.INVALID_RELATIONSHIP,"Declared role requires an external target",link.source,0,role.field,"",link.id);
         String key=fold(target(link.source,link.target));PartMetadata metadata=opc.parts.get(key);if(role.policy.equals("fixed")&&metadata.entry.method!=(role.compression.equals("stored")?0:8))throw new PackageError(Code.INVALID_OPTIONS,"Fixed package compression mismatch",metadata.name,0,role.field,"",link.id);
         if(role.contentType!=null&&!mime(metadata.contentType).equals(mime(role.contentType)))throw new PackageError(Code.CODEC,"Role content type mismatch",metadata.name,0,role.field,"",link.id);
         if(!decoded.add(key))throw new PackageError(Code.INVALID_RELATIONSHIP,"Part is claimed by multiple role occurrences",metadata.name,0,role.field,"",link.id);
-        selected.add(index);values.add(new Occurrence(metadata,parent,link.id));discovered.add(metadata.name);
+        selected.add(index);values.add(new Occurrence(metadata,parent,link.id,false));discovered.add(metadata.name);
+        if(role.name==null){relocationConsume(state,Resource.DECODER_ALLOCATION_BYTES,160L+4L*metadata.name.length()+2L*role.field.length()+relocationCopyAdmissionBytes,metadata.name,role.field,link.id);if(origins.isEmpty())origins=new java.util.HashMap<>();origins.put("\0"+metadata.name,java.util.List.of(metadata.name,metadata.name,role.field));}
       }
       occurs(role,values.size());state.consume(Resource.DECODER_ALLOCATION_BYTES,128,"");referenceLocations.put(role.field,values);sources.put(role.field,discovered);return values;
     }
     /** Decode one fixed typed role to a nullable owning native value. */
-    public <T> T single(Role role,Decoder<T> decoder) throws java.io.IOException {var values=models(role,decoder);if(values.isEmpty()||role.name==null||values.get(0).name.equals(role.name))return values.isEmpty()?null:values.get(0).value;state.begin();try{String origin=values.get(0).name,id=referenceLocations.get(role.field).get(0).id;relocationConsume(state,Resource.WORK_UNITS,origin.length()+role.name.length()+1L,origin,role.field,id);relocationConsume(state,Resource.DECODER_ALLOCATION_BYTES,128L+2L*(origin.length()+role.name.length()),origin,role.field,id);if(origins.isEmpty())origins=new java.util.HashMap<>();origins.put(role.field,java.util.List.of(origin,role.name));return values.get(0).value;}catch(java.io.IOException|RuntimeException|Error failure){state.closed=true;throw state.fail(failure);}finally{leave();}}
+    public <T> T single(Role role,Decoder<T> decoder) throws java.io.IOException {var values=models(role,decoder);if(values.isEmpty()||role.name==null||values.get(0).name.equals(role.name))return values.isEmpty()?null:values.get(0).value;state.begin();try{String origin=values.get(0).name,id=referenceLocations.get(role.field).get(0).id;relocationConsume(state,Resource.WORK_UNITS,origin.length()+role.name.length()+1L,origin,role.field,id);relocationConsume(state,Resource.DECODER_ALLOCATION_BYTES,128L+2L*(origin.length()+role.name.length())+relocationCopyAdmissionBytes,origin,role.field,id);if(origins.isEmpty())origins=new java.util.HashMap<>();origins.put(role.field,java.util.List.of(origin,role.name));return values.get(0).value;}catch(java.io.IOException|RuntimeException|Error failure){state.closed=true;throw state.fail(failure);}finally{leave();}}
     /** Return complete typed occurrences only after every selected part passes native XML validation. */
     public <T> java.util.List<ModelPart<T>> models(Role role,Decoder<T> decoder) throws java.io.IOException {
       state.begin();try{var result=new java.util.ArrayList<ModelPart<T>>();
@@ -285,7 +295,7 @@ R"packagejava(
     }
     /** Return owning opaque bytes with their actual metadata and original ZIP method. */
     public java.util.List<BinaryPart> binaries(Role role) throws java.io.IOException {
-      state.begin();try{var result=new java.util.ArrayList<BinaryPart>();for(Occurrence item:discover(role)){byte[] bytes=archive.read(item.metadata.entry.name);state.poll();result.add(new BinaryPart(bytes,item.metadata.name,item.metadata.contentType,item.parent,item.metadata.entry.method==8?"deflate":"stored"));}state.poll();return java.util.List.copyOf(result);}
+      state.begin();try{var result=new java.util.ArrayList<BinaryPart>();for(Occurrence item:discover(role)){if(item.external){result.add(new BinaryPart(new byte[0],item.metadata.name,"",item.parent,role.compression));continue;}byte[] bytes=archive.read(item.metadata.entry.name);state.poll();result.add(new BinaryPart(bytes,item.metadata.name,item.metadata.contentType,item.parent,item.metadata.entry.method==8?"deflate":"stored"));}state.poll();return java.util.List.copyOf(result);}
       catch(java.io.IOException|RuntimeException|Error failure){state.closed=true;throw state.fail(failure);}finally{leave();}
     }
     /** Validate all unclaimed parts/links before a complete aggregate can be published. */
@@ -308,7 +318,8 @@ R"packagejava(
           if(required||policy.relationships==Unknown.REJECT)throw error(Code.UNSUPPORTED_FEATURE,"Unknown required or rejected package relationship",link.source);
           if(policy.relationships==Unknown.PRESERVE){long bytes=0;for(String text:new String[]{link.source,link.id,link.type,link.target,link.mode})bytes+=text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;state.consume(Resource.PRESERVED_BYTES,bytes,link.source);links.add(link);}
         }
-        if(!origins.isEmpty())state.consume(Resource.DECODER_ALLOCATION_BYTES,64L*origins.size(),"");var extensions=new Extensions(opaque,links);extensions.origins=java.util.Map.copyOf(origins);if(bind!=null){state.poll();bind.accept(value,extensions);state.poll();}
+        // Immutable origin-map entries were admitted at discovery with their physical role context.
+        var extensions=new Extensions(opaque,links);extensions.origins=java.util.Map.copyOf(origins);if(bind!=null){state.poll();bind.accept(value,extensions);state.poll();}
         if(validate!=null){state.poll();validate.validate(value,state.budget);state.poll();}
         state.poll();finished=true;return new Result<>(value,extensions);
       }catch(java.io.IOException|RuntimeException|Error failure){state.closed=true;throw state.fail(failure);}finally{leave();}

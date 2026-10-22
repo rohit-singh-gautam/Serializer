@@ -15,12 +15,20 @@ R"packagekotlin(
     data class ModelPart<T>(val value: T, val name: String, val contentType: String, val sourceIndex: Int = 0)
     /** Targets are inert text; external links are never fetched or normalized. */
     data class Relationship(val source: String, val id: String, val type: String, val target: String, val mode: String = "internal")
+    internal data class Relocation(val original: String, val destination: String, val role: String, val dynamic: Boolean = false)
     /** Whole-part preservation keeps namespace declarations and relationship context intact. */
     class Extensions(parts: List<BinaryPart> = emptyList(), relationships: List<Relationship> = emptyList()) {
         val parts = parts.toList(); val relationships = relationships.toList()
-        private var origins: Map<String,Pair<String,String>> = emptyMap()
+        private var origins: Map<String,Relocation> = emptyMap()
         /** Retain loaded role provenance privately without changing authored extension constructors. */
-        internal fun retainOrigins(value: Map<String,Pair<String,String>>) { origins = value.toMap() }
+        internal fun retainOrigins(value: Map<String,Relocation>) { origins = value.toMap() }
+        /** Bind original dynamic identities independently of the edited occurrence ordering. */
+        fun withRenames(names: Map<String,String>): Extensions {
+            val remaining = names.keys.toMutableSet()
+            val selected = origins.mapValues { (_,record) -> if (record.dynamic && names.containsKey(record.original)) { remaining.remove(record.original); record.copy(destination=names.getValue(record.original)) } else record }
+            require(remaining.isEmpty()) { "Rename origin is not a discovered dynamic role: ${remaining.first()}" }
+            return Extensions(parts,relationships).also { it.retainOrigins(selected) }
+        }
         /** Clone and rebase only retained links whose loaded fixed role is still present. */
         internal fun composedRelationships(sources: Map<String,List<String>>, state: State): List<Relationship> = relocated(relationships,origins,sources,state)
     }

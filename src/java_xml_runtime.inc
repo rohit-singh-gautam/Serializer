@@ -170,6 +170,7 @@ private static final class SrlXmlInput implements AutoCloseable {
   char kind;
   boolean acceptedType;
   boolean acceptedNil;
+  boolean acceptedPackageCapabilities;
   /** Create a non-resolving operation-local XML1.0 UTF8 token provider. */
   SrlXmlInput(byte[] bytes, Limits limits) {
     this(bytes, limits, new XmlMapLimits());
@@ -246,7 +247,9 @@ private static final class SrlXmlInput implements AutoCloseable {
   /** Require the exact next field identity without accepting unknown children. */
   boolean has(String name) { skipSpace(); return kind == 's' && name().equals(name); }
   /** Retain only this record's attribute strings while traversing descendants. */
-  SrlXmlInputFields open(String name) { if (!has(name)) throw new IllegalArgumentException("Unexpected XML element"); var fields = new SrlXmlInputFields(this); acceptedType = false; acceptedNil = false; advance(); return fields; }
+  SrlXmlInputFields open(String name) { if (!has(name)) throw new IllegalArgumentException("Unexpected XML element"); var fields = new SrlXmlInputFields(this); acceptedType = false; acceptedNil = false;acceptedPackageCapabilities=false; advance(); return fields; }
+  /** Resolve only authorized root MustUnderstand vocabulary prefixes in the current provider scope. */
+  void packageCapabilities(java.util.List<String> vocabularies){String text=reader.getAttributeValue("http://schemas.openxmlformats.org/markup-compatibility/2006","MustUnderstand");if(text==null)return;text=srlXmlTrim(text);if(text.isEmpty())throw new IllegalArgumentException("Empty package MustUnderstand vocabulary");for(String prefix:text.split("[ \\t\\r\\n]+")){if(!srlXmlExtensionNcName(prefix))throw new IllegalArgumentException("Invalid package MustUnderstand prefix");String uri=reader.getNamespaceURI(prefix);if(uri==null||uri.isEmpty()||!vocabularies.contains(uri))throw new IllegalArgumentException("Unsupported package MustUnderstand vocabulary");}acceptedPackageCapabilities=true;}
   /** Check optional QName metadata in the payload's current namespace scope before advancing. */
   void expectType(String expected, boolean required) {
     String selected = typeIdentity(required);
@@ -294,7 +297,8 @@ private static final class SrlXmlInput implements AutoCloseable {
   }
   /** Require the complete document before publishing a candidate model. */
   void finish() { skipSpace(); if (kind != 0 || !identities.isEmpty()) throw new IllegalArgumentException("Unexpected XML trailing content or incomplete identity scope"); }
-  /** Release the provider even when lexical, resource or shape checks fail. */
+  /** Release the provider even when lexical, resource or shape checks fail. */)xmljava"
+R"xmljava(
   @Override public void close() { try { reader.close(); } catch (javax.xml.stream.XMLStreamException failure) { throw new IllegalArgumentException("XML provider close failed", failure); } }
 }
 /** Keep only the current record's attributes until exact membership is checked. */
@@ -303,11 +307,15 @@ private static final class SrlXmlInputFields {
   final java.util.Map<String, String> attributes = new java.util.LinkedHashMap<>();
   boolean closed;
   /** Snapshot only current start-tag attributes before the provider advances. */
-  SrlXmlInputFields(SrlXmlInput input) { this.input = input; for (int index = 0; index < input.reader.getAttributeCount(); ++index) { String name = srlXmlName(input.reader.getAttributeNamespace(index), input.reader.getAttributeLocalName(index)); if ((input.acceptedType && name.equals("{http://www.w3.org/2001/XMLSchema-instance}type")) || (input.acceptedNil && name.equals("{http://www.w3.org/2001/XMLSchema-instance}nil"))) continue; if (attributes.put(name, input.reader.getAttributeValue(index)) != null) throw new IllegalArgumentException("Duplicate XML attribute"); } }
+  SrlXmlInputFields(SrlXmlInput input) { this.input = input; for (int index = 0; index < input.reader.getAttributeCount(); ++index) { String name = srlXmlName(input.reader.getAttributeNamespace(index), input.reader.getAttributeLocalName(index)); if ((input.acceptedPackageCapabilities&&name.equals("{http://schemas.openxmlformats.org/markup-compatibility/2006}MustUnderstand")) || (input.acceptedType && name.equals("{http://www.w3.org/2001/XMLSchema-instance}type")) || (input.acceptedNil && name.equals("{http://www.w3.org/2001/XMLSchema-instance}nil"))) continue; if (attributes.put(name, input.reader.getAttributeValue(index)) != null) throw new IllegalArgumentException("Duplicate XML attribute"); } }
   /** Consume a declared required or optional expanded-name attribute exactly once. */
   String attribute(String name, boolean optional) { String text = attributes.remove(name); if (text == null && !optional) throw new IllegalArgumentException("Required XML attribute missing"); return text; }
   /** Decode simple content after checking that all attributes were consumed. */
   String text() { if (!attributes.isEmpty()) throw new IllegalArgumentException("Unexpected XML attribute"); String text = input.text(); closed = true; return text; }
+  /** Read the scalar prefix without consuming the first permitted foreign child or owner end. */
+  String prefixText() { if (!attributes.isEmpty()) throw new IllegalArgumentException("Unexpected XML attribute"); var text = new StringBuilder(); while (input.kind == 't') { text.append(input.reader.getText()); input.advance(); } return text.toString(); }
+  /** Close scalar-plus-suffix content without discarding any late scalar whitespace. */
+  void finishTextExtensions() { if (!attributes.isEmpty() || input.kind != 'e') throw new IllegalArgumentException("Unexpected XML scalar extension content"); input.advance(); }
   /** Reject unknown attributes, duplicate children and out-of-order content before publication. */
   void finish() { if (!attributes.isEmpty()) throw new IllegalArgumentException("Unexpected XML attribute"); if (!closed) { input.skipSpace(); if (input.kind != 'e') throw new IllegalArgumentException("Unexpected XML field"); input.advance(); } }
 }
@@ -327,6 +335,7 @@ private static final class SrlXmlOutput {
   java.util.Set<String> namespaceReserved;
   private int namespaceReservedBytes;
   private boolean skipNamespaceAttribute;
+  private boolean suppressNamespaceText;
   /** Retain private no-namespace defaults through XSD augmentation rather than changing owner scope. */
   boolean omitNamespaceDefault(String text,java.util.Map<String,String> scope,SrlXmlRule rule){if(rule==null||!identities.isEmpty()||"".equals(identityNamespace(""))||!rule.matchesNamespaceDefault(text,scope,listLimit(),budget))return false;skipNamespaceAttribute=true;return true;}
   /** Bound namespace preflight while borrowing the same unchanged owner graph as output. */
@@ -432,7 +441,7 @@ R"xmljava(
     attribute("{http://www.w3.org/2001/XMLSchema-instance}type", lexical);
   }
   /** Validate and emit one scalar directly without a retained node. */
-  void text(String text) { budget.text(text); seal(); for(var identity:identities)if(!identity.complete)identity.text(text); escaped(text, false); }
+  void text(String text) { budget.text(text); seal(); for(var identity:identities)if(!identity.complete)identity.text(text); if(!suppressNamespaceText)escaped(text, false);suppressNamespaceText=false; }
   /** Release the completed ancestor name after its matching end token. */
   void close() { var frame = stack.get(stack.size() - 1);if(frame.pending)identityStart(frame);for(var identity:identities)if(!identity.complete)identity.end(this::identityNamespace);stack.remove(stack.size()-1);append(frame.pending ? "/>" : "</" + frame.name + ">"); }
   /** Publish only a completed output document. */

@@ -5,6 +5,8 @@ Compiler/runtime **2.27.0**, schema language **1.21.0**. This extends the explic
 Kotlin, Swift, Rust and C. It is a slice of `OPC-R04`, not completion of that
 requirement or the complete OPC/3MF request. `OPC-R01`, `OPC-R02`, `OPC-R03`,
 `OPC-R04`, `OPC-R06` and `OPC-R10` remain open in [the backlog](../pending.md).
+The later [grouped-XSD update](verification-ordered-xsd-2026-10-22.md) completes
+OPC-R04; this record retains the earlier non-XSD checkpoint and its exact runs.
 
 ## Contract and compatibility
 

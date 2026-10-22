@@ -1,0 +1,19 @@
+serializer version 1.21.0;
+
+namespace ordered_xsd {
+  class left {
+    public string value (1) xml(text);
+  }
+  class right {
+    public uint32 id (1) xml(attribute);
+  }
+  class fragment {
+    private variant(left=left, right=right) value (1);
+  }
+  class root {
+    public array<fragment> items (1);
+  }
+  class fixed {
+    public array[3] fragment items (1);
+  }
+}

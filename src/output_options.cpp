@@ -438,7 +438,7 @@ output_options read_output_options(const std::filesystem::path& file) {
         }
         if ((section != "output" && section != "cpp" && section != "java" && section != "js" &&
              section != "go" && section != "csharp" && section != "kotlin" && section != "managed" && section != "xml" &&
-             !class_section) ||
+             !class_section && !(section.starts_with("package.") && source_class_name(std::string_view{section}.substr(8U)))) ||
             !sections.insert(section).second) {
           throw std::invalid_argument{"Unknown or repeated section: " + section};
         }
@@ -462,7 +462,18 @@ output_options read_output_options(const std::filesystem::path& file) {
       if (value.empty()) {
         throw std::invalid_argument{"Empty configuration value: " + key};
       }
-      if (section.starts_with("xml.class.")) {
+      if (section.starts_with("package.")) {
+        const auto separator_at = key.find('.');
+        if (separator_at == std::string::npos || !source_identifier(std::string_view{key}.substr(0, separator_at))) {
+          throw std::invalid_argument{"Package profile keys require role.setting"};
+        }
+        const auto setting = std::string_view{key}.substr(separator_at + 1U);
+        if (setting != "codec" && setting != "compression" && setting != "policy" &&
+            setting != "vocabularies" && setting != "requires_type" && setting != "target_mode") {
+          throw std::invalid_argument{"Unknown package profile setting: " + std::string{setting}};
+        }
+        result.cpp.xml.package_profiles[section.substr(8U)].emplace(key, value);
+      } else if (section.starts_with("xml.class.")) {
         auto& mapping = result.cpp.xml.classes[section.substr(std::string_view{"xml.class."}.size())];
         if (key == "root") { mapping.root = value; }
         else if (key == "namespace") { mapping.namespace_uri = value; }

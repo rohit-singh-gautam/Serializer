@@ -21,6 +21,16 @@ namespace projected {
     public translator larger as project { values=values; nested=nested; };
   }
 }'''
+NAMES_MODEL='''namespace scoped {
+  using schema "names.xsd";
+  class names { public string value; public array<string> entry; }
+  class source { public names nested;
+    public translator names as project { value=nested.value; entry=nested.entry; };
+  }
+}'''
+NAMES_XSD='''<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:serializer:scoped" targetNamespace="urn:serializer:scoped" elementFormDefault="qualified">
+<xs:complexType name="names"><xs:sequence><xs:element name="value" type="xs:QName"/><xs:element name="entry" type="xs:QName" minOccurs="0" maxOccurs="unbounded"/></xs:sequence></xs:complexType>
+<xs:element name="names" type="t:names"/><xs:element name="source"><xs:complexType><xs:sequence><xs:element name="nested" type="t:names"/></xs:sequence></xs:complexType></xs:element></xs:schema>'''
 
 KOTLIN = r'''@file:OptIn(ExperimentalUnsignedTypes::class)
 import java.nio.file.Files
@@ -67,6 +77,8 @@ fun main(arguments: Array<String>) {
  val values=stress.values; val nested=stress.nested; val native=Protocol.entries.map { stress.encode(it) }
  val stressed=stress.withProject { view -> check(view.getValues() === values && view.getNested() === nested); view.encodeXml() }
  check(stressed.contentEquals(stress.withProject { it.encodeXml(XmlLimits(maxBytes=stressed.size)) }))
+ check(stressed.contentEquals(stress.withProject { it.encodeXml(XmlLimits(maxDepth=3)) }))
+ rejected { stress.withProject { it.encodeXml(XmlLimits(maxDepth=2)) } }
  rejected { stress.withProject { it.encodeXml(XmlLimits(maxBytes=stressed.size-1)) } }
  val marker=IllegalStateException("Large projection interrupted"); var polls=0
  val canceledLimits=XmlLimits().withCancellation { if(++polls==100)throw marker }
@@ -76,6 +88,14 @@ fun main(arguments: Array<String>) {
  check(stressed.contentEquals(stress.withProject { it.encodeXml() }))
  for((index,protocol) in Protocol.entries.withIndex())check(native[index].contentEquals(stress.encode(protocol)))
  Files.write(directory.resolve("large.kotlin.xml"),stressed)
+ val names=ScopedSource(); names.nested=ScopedNames.decodeXml("<names xmlns='urn:serializer:scoped' xmlns:p='urn:outer'><value>p:root</value><entry xmlns:p='urn:first'>p:one</entry><entry xmlns:p='urn:second'>p:two</entry></names>".toByteArray())
+ val namesNative=Protocol.entries.map { names.encode(it) }; val entries=names.nested.entry
+ val namesOutput=names.withProject { view -> check(view.getEntry() === entries); view.encodeXml() }
+ check(namesOutput.contentEquals(names.withProject { it.encodeXml(XmlLimits(maxBytes=namesOutput.size)) }))
+ rejected { names.withProject { it.encodeXml(XmlLimits(maxBytes=namesOutput.size-1)) } }
+ check(namesOutput.contentEquals(names.withProject { it.encodeXml() }))
+ for ((index,protocol) in Protocol.entries.withIndex()) check(namesNative[index].contentEquals(names.encode(protocol)))
+ Files.write(directory.resolve("names.kotlin.xml"),namesOutput)
  println("Kotlin live XML references, scoped getters, arrays and native wire identities pass")
 }'''
 
@@ -137,6 +157,9 @@ let stressed=try stress.withProject { view in
 }
 var exactStress=XmlLimits(); exactStress.maxBytes=stressed.count
 try require(stressed == stress.withProject { try $0.encodeXml(exactStress) })
+var depthStress=XmlLimits(); depthStress.maxDepth=3
+try require(stressed == stress.withProject { try $0.encodeXml(depthStress) })
+depthStress.maxDepth=2; try rejected { _=try stress.withProject { try $0.encodeXml(depthStress) } }
 exactStress.maxBytes-=1; try rejected { _=try stress.withProject { try $0.encodeXml(exactStress) } }
 var stressPolls=0
 let canceledStress=XmlLimits().withCancellation { stressPolls+=1; if stressPolls==100 { throw ProjectionCancellation.canceled } }
@@ -146,6 +169,22 @@ try require(interruptedStress && stressPolls==100 && publishedStress==sentinelSt
 try require(stressed == stress.withProject { try $0.encodeXml() })
 for (index,protocolValue) in Protocol.allCases.enumerated() { try require(nativeStress[index] == stress.encode(protocolValue)) }
 try Data(stressed).write(to:directory.appendingPathComponent("large.swift.xml"))
+var names=ScopedSource()
+names.nested=try ScopedNames.decodeXml(Array("<names xmlns='urn:serializer:scoped' xmlns:p='urn:outer'><value>p:root</value><entry xmlns:p='urn:first'>p:one</entry><entry xmlns:p='urn:second'>p:two</entry></names>".utf8))
+let namesNative=try Protocol.allCases.map { try names.encode($0) }
+let namesStorage=names.nested.entry.withUnsafeBufferPointer { UInt(bitPattern:UnsafeRawPointer($0.baseAddress!)) }
+let namesOutput=try names.withProject { view in
+ try view.getEntry().withUnsafeBufferPointer { values in
+  try require(UInt(bitPattern:UnsafeRawPointer(values.baseAddress!)) == namesStorage)
+  return try view.encodeXml()
+ }
+}
+var exactNames=XmlLimits(); exactNames.maxBytes=namesOutput.count
+try require(namesOutput == names.withProject { try $0.encodeXml(exactNames) })
+exactNames.maxBytes-=1; try rejected { _=try names.withProject { try $0.encodeXml(exactNames) } }
+try require(namesOutput == names.withProject { try $0.encodeXml() })
+for (index,protocolValue) in Protocol.allCases.enumerated() { try require(namesNative[index] == names.encode(protocolValue)) }
+try Data(namesOutput).write(to:directory.appendingPathComponent("names.swift.xml"))
 print("Swift live XML owners, weak expiry, scoped array getters and native identities pass")
 '''
 
@@ -163,7 +202,8 @@ def main():
     if args.build == ROOT or ROOT in args.build.parents and 'out' not in args.build.relative_to(ROOT).parts:
         parser.error('Scratch must be beneath ignored out/')
     args.build.mkdir(parents=True, exist_ok=True)
-    model = args.build / 'model.serializer'; model.write_text(MODEL, encoding='utf-8')
+    model = args.build / 'model.serializer'; model.write_text(MODEL+NAMES_MODEL, encoding='utf-8')
+    (args.build / 'names.xsd').write_text(NAMES_XSD,encoding='utf-8')
     command = [args.compiler, '--input', model, '--language', ','.join(languages), '--kotlin.package=',
                '--xml.runtime_xsd', 'true', '--xml.validation_scope', 'both']
     for language in languages:
@@ -175,6 +215,11 @@ def main():
         (source / ('main.swift' if language == 'swift' else 'Main.kt')).write_text(SWIFT if language == 'swift' else KOTLIN, encoding='utf-8')
         launch = runner.build(language, 'xml_projection', args.build / language, source)
         sdk.run([*launch, runner.path(language, args.build)])
+        names=etree.parse(str(args.build / f'names.{language}.xml')).getroot()
+        identities=[]
+        for child in names:
+            prefix,local=child.text.split(':'); identities.append((child.nsmap[prefix],local))
+        assert identities==[('urn:outer','root'),('urn:first','one'),('urn:second','two')]
         node = etree.parse(str(args.build / f'reference.{language}.xml')).getroot()
         assert node.tag == '{urn:serializer:projected}envelope' and node.get('label') == 'A<&"'
         assert [child.tag for child in node] == ['{urn:serializer:projected}value']

@@ -45,13 +45,18 @@ bool valid_code(std::string_view text) {
 }
 ```
 
-The portable subset accepts Unicode literals, dot, character ranges and negated
+Portable patterns accept Unicode literals, dot, character ranges and negated
 ranges, grouping, alternation, `?`, `*`, `+`, `{n}`, `{n,m}` and `{n,}`. Escaped
 punctuation and `\n`, `\r`, `\t` are supported. Dot excludes carriage return and
 line feed; `^` and `$` are literal characters. Matches cover the complete value,
 as specified by [XSD 1.0 regular expressions](https://www.w3.org/TR/xmlschema-2/#regexs).
-Category/name escapes such as `\p`, `\i`, `\d` and `\w`, backreferences,
-lookaround, special groups and character-class subtraction reject explicitly.
+Unicode category/block escapes (`\p`, `\P`), XML name classes (`\i`, `\c`),
+digit/space/word classes and their complements, and recursive character-class
+subtraction lower to the same immutable range program in every owning output.
+Character properties use frozen Unicode 17 data; historical XSD block spellings
+are retained. Name classes follow XML 1.0 fifth-edition names. The compiler and
+generated runtime do not consult the network or a host regex dialect.
+Backreferences, lookaround and special groups are outside the XSD grammar and reject.
 
 Bounds cover expression bytes, state count, nesting, repetition expansion,
 input bytes and execution work. Execution does not backtrack. Pattern programs
@@ -172,9 +177,10 @@ Serialize concurrent mutations of the same output directory.
 
 Bundle export is a standalone command; it cannot be combined with generated
 language outputs, comparison or a depfile. Single-namespace
-`--xml.export-xsd file.xsd` remains available. Prefix-list and context-dependent
-QName default/fixed export, union and inherited-pattern export still reject
-until their exact representation is supported.
+`--xml.export-xsd file.xsd` remains available. Export reconstructs supported unions,
+restricted list items, inherited patterns and declaration-owned QName default/fixed
+identities. The separate external `prefix_list` contract retains its explicit
+default/fixed and export capability requirement; see [XSD tools](xsd_tooling.md).
 
 Directional comparison allows an added optional field and supported sequence-to-all
 widening. Retired fields are diagnosed conservatively: an unknown-field policy

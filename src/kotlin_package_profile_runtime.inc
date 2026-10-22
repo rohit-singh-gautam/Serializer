@@ -2,15 +2,18 @@
 // SPDX-License-Identifier: 0BSD
 // Serializer runtime template source; emitted support may also be used under 0BSD.
 R"packagekotlin(
+    /** Reserve the retained origin-map copy while its physical role and relationship are known. */
+    private const val relocationCopyAdmissionBytes = 64L
     /** Declarative role constants are compiler-owned; negative maximum means unbounded. */
     data class Role @JvmOverloads constructor(val field: String, val name: String?, val contentType: String?, val source: String,
         val relationship: String, val id: String?, val compression: String, val minimum: Long, val maximum: Long,
-        val policy: String = "defaults", val expectedRoot: String? = null, val expectedType: String? = null, val schemaRole: String = field) {
+        val policy: String = "defaults", val expectedRoot: String? = null, val expectedType: String? = null, val schemaRole: String = field,
+        val codec: String = "xml", val targetMode: String = "internal", val requiresType: Boolean = false, val vocabularies: List<String> = emptyList()) {
         /** Preserve the original Java copy signature while retaining added profile metadata. */
         fun copy(field: String = this.field, name: String? = this.name, contentType: String? = this.contentType,
             source: String = this.source, relationship: String = this.relationship, id: String? = this.id,
             compression: String = this.compression, minimum: Long = this.minimum, maximum: Long = this.maximum): Role =
-            Role(field,name,contentType,source,relationship,id,compression,minimum,maximum,policy,expectedRoot,expectedType,schemaRole)
+            Role(field,name,contentType,source,relationship,id,compression,minimum,maximum,policy,expectedRoot,expectedType,schemaRole,codec,targetMode,requiresType,vocabularies)
     }
     /** Every generated codec receives the same package ledger with original role/part/link context. */
     class CodecContext internal constructor(private val state: State, val role: Role, val part: String, val relationshipId: String) {
@@ -24,16 +27,19 @@ R"packagekotlin(
             state.active();fieldPath=role.field+(if(field.isEmpty()) "" else "."+field)
             state.fail(PackageError(Code.RESOURCE_LIMIT,message,part,0,fieldPath,"",relationshipId))
         }
+        /** Admit the native parser/writer through this exact role operation. */
+        internal fun nativeOperation(kind: String, amount: Long) { consume(kind,amount) }
         /** Admit native allocations/work/references before publication, preserving selected member scope. */
         fun consume(kind: String, amount: Long, field: String = "") {
             fieldPath = role.field+(if (field.isEmpty()) "" else "."+field)
-            val resource = when (kind) { "allocation" -> Resource.DECODER_ALLOCATION_BYTES; "reference" -> Resource.REFERENCES; else -> Resource.WORK_UNITS }
+            val resource = when (kind) { "allocation" -> Resource.DECODER_ALLOCATION_BYTES; "reference" -> Resource.REFERENCES; "preserved" -> Resource.PRESERVED_BYTES; else -> Resource.WORK_UNITS }
             state.consume(resource,amount,part,fieldPath,relationshipId)
         }
         /** Attribute a codec failure without including any model payload excerpts. */
         internal fun codec(error: kotlin.Throwable): kotlin.Nothing {
             state.first?.let { throw it }
             if (error is PackageError) throw error
+            if (error is SerializerException && error.message in listOf("Message byte limit","String limit","Element limit","Depth limit","Encode depth limit")) resourceLimit("Native package codec limit exceeded","")
             val failure = PackageError(Code.CODEC,"Package typed XML codec rejected part",part,0,fieldPath,"",relationshipId)
             failure.initCause(error); throw failure
         }
@@ -41,11 +47,11 @@ R"packagekotlin(
     /** Check cardinality on the complete source-scoped role occurrence set. */
     private fun occurs(role: Role, count: Int) { if (count < role.minimum || role.maximum >= 0 && count > role.maximum) throw PackageError(Code.SEMANTIC,"Package role cardinality failed","",0,role.field) }
     /** Resolve every retained target against its original source before simultaneous canonical moves. */
-    private fun relocated(links: List<Relationship>, origins: Map<String,Pair<String,String>>, sources: Map<String,List<String>>, state: State): List<Relationship> {
+    private fun relocated(links: List<Relationship>, origins: Map<String,Relocation>, sources: Map<String,List<String>>, state: State): List<Relationship> {
         if (origins.isEmpty()) return links
         var moves: MutableMap<String,String>? = null; val destinations = mutableMapOf<String,String>(); val absent = mutableSetOf<String>()
-        for ((role,pair) in origins) {
-            val (origin,canonical) = pair; state.consume(Resource.WORK_UNITS,origin.length.toLong()+canonical.length+1,origin)
+        for ((_,record) in origins) {
+            val origin=record.original; val canonical=record.destination; val role=record.role; partName(origin,false); partName(canonical,false); state.consume(Resource.WORK_UNITS,origin.length.toLong()+canonical.length+1,origin)
             if (sources[role]?.contains(canonical) != true) { state.consume(Resource.DECODER_ALLOCATION_BYTES,64L+2L*origin.length,origin); absent.add(fold(origin)); continue }
             if (origin == canonical) continue
             state.consume(Resource.DECODER_ALLOCATION_BYTES,160L+4L*(origin.length.toLong()+canonical.length),origin)
@@ -87,8 +93,13 @@ R"packagekotlin(
         /** Retain a checked payload and its immutable role-derived edge. */
         private fun add(role: Role, data: ByteArray, dynamicName: String, dynamicType: String, sourceIndex: Int, index: Int, discovered: MutableList<String>) {
             val name = role.name ?: dynamicName; val media = role.contentType ?: dynamicType
-            partName(name); mime(media); val source = parent(role,sourceIndex,name)
+            val source = parent(role,sourceIndex,name)
             val id = role.id ?: "srl_${role.field}_$index"
+            if (role.targetMode == "external" || role.targetMode == "both" && media.isEmpty()) {
+                if (media.isNotEmpty() || data.isNotEmpty()) throw PackageError(Code.INVALID_RELATIONSHIP,"External package role requires empty media type and payload",name,0,role.field,"",id)
+                uri(name,false); links.add(Relationship(source,id,role.relationship,name,"external")); return
+            }
+            partName(name); mime(media)
             parts.add(BinaryPart(data,name,media,sourceIndex,role.compression).also { it.contextField=role.field; it.contextId=id })
             links.add(Relationship(source,id,role.relationship,name)); discovered.add(name)
         }
@@ -139,9 +150,9 @@ R"packagekotlin(
             catch (error: kotlin.Throwable) { state.closed = true; try { opened?.close() } catch (cleanup: kotlin.Throwable) { error.addSuppressed(cleanup) }; state.fail(error) }
             finally { state.busy = false }
         }
-        private data class Occurrence(val metadata: PartMetadata, val parent: Int, val id: String)
+        private data class Occurrence(val metadata: PartMetadata?, val parent: Int, val id: String, val external: String = "")
         private val locations = mutableMapOf<Pair<String,Int>,PayloadLocation>()
-        private var origins: MutableMap<String,Pair<String,String>>? = null
+        private var origins: MutableMap<String,Relocation>? = null
         /** Retrieve an already discovered occurrence for generated reference diagnostics. */
         fun location(role: String, index: Int): PayloadLocation = locations[role to index]
             ?: throw PackageError(Code.INVALID_STATE,"Package occurrence location unavailable","",0,role)
@@ -152,7 +163,12 @@ R"packagekotlin(
             for ((parent,source) in parents.withIndex()) for ((index,link) in opc.links.withIndex()) {
                 state.consume(Resource.WORK_UNITS,1,source,role.field,link.id)
                 if (fold(link.source) != fold(source) || link.type != role.relationship) continue
-                if (link.mode != "internal") throw PackageError(Code.INVALID_RELATIONSHIP,"Declared role requires internal target",source,0,role.field,"",link.id)
+                if (link.mode == "external") {
+                    if (role.targetMode !in listOf("external","both") || role.expectedRoot != null) throw PackageError(Code.INVALID_RELATIONSHIP,"Declared role requires internal target",source,0,role.field,"",link.id)
+                    state.consume(Resource.DECODER_ALLOCATION_BYTES,referenceMetadataAdmissionBytes+2L*link.target.length,source,role.field,link.id)
+                    locations[role.schemaRole to result.size]=PayloadLocation(link.target,link.id); selected.add(index); result.add(Occurrence(null,parent,link.id,link.target)); continue
+                }
+                if (role.targetMode == "external") throw PackageError(Code.INVALID_RELATIONSHIP,"Declared role requires external target",source,0,role.field,"",link.id)
                 val key = fold(target(source,link.target)); val metadata = opc.parts[key] ?: throw PackageError(Code.MISSING_PART,"Role target missing",source,0,role.field,"",link.id)
                 if (role.contentType != null && mime(metadata.contentType) != mime(role.contentType)) throw PackageError(Code.CODEC,"Role content type mismatch",metadata.name,0,role.field,"",link.id)
                 if (role.policy == "fixed" && metadata.entry.method != if (role.compression == "deflate") 8 else 0) throw PackageError(Code.INVALID_OPTIONS,"Fixed package storage mismatch",metadata.name,0,role.field,"",link.id)
@@ -160,6 +176,11 @@ R"packagekotlin(
                 state.consume(Resource.DECODER_ALLOCATION_BYTES,referenceMetadataAdmissionBytes,metadata.name,role.field,link.id)
                 locations[role.schemaRole to result.size] = PayloadLocation(metadata.name,link.id)
                 selected.add(index); result.add(Occurrence(metadata,parent,link.id)); discovered.add(metadata.name)
+                if (role.name == null) {
+                    state.consume(Resource.DECODER_ALLOCATION_BYTES,160L+4L*metadata.name.length+2L*role.field.length+relocationCopyAdmissionBytes,metadata.name,role.field,link.id)
+                    val retained = origins ?: mutableMapOf<String,Relocation>().also { origins = it }
+                    retained["\u0000"+metadata.name] = Relocation(metadata.name,metadata.name,role.field,true)
+                }
             }
 )packagekotlin"
 R"packagekotlin(            occurs(role,result.size); sources[role.field] = discovered; return result
@@ -172,9 +193,9 @@ R"packagekotlin(            occurs(role,result.size); sources[role.field] = disc
             try {
                 if (values.isNotEmpty()) {
                     val origin = values[0].name; val id = location(role.schemaRole,0).relationshipId; state.consume(Resource.WORK_UNITS,origin.length.toLong()+role.name.length+1,origin,role.field,id)
-                    state.consume(Resource.DECODER_ALLOCATION_BYTES,128L+2L*(origin.length.toLong()+role.name.length),origin,role.field,id)
-                    val retained = origins ?: mutableMapOf<String,Pair<String,String>>().also { origins = it }
-                    retained[role.field] = origin to role.name
+                    state.consume(Resource.DECODER_ALLOCATION_BYTES,128L+2L*(origin.length.toLong()+role.name.length)+relocationCopyAdmissionBytes,origin,role.field,id)
+                    val retained = origins ?: mutableMapOf<String,Relocation>().also { origins = it }
+                    retained[role.field] = Relocation(origin,role.name,role.field)
                 }
                 return values.firstOrNull()?.value
             } catch (error: kotlin.Throwable) { state.closed = true; state.fail(error) } finally { leave() }
@@ -185,9 +206,9 @@ R"packagekotlin(            occurs(role,result.size); sources[role.field] = disc
             try {
                 val result = mutableListOf<ModelPart<T>>()
                 for (item in discover(role)) {
-                    state.poll(); val bytes = archive.readContext(item.metadata.entry.name,item.metadata.name,role.field,item.id); val context = CodecContext(state,role,item.metadata.name,item.id)
-                    val value = try { dispatch(bytes,role,state,item.metadata.name,item.id); decoder(bytes,context) } catch (error: IllegalArgumentException) { context.codec(error) } catch (error: javax.xml.stream.XMLStreamException) { context.codec(error) }
-                    state.poll(); result.add(ModelPart(value,item.metadata.name,item.metadata.contentType,item.parent))
+                    val metadata=requireNotNull(item.metadata); state.poll(); val bytes = archive.readContext(metadata.entry.name,metadata.name,role.field,item.id); val context = CodecContext(state,role,metadata.name,item.id)
+                    val value = try { dispatch(bytes,role,state,metadata.name,item.id); decoder(bytes,context) } catch (error: IllegalArgumentException) { context.codec(error) } catch (error: javax.xml.stream.XMLStreamException) { context.codec(error) }
+                    state.poll(); result.add(ModelPart(value,metadata.name,metadata.contentType,item.parent))
                 }
                 state.poll(); return result.toList()
             } catch (error: kotlin.Throwable) { state.closed = true; state.fail(error) } finally { leave() }
@@ -195,7 +216,7 @@ R"packagekotlin(            occurs(role,result.size); sources[role.field] = disc
         /** Return complete validated opaque payloads with their original physical method. */
         fun binaries(role: Role): List<BinaryPart> {
             state.begin()
-            try { return discover(role).map { val bytes = archive.readContext(it.metadata.entry.name,it.metadata.name,role.field,it.id); state.poll(); BinaryPart(bytes,it.metadata.name,it.metadata.contentType,it.parent,if (it.metadata.entry.method == 8) "deflate" else "stored") } }
+            try { return discover(role).map { val metadata=it.metadata; if(metadata == null) BinaryPart(byteArrayOf(),it.external,"",it.parent,role.compression) else { val bytes = archive.readContext(metadata.entry.name,metadata.name,role.field,it.id); state.poll(); BinaryPart(bytes,metadata.name,metadata.contentType,it.parent,if (metadata.entry.method == 8) "deflate" else "stored") } } }
             catch (error: kotlin.Throwable) { state.closed = true; state.fail(error) } finally { leave() }
         }
         /** Check optional/required capabilities and domain validation before publishing a complete fresh value. */
@@ -219,7 +240,7 @@ R"packagekotlin(                    if (required || policy.relationships == Unkn
                     if (policy.relationships == Unknown.PRESERVE) { val size = listOf(link.source,link.id,link.type,link.target,link.mode).sumOf { srlUtf8(it).size.toLong() }; state.consume(Resource.PRESERVED_BYTES,size,link.source,"",link.id); links.add(link) }
                 }
                 val retained = origins
-                if (retained != null) state.consume(Resource.DECODER_ALLOCATION_BYTES,64L*retained.size)
+                // Each entry's immutable copy was admitted at discovery with its original role context.
                 val extensions = Extensions(opaque,links); if (retained != null) extensions.retainOrigins(retained)
                 state.poll(); bind?.invoke(value,extensions); state.poll(); validate?.invoke(value,state.budget); state.poll()
                 finished = true; return Result(value,extensions)

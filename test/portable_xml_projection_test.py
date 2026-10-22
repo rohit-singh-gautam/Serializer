@@ -22,6 +22,10 @@ MODEL=shared.MODEL.rsplit('}',1)[0]+'''
   class inherited_source { public payload child;
     public translator inherited as project { nested=child; };
   }
+  class names { public string value xml(text,qname); public string label xml(attribute,qname); }
+  class names_source { public names stored;
+    public translator names as project { value=stored.value; label=stored.label; };
+  }
 }'''
 XSD=BASE_XSD.replace('</xs:schema>','''<xs:element name="larger"><xs:complexType><xs:sequence><xs:element name="values" type="xs:unsignedInt" minOccurs="0" maxOccurs="unbounded"/><xs:element name="nested" type="t:payload"/><xs:element name="fallback" type="xs:string"/></xs:sequence></xs:complexType></xs:element>
 <xs:element name="inherited"><xs:complexType><xs:sequence><xs:element name="code" type="xs:unsignedInt"/><xs:element name="nested" type="t:payload"/><xs:element name="fallback" type="xs:string"/></xs:sequence><xs:anyAttribute namespace="urn:serializer:xml:model" processContents="skip"/></xs:complexType></xs:element></xs:schema>''')
@@ -29,6 +33,14 @@ XSD=BASE_XSD.replace('</xs:schema>','''<xs:element name="larger"><xs:complexType
 JAVA=r'''import java.nio.file.*;import java.util.*;
 /** Qualify native live-owner exports while owning target construction is forbidden. */
 public final class Main {
+  /** Keep lexical namespace bindings on the scoped view while borrowing its source values. */
+  private static void namespaceProjection(Path directory)throws Exception{
+    var source=new Schema.Projected.NamesSource();source.stored.value="p:payload";source.stored.label="p:attribute";
+    var nativeBytes=new ArrayList<byte[]>();for(var protocol:Schema.Protocol.values())nativeBytes.add(source.stored.encode(protocol));
+    Schema.srlProjectionTripwire=true;byte[] output;
+    try{output=source.withProject(view->{if(view.getValue()!=source.stored.value||view.getLabel()!=source.stored.label)throw new AssertionError("QName target copied source");rejected(()->view.encodeXml());view.setXmlNamespaces(Map.of("p","urn:borrowed"));byte[] bytes=view.encodeXml();var defaults=Schema.Limits.defaults();same(bytes,view.encodeXml(new Schema.Limits(bytes.length,defaults.maxStringBytes,defaults.maxElements,defaults.maxDepth),null));rejected(()->view.encodeXml(new Schema.Limits(bytes.length-1,defaults.maxStringBytes,defaults.maxElements,defaults.maxDepth),null));same(bytes,view.encodeXml());int index=0;for(var protocol:Schema.Protocol.values())same(nativeBytes.get(index++),view.encode(protocol));return bytes;});}finally{Schema.srlProjectionTripwire=false;}
+    Files.write(directory.resolve("names.java.xml"),output);
+  }
   /** Check failure outside the catch so an accidentally successful operation cannot pass. */
   private static void rejected(Runnable operation){try{operation.run();}catch(RuntimeException expected){return;}throw new AssertionError("Invalid projection published");}
   /** Require the readonly graph barrier itself before any parser, provider or candidate constructor. */
@@ -43,6 +55,8 @@ public final class Main {
     try{
       output=source.withProject(view->{if(view.getValues()!=values||view.getNested()!=nested)throw new AssertionError("Large getter copied source");return view.encodeXml();});
       var defaults=Schema.Limits.defaults();same(output,source.withProject(view->view.encodeXml(new Schema.Limits(output.length,defaults.maxStringBytes,defaults.maxElements,defaults.maxDepth),null)));
+      same(output,source.withProject(view->view.encodeXml(new Schema.Limits(defaults.maxBytes,defaults.maxStringBytes,defaults.maxElements,3),null)));
+      rejected(()->source.withProject(view->view.encodeXml(new Schema.Limits(defaults.maxBytes,defaults.maxStringBytes,defaults.maxElements,2),null)));
       rejected(()->source.withProject(view->view.encodeXml(new Schema.Limits(output.length-1,defaults.maxStringBytes,defaults.maxElements,defaults.maxDepth),null)));
       var marker=new IllegalStateException("Large projection interrupted");int[] polls={0};var limits=new Schema.Limits(defaults.maxBytes,defaults.maxStringBytes,defaults.maxElements,defaults.maxDepth,defaults.readPolicy,(resource,amount,field)->{if(++polls[0]==100)throw marker;});
       byte[] sentinel={17};byte[][] published={sentinel};try{source.withProject(view->{published[0]=view.encodeXml(limits,null);return null;});throw new AssertionError("Large interruption ignored");}catch(IllegalStateException failure){if(failure!=marker||polls[0]!=100||published[0]!=sentinel)throw new AssertionError("Large interruption changed publication",failure);}
@@ -87,13 +101,17 @@ public final class Main {
     var saved=source.current;source.current=null;rejected(()->owner.value.encodeXml());source.current=saved;owner.value.unbind();rejected(()->owner.encodeXml());
     for(int iteration=0;iteration<40&&weak.value.isBound();++iteration){System.gc();Thread.sleep(10);}if(weak.value.isBound())throw new AssertionError("Weak owner unexpectedly retained");rejected(()->weak.encodeXml());Schema.srlProjectionTripwire=false;
     large.values.add(4);large.nested.number=5;var updated=Schema.Projected.Larger.decodeXml(large.withProject(view->view.encodeXml()));if(updated.values.size()!=3||updated.nested.number!=5||!updated.fallback.equals("default"))throw new AssertionError("Readonly live values/defaults changed");
-    largeProjection(directory);System.out.println("Java live XML handles, recursive graph barriers, fresh base defaults, getters and constructor tripwires pass");
+    largeProjection(directory);namespaceProjection(directory);System.out.println("Java live XML handles, recursive graph barriers, fresh base defaults, getters and constructor tripwires pass");
   }
 }'''
 
 CSHARP=r'''using System;using System.IO;using System.Collections.Generic;using System.Runtime.CompilerServices;using static SerializerGenerated.Schema;
 // Check public native handles and scoped projections while target constructors are forbidden.
 internal static class Program {
+  // Preserve source string identity while namespace presentation belongs only to the scoped view.
+  private static void NamespaceProjection(string directory){var source=new ProjectedNamesSource();source.Stored.Value="p:payload";source.Stored.Label="p:attribute";var nativeBytes=new List<byte[]>();foreach(var protocol in Enum.GetValues<Protocol>())nativeBytes.Add(source.Stored.Encode(protocol));SerializerGenerated.Schema.SrlProjectionTripwire=true;byte[] output;
+    try{output=source.WithProject(view=>{if(!ReferenceEquals(view.GetValue(),source.Stored.Value)||!ReferenceEquals(view.GetLabel(),source.Stored.Label))throw new Exception("QName target copied source");Rejected(()=>view.EncodeXml());view.SetXmlNamespaces(new Dictionary<string,string>{{"p","urn:borrowed"}});byte[] bytes=view.EncodeXml();Same(bytes,view.EncodeXml(new Limits(maxBytes:bytes.Length),null));Rejected(()=>view.EncodeXml(new Limits(maxBytes:bytes.Length-1),null));Same(bytes,view.EncodeXml());int index=0;foreach(var protocol in Enum.GetValues<Protocol>())Same(nativeBytes[index++],view.Encode(protocol));return bytes;});}finally{SerializerGenerated.Schema.SrlProjectionTripwire=false;}File.WriteAllBytes(Path.Combine(directory,"names.csharp.xml"),output);
+  }
   // Require failure outside the catch, preserving the native owner's established exception behavior.
   private static void Rejected(Action operation){try{operation();}catch(Exception failure)when(failure is FormatException||failure is InvalidOperationException){return;}throw new Exception("Invalid projection published");}
   // Match the readonly graph barrier before provider invocation, parsing or native construction.
@@ -105,6 +123,7 @@ internal static class Program {
   // Preserve a large borrowed source through exact/one-tight output bounds and a fresh complete retry.
   private static void LargeProjection(string directory){var source=new ProjectedLargerSource();for(uint index=0;index<25000;++index)source.Values.Add(index);source.Nested.Number=17;var values=source.Values;var nested=source.Nested;var before=new List<byte[]>();foreach(var protocol in Enum.GetValues<Protocol>())before.Add(source.Encode(protocol));byte[] output;SerializerGenerated.Schema.SrlProjectionTripwire=true;
     try{output=source.WithProject(view=>{if(!ReferenceEquals(view.GetValues(),values)||!ReferenceEquals(view.GetNested(),nested))throw new Exception("Large getter copied source");return view.EncodeXml();});Same(output,source.WithProject(view=>view.EncodeXml(new Limits(maxBytes:output.Length),null)));Rejected(()=>source.WithProject(view=>view.EncodeXml(new Limits(maxBytes:output.Length-1),null)));var marker=new InvalidOperationException("Large projection interrupted");int polls=0;var canceled=new Limits().WithCancellation(()=>{if(++polls==100)throw marker;});byte[] sentinel={17},published=sentinel;try{published=source.WithProject(view=>view.EncodeXml(canceled,null));throw new Exception("Large interruption ignored");}catch(InvalidOperationException failure){if(!ReferenceEquals(failure,marker)||polls!=100||!ReferenceEquals(published,sentinel))throw new Exception("Large interruption changed publication",failure);}Same(output,source.WithProject(view=>view.EncodeXml()));}finally{SerializerGenerated.Schema.SrlProjectionTripwire=false;}
+    Same(output,source.WithProject(view=>view.EncodeXml(new Limits(maxDepth:3),null)));Rejected(()=>source.WithProject(view=>view.EncodeXml(new Limits(maxDepth:2),null)));
     int item=0;foreach(var protocol in Enum.GetValues<Protocol>())Same(before[item++],source.Encode(protocol));File.WriteAllBytes(Path.Combine(directory,"large.csharp.xml"),output);
   }
   // Exercise true getter identity, fresh defaults, historical metadata and complete operation limits.
@@ -118,12 +137,14 @@ internal static class Program {
     source.Current.Number=0;source.Current.Label="updated";byte[] changed=owner.Value.EncodeXml();SerializerGenerated.Schema.SrlProjectionTripwire=false;if(ProjectedPayload.DecodeXml(changed).Number!=0)throw new Exception("Live mutation hidden");SerializerGenerated.Schema.SrlProjectionTripwire=true;
     byte[] exact=source.WithProject(view=>view.EncodeXml());Same(exact,source.WithProject(view=>view.EncodeXml(new Limits(maxBytes:exact.Length),null)));Rejected(()=>source.WithProject(view=>view.EncodeXml(new Limits(maxBytes:exact.Length-1),null)));var saved=source.Current;source.Current=null!;Rejected(()=>owner.Value.EncodeXml());source.Current=saved;owner.Value.Unbind();Rejected(()=>owner.EncodeXml());
     for(int iteration=0;iteration<40&&weak.Value.IsBound();++iteration){GC.Collect();GC.WaitForPendingFinalizers();GC.Collect();}if(weak.Value.IsBound())throw new Exception("Weak owner retained");Rejected(()=>weak.EncodeXml());SerializerGenerated.Schema.SrlProjectionTripwire=false;large.Values.Add(4);large.Nested.Number=5;var updated=ProjectedLarger.DecodeXml(large.WithProject(view=>view.EncodeXml()));if(updated.Values.Count!=3||updated.Nested.Number!=5||updated.Fallback!="default")throw new Exception("Live getters/defaults changed");
-    LargeProjection(directory);Console.WriteLine("C# live XML handles, recursive graph preflight, fresh base getters, native protocols and constructor tripwires pass");
+    LargeProjection(directory);NamespaceProjection(directory);Console.WriteLine("C# live XML handles, recursive graph preflight, fresh base getters, native protocols and constructor tripwires pass");
   }
 }'''
 
 GO=r'''package main
 import("bytes";"fmt";"os";"path/filepath";"strings")
+// Bind XML-only lexical namespaces while the original target fields remain borrowed.
+func namespaceProjection(directory string){source:=NewProjectedNamesSource();source.Stored.Value="p:payload";source.Stored.Label="p:attribute";protocols:=[]Protocol{JSON,BINARY_NONE,BINARY_INTEGER,BINARY_STRING};expected:=make([][]byte,len(protocols));for index,protocol:=range protocols{var err error;expected[index],err=source.Stored.Encode(protocol);if err!=nil{panic(err)}};srlProjectionTripwire=true;defer func(){srlProjectionTripwire=false}();source.WithProject(func(view ProjectedNamesSourceProjectTranslator){rejected(view.EncodeXML());if err:=view.SetXMLNamespaces(map[string]string{"p":"urn:borrowed"});err!=nil{panic(err)};output,err:=view.EncodeXML();if err!=nil{panic(err)};bounds:=DefaultXmlLimits();bounds.MaxBytes=len(output);exact,err:=view.EncodeXML(XmlOptions{bounds,nil});if err!=nil{panic(err)};same(output,exact);bounds.MaxBytes--;rejected(view.EncodeXML(XmlOptions{bounds,nil}));fresh,err:=view.EncodeXML();if err!=nil{panic(err)};same(output,fresh);for index,protocol:=range protocols{data,err:=view.Encode(protocol);if err!=nil{panic(err)};same(data,expected[index])};if err=os.WriteFile(filepath.Join(directory,"names.go.xml"),output,0600);err!=nil{panic(err)}})}
 // Preserve exact caller callback failures at the complete-message boundary.
 type projectionValidator struct{calls int;failure error}
 func (value *projectionValidator)ValidateXML(data []byte)error{value.calls++;return value.failure}
@@ -134,11 +155,12 @@ func same(first,second []byte){if !bytes.Equal(first,second){panic("Native bytes
 // Borrow a large array through output admission, exact callback failure identity and fresh recovery.
 func largeProjection(directory string){source:=NewProjectedLargerSource();source.Values=make([]uint32,25000);for index:=range source.Values{source.Values[index]=uint32(index)};source.Nested.Number=17;values:=source.Values;nested:=source.Nested;protocols:=[]Protocol{JSON,BINARY_NONE,BINARY_INTEGER,BINARY_STRING};before:=make([][]byte,len(protocols));var err error;for index,protocol:=range protocols{before[index],err=source.Encode(protocol);if err!=nil{panic(err)}};srlProjectionTripwire=true;defer func(){srlProjectionTripwire=false}();var output []byte
   source.WithProject(func(view ProjectedLargerSourceProjectTranslator){if &view.GetValues()[0]!=&values[0]||view.GetNested()!=nested{panic("Large getter copied source")};output,err=view.EncodeXML();if err!=nil{panic(err)};limits:=DefaultXmlLimits();limits.MaxBytes=len(output);exact,err:=view.EncodeXML(XmlOptions{limits,nil});if err!=nil{panic(err)};same(output,exact);limits.MaxBytes--;rejected(view.EncodeXML(XmlOptions{limits,nil}));marker:=fmt.Errorf("Large projection interrupted");polls:=0;data,failure:=view.EncodeXMLWithOperation(XmlOperationOptions{Options:XmlOptions{DefaultXmlLimits(),nil},Operation:func(string,int64,string)error{polls++;if polls==100{return marker};return nil}});if data!=nil||failure!=marker||polls!=100{panic("Large interruption changed publication")};fresh,err:=view.EncodeXML();if err!=nil{panic(err)};same(output,fresh)})
+  source.WithProject(func(view ProjectedLargerSourceProjectTranslator){bounds:=DefaultXmlLimits();bounds.MaxDepth=3;exact,err:=view.EncodeXML(XmlOptions{bounds,nil});if err!=nil{panic(err)};same(output,exact);bounds.MaxDepth=2;rejected(view.EncodeXML(XmlOptions{bounds,nil}))})
   for index,protocol:=range protocols{after,err:=source.Encode(protocol);if err!=nil{panic(err)};same(before[index],after)};if err=os.WriteFile(filepath.Join(directory,"large.go.xml"),output,0600);err!=nil{panic(err)}
 }
 @prepared_provider_helpers@
 // Exercise live source aliases, explicit borrowed/weak scopes and scoped target getters.
-func main(){directory:=os.Args[1];source:=NewProjectedSource();source.Current.Number=7;source.Current.Label="A<&\"";owner:=NewProjectedEnvelope();if err:=owner.Value.Bind(source);err!=nil{panic(err)};scope:=NewProjectedEnvelopeLabelValueReferenceScope(source);if err:=owner.Label.Bind(scope);err!=nil{panic(err)};selected,err:=owner.Value.ReadValue();if err!=nil||selected!=source.Current{panic("Selected target copied")}
+func main(){directory:=os.Args[1];namespaceProjection(directory);source:=NewProjectedSource();source.Current.Number=7;source.Current.Label="A<&\"";owner:=NewProjectedEnvelope();if err:=owner.Value.Bind(source);err!=nil{panic(err)};scope:=NewProjectedEnvelopeLabelValueReferenceScope(source);if err:=owner.Label.Bind(scope);err!=nil{panic(err)};selected,err:=owner.Value.ReadValue();if err!=nil||selected!=source.Current{panic("Selected target copied")}
   large:=NewProjectedLargerSource();large.Values=[]uint32{1,2};large.Nested.Number=3;target:=NewProjectedLarger();target.Values=large.Values;target.Nested=large.Nested;inherited:=NewProjectedInheritedSource();inherited.Child.Number=11;inheritedTarget:=NewProjectedInherited();inheritedTarget.Nested=inherited.Child
   protocols:=[]Protocol{JSON,BINARY_NONE,BINARY_INTEGER,BINARY_STRING};before,expected,inheritedExpected:=[][]byte{},[][]byte{},[][]byte{};for _,protocol:=range protocols{first,err:=owner.Encode(protocol);if err!=nil{panic(err)};before=append(before,first);first,err=target.Encode(protocol);if err!=nil{panic(err)};expected=append(expected,first);first,err=inheritedTarget.Encode(protocol);if err!=nil{panic(err)};inheritedExpected=append(inheritedExpected,first)}
   weak:=NewProjectedWeakEnvelope();weakScope:=NewProjectedWeakEnvelopeValueValueReferenceScope(source);if err=weak.Value.Bind(weakScope);err!=nil{panic(err)};srlProjectionTripwire=true
@@ -178,7 +200,7 @@ def instrument(path,language):
         matched=re.search(r'public final class Schema\s*\{',source)
         if matched is None:raise AssertionError('Expected generated Java outer container')
         source=source[:matched.end()]+'\npublic static boolean srlProjectionTripwire;\n'+source[matched.end():]
-        for name in ('Payload','Larger','Inherited','Envelope','WeakEnvelope','NestedEnvelope','OptionalEnvelope'):
+        for name in ('Payload','Larger','Inherited','Envelope','WeakEnvelope','NestedEnvelope','OptionalEnvelope','Names'):
             pattern=r'(public static final class '+name+r'\s*\{)'
             source,count=re.subn(pattern,lambda match:match[0]+'\npublic '+name+'(){if(Schema.srlProjectionTripwire)throw new AssertionError("Owning XML projection target constructed");}\n',source,count=1)
             if count!=1:raise AssertionError('Missing Java constructor tripwire: '+name)
@@ -186,12 +208,12 @@ def instrument(path,language):
         matched=re.search(r'public static(?: partial)? class Schema\s*\{',source)
         if matched is None:raise AssertionError('Expected generated C# outer container')
         source=source[:matched.end()]+'\npublic static bool SrlProjectionTripwire;\n'+source[matched.end():]
-        for name in ('ProjectedPayload','ProjectedLarger','ProjectedInherited','ProjectedEnvelope','ProjectedWeakEnvelope','ProjectedNestedEnvelope','ProjectedOptionalEnvelope'):
+        for name in ('ProjectedPayload','ProjectedLarger','ProjectedInherited','ProjectedEnvelope','ProjectedWeakEnvelope','ProjectedNestedEnvelope','ProjectedOptionalEnvelope','ProjectedNames'):
             source,count=re.subn(r'(public sealed(?: partial)? class '+name+r'\s*\{)',lambda match:match[0]+'\npublic '+name+'(){if(SerializerGenerated.Schema.SrlProjectionTripwire)throw new System.Exception("Owning XML projection target constructed");}\n',source,count=1)
             if count!=1:raise AssertionError('Missing C# constructor tripwire: '+name)
     else:
         source+='\nvar srlProjectionTripwire bool\n'
-        for name in ('ProjectedPayload','ProjectedLarger','ProjectedInherited','ProjectedEnvelope','ProjectedWeakEnvelope','ProjectedNestedEnvelope','ProjectedOptionalEnvelope'):
+        for name in ('ProjectedPayload','ProjectedLarger','ProjectedInherited','ProjectedEnvelope','ProjectedWeakEnvelope','ProjectedNestedEnvelope','ProjectedOptionalEnvelope','ProjectedNames'):
             source,count=re.subn(r'(func New'+name+r'\(\) \*'+name+r'\s*\{)',lambda match:match[0]+'\nif srlProjectionTripwire{panic("Owning XML projection target constructed")}\n',source,count=1)
             if count!=1:raise AssertionError('Missing Go constructor tripwire: '+name)
     path.write_text(source,encoding='utf-8')
@@ -229,6 +251,9 @@ def main():
         assert [int(child.text) for child in large.getroot().findall('{'+NS+'}values')]==list(range(25000))
         assert large.getroot().find('{'+NS+'}nested')[0].text=='17'
         assert large.getroot().find('{'+NS+'}fallback').text=='default'
+        names=etree.parse(str(args.build/f'names.{language}.xml')).getroot()
+        for text,local in [(names.text,'payload'),(names.get('label'),'attribute')]:
+            prefix,value=text.split(':');assert names.nsmap[prefix]=='urn:borrowed' and value==local
     report={'status':'pass','compiler_sha256':hashlib.sha256(args.compiler.read_bytes()).hexdigest(),'languages':languages,
             'readonly_late_prepared_provider_controls':{'java':'java' in languages,'go':bool(args.bridge)},
             'generated_sha256':{language:hashlib.sha256((args.build/language/sdk.OUTPUTS[language]).read_bytes()).hexdigest() for language in languages}}

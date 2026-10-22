@@ -1,0 +1,35 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.21.0;
+
+namespace pipeline {
+  xml(namespace("urn:serializer:package-pipeline"), scalars(attribute));
+  class payload {
+    public uint32 id (1);
+    public string label (2);
+    public array uint32 values (3) xml(element, name("value"));
+  }
+  package archive {
+    part main : payload {
+      name("/main.data");
+      content_type("application/vnd.serializer.pipeline");
+      relationship("urn:serializer:pipeline:main");
+      policy(defaults);
+    }
+    part fixed : payload {
+      name("/fixed.data");
+      content_type("application/vnd.serializer.pipeline");
+      relationship("urn:serializer:pipeline:fixed");
+      codec(json);
+      compression(stored);
+      policy(fixed);
+      occurs(0, 1);
+    }
+    part links : bytes {
+      name(dynamic);
+      content_type(dynamic);
+      relationship("urn:serializer:pipeline:link");
+      occurs(0, unbounded);
+    }
+  }
+}

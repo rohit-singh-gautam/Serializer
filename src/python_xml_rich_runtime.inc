@@ -318,14 +318,15 @@ def _xml_value_identity(value, rule, bindings, context=None):
         if context is not None:
             context.consume('decoder_allocation_bytes', len(tokens) * _XML_UNION_LIST_ITEM_ALLOCATION_BYTES)
             context.consume('work_units', len(tokens))
-        item = dict(rule, kind=list_item, list_item='', qname=False)
+        item = rule.get('item_rule') or dict(rule, kind=list_item, list_item='', qname=False, union=())
         return ('list', tuple(_xml_value_identity(token, item, bindings, context) for token in tokens))
     kind = rule['kind']
     if rule['qname'] or kind == 'QName':
         return ('QName', _xml_resolve_qname(value, bindings))
     if kind == 'boolean':
         return ('boolean', _xml_builtin_scalar(value, 'bool'))
-    if kind in ('float', 'double'):
+    if kind in ('float', 'double'):)richpython"
+R"richpython(
         number = _xml_facet_number(value, kind, context)
         return (kind, 'NaN' if _xml_is_nan(number) else number)
     if kind in ('decimal', 'integer', 'positiveInteger', 'negativeInteger', 'nonPositiveInteger',
@@ -347,13 +348,25 @@ def _xml_value_equal(left, right, rule, bindings, context=None):
     if rule['list_item']:
         left, right = _xml_tokens(left), _xml_tokens(right)
         if len(left) != len(right): return False
-        item = dict(rule, kind=rule['list_item'], list_item='', qname=False)
+        item = rule.get('item_rule') or dict(rule, kind=rule['list_item'], list_item='', qname=False, union=())
         return all(_xml_value_equal(a, b, item, bindings, context) for a, b in zip(left, right))
     if kind == 'boolean': return _xml_builtin_scalar(left, 'bool') == _xml_builtin_scalar(right, 'bool')
     if kind not in ('', 'string', 'normalizedString', 'token', 'anyURI', 'language', 'Name', 'NCName', 'NMTOKEN', 'NMTOKENS', 'ID', 'IDREF', 'IDREFS', 'ENTITY', 'ENTITIES'):
         a, b = _xml_facet_number(left, kind, context), _xml_facet_number(right, kind, context)
         return _xml_is_nan(a) and _xml_is_nan(b) or not _xml_is_nan(a) and not _xml_is_nan(b) and a == b
     return _xml_normalize(left, rule['whitespace']) == _xml_normalize(right, rule['whitespace'])
+
+
+def _xml_schema_identity(kind, list_kind, value, names, items=()):
+    """Prepare a schema literal's immutable primitive identity independently of instance aliases."""
+    if list_kind and (items or not value):
+        return ('list', items)
+    if kind == 'QName':
+        return ('QName', names[0])
+    if list_kind == 'QName':
+        return ('list', tuple(('QName', item) for item in names))
+    return _xml_value_identity(value, {'kind': kind, 'list_item': list_kind, 'union': (),
+                                     'qname': False, 'whitespace': 'preserve'}, {})
 
 )richpython"
 R"richpython(def _xml_checked(value, rule, bindings, context=None, _selected=False):
@@ -370,7 +383,9 @@ R"richpython(def _xml_checked(value, rule, bindings, context=None, _selected=Fal
         selected = rule
         value = _xml_normalize(value, rule['whitespace'])
     if not rule['union'] and rule['list_item']:
-        for item in _xml_tokens(value): _xml_lexical_kind(item, rule['list_item'], bindings)
+        for item in _xml_tokens(value):
+            if rule.get('item_rule') is not None: _xml_checked(item, rule['item_rule'], bindings, context)
+            else: _xml_lexical_kind(item, rule['list_item'], bindings)
     elif not rule['union']:
         _xml_lexical_kind(value, rule['kind'], bindings)
     if rule['prefix_list']:
@@ -393,8 +408,13 @@ R"richpython(def _xml_checked(value, rule, bindings, context=None, _selected=Fal
                     accepted = compare(number, boundary)
                 if not accepted: raise _XmlLexicalError('XML numeric facet failed')
     compared = original if rule['union'] else value
-    if rule['enumeration'] and not rule['qnames'] and not rule['qname_lists'] and not any(_xml_value_equal(compared, allowed, rule, bindings, context) for allowed in rule['enumeration']):
-        raise _XmlLexicalError('XML enumeration facet failed')
+    if rule['enumeration'] and not rule['qnames'] and not rule['qname_lists']:
+        if rule.get('union_values'):
+            matched = _xml_value_identity(value, selected, bindings, context) in rule['union_values']
+        else:
+            matched = any(_xml_value_equal(compared, allowed, rule, bindings, context) for allowed in rule['enumeration'])
+        if not matched:
+            raise _XmlLexicalError('XML enumeration facet failed')
     if rule['qnames'] and _xml_resolve_qname(value, bindings) not in rule['qnames']:
         raise _XmlLexicalError('XML QName enumeration facet failed')
     if rule['qname_lists'] and _xml_qname_list_identity(value, bindings, context) not in rule['qname_lists']:
@@ -404,7 +424,10 @@ R"richpython(def _xml_checked(value, rule, bindings, context=None, _selected=Fal
         matched = _xml_pattern(value, patterns, context) if portable is None else any(
             _xml_portable_pattern(value, program, context) for program in portable)
         if not matched: raise _XmlLexicalError('XML pattern facet failed')
-    if rule['fixed_qname_list'] is not None:
+    if rule.get('fixed_union') is not None:
+        if _xml_value_identity(value, selected, bindings, context) != rule['fixed_union']:
+            raise _XmlLexicalError('XML fixed union value failed')
+    elif rule['fixed_qname_list'] is not None:
         if _xml_qname_list_identity(value, bindings, context) != rule['fixed_qname_list']:
             raise _XmlLexicalError('XML fixed QName list failed')
     elif rule['fixed_qname'] is not None:
@@ -414,6 +437,13 @@ R"richpython(def _xml_checked(value, rule, bindings, context=None, _selected=Fal
     if _selected:
         return value, selected
     return original if rule['union'] else value
+
+def _xml_output_checked(value, rule, bindings, context=None):
+    """Reject an authored empty union that would acquire a different value after XML replay."""
+    if rule.get('namespace_default') is not None and value == '' and rule['namespace_default'] != '':
+        raise _XmlLexicalError('Empty XML union would activate a different schema default')
+    return _xml_checked(value, rule, bindings, context)
+
 
 def _xml_namespace(name):
     """Inspect an expanded element/attribute identity without interpreting a lexical prefix."""
@@ -505,6 +535,15 @@ class _XmlFieldsRich(_XmlFields):
         """Borrow a schema-default field's private scope or the unchanged explicit input scope."""
         selected = self.scalar_scopes.get((field, 0))
         return selected[0] if selected is not None else node[4]
+    def union_default(self, field, item, lexical, bindings):
+        """Keep the schema literal and its minimal scope private to this exact field occurrence."""
+        if self.context is not None:
+            self.context.consume('decoder_allocation_bytes', len(bindings) * _XML_NAMESPACE_BINDING_ALLOCATION_BYTES)
+            self.context.consume('work_units', len(bindings) + len(lexical))
+        retained = dict(bindings)
+        retained.setdefault('', '')
+        self.scalar_scopes[(field, item)] = (retained, lexical)
+        return lexical
     def list_default(self, field, item, node, values):
         """Materialize schema identities without changing another attribute or text field's scope."""
         source = node[4]
@@ -553,7 +592,8 @@ class _XmlFieldsRich(_XmlFields):
         self.item = 0
         choice = next((group for group in self.contract['choices'] if group['position'] == self.position), None)
         if choice is not None:
-            validator, result = _XmlRepeatedChoice(choice, self.contract['namespace'], self.context), []
+            validator, result = _XmlRepeatedChoice(choice, self.contract['namespace'], self.context), [])richpython"
+R"richpython(
             while self.next < len(self.node[2]):
                 child = self.node[2][self.next]
                 if child[0] != name and child[0] in self.contract['known_children']: break
@@ -616,10 +656,10 @@ class _XmlFieldsRich(_XmlFields):
         return state + (self.scalar_scopes,) if self.scalar_scopes else state
 
 )richpython"
-R"richpython(def _xml_scope_copy(bindings, budget):
+R"richpython(def _xml_scope_copy(bindings, budget, allow_absent=False):
     """Validate and charge retained declarations before copying an XML-only lexical scope."""
     for prefix, uri in bindings.items():
-        if prefix and not _xml_ncname(prefix) or prefix == 'xmlns' or prefix == 'xml' and uri != 'http://www.w3.org/XML/1998/namespace' or prefix != 'xml' and uri == 'http://www.w3.org/XML/1998/namespace' or uri == 'http://www.w3.org/2000/xmlns/' or prefix and not uri:
+        if prefix and not _xml_ncname(prefix) or prefix == 'xmlns' or prefix == 'xml' and uri != 'http://www.w3.org/XML/1998/namespace' or prefix != 'xml' and uri == 'http://www.w3.org/XML/1998/namespace' or uri == 'http://www.w3.org/2000/xmlns/' or prefix and not uri and not allow_absent:
             raise ValueError('Invalid XML namespace binding')
         budget.text(prefix)
         budget.text(uri)
@@ -634,12 +674,15 @@ def _xml_scalar_scope_open(state, field, item, parent, budget, rule=None, value=
         local = state[3].get((field, item))
         if local is not None:
             original, lexical = local
-            scope.update(_xml_scope_copy(original, budget))
-            if rule is not None and rule['union'] and value == lexical:
+            copied = _xml_scope_copy(original, budget, True)
+            scope.update((prefix, uri) for prefix, uri in copied.items() if not prefix or uri)
+            if rule is not None and (rule['union'] or rule.get('item_rule') is not None) and value == lexical:
                 # XML1.0 cannot undeclare a newly inherited nondefault prefix. A
                 # source string fallback must never become a QName after rebinding.
-                before, source_rule = _xml_union_member(value, rule, original, budget.context)
-                after, output_rule = _xml_union_member(value, rule, scope, budget.context)
+                before, source_rule = (_xml_union_member(value, rule, original, budget.context)
+                                       if rule['union'] else (value, rule))
+                after, output_rule = (_xml_union_member(value, rule, scope, budget.context)
+                                      if rule['union'] else (value, rule))
                 if source_rule is not output_rule or _xml_value_identity(before, source_rule, original, budget.context) != _xml_value_identity(after, output_rule, scope, budget.context):
                     raise ValueError('XML namespace context would change the selected union value')
     return scope
@@ -705,14 +748,27 @@ R"richpython(def _xml_promote_lexical(value, rule, source, target):
     return value
 
 
+def _xml_schema_default_matches(value, rule, scope, context=None):
+    """Use an empty declaration only when its schema literal has the same native spelling and vocabulary."""
+    literal = rule.get('namespace_default')
+    bindings = rule.get('namespace_default_scope')
+    if literal is None or value != literal or bindings is None:
+        return False
+    if context is not None:
+        context.consume('work_units', len(value) + sum(len(prefix) + len(uri) + 1 for prefix, uri in bindings.items()))
+    return all(scope.get(prefix, '') == uri for prefix, uri in bindings.items())
+
+
 def _xml_root_scoped_lexical(value, rule, state, field, target, budget):
     """Rewrite a known root scalar into a common empty-default scope while keeping native strings intact."""
     original = state[0] if state is not None else target
     scope = _xml_scalar_scope_open(state, field, 0, original, budget, rule, value)
-    value = _xml_checked(value, rule, scope, budget.context)
+    value = _xml_output_checked(value, rule, scope, budget.context)
+    original = value
     selected = rule
     if rule['union']:
         value, selected = _xml_union_member(value, rule, scope, budget.context)
+    normalized = value
     reserved = state[4] if state is not None and len(state) > 4 else ()
     def qualify(item):
         """Retain existing lexical prefixes before allocating a schema-default presentation alias."""
@@ -725,10 +781,23 @@ def _xml_root_scoped_lexical(value, rule, state, field, target, budget):
         return _xml_qualify_qname(expanded, target, reserved)
     if selected['qname'] or selected['kind'] == 'QName':
         value = qualify(value)
+    elif selected.get('item_rule') is not None:
+        def project_item(item):
+            """Keep each atomic union selection while qualifying only its QName branch."""
+            item_rule = selected['item_rule']
+            item_value, item_selected = (_xml_union_member(item, item_rule, scope, budget.context)
+                                         if item_rule['union'] else (item, item_rule))
+            result = qualify(item_value) if item_selected['kind'] == 'QName' else item
+            _xml_checked(result, item_rule, target, budget.context)
+            return result
+        value = ' '.join(project_item(item) for item in _xml_tokens(value))
     elif selected['list_item'] == 'QName':
         value = ' '.join(qualify(item) for item in _xml_tokens(value))
     elif selected['prefix_list']:
         value = _xml_promote_lexical(value, selected, scope, target)
+    # Keep member-selecting whitespace when namespace qualification did not change its token identities.
+    if rule['union'] and value == normalized:
+        value = original
     return _xml_checked(value, rule, target, budget.context)
 
 def _xml_choices(model, groups, active_fields=None):

@@ -34,9 +34,14 @@ try{loaded=await A.load(new Uint8Array(await readFile(join(directory,name+'.opc'
 catch(error){check(error instanceof P.Error&&expected==='LOAD_ERROR','unexpected load rejection');console.log(JSON.stringify({case:name,decision:expected,checks,failure_stage:'load'}));process.exit(0);}
 check(expected!=='LOAD_ERROR','invalid load published');check(loaded.value.extensions===loaded.extensions,'owning result extension identity');
 check(loaded.value.first.id===11&&loaded.value.first.label==='first','first typed payload');check(loaded.value.second.id===22&&loaded.value.second.label==='second','second typed payload');
-check(loaded.value.children.length===1&&loaded.value.children[0].value.id===33&&loaded.value.children[0].sourceIndex===0,'dynamic child routing');
+check(loaded.value.children.length>=1&&loaded.value.children[0].value.id===33&&loaded.value.children[0].sourceIndex===0,'dynamic child routing');
 check(Object.keys(loaded.extensions).sort().join(',')==='parts,relationships','public extension shape preserved');
 const input=new A.Input({first:loaded.value.first,second:action==='remove_second'?null:loaded.value.second,children:loaded.value.children,extensions:loaded.extensions});
+if(name.startsWith('dynamic-')){
+  const original='/children/child.xml',names=action==='swap_children'?{[original]:'/children/other.xml','/children/other.xml':original}:action==='remove_unreferenced_child'?{}:{[original]:action==='collision_child'?'/assets/blob.bin':'/renamed/child.xml'};
+  input.extensions=loaded.extensions.withRenames(names);input.children=loaded.value.children.map(item=>new P.ModelPart(item.value,names[item.name]??item.name,item.contentType,item.sourceIndex));
+  if(action==='remove_child'||action==='remove_unreferenced_child')input.children=input.children.slice(1);if(action==='swap_children')input.children.reverse();
+}
 const before=snapshot(input.extensions),childName=input.children[0].name,saved=join(directory,name+'-saved.opc');await writeFile(saved,previous);
 if(expected==='REJECT'){
   let rejected=false;try{await A.encode(input,{compressionProvider:provider});}catch(error){check(error instanceof P.Error,'owned composition rejection');rejected=true;}check(rejected,'invalid relocation encoded');

@@ -12,6 +12,7 @@
 #include "value_reference_native_writer.hpp"
 #include "comparison_writer.hpp"
 #include "c_package_writer.hpp"
+#include "c_native_operation_writer.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -2231,6 +2232,7 @@ public:
       output +=
 #include "xml_c_operation_runtime.inc"
           ;
+      if (!model.packages.empty()) { output += operation_codegen::runtime(runtime); }
     }
     if (std::any_of(model.nodes.begin(), model.nodes.end(), [](const auto* node) {
           return node->type == object_type::class_type && static_cast<const class_node&>(*node).reference.has_value();
@@ -2253,6 +2255,7 @@ public:
   }
   // Emit immutable key tables, public owning layouts, and checked direct codecs.
   std::string generate() {
+    const auto native_operation_start = output.size();
     for (const auto& code : model.preambles) {
       if (code.language == "c") { output += behavior::source_marker(code, "c") + code.text + "\n"; }
     }
@@ -2415,6 +2418,13 @@ public:
       }
     }
     if (!model.packages.empty()) {
+      std::map<std::string, std::string> operation_initializers{};
+      for (const auto* node : model.nodes) {
+        if (node->type == object_type::class_type) {
+          operation_initializers.emplace(name(node) + "_init", "srl_xml_operation_init_" + name(node));
+        }
+      }
+      output += operation_codegen::models(std::string_view{output}.substr(native_operation_start), runtime, operation_initializers);
       auto helper = std::string{"serializer_package"};
       std::size_t suffix{1};
       while (std::any_of(symbols.begin(), symbols.end(), [&](const auto& symbol) {
@@ -2429,6 +2439,9 @@ public:
           if (!part.value_type || !declarations.insert(part.value_type->resolved_node).second) { continue; }
           const auto native = type(*part.value_type);
           line("static inline const srl_xml_operation_codec* srl_xml_operation_codec_" + native + "(void);");
+          if (package_codegen::native_package_companion_required(part, model.xml)) {
+            line("static inline const srl_xml_package_document_codec* srl_xml_package_document_" + native + "(void);");
+          }
           const auto validator = model.xml.runtime_xsd ? ",const srl_xml_validation*" : "";
           line("/* XML definitions follow the native declarations in this generated header. */");
           line("static inline srl_status " + native + "_encode_xml(const " + native +
@@ -2443,6 +2456,7 @@ public:
 #include "c_package_runtime.inc"
 #include "c_package_opc_runtime.inc"
 #include "c_package_profile_runtime.inc"
+#include "c_package_pipeline_runtime.inc"
 #include "c_package_file_runtime.inc"
       };
       for (const auto& [token, replacement] : {
@@ -2459,7 +2473,7 @@ public:
         output += package_codegen::c(*package, name(package), helper, model.xml,
             [&](const auto& value) { return type(value); },
             [&](const auto value) { return field(value); },
-            [&](const auto value) { return quote(value); });
+            [&](const auto value) { return quote(value); }, model.protocols == output_protocols::binary_none);
       }
     }
     return output;

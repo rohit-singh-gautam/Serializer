@@ -23,6 +23,9 @@ namespace xml_projection {
   }
   class qualified_source {
     public qualified_payload current;
+    public translator qualified_payload as project {
+      value = current.value;
+    };
   }
   class weak_envelope {
     public weak(qualified_source.current) value;

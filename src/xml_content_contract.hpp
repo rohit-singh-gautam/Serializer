@@ -4,6 +4,7 @@
 
 #include <rohit/serializer_creator.hpp>
 #include <rohit/xml.hpp>
+#include "xml_particle_contract.hpp"
 
 #include <cstddef>
 #include <map>
@@ -73,6 +74,7 @@ struct mixed_contract {
   std::vector<mixed_child_branch> children{};
   // When set, text_alternative is the one-past-end sentinel and no text bridge is emitted.
   bool element_only{};
+  std::optional<ordered_automaton> grammar{};
 };
 
 // Validate an ordinary owning fragment shape and unique expanded child names before emission.

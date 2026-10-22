@@ -19,12 +19,16 @@ inline std::string go(const package_node& package, const std::string& name,
     const std::function<std::string(const type_name&)>& render_type,
     const std::function<std::string(std::string_view)>& render_field,
     const std::function<std::string(std::string_view)>& literal, const xml_options& xml,
-    const std::string& selected_prefix) {
-  const auto parts = ordered(package);
+    const std::string& selected_prefix, bool binary_none_only = false) {
+  const auto configured_package = configure_package(package, xml);
+  const auto parts = ordered(configured_package);
   const auto contract = compile_package_profile(package,xml);
   std::set<std::string> fields{"Extensions"};
   std::set<std::pair<std::string, std::string>> dispatch;
   for (const auto* part : parts) {
+    if (binary_none_only && part->value_type && part->codec == "json") {
+      throw std::invalid_argument{"JSON package profile requires the JSON native protocol"};
+    }
     if (!fields.insert(render_field(part->name)).second ||
         !dispatch.emplace(part->source, part->relationship).second) {
       throw std::invalid_argument{"Go package field or role dispatch collision: " + part->name};
@@ -38,10 +42,10 @@ inline std::string go(const package_node& package, const std::string& name,
     }
     if (part->value_type) {
       const auto& type = *part->value_type;
-      if (part->codec != "xml" || type.type != object_type::class_type || !type.resolved_node ||
+      if (type.type != object_type::class_type || !type.resolved_node ||
           static_cast<const class_node&>(*type.resolved_node).reference ||
           !render_type(type).starts_with('*')) {
-        throw std::invalid_argument{"Go typed package roles require ordinary owning XML records"};
+        throw std::invalid_argument{"Go typed package roles require ordinary owning records"};
       }
     }
   }
@@ -95,13 +99,16 @@ inline std::string go(const package_node& package, const std::string& name,
     const auto metadata=std::find_if(contract.parts.begin(),contract.parts.end(),[&](const auto& item){return item.role==part->name;});
     const auto expanded=[&](const auto& item){return item.namespace_uri.empty()?item.local:"{"+item.namespace_uri+"}"+item.local;};
     const auto expected=metadata->decoder?",expectedRoot:"+literal(expanded(metadata->decoder->root))+",expectedType:"+literal(expanded(*metadata->decoder->type)):"";
+    std::string vocabularies{"[]string{"};
+    if (metadata->decoder) { for (const auto& uri : metadata->decoder->vocabularies) { vocabularies += literal(uri) + ','; } }
+    vocabularies += '}';
     const auto text = [&](const auto& value) { return value ? literal(*value) : "\"\""; };
     line("var " + role(index++) + " = srlPackageRole{field:" + literal(render_field(part->name)) + ",role:"+literal(part->name)+
         ",name:" + text(part->part_name) + ",contentType:" + text(part->content_type) +
         ",source:" + literal(part->source == "/" ? "/" : render_field(part->source)) +
         ",relationship:" + literal(part->relationship) + ",id:" + text(part->relationship_id) +
         ",compression:" + literal(part->compression) + ",minimum:" + std::to_string(part->min_occurs) +
-        ",maximum:" + (part->max_occurs ? std::to_string(*part->max_occurs) : "-1") + ",policy:"+literal(part->profile_policy)+expected+"}");
+        ",maximum:" + (part->max_occurs ? std::to_string(*part->max_occurs) : "-1") + ",policy:"+literal(part->profile_policy)+",codec:"+literal(part->value_type?part->codec:"bytes")+",targetMode:"+literal(part->target_mode)+",requiresType:"+(part->requires_type?"true":"false")+",vocabularies:"+vocabularies+expected+"}");
   }
   line("// srlPackageReferences"+name+" validates all declared scalar keys and forward references.");
   line("func srlPackageReferences"+name+"(value *"+name+",budget *"+api("Budget")+",loaders ...*srlPackageLoader)error{index:=srlPackageReferences{budget:budget}");
@@ -125,17 +132,35 @@ inline std::string go(const package_node& package, const std::string& name,
   line("  budget,err:=srlPackageBudget(budgets);if err!=nil{return nil,err};return "+name+"EncodeWithProfiles(value,nil,budget)}");
   line("// "+name+"EncodeWithProfiles resolves closed per-role compression defaults.");
   line("func "+name+"EncodeWithProfiles(value *"+name+"Input,profiles map[string]string,budgets ...*"+api("Budget")+")([]byte,error){budget,err:=srlPackageBudget(budgets);if err!=nil{return nil,err};return "+selected_prefix+"Encode(value,profiles,budget"+codec_arguments("")+")}");
+  line("// "+name+"EncodeWithPipelineProfiles selects bound native codecs and entry compression per role.");
+  line("func "+name+"EncodeWithPipelineProfiles(value *"+name+"Input,profiles map[string]"+api("PipelineProfile")+",budgets ...*"+api("Budget")+")([]byte,error){budget,err:=srlPackageBudget(budgets);if err!=nil{return nil,err};return "+selected_prefix+"EncodePipeline(value,nil,profiles,budget,nil"+codec_arguments("")+")}");
   line("// "+selected_prefix+"Encode shares bridged native XML policies with caller-selected typed encoders.");
   line("func "+selected_prefix+"Encode(value *"+name+"Input,profiles map[string]string,selectedBudget *"+api("Budget")+codec_parameters(true,"codec")+")([]byte,error){if value==nil{return nil,srlPackageFailure("+api("InvalidOptions")+",\"Missing package input\",\"\")}");
+  line("  return "+selected_prefix+"EncodeRenamed(value,profiles,selectedBudget,nil"+codec_arguments("codec")+")} ");
+  line("// "+selected_prefix+"EncodeRenamed retains explicit original dynamic identities without changing old struct layouts.");
+  line("func "+selected_prefix+"EncodeRenamed(value *"+name+"Input,profiles map[string]string,selectedBudget *"+api("Budget")+",renames []"+api("PartRename")+codec_parameters(true,"codec")+")([]byte,error){if value==nil{return nil,srlPackageFailure("+api("InvalidOptions")+",\"Missing package input\",\"\")}");
+  line("  return "+selected_prefix+"EncodePipeline(value,profiles,nil,selectedBudget,renames"+codec_arguments("codec")+")}");
+  line("// "+selected_prefix+"EncodePipeline resolves all envelopes before invoking any selected codec.");
+  line("func "+selected_prefix+"EncodePipeline(value *"+name+"Input,profiles map[string]string,pipelines map[string]"+api("PipelineProfile")+",selectedBudget *"+api("Budget")+",renames []"+api("PartRename")+codec_parameters(true,"codec")+")([]byte,error){if value==nil{return nil,srlPackageFailure("+api("InvalidOptions")+",\"Missing package input\",\"\")}");
+  std::string dynamic_roles;
+  for (const auto* part : parts) { if (!part->part_name) { if (!dynamic_roles.empty()) { dynamic_roles += "&&"; } dynamic_roles += "move.Role!=" + literal(render_field(part->name)); } }
+  line("  for _,move:=range renames{if "+(dynamic_roles.empty()?"true":dynamic_roles)+"{return nil,srlPackageFailure("+api("InvalidOptions")+",\"Rename role is not dynamic\",move.Original)}}");
   std::string known;
   for(const auto* part:parts){if(!known.empty()){known+="&&";}known+="key!="+literal(part->name);}
   line("  for key:=range profiles{if "+(known.empty()?"true":known)+"{return nil,srlPackageFailure("+api("InvalidOptions")+",\"Unknown package profile role\",key)}}");
+  line("  for key:=range pipelines{if "+(known.empty()?"true":known)+"{return nil,srlPackageFailure("+api("InvalidOptions")+",\"Unknown package profile role\",key)}}");
   line("  budget,err:=srlPackageBudget([]*"+api("Budget")+"{selectedBudget});if err!=nil{return nil,err};composer:=srlPackageNewComposer(budget);defer composer.close()");
+  for (std::size_t role_index{}; role_index < parts.size(); ++role_index) {
+    line("  "+role(role_index)+",err:=srlPackageSelectProfile("+role(role_index)+",profiles,pipelines);if err!=nil{return nil,err}");
+    if (binary_none_only) { line("  if "+role(role_index)+".codec==\"json\"{return nil,srlPackageFailure("+api("InvalidOptions")+",\"JSON native protocol is disabled\",\"\")}"); }
+    if (parts[role_index]->value_type) {
+      line("  if codec"+std::to_string(role_index)+"!=nil&&"+role(role_index)+".codec!=\"xml\"{return nil,srlPackageFailure("+api("InvalidOptions")+",\"Selected XML codec cannot encode a native package profile\","+role(role_index)+".field)}");
+    }
+  }
   line("  if err=srlPackageReferences"+name+"(value,budget);err!=nil{return nil,err}");
   index = 0;
   for (const auto* part : parts) {
     const auto selected = index++;
-    line("  "+role(selected)+",err:=srlPackageSelectProfile("+role(selected)+",profiles);if err!=nil{return nil,err}");
     const auto field = "value." + render_field(part->name);
     if (!part->value_type) {
       line("  if err=composer.binaries(" + role(selected) + ',' + field + ");err!=nil{return nil,err}");
@@ -158,12 +183,18 @@ inline std::string go(const package_node& package, const std::string& name,
       line("  for _,item:=range " + native + '{' + values + "=append(" + values + ",srlPackageModelInput{value:item.Value,name:item.Name,contentType:item.ContentType,parent:item.SourceIndex})}");
     }
     const auto encoder = "srlEncoder" + std::to_string(selected);
-    line("  var " + encoder + " any=func(native any,xmlOptions XmlOptions)([]byte,error){typed,ok:=native.(" + type + ");if !ok||typed==nil{return nil,srlPackageFailure(" + api("Codec") + ",\"Missing typed package value\",\"\")};return typed.EncodeXML(xmlOptions)}");
+    line("  var " + encoder + " any=func(native any,xmlOptions XmlOptions)([]byte,error){typed,ok:=native.(" + type + ");if !ok||typed==nil{return nil,srlPackageFailure(" + api("Codec") + ",\"Missing typed package value\",\"\")};if "+role(selected)+".codec==\"xml\"{return typed.EncodeXML(xmlOptions)};output,err:=srlPackageNativeWriter("+role(selected)+".codec,xmlOptions);if err!=nil{return nil,err};typed.write(output);if output.err!=nil{return nil,output.err};return output.bytes,nil}");
     line("  if codec" + std::to_string(selected) + "!=nil{" + encoder + "=func(native any,xmlOptions XmlOptions,part,id string)([]byte,error){typed,ok:=native.(" + type + ");if !ok||typed==nil{return nil,srlPackageFailure(" + api("Codec") + ",\"Missing typed package value\",part)};return codec" + std::to_string(selected) + "(typed,xmlOptions,part,id)}}");
     line("  if err=composer.models(" + role(selected) + ',' + values + ',' + encoder + ");err!=nil{return nil,err}");
   }
-  line("  return composer.finish(value.Extensions)");
+  line("  return composer.finish(value.Extensions,renames)");
   line("}");
+  line("// "+name+"EncodeRenamed applies explicit occurrence provenance after callers edit dynamic names.");
+  line("func "+name+"EncodeRenamed(value *"+name+"Input,renames []"+api("PartRename")+",budgets ...*"+api("Budget")+")([]byte,error){budget,err:=srlPackageBudget(budgets);if err!=nil{return nil,err};return "+selected_prefix+"EncodeRenamed(value,nil,budget,renames"+codec_arguments("")+")} ");
+  line("// "+name+"DynamicPaths snapshots stable identities before native collection edits and reorder.");
+  line("func "+name+"DynamicPaths(value *"+name+"Input)[]"+api("PartRename")+"{var result []"+api("PartRename")+";if value==nil{return result}");
+  for (const auto* part : parts) { if (!part->part_name) { line("  for _,item:=range value."+render_field(part->name)+"{"+std::string{part->value_type?"":"if item.ContentType==\"\"{continue};"}+"result=append(result,"+api("PartRename")+"{Role:"+literal(render_field(part->name))+",Original:item.Name,Destination:item.Name})}"); } }
+  line("  return result}");
   line("// " + name + "Write borrows a sink only after complete staging; an error may leave an accepted prefix.");
   line("func " + name + "Write(destination srlPackageIO.Writer,value *" + name + "Input,budgets ...*" + api("Budget") + ")(int64,error){");
   line("  if destination==nil{return 0,srlPackageFailure(" + api("InvalidOptions") + ",\"Missing package sink\",\"\")};budget,err:=srlPackageBudget(budgets);if err!=nil{return 0,err};data,err:=" + name + "Encode(value,budget);if err!=nil{return 0,err};return " + api("Write") + "(destination,data,budget)");
@@ -172,6 +203,8 @@ inline std::string go(const package_node& package, const std::string& name,
   line("func " + name + "Load(source any,values ..." + name + "LoadOptions)(*" + name + "Value,error){");
   line("  if len(values)>1{return nil,srlPackageFailure(" + api("InvalidOptions") + ",\"Too many package load options\",\"\")};options:=" + name + "LoadOptions{};if len(values)==1{options=values[0]}");
   line("  return " + selected_prefix + "Load(source,options" + codec_arguments("") + ")}");
+  line("// "+name+"LoadWithPipelineProfiles selects the same immutable-role envelope used by the writer.");
+  line("func "+name+"LoadWithPipelineProfiles(source any,profiles map[string]"+api("PipelineProfile")+",values ..."+name+"LoadOptions)(*"+name+"Value,error){if len(values)>1{return nil,srlPackageFailure("+api("InvalidOptions")+",\"Too many package load options\",\"\")};options:="+name+"LoadOptions{};if len(values)==1{options=values[0]};return "+selected_prefix+"LoadPipelineMode(source,options,profiles,false"+codec_arguments("")+")}");
   line("// " + selected_prefix + "Load composes selected decoders with the same located native operation policy.");
   line("func " + selected_prefix + "Load(source any,options " + name + "LoadOptions" + codec_parameters(false,"codec") + ")(*" + name + "Value,error){");
   line("  return " + selected_prefix + "LoadMode(source,options,false" + codec_arguments("codec") + ")} ");
@@ -181,7 +214,19 @@ inline std::string go(const package_node& package, const std::string& name,
   line("func " + selected_prefix + "LoadCanonicalWithCodecs(source any,options " + name + "LoadOptions" + codec_parameters(false,"codec") + ")(*" + name + "Value,error){return " + selected_prefix + "LoadMode(source,options,true" + codec_arguments("codec") + ")}");
   line("// " + selected_prefix + "LoadMode stages either unchanged legacy metadata or explicitly canonical preserved scopes.");
   line("func " + selected_prefix + "LoadMode(source any,options " + name + "LoadOptions,canonical bool" + codec_parameters(false,"codec") + ")(*" + name + "Value,error){");
+  line("  return "+selected_prefix+"LoadPipelineMode(source,options,nil,canonical"+codec_arguments("codec")+")}");
+  line("// "+selected_prefix+"LoadPipelineMode validates closed role profiles before opening the borrowed source.");
+  line("func "+selected_prefix+"LoadPipelineMode(source any,options "+name+"LoadOptions,pipelines map[string]"+api("PipelineProfile")+",canonical bool"+codec_parameters(false,"codec")+")(*"+name+"Value,error){");
   line("  if options.ExtensionPolicy.Parts>" + api("Preserve") + "||options.ExtensionPolicy.Relationships>" + api("Preserve") + "{return nil,srlPackageFailure(" + api("InvalidOptions") + ",\"Invalid package extension policy\",\"\")}");
+  line("  for key:=range pipelines{if "+(known.empty()?"true":known)+"{return nil,srlPackageFailure("+api("InvalidOptions")+",\"Unknown package profile role\",key)}}");
+  line("  var err error");
+  for (std::size_t role_index{}; role_index < parts.size(); ++role_index) {
+    line("  "+role(role_index)+",err:=srlPackageSelectProfile("+role(role_index)+",nil,pipelines);if err!=nil{return nil,err}");
+    if (binary_none_only) { line("  if "+role(role_index)+".codec==\"json\"{return nil,srlPackageFailure("+api("InvalidOptions")+",\"JSON native protocol is disabled\",\"\")}"); }
+    if (parts[role_index]->value_type) {
+      line("  if codec"+std::to_string(role_index)+"!=nil&&"+role(role_index)+".codec!=\"xml\"{return nil,srlPackageFailure("+api("InvalidOptions")+",\"Selected XML codec cannot decode a native package profile\","+role(role_index)+".field)}");
+    }
+  }
   line("  budget,err:=srlPackageBudget([]*" + api("Budget") + "{options.Budget});if err!=nil{return nil,err};loader,err:=srlPackageNewLoader(source,budget);if err!=nil{return nil,err};defer loader.close();value:=&" + name + "Value{}");
   index = 0;
   for (const auto* part : parts) {
@@ -194,7 +239,7 @@ inline std::string go(const package_node& package, const std::string& name,
     const auto type = render_type(*part->value_type);
     const auto values = "srlValues" + std::to_string(selected);
     const auto decoder = "srlDecoder" + std::to_string(selected);
-    line("  var " + decoder + " any=func(data []byte,xmlOptions XmlOptions)(any,error){native,err:=Decode" + type.substr(1) + "XML(data,xmlOptions);if err!=nil{return nil,err};return native,nil}");
+    line("  var " + decoder + " any=func(data []byte,xmlOptions XmlOptions)(any,error){if "+role(selected)+".codec==\"xml\"{native,err:=Decode" + type.substr(1) + "XML(data,xmlOptions);if err!=nil{return nil,err};return native,nil};input,err:=srlPackageNativeReader(data,"+role(selected)+".codec,xmlOptions);if err!=nil{return nil,err};native:=read"+type.substr(1)+"(input,New"+type.substr(1)+"());input.finish();if input.err!=nil{return nil,input.err};return native,nil}");
     line("  if codec" + std::to_string(selected) + "!=nil{" + decoder + "=func(data []byte,xmlOptions XmlOptions,part,id string)(any,error){native,err:=codec" + std::to_string(selected) + "(data,xmlOptions,part,id);if err!=nil{return nil,err};if native==nil{return nil,srlPackageFailure(" + api("Codec") + ",\"Missing decoded typed package value\",part)};return native,nil}}");
     line("  " + values + ",err:=loader.models(" + role(selected) + ',' + decoder + ");if err!=nil{return nil,err}");
     if (singleton(*part)) {
@@ -221,6 +266,13 @@ inline std::string go(const package_node& package, const std::string& name,
   line("  if path==\"\"||len(values)>1{return srlPackageFailure(" + api("InvalidOptions") + ",\"Invalid package save options\",\"\")};options:=" + name + "SaveOptions{};if len(values)==1{options=values[0]};budget,err:=srlPackageBudget([]*" + api("Budget") + "{options.Budget});if err!=nil{return err}");
   line("  data,err:=" + name + "Encode(value,budget);if err!=nil{return err};_,err=" + name + "Load(" + api("Source") + "{Reader:srlPackageBytes.NewReader(data),SizeBytes:int64(len(data))}," + name + "LoadOptions{Budget:budget,ExtensionPolicy:" + api("ExtensionPolicy") + "{Parts:" + api("Preserve") + ",Relationships:" + api("Preserve") + "},Validate:options.Validate});if err!=nil{return err};return " + api("SaveBytes") + "(path,data,budget,options.Fault)");
   line("}");
+  line("// "+name+"SaveRenamed validates every dynamic move before final file publication.");
+  line("func "+name+"SaveRenamed(path string,value *"+name+"Input,renames []"+api("PartRename")+",options "+name+"SaveOptions)error{budget,err:=srlPackageBudget([]*"+api("Budget")+"{options.Budget});if err!=nil{return err};data,err:="+name+"EncodeRenamed(value,renames,budget);if err!=nil{return err};_,err="+name+"Load("+api("Source")+"{Reader:srlPackageBytes.NewReader(data),SizeBytes:int64(len(data))},"+name+"LoadOptions{Budget:budget,ExtensionPolicy:"+api("ExtensionPolicy")+"{Parts:"+api("Preserve")+",Relationships:"+api("Preserve")+"},Validate:options.Validate});if err!=nil{return err};return "+api("SaveBytes")+"(path,data,budget,options.Fault)}");
+  std::string profile_roles{"[]string{"};
+  for (const auto* part : parts) { profile_roles += literal(part->name) + ','; }
+  profile_roles += '}';
+  line("// "+name+"SaveWithPipelineProfiles revalidates the selected envelopes before final file publication.");
+  line("func "+name+"SaveWithPipelineProfiles(path string,value *"+name+"Input,profiles map[string]"+api("PipelineProfile")+",options "+name+"SaveOptions)error{if path==\"\"{return srlPackageFailure("+api("InvalidOptions")+",\"Missing save path\",\"\")};profiles,err:=srlPackageSnapshotPipelines(profiles,"+profile_roles+");if err!=nil{return err};budget,err:=srlPackageBudget([]*"+api("Budget")+"{options.Budget});if err!=nil{return err};data,err:="+name+"EncodeWithPipelineProfiles(value,profiles,budget);if err!=nil{return err};_,err="+name+"LoadWithPipelineProfiles("+api("Source")+"{Reader:srlPackageBytes.NewReader(data),SizeBytes:int64(len(data))},profiles,"+name+"LoadOptions{Budget:budget,ExtensionPolicy:"+api("ExtensionPolicy")+"{Parts:"+api("Preserve")+",Relationships:"+api("Preserve")+"},Validate:options.Validate});if err!=nil{return err};return "+api("SaveBytes")+"(path,data,budget,options.Fault)}");
   return output;
 }
 } // namespace rohit::serializer::writer::package_codegen

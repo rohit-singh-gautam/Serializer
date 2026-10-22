@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 
 from lxml import etree
+import xml_unicode_pattern_fixture as unicode_patterns
 
 
 XSD = r'''<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
@@ -15,6 +16,7 @@ XSD = r'''<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
 <xs:element name="sample"><xs:complexType><xs:sequence>
 <xs:element name="value" type="bounded"/>
 </xs:sequence></xs:complexType></xs:element></xs:schema>'''
+XSD = XSD.replace('D(a?)*', 'D(a?)*|' + unicode_patterns.PREFIXED).replace('.{2,3}', '.{2,8}')
 
 GO = r'''package main
 import ("fmt"; "os"; "strings")
@@ -66,10 +68,11 @@ def main():
     original = output.read_bytes()
     (args.build / 'main.go').write_text(GO, encoding='utf-8')
     (args.build / 'go.mod').write_text('module serializer-go-xml-patterns\n\ngo 1.23\n', encoding='utf-8')
-    oracle = etree.XMLSchema(etree.fromstring(XSD.encode()))
+    oracle = unicode_patterns.Oracle(XSD)
     samples = ('A😀', 'A😁🙏', 'A😀😁🙏', 'A🧪', 'B1', 'B12', 'B123', 'B😀', '^$',
                'x^$y', '^', '$', 'Cx', 'Cxy', 'C5', 'C😀', 'C\n', 'C\r', 'D', 'Da',
                'Daa', 'Daaa', '', 'A', 'A😀x', 'AB1', '😀', 'C&', 'C<', 'Cé', 'C中')
+    samples += unicode_patterns.SAMPLES
     paths = []
     for index, text in enumerate(samples):
         root = etree.Element('sample')
@@ -81,10 +84,10 @@ def main():
         Path(str(path) + '.txt').write_text(text, encoding='utf-8')
         paths.append(str(path))
     subprocess.run(['go', 'run', '.', *paths], cwd=args.build, check=True)
-    unsupported = XSD.replace(r'A[😀-🙏]{1,2}|B[0-9]+|^$|C[^0-9]{1,2}|D(a?)*', r'\p{L}+')
+    unsupported = XSD.replace(r'A[😀-🙏]{1,2}|B[0-9]+|^$|C[^0-9]{1,2}|D(a?)*', r'\1')
     schema.write_text(unsupported, encoding='utf-8')
     rejected = subprocess.run(command, capture_output=True, text=True)
-    if rejected.returncode == 0 or 'approved portable XSD regex subset' not in rejected.stdout + rejected.stderr:
+    if rejected.returncode == 0 or 'XSD' not in rejected.stdout + rejected.stderr:
         raise AssertionError('Unsupported Go pattern requires a precise subset diagnostic')
     if output.read_bytes() != original:
         raise AssertionError('Unsupported pattern replaced previously generated source')

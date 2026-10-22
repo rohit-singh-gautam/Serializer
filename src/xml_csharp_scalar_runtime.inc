@@ -10,6 +10,15 @@ R"xmlscalar(
   private readonly string listKind;
   private readonly string? fixedValue;
   private readonly SrlXmlRule[] members;
+  private UnionValue[]? unionValues;
+  private UnionValue? unionFixed;
+  internal SrlXmlRule? listItem;
+  // Prepare a complete atomic/union item contract only for lists that need it.
+  internal SrlXmlRule ListItem(SrlXmlRule item){listItem=item;return this;}
+  // Retain recursively prepared ordered selected values without mutable provider state.
+  internal SrlXmlRule UnionValues(UnionValue[] values){unionValues=values;return this;}
+  // Prepare one complete scalar/list fixed identity.
+  internal SrlXmlRule UnionFixed(UnionValue value){unionFixed=value;return this;}
   private string[][]? qnames, fixedNames, defaultNames;
   private string[][][]? qnameLists;
   internal string? DefaultNamespaceText;
@@ -17,11 +26,27 @@ R"xmlscalar(
   internal System.Collections.Generic.Dictionary<string,string> DefaultNamespaceScope=new(System.StringComparer.Ordinal);
   // Bind compiler-owned expanded identities before publishing the prepared rule.
   internal SrlXmlRule NamespaceValues(string[][] names,string[][][] lists){qnames=names;qnameLists=lists;return this;}
+  // Prepare schema-owned selected primitive values before publishing immutable generated metadata.
+  internal SrlXmlRule UnionValues(string[][] values,string[][][] names){unionValues=new UnionValue[values.Length];for(int index=0;index<values.Length;++index)unionValues[index]=new UnionValue(values[index],names[index]);return this;}
+  // Retain fixed union identity independently of source prefix aliases.
+  internal SrlXmlRule UnionFixed(string[] value,string[][] names){unionFixed=new UnionValue(value,names);return this;}
+  // Preserve native union spelling when an empty XML element would activate a different default.
+  internal void RequireRepresentableNamespaceDefault(string text){if(DefaultNamespaceText!=null&&text.Length==0&&DefaultNamespaceText.Length!=0)throw new System.FormatException("Empty XML union value would activate a different schema default");}
+  internal sealed class UnionValue {
+    internal readonly SrlXmlRule Rule;internal readonly string Text;internal readonly string[][] Names;internal readonly UnionValue[] Items;
+    // Complete static preparation without retaining any provider-owned scope objects.
+    internal UnionValue(string[] value,string[][] names){Rule=new SrlXmlRule(value[0],"preserve",0,new string[]{"","","",""},-1,-1,-1,System.Array.Empty<string>(),false,System.Array.Empty<Pattern[]>(),value[1],System.Array.Empty<SrlXmlRule>(),null);Text=value[2];Names=names;Items=System.Array.Empty<UnionValue>();}
+    // Complete the ordered item inventory for heterogeneous lexical lists.
+    internal UnionValue(string[] value,string[][] names,UnionValue[] items){Rule=new SrlXmlRule(value[0],"preserve",0,new string[]{"","","",""},-1,-1,-1,System.Array.Empty<string>(),false,System.Array.Empty<Pattern[]>(),value[1],System.Array.Empty<SrlXmlRule>(),null);Text=value[2];Names=names;Items=items;}
+  }
   // Keep aliases observed by lexical patterns and prefix-list string enumerations.
   internal SrlXmlRule NamespaceLexical(){KeepNamespaceLexical=true;return this;}
   internal bool KeepNamespaceLexical;
   // Retain schema aliases separately from the instance vocabulary used by an explicit value.
-  internal SrlXmlRule NamespaceDefault(string text,string[][] bindings,string[][] names,bool fixedValue,bool attribute){DefaultNamespaceText=text;defaultNames=names;DefaultNamespaceAttribute=attribute;fixedNames=fixedValue?names:null;foreach(var binding in bindings)DefaultNamespaceScope.Add(binding[0],binding[1]);return this;}
+  internal SrlXmlRule NamespaceDefault(string text,string[][] bindings,string[][] names,bool fixedValue,bool attribute,bool content){DefaultContent=content;DefaultNamespaceText=text;defaultNames=names;DefaultNamespaceAttribute=attribute;fixedNames=fixedValue?names:null;foreach(var binding in bindings)DefaultNamespaceScope.Add(binding[0],binding[1]);return this;}
+  internal bool DefaultContent;
+  // Omit only an exact schema literal with the same used prefix bindings, including explicit absence.
+  internal bool MatchesSchemaDefault(string text,System.Collections.Generic.Dictionary<string,string> scope){if(!(DefaultContent||DefaultNamespaceAttribute)||text!=DefaultNamespaceText)return false;foreach(var binding in DefaultNamespaceScope)if((scope.TryGetValue(binding.Key,out string? uri)?uri:"")!=binding.Value)return false;return true;}
   // Preserve ordinary string alternatives without assigning QName semantics to their spelling.
   internal int NamespaceMode()=>listKind=="QName"?1:kind=="QName"?0:-1;
   // Compare the complete schema default before omitting an optional namespace-valued attribute.
@@ -154,7 +179,7 @@ R"xmlscalar(    } else if (kind == "boolean") SrlXmlBoolean(text);
   // Carry operation-specific collection admission through each recursive list/union branch.
   internal string Check(string text, int maximumItems) {
     if (text is null) throw new System.FormatException("Null XML scalar value");
-    return Check(text, new Work(MAX_WORK_UNITS, maximumItems));
+    string checkedText=Check(text, new Work(MAX_WORK_UNITS, maximumItems));return members.Length==0?checkedText:text;
   }
   // Preserve ordinary scalar-limit exceptions while packages retain their selected native field.
   internal string Check(string text,int maximumItems,Limits.IOperation? operation) {
@@ -175,7 +200,7 @@ R"xmlscalar(    } else if (kind == "boolean") SrlXmlBoolean(text);
   }
   // Share work across recursive union alternatives; never swallow a resource failure.
   private string Check(string text, Work work) {
-    work.Spend(text.Length); text = Normalize(text); Lexical(text);
+    work.Spend(text.Length); if(members.Length==0){text = Normalize(text); Lexical(text);}
     SrlXmlRule selected=this;
     if (members.Length != 0) {
       bool matched = false;
@@ -188,7 +213,7 @@ R"xmlscalar(    } else if (kind == "boolean") SrlXmlBoolean(text);
     }
     long count = 0;
     for (int offset = 0; offset < text.Length; ++count) Scalar(text, ref offset);
-    if (listKind.Length != 0) { string[] items = Tokens(text, work.MaximumItems); count = items.Length; var item = ItemRule(listKind); foreach (string value in items) item.Check(value, work); }
+    if (listKind.Length != 0) { string[] items = Tokens(text, work.MaximumItems); count = items.Length; var item = listItem??ItemRule(listKind); foreach (string value in items) item.Check(value, work); }
     if (length >= 0 && count != length || minimum >= 0 && count < minimum || maximum >= 0 && count > maximum) throw new System.FormatException("XML length facet failed");
     for (int index = 0; index < bounds.Length; ++index) {
       if (bounds[index].Length == 0) continue;
@@ -197,10 +222,10 @@ R"xmlscalar(    } else if (kind == "boolean") SrlXmlBoolean(text);
     }
     if (enumeration.Length != 0 && (qnames==null||qnames.Length==0) && (qnameLists==null||qnameLists.Length==0)) {
       bool matched = false;
-      foreach (string allowed in enumeration) if (Compare(text, Normalize(allowed)) == 0) { matched = true; break; }
+      for(int index=0;index<enumeration.Length;++index) if (unionValues!=null?ConstantEqual(text,selected,unionValues[index],work):members.Length!=0?UnionEqual(text,selected,enumeration[index],work):Compare(text,Normalize(enumeration[index]))==0) { matched = true; break; }
       if (!matched) throw new System.FormatException("XML enumeration facet failed");
     }
-    if (fixedValue != null && fixedNames==null && Compare(text, Normalize(fixedValue)) != 0) throw new System.FormatException("XML fixed value differs");
+    if (fixedValue != null && fixedNames==null && !(unionFixed!=null?ConstantEqual(text,selected,unionFixed,work):members.Length!=0?UnionEqual(text,selected,fixedValue,work):Compare(text,Normalize(fixedValue))==0)) throw new System.FormatException("XML fixed value differs");
     if(work.Scope!=null&&NamespaceMode()>=0)CheckNames(text,work);
     if (finite && !double.IsFinite(SrlXmlFloat(text, kind == "float"))) throw new System.FormatException("XML finite facet failed");
     if (groups.Length != 0) {
@@ -213,7 +238,34 @@ R"xmlscalar(    } else if (kind == "boolean") SrlXmlBoolean(text);
     work.Selected=selected;return text;
   }
   // Validate one complete value in its retained scope, preserving the first successful member.
-  internal Work CheckNamespace(string text,System.Collections.Generic.Dictionary<string,string> scope,int maximum,Limits.IOperation? operation){var work=new Work(MAX_WORK_UNITS,maximum,operation){Scope=scope};try{work.Checked=Check(text,work);return work;}catch(LimitFailure failure){operation?.ResourceLimit(failure.Message);throw;}}
+  internal Work CheckNamespace(string text,System.Collections.Generic.Dictionary<string,string> scope,int maximum,Limits.IOperation? operation){var work=new Work(MAX_WORK_UNITS,maximum,operation){Scope=scope};try{string checkedText=Check(text,work);work.Checked=members.Length==0?checkedText:text;return work;}catch(LimitFailure failure){operation?.ResourceLimit(failure.Message);throw;}}
+  // Distinguish the XSD primitive family rather than the selected member's authored type name.
+  private string ValueFamily(){if(listKind.Length!=0)return "list:"+ItemRule(listKind).ValueFamily();if(IntegerWidth(kind)!=0||IntegerKind(kind)||kind=="decimal")return "decimal";return kind is "boolean" or "float" or "double" or "anyURI" or "QName"?kind:"string";}
+  // Compare normalized leaf identities without rounding exact decimal values.
+  private bool IdentityEqual(string first,SrlXmlRule other,string second,Work work){
+    work.Spend(first.Length+second.Length+1);if(ValueFamily()!=other.ValueFamily())return false;
+    if(listKind.Length!=0){string[] left=Tokens(first,work.MaximumItems),right=Tokens(second,work.MaximumItems);if(left.Length!=right.Length)return false;var item=ItemRule(listKind);var otherItem=ItemRule(other.listKind);for(int index=0;index<left.Length;++index)if(!item.IdentityEqual(left[index],otherItem,right[index],work))return false;return true;}
+    return ValueFamily()=="decimal"?CompareDecimal(first,second)==0:Compare(first,second)==0;
+  }
+  // Select each schema literal through the same ordered independent union members.
+  private bool UnionEqual(string text,SrlXmlRule selected,string allowed,Work work){
+    foreach(var member in members){string expected;try{expected=member.Check(allowed,work);}catch(LimitFailure){throw;}catch(System.FormatException){work.CallbackFailure?.Throw();continue;}return selected.IdentityEqual(text,work.Selected,expected,work);}return false;
+  }
+  // Compare schema-expanded identities only after matching the selected primitive and list shape.
+  private bool ConstantEqual(string text,SrlXmlRule selected,UnionValue expected,Work work){
+    if((selected.listKind.Length==0)!=(expected.Rule.listKind.Length==0))return false;
+    if(selected.listKind.Length!=0&&(expected.Items.Length!=0||expected.Text.Length==0)){
+      string[] values=Tokens(text,work.MaximumItems);if(values.Length!=expected.Items.Length)return false;
+      var item=selected.listItem??ItemRule(selected.listKind);
+      for(int index=0;index<values.Length;++index){string value=item.Check(values[index],work);if(!ConstantEqual(value,work.Selected,expected.Items[index],work))return false;}return true;
+    }
+    if(selected.ValueFamily()!=expected.Rule.ValueFamily())return false;
+    if(selected.NamespaceMode()<0)return selected.IdentityEqual(text,expected.Rule,expected.Text,work);
+    if(work.Scope==null)throw new System.FormatException("Missing XML union namespace scope");
+    string[] tokens=Tokens(text,work.MaximumItems);work.Allocate(tokens.Length*64L+text.Length*4L);
+    var names=new (string Prefix,string Uri,string Local)[tokens.Length];for(int index=0;index<tokens.Length;++index)names[index]=SrlXmlNamespaceValues.Resolve(tokens[index],selected.NamespaceMode(),work.Scope);
+    return EqualNames(names,expected.Names,work);
+  }
   // Admit temporary identities before resolving or comparing any instance aliases.
   private void CheckNames(string text,Work work){
     const int identityEntryBytes=64;int count=0;bool inside=false;foreach(char character in text){bool space=character==' '||character=='\t'||character=='\r'||character=='\n';if(!space&&!inside)++count;inside=!space;}

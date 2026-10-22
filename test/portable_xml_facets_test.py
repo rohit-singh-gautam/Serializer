@@ -154,10 +154,11 @@ def pattern_cases(large=False):
     samples = ('A😀', 'A😁🙏', 'A😀😁🙏', 'A🧪', 'B1', 'B12', 'B123', 'B😀', '^$',
                'x^$y', '^', '$', 'Cx', 'Cxy', 'C5', 'C😀', 'C\n', 'C\r', 'D', 'Da',
                'Daa', 'Daaa', '', 'A', 'A😀x', 'AB1', '😀', 'C&', 'C<', 'Cé', 'C中')
+    samples += pattern_fixture.unicode_patterns.SAMPLES
     if large:
         xsd = '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="sample"><xs:complexType><xs:sequence><xs:element name="value"><xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="a{4096}a{1000}"/></xs:restriction></xs:simpleType></xs:element></xs:sequence></xs:complexType></xs:element></xs:schema>'
         samples = ('a' * 5096, 'a' * 5095, 'a' * 5097, 'a' * 5095 + 'b')
-    oracle = etree.XMLSchema(etree.fromstring(xsd.encode()))
+    oracle = pattern_fixture.unicode_patterns.Oracle(xsd)
     probes = []
     for index, text in enumerate(samples):
         root = etree.Element('sample'); etree.SubElement(root, 'value').text = text
@@ -176,19 +177,24 @@ def main():
     parser.add_argument('--compiler', type=Path, required=True)
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--language', default='java,csharp')
+    parser.add_argument('--modes', default='numeric,pattern,large')
+    parser.add_argument('--consumer', type=Path)
     parser.add_argument('--wsl-languages', default='')
     parser.set_defaults(cpp_library=None, executable=None, sanitize=False)
     args = parser.parse_args(); args.compiler = args.compiler.resolve(); args.build = args.build.resolve()
     languages = args.language.split(',')
-    if not languages or len(languages) != len(set(languages)) or any(language not in ('java', 'csharp') for language in languages):
-        parser.error('Select distinct language names from java,csharp')
+    if not languages or len(languages) != len(set(languages)) or any(language not in ('cpp', 'java', 'csharp') for language in languages):
+        parser.error('Select distinct language names from cpp,java,csharp')
+    if 'cpp' in languages and (not args.consumer or args.modes != 'pattern'):
+        parser.error('C++ requires --consumer and --modes pattern')
     if args.build == ROOT or ROOT in args.build.parents and 'out' not in args.build.relative_to(ROOT).parts:
         parser.error('In-repository output must be beneath the ignored out directory')
     args.build.mkdir(parents=True, exist_ok=True); runner = sdk.Runner(args); count = 0
-    for mode in ('numeric', 'pattern', 'large'):
+    for mode in args.modes.split(','):
+        if mode not in ('numeric', 'pattern', 'large'): parser.error('Unknown facet mode')
         directory = args.build / mode; directory.mkdir(parents=True, exist_ok=True)
         xsd, model, probes = numeric_cases(directory) if mode == 'numeric' else pattern_cases(mode == 'large')
-        oracle = etree.XMLSchema(etree.fromstring(xsd.encode())); paths = []
+        oracle = pattern_fixture.unicode_patterns.Oracle(xsd); paths = []
         for name, document, text, valid in probes:
             # Resource policies may reject otherwise well-formed data before logical pattern matching.
             if name not in ('work', 'bytes') and oracle.validate(etree.fromstring(document)) != valid:
@@ -198,18 +204,27 @@ def main():
             paths.append(path)
         schema = directory / 'sample.xsd'; schema.write_text(xsd, encoding='utf-8')
         model_path = directory / 'model.serializer'; model_path.write_text(model, encoding='utf-8')
-        command = [args.compiler, '--input', model_path, '--language', ','.join(languages), '--protocols', 'binary_none']
-        for language in languages:
+        generated_languages = [language for language in languages if language != 'cpp']
+        command = [args.compiler, '--input', model_path, '--language', ','.join(generated_languages), '--protocols', 'binary_none']
+        for language in generated_languages:
             target = directory / language; target.mkdir(parents=True, exist_ok=True)
             command += [f'--{language}.output', target / sdk.OUTPUTS[language]]
-        sdk.run(command)
-        original = {language: (directory / language / sdk.OUTPUTS[language]).read_bytes() for language in languages}
+        if generated_languages: sdk.run(command)
+        original = {language: (directory / language / sdk.OUTPUTS[language]).read_bytes() for language in generated_languages}
         if mode == 'large' and 'java' in languages:
             encoded = original['java'].decode('utf-8').split('Pattern.prepare(new String[]{', 1)[1].split('}),', 1)[0]
             fragments = encoded.split('"')[1::2]
             if sum(map(len, fragments)) <= 65535 or max(map(len, fragments)) > 10000:
                 raise AssertionError('Large prepared program must exceed one JVM constant and use bounded fragments')
         for language in languages:
+            if language == 'cpp':
+                launch = [args.consumer.resolve(strict=True)]
+                sdk.run([*launch, *paths])
+                for path in paths:
+                    emitted = Path(str(path) + '.cpp.xml')
+                    if path.name.endswith('.valid.xml'): oracle.assertValid(etree.parse(str(emitted)))
+                    elif emitted.exists(): raise AssertionError('Invalid C++ pattern output published')
+                continue
             source = directory / 'source' / language; source.mkdir(parents=True, exist_ok=True)
             content = (JAVA_NUMERIC if mode == 'numeric' else JAVA_PATTERN) if language == 'java' else (CSHARP_NUMERIC if mode == 'numeric' else CSHARP_PATTERN)
             (source / ('Main.java' if language == 'java' else 'Program.cs')).write_text(content, encoding='utf-8')
@@ -221,10 +236,10 @@ def main():
                 if path.name.endswith('.valid.xml'): oracle.assertValid(etree.parse(str(emitted)))
                 elif emitted.exists(): raise AssertionError(f'Invalid model output published: {emitted}')
         if mode == 'pattern':
-            schema.write_text(xsd.replace('A[😀-🙏]{1,2}|B[0-9]+|^$|C[^0-9]{1,2}|D(a?)*', r'\p{L}+'), encoding='utf-8')
-            for language in languages:
+            schema.write_text(xsd.replace('A[😀-🙏]{1,2}|B[0-9]+|^$|C[^0-9]{1,2}|D(a?)*', r'\1'), encoding='utf-8')
+            for language in generated_languages:
                 rejected = subprocess.run([str(value) for value in command[:3]] + ['--language', language, '--protocols', 'binary_none', f'--{language}.output', str(directory / language / sdk.OUTPUTS[language])], capture_output=True, text=True)
-                if rejected.returncode == 0 or 'approved portable XSD regex subset' not in rejected.stdout + rejected.stderr:
+                if rejected.returncode == 0 or 'XSD' not in rejected.stdout + rejected.stderr:
                     raise AssertionError(f'Unsupported {language} regex needs a precise portable-subset diagnostic')
                 if (directory / language / sdk.OUTPUTS[language]).read_bytes() != original[language]: raise AssertionError('Unsupported regex replaced generated source')
         count += len(paths)

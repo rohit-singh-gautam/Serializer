@@ -56,10 +56,15 @@ R"serializer(
     public Limits WithCancellation(global::System.Action check) {
       if (check == null) throw new global::System.ArgumentNullException(nameof(check));
       return new Limits(MaxBytes,MaxStringBytes,MaxElements,MaxDepth,ReadPolicy) {
-        Operation = new CancellationOperation(new CancellationState(check),Operation), XmlExpectedType = XmlExpectedType
+        Operation = new CancellationOperation(new CancellationState(check),Operation), XmlExpectedType = XmlExpectedType,
+        XmlDeclarationValidation=XmlDeclarationValidation,XmlPackageProfile=XmlPackageProfile,XmlRequiresType=XmlRequiresType,XmlVocabularies=XmlVocabularies
       };
     }
+    internal bool XmlDeclarationValidation { get; init; }
     internal string? XmlExpectedType { get; init; }
+    internal bool XmlPackageProfile { get; init; }
+    internal bool XmlRequiresType { get; init; }
+    internal global::System.Collections.Generic.IReadOnlyList<string> XmlVocabularies { get; init; } = global::System.Array.Empty<string>();
     public ReadPolicy ReadPolicy { get; }
     public int MaxBytes { get; }
     public int MaxStringBytes { get; }
@@ -102,15 +107,23 @@ R"serializer(
     internal void version(string value, int count) { var parts = SrlVersionParts(value, count); if (json()) text(value); else foreach (var part in parts) integer(part, 2, true); }
 
     internal readonly Protocol protocol;
-    private readonly System.Buffers.ArrayBufferWriter<byte> buffer = new System.Buffers.ArrayBufferWriter<byte>(256);
+    private System.Buffers.ArrayBufferWriter<byte> buffer;
+    private readonly Limits? limits;
     private int depth;
     // Validate protocol selection before any encoding.
     internal SrlWriter(Protocol protocol) {
       if (protocol < Protocol.JSON || protocol > Protocol.BINARY_STRING) throw new System.ArgumentOutOfRangeException(nameof(protocol));
       this.protocol = protocol;
+      buffer=new System.Buffers.ArrayBufferWriter<byte>(256);
     }
+    // Delay package-native buffer ownership until actual growth has passed cumulative admission.
+    internal SrlWriter(Protocol protocol,Limits limits){if(protocol<Protocol.JSON||protocol>Protocol.BINARY_STRING)throw new System.ArgumentOutOfRangeException(nameof(protocol));this.protocol=protocol;this.limits=limits;buffer=new System.Buffers.ArrayBufferWriter<byte>();}
+    // Share actual traversal and owned storage with the optional package operation.
+    private void Consume(Limits.OperationResource resource,long amount){limits?.Operation?.Consume(resource,amount);}
+    // Admit complete output extent and actual replacement-buffer capacity before allocating or copying.
+    private void Reserve(int count){if(limits==null)return;if(count<0||count>limits.MaxBytes-buffer.WrittenCount){limits.Operation?.ResourceLimit("Native output byte limit");fail("Native output byte limit");}Consume(Limits.OperationResource.WorkUnits,count);if(count<=buffer.FreeCapacity)return;int needed=buffer.WrittenCount+count,capacity=buffer.Capacity==0?System.Math.Min(256,limits.MaxBytes):buffer.Capacity;while(capacity<needed){if(capacity>limits.MaxBytes/2){capacity=needed;break;}capacity*=2;}Consume(Limits.OperationResource.AllocationBytes,capacity);var replacement=new System.Buffers.ArrayBufferWriter<byte>(capacity);buffer.WrittenSpan.CopyTo(replacement.GetSpan(buffer.WrittenCount));replacement.Advance(buffer.WrittenCount);buffer=replacement;}
     // Return independent output storage.
-    internal byte[] bytes() { return buffer.WrittenSpan.ToArray(); }
+    internal byte[] bytes() { Consume(Limits.OperationResource.AllocationBytes,buffer.WrittenCount);return buffer.WrittenSpan.ToArray(); }
     // Observe written bytes without allocating an encoded copy.
     internal int position() { return buffer.WrittenCount; }
     // Patch this writer's owned fixed-width placeholder after record traversal.
@@ -127,12 +140,13 @@ R"serializer(
     // Append punctuation or numeric text.
     internal void raw(string text) {
       int count = SrlUtf8.GetByteCount(text);
+      if(count==0)return;Reserve(count);
       int written = SrlUtf8.GetBytes(text, buffer.GetSpan(count)); buffer.Advance(written);
     }
     // Copy a validated sequence into reserved output capacity.
-    private void put(System.ReadOnlySpan<byte> bytes) { bytes.CopyTo(buffer.GetSpan(bytes.Length)); buffer.Advance(bytes.Length); }
+    private void put(System.ReadOnlySpan<byte> bytes) { if(bytes.Length==0)return;Reserve(bytes.Length);bytes.CopyTo(buffer.GetSpan(bytes.Length)); buffer.Advance(bytes.Length); }
     // Append one framing byte without a temporary allocation.
-    private void putByte(byte value) { buffer.GetSpan(1)[0] = value; buffer.Advance(1); }
+    private void putByte(byte value) { Reserve(1);buffer.GetSpan(1)[0] = value; buffer.Advance(1); }
     // Throw a stable validation error.
     internal void fail(string message) { throw new System.ArgumentException(message); }
     // Write the established compact integer encoding.
@@ -176,11 +190,13 @@ R"serializer(
         raw(unsigned ? value.ToString(System.Globalization.CultureInfo.InvariantCulture) :
           (unchecked((long)(value << shift)) >> shift).ToString(System.Globalization.CultureInfo.InvariantCulture));
       } else {
+        Reserve(width);
         var span = buffer.GetSpan(width);
         switch (width) {
           case 1: span[0] = (byte)value; break;
           case 2: System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(span, (ushort)value); break;
-          case 4: System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(span, (uint)value); break;
+          case 4: System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(span, (uint)value); break;)serializer"
+R"serializer(
           default: System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(span, value); break;
         }
         buffer.Advance(width);
@@ -204,11 +220,13 @@ R"serializer(
     // Reject malformed UTF-16 before emitting string payloads.
     internal void text(string value) {
       int count = SrlUtf8.GetByteCount(value);
-      if (json()) put(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(value));
+      Consume(Limits.OperationResource.WorkUnits,value.Length);
+      if(limits!=null&&count>limits.MaxStringBytes){limits.Operation?.ResourceLimit("Native string limit");fail("Native string limit");}
+      if (json()) {Consume(Limits.OperationResource.AllocationBytes,6L*value.Length+2);put(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(value));}
       else { compact(count); raw(value); }
     }
     // Bound recursive object traversal, including user-created cycles.
-    internal void beginObject() { if (++depth > 64) fail("Encode depth limit"); if (json()) raw("{"); }
+    internal void beginObject() { Consume(Limits.OperationResource.WorkUnits,1);if (++depth > 64) fail("Encode depth limit"); if (json()) raw("{"); }
     // Write the unchanged schema field identity.
     internal void field(int id, SrlField key, bool first) {
       if (json()) { if (!first) raw(","); put(key.Json); }
@@ -220,7 +238,7 @@ R"serializer(
     // Begin an array or map entry sequence.
     // Write optional framing with one explicit binary presence byte.
     internal void beginOptional(bool present) { if (json()) raw("["); else integer(present ? 1UL : 0UL, 1, true); }
-    internal void beginArray(int count) { if (json()) raw("["); else compact(count); }
+    internal void beginArray(int count) { Consume(Limits.OperationResource.WorkUnits,count);if (json()) raw("["); else compact(count); }
     // Separate JSON elements only.
     internal void element(int index) { if (json() && index != 0) raw(","); }
     // Close a JSON collection.
@@ -238,6 +256,8 @@ R"serializer(
 )serializer"
 R"serializer(  /// <summary>Bounded cursor shared by nested readers; failures expose no partial result.</summary>
   internal sealed class SrlReader {
+    // Admit decoder work and retained storage before input-driven ownership changes.
+    private void Consume(Limits.OperationResource resource,long amount){limits.Operation?.Consume(resource,amount);}
     // Decode and validate the schema's fixed component count.
     internal string version(int count) { var parts = new ushort[count]; string value; if (json()) value = text(); else { for (int i = 0; i < count; ++i) parts[i] = (ushort)integer(2, true); value = string.Join(".", parts); } SrlVersionParts(value, count); return value; }
     // Skip safe JSON extensions under the flexible policy.
@@ -269,7 +289,7 @@ R"serializer(  /// <summary>Bounded cursor shared by nested readers; failures ex
     // Test the active protocol.
     internal bool json() { return protocol == Protocol.JSON; }
     // Validate lengths before taking spans or indexing.
-    private void require(int count) { if (count < 0 || count > data.Length - offset) fail("Truncated input"); }
+    private void require(int count) { if (count < 0 || count > data.Length - offset) fail("Truncated input");Consume(Limits.OperationResource.WorkUnits,count); }
     // Skip only JSON whitespace bytes.
     private void whitespace() { while (offset < data.Length && (data.Span[offset] == 32 || data.Span[offset] == 9 || data.Span[offset] == 10 || data.Span[offset] == 13)) ++offset; }
     // Require one punctuation token.
@@ -311,7 +331,7 @@ R"serializer(  /// <summary>Bounded cursor shared by nested readers; failures ex
     private string token() {
       whitespace(); int start = offset;
       while (offset < data.Length && ",}] \t\r\n".IndexOf((char)data.Span[offset]) < 0) ++offset;
-      if (start == offset) fail("Missing token"); return SrlUtf8.GetString(data.Span.Slice(start, offset - start));
+      if (start == offset) fail("Missing token");Consume(Limits.OperationResource.WorkUnits,offset-start);Consume(Limits.OperationResource.AllocationBytes,2L*(offset-start)); return SrlUtf8.GetString(data.Span.Slice(start, offset - start));
     }
     // Read the declared integer width and enforce JSON signedness and range.
     internal ulong integer(int width, bool unsigned) {
@@ -362,6 +382,7 @@ R"serializer(      if (!json()) return single ? System.BitConverter.Int32BitsToS
     internal string text() {
       if (!json()) {
         int count = compact(); if (count > limits.MaxStringBytes) fail("String limit"); require(count);
+        Consume(Limits.OperationResource.AllocationBytes,2L*count);
         string value = SrlUtf8.GetString(data.Span.Slice(offset, count)); offset += count; return value;
       }
       expect('"'); int start = offset; bool escaped = false;
@@ -371,12 +392,13 @@ R"serializer(      if (!json()) return single ? System.BitConverter.Int32BitsToS
         if (!escaped && c == '"') break;
         if (!escaped && c == '\\') escaped = true; else escaped = false;
       }
+      Consume(Limits.OperationResource.AllocationBytes,6L*(offset-start+1));
       string raw = SrlUtf8.GetString(data.Span.Slice(start - 1, offset - start + 1));
       string result = System.Text.Json.JsonSerializer.Deserialize<string>(raw) ?? throw new System.FormatException("Invalid string");
       if (SrlUtf8.GetByteCount(result) > limits.MaxStringBytes) fail("String limit"); return result;
     }
     // Check nesting before entering an object.
-    internal void beginObject() { if (++depth > limits.MaxDepth) fail("Depth limit"); if (json()) expect('{'); }
+    internal void beginObject() { Consume(Limits.OperationResource.WorkUnits,1);Consume(Limits.OperationResource.AllocationBytes,64);if (++depth > limits.MaxDepth) fail("Depth limit"); if (json()) expect('{'); }
     // Read JSON framing while retaining duplicate-field order.
     internal bool nextObject(bool first) { whitespace(); require(1); if (data.Span[offset] == '}') { ++offset; return false; } if (!first) expect(','); return true; }
     // Read a decoded field name.
@@ -391,13 +413,14 @@ R"serializer(      if (!json()) return single ? System.BitConverter.Int32BitsToS
     internal int arrayCapacity(int count, int width) {
       if (json()) return 0;
       if (width != 0 && count > (data.Length - offset) / width) fail("Truncated array");
+      Consume(Limits.OperationResource.AllocationBytes,(long)count*(width==0?System.IntPtr.Size:width));
       return count;
     }
     // Charge every collection slot, including zero-byte object values.
     internal bool nextElement(int index, int count) {
       if (json()) { whitespace(); require(1); if (data.Span[offset] == ']') { ++offset; return false; } if (index != 0) expect(','); }
       else if (index == count) return false;
-      if (elements >= limits.MaxElements) fail("Element limit"); ++elements; return true;
+      if (elements >= limits.MaxElements) fail("Element limit");Consume(Limits.OperationResource.WorkUnits,1);if(json())Consume(Limits.OperationResource.AllocationBytes,System.IntPtr.Size); ++elements; return true;
     }
     // Require exact message consumption.
     internal void finish() { if (json()) whitespace(); if (offset != data.Length) fail("Trailing input"); }

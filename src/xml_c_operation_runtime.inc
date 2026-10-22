@@ -15,6 +15,7 @@ typedef enum srl_xml_operation_failure {
 } srl_xml_operation_failure;
 typedef int (*srl_xml_operation_consume_fn)(void*,srl_xml_operation_resource,size_t,const char*);
 typedef int (*srl_xml_operation_poll_fn)(void*,const char*);
+typedef int (*srl_xml_operation_preserve_fn)(void*,size_t,const char*);
 typedef struct srl_xml_map_limits srl_xml_map_limits;
 typedef struct srl_xml_mixed_limits srl_xml_mixed_limits;
 typedef struct srl_xml_digest_limits srl_xml_digest_limits;
@@ -26,6 +27,10 @@ typedef struct srl_xml_operation_policies {
   const srl_xml_digest_limits* digest;
   const srl_xml_identity_limits* identity;
 } srl_xml_operation_policies;
+/* Immutable package requirements authorize only root transport metadata during this operation. */
+typedef struct srl_xml_package_contract {
+  bool requires_type; const char* const* vocabularies; size_t vocabulary_count;
+} srl_xml_package_contract;
 typedef struct srl_xml_operation {
   srl_xml_operation_consume_fn consume;
   srl_xml_operation_poll_fn poll;
@@ -34,6 +39,8 @@ typedef struct srl_xml_operation {
   srl_xml_operation_failure failure;
   const char* field;
   const srl_xml_operation_policies* policies;
+  const srl_xml_package_contract* package_contract;
+  srl_xml_operation_preserve_fn preserve;
 } srl_xml_operation;
 typedef struct srl_xml_validation srl_xml_validation;
 typedef struct srl_xml_operation_codec {
@@ -67,6 +74,12 @@ static inline bool srl_xml_operation_check(srl_xml_operation* operation) {
 static inline bool srl_xml_operation_charge(srl_xml_operation* operation,srl_xml_operation_resource resource,size_t count) {
   if(!srl_xml_operation_check(operation)){return false;}
   if(operation&&operation->consume){const int status=operation->consume(operation->userdata,resource,count,operation->field?operation->field:"");if(status){operation->caller_status=status;return false;}}
+  return true;
+}
+/* Admit retained XML-only bytes before copying them; ordinary operations leave the hook null. */
+static inline bool srl_xml_operation_preserve(srl_xml_operation* operation,size_t count) {
+  if(!srl_xml_operation_check(operation)){return false;}
+  if(operation&&operation->preserve){const int status=operation->preserve(operation->userdata,count,operation->field?operation->field:"");if(status){operation->caller_status=status;return false;}}
   return true;
 }
 /* Validate UTF8 in bounded work intervals while preserving the ordinary decoder grammar. */

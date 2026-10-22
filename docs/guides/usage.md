@@ -5,18 +5,39 @@ when assigning authentication, policy administration, external effects and custo
 migrations. These are explicit host responsibilities, not missing runtime engines.
 Library-owned compiler, codec, transaction and resource guarantees remain required.
 
+Current generated packages compose declared XML/JSON/BINARY_NONE and
+stored/DEFLATE envelopes across all eleven outputs, with per-part native XML
+companions and explicit repeated-role renames. Follow the
+[package pipeline contract](../serialization/xml_packages.md#generated-package-pipelines)
+when selecting defaults, callbacks, inert external byte roles or rename plans.
+
+For fixed-XSD extension content, regenerate with **2.28.0** and follow the
+[wildcard contract](../serialization/xml_tokens.md#xsd-wildcards-and-positioned-extensions-in-2280).
+All eleven owning outputs enforce namespace predicates, kind, particle positions
+and counts. `strict` requires a declaration from the pinned local bundle; `lax`
+validates declared names and `skip` bypasses declaration validation. Generated
+private validators preserve scalar/QName/particle/attribute, nil and permitted
+named-type rules without loading schemas at runtime. Select skip or preservation
+independently; declared skip still validates, while edited preserved content is
+validated before output. Private replay shares caller budgets/cancellation and
+charges temporary work/storage without another preserved-byte quota. Global
+unknown fallback remains foreign-only with core/known names closed. Scalar-text
+and singleton `all`/choice owners support attributes and end-child slots; interior
+heterogeneous storage still requires a supported explicit mapping.
+
 Compiler/runtime **2.26.0** adds [native origin and confirmed Save](../managed/document_origin.md).
 Applications choose whether to own a complete recovery main or attach differences
 to a durable original. Provenance stays in bounded native metadata; prepared Save
 retains an explicit unresolved decision until host publication is confirmed.
 
-Compiler/runtime **2.27.0** supports [opt-in ordered XML](../serialization/ordered_xml.md)
+Compiler/runtime **2.28.0** supports [opt-in ordered XML](../serialization/ordered_xml.md)
 in all eleven owning outputs (C++ support began in 2.25.0):
 an owning variant array records element order without text slots or auxiliary
 metadata. Existing mappings and native bytes retain their behavior. The guide
 includes the schema, INI selection, generated typed editing API and limits;
-fixed-XSD grouped bindings and XSD export remain gated. Regenerate non-C++
-models with 2.27.0. Use the backend's existing mixed-fragment policy to bound
+fixed-XSD sequence/choice groups and grammar-preserving XSD export use the same
+explicit array. Regenerate non-C++
+models with 2.28.0. Use the backend's existing mixed-fragment policy to bound
 typed occurrences; zero mixed-text bytes still permits formatting whitespace
 and ordinary bounded text inside typed child records. The
 [actual SDK checks](../verification/verification-ordered-xml-2026-10-22.md)
@@ -30,14 +51,24 @@ boundary and apply the resulting accepted snapshot/field deltas. Source branches
 must already belong to the authority's retained tree. General stale-edit merging
 and client-authored ancestry imports are separate contracts.
 
-Regenerate Go/Java/C# XML codecs for [QName schema constraints](../verification/verification-qname-constraints-2026-10-21.md).
-Enumeration and fixed values compare expanded names; schema defaults keep their
-own vocabulary when an instance shadows a prefix. QName/list union members retain
-their first successful selection. Kotlin/Swift also implement expanded scalar/list
-enumeration, while their namespace-dependent defaults/fixed and unions remain
-gated. All five retain pattern-sensitive aliases and prefix-list enumeration
-spellings. Ordinary strings and native wire fields keep
-their existing contract; broader namespace-dependent outer unions remain gated.
+Regenerate XML codecs with **2.28.0** for complete scalar/list/union constraints
+in all eleven outputs. First-selected primitive families control outer enumeration,
+default and fixed comparisons; restricted list items retain their own atomic or
+union facets. QName values compare expanded names using declaration-owned scopes,
+including defaults whose schema namespace conflicts with an instance scope.
+Keep occurrence namespace metadata with edited/reordered values and native
+C/Rust document companions. Native strings, model fields and protocol bytes retain
+their contract. [Actual SDK and original/exported XSD checks](../verification/verification-scalar-identities-2026-10-22.md)
+include a schema-owned foreign default beside an explicit no-namespace instance value.
+
+Unicode category/block escapes, XML name escapes and recursive character-class
+subtraction use bounded portable programs in every output; see the
+[pattern matrix](../verification/verification-unicode-xml-patterns-2026-10-22.md).
+A numeric writer validates its canonical spelling against the bound pattern and
+rejects before publication if that spelling fails. Finite values overflowing the
+selected native floating width reject; exact decimal/integer string facets do
+not acquire that width limit. `prefix_list` default/fixed semantics and export
+require its separate external capability contract rather than ordinary XSD string defaults.
 
 Compiler/runtime **2.23.0** adds [native C++ branch merging](../managed/branch_merging.md).
 Use `merge_revision` only for retained revisions of a generated tree store;
@@ -125,7 +156,8 @@ Compiler/runtime **2.19.0** extends fixed singleton package canonicalization to
 all eleven outputs. Retain loaded extensions while editing; preserved internal
 links resolve in their original source scope before simultaneous endpoint
 rebinding. C/Rust canonical writers and Go canonical loaders are opt-in additions.
-Dynamic role renames require application rebinding. See
+Version 2.28.0 also retargets dynamic/repeated roles using retained provenance or
+an explicit simultaneous rename plan. See
 [the package contract](../serialization/xml_packages.md#fixed-singleton-path-canonicalization)
 and [migration](../../migration.md#compilerruntime-2190).
 
@@ -332,8 +364,8 @@ outputs, fixed XSD bindings and explicit prepared runtime validation. See
 [XML/package APIs](../serialization/xml_packages.md),
 [runnable generated examples](../../example/xml/README.md) and
 [remaining work](../pending.md). C++ additionally implements composable
-whole-object compression streams and ZIP/OPC APIs; general feature parity remains
-required and the missing backend paths remain pending.
+whole-object compression streams and ZIP/OPC APIs. Current whole-message and
+generated package profiles cover all eleven outputs under their documented contracts.
 
 Compiler/runtime **2.2.0** adds `model_store::discard_journal_changes()` for ordinary
 journaled C++ stores. It lazily reads the last full-Save envelope under the native
@@ -2418,8 +2450,9 @@ owning typed OPC Encode/Load/Write/Save facades. Loading discovers roles by
 source/type/media identity and publishes only a complete validated aggregate.
 Required unknown capabilities override optional preservation; edited retained
 links must still resolve. Native XML keeps its independently narrowed document
-limits; automatic cumulative native allocation/reference accounting, runtime
-codec selection and declarative application references remain pending. See the
+limits while automatic allocation/reference accounting shares the package ledger.
+Declared runtime codec selection and application references follow the current
+package pipeline contract. See the
 [Go package API](../languages/go_packages.md),
 [physical ZIP qualification](../verification/verification-go-packages-2026-10-20.md) and
 [Windows/Linux OPC proof](../verification/verification-go-opc-packages-2026-10-20.md).
@@ -2588,7 +2621,8 @@ Keep loaded extensions when editing opaque parts/links and supply aggregate
 validation for application invariants. See the
 [API, examples and ownership/publication limits](../languages/csharp_kotlin_packages.md)
 and [selected acceptance evidence](../verification/verification-pending-50-2026-10-20.md).
-Runtime profile dispatch and declarative application references remain pending.
+Current 2.28.0 facades also provide declared runtime pipeline dispatch and
+declarative application references.
 
 ## Application command-line declarations
 

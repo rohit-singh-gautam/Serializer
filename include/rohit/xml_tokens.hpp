@@ -131,6 +131,8 @@ enum class token_presence { required, absent, nil, absent_or_nil };
 class token_extension_input {
   struct implementation;
   std::unique_ptr<implementation> state_;
+  // Distinguish an active native field boundary from the completed owner suffix.
+  void before_field_impl(std::size_t index, bool skip_whitespace, bool completed_owner);
 public:
   // Select per-operation bounds/capabilities and consume permitted foreign owner attributes.
   token_extension_input(token_reader& reader, const extension_contract& contract, extension_slot& target);
@@ -139,8 +141,12 @@ public:
   token_extension_input& operator=(const token_extension_input&) = delete;
   // Consume only foreign children explicitly admitted at this exact generated field boundary.
   void before_field(std::size_t index);
+  // Preserve mixed text boundaries when skip_whitespace is false; ordinary fields skip formatting.
+  void before_field(std::size_t index, bool skip_whitespace);
   // Check final positions/minimum counts and publish the complete opaque storage candidate.
   void finish(std::size_t end_index);
+  // Preserve scalar-prefix text exactly and reject every text run after an opaque suffix.
+  void finish(std::size_t end_index, bool skip_whitespace);
 };
 
 // Borrow retained opaque storage and emit it among directly traversed known fields.
@@ -165,6 +171,7 @@ struct token_namespace_projection {
   const lexical_contract* contract{};
   std::vector<element>* retained{};
   const lexical_name_list* schema_default{};
+  const element* literal_scope{};
 };
 
 // Borrow per-occurrence scopes while recursively traversing one optional/repeated scalar field.
@@ -173,6 +180,8 @@ struct token_namespace_output {
   std::size_t occurrence{};
   const lexical_contract* contract{};
   const element* owner{};
+  const element* schema_scope{};
+  std::optional<std::string_view> schema_literal{};
 };
 // Keep digest byte storage scalar even though its native representation is a standard collection.
 template <typename T> inline constexpr bool digest_byte_storage = [] {
@@ -342,7 +351,13 @@ template <typename T> void write_token_list_child(token_writer& writer, const na
     const element* original_scope = namespaces ? namespaces->owner : nullptr;
     if (namespaces && namespaces->occurrence < namespaces->scopes.size()) {
       original_scope = &namespaces->scopes[namespaces->occurrence++];
-      writer.open(selected, original_scope->namespace_bindings);
+      if (namespaces->schema_scope && namespaces->schema_literal &&
+          schema_literal_matches(format_list(values, writer.context()), *original_scope,
+          namespaces->schema_scope, namespaces->schema_literal, writer.context())) {
+        writer.open(selected); writer.close(); return;
+      }
+      element temporary{};
+      writer.open(selected, namespace_declaration_bindings(*original_scope, temporary, writer.context()));
     } else { writer.open(selected); }
     write_token_list_value(writer, values, empty_default, whitespace);
     writer.close();
@@ -375,7 +390,14 @@ template <typename T> void write_token_child(token_writer& writer,
     const element* original_scope = namespaces ? namespaces->owner : nullptr;
     if (namespaces && namespaces->occurrence < namespaces->scopes.size()) {
       original_scope = &namespaces->scopes[namespaces->occurrence++];
-      writer.open(selected, original_scope->namespace_bindings);
+      if constexpr (std::same_as<T, std::string>) {
+        if (schema_literal_matches(value, *original_scope, namespaces->schema_scope,
+            namespaces->schema_literal, writer.context())) {
+          writer.open(selected); writer.close(); return;
+        }
+      }
+      element temporary{};
+      writer.open(selected, namespace_declaration_bindings(*original_scope, temporary, writer.context()));
     } else if constexpr (requires { value.xml_token_namespace_bindings(); }) {
       writer.open(selected, value.xml_token_namespace_bindings());
     } else { writer.open(selected); }
@@ -535,6 +557,11 @@ template <typename T> void read_token_value(token_reader& reader, T& value,
     }
     if (projection.owner) {
       scalar_scope.text = std::move(lexical);
+      if (scalar_scope.text.empty() && empty_default && projection.literal_scope) {
+        scalar_scope.namespace_bindings = copy_namespace_scope(*projection.literal_scope, reader.context()).namespace_bindings;
+        if (reader.context()) { reader.context()->consume(operation_resource::allocation_bytes, empty_default->size()); }
+        scalar_scope.text = *empty_default;
+      }
       if (scalar_scope.text.empty() && projection.schema_default) {
         scalar_scope.text = qualify_qname_list(projection.schema_default->items, scalar_scope, reader.context(),
             &reader.reserved_namespace_prefixes());
@@ -744,7 +771,7 @@ public:
   // Decode simpleContent while separately retaining mapped attributes.
   template <typename T> void text_value(T& value, lexical_validator validator = nullptr,
       std::optional<std::string_view> empty_default = {}, const lexical_name_list* schema_default = nullptr,
-      element* schema_scope = nullptr) {
+      element* schema_scope = nullptr, const element* literal_scope = nullptr) {
     std::string lexical{};
     while (reader_.current().kind == event_kind::text) {
       const auto& part = reader_.current().text;
@@ -761,7 +788,7 @@ public:
       return;
     }
     const auto selected = lexical.empty() && empty_default ? *empty_default : std::string_view{lexical};
-    if (validator) { validator(selected, lexical_scope(), reader_.context()); }
+    if (validator) { validator(selected, lexical.empty() && empty_default && literal_scope ? *literal_scope : lexical_scope(), reader_.context()); }
     detail::charge_token_scalar<T>(reader_.context(), selected.size());
     detail::read_scalar(selected, value);
   }
@@ -999,6 +1026,15 @@ template <typename T> [[nodiscard]] T deserialize_tokens(std::string_view bytes,
       const auto type = reader.take_type();
       if (type && *type != *context->permitted_root_type) {
         throw std::invalid_argument{"Unexpected package XML root type"};
+      }
+      if (context->understood_namespaces) {
+        const name capability_name{"MustUnderstand", "http://schemas.openxmlformats.org/markup-compatibility/2006"};
+        const auto& attributes = reader.current().attributes;
+        const auto required = std::find_if(attributes.begin(), attributes.end(), [&](const auto& attribute) { return attribute.qualified_name == capability_name; });
+        if (required != attributes.end()) {
+          validate_package_capabilities(required->value, reader.namespace_scope(), *context->understood_namespaces, context);
+          reader.consume_attribute(capability_name);
+        }
       }
     }
     if (context) { context->consume(operation_resource::allocation_bytes, sizeof(T)); }

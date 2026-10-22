@@ -1549,6 +1549,64 @@ if(SERIALIZER_WITH_XML)
     target_compile_options(xml_ordered_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME xml_ordered_test COMMAND xml_ordered_test)
+  add_executable(xml_ordered_xsd_test xml_ordered_xsd_test.cpp)
+  serializer_generate(TARGET xml_ordered_xsd_test SCHEMAS resources/xml_ordered_xsd.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_ordered_xsd.ini"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_ordered_xsd.xsd"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_ordered_xsd")
+  target_compile_definitions(xml_ordered_xsd_test PRIVATE
+    ORDERED_XSD_PATH="${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_ordered_xsd.xsd")
+  target_link_libraries(xml_ordered_xsd_test PRIVATE Serializer::runtime GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(xml_ordered_xsd_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_ordered_xsd_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME xml_ordered_xsd_test COMMAND xml_ordered_xsd_test)
+  add_executable(xml_outer_union_test xml_outer_union_test.cpp)
+  serializer_generate(TARGET xml_outer_union_test SCHEMAS resources/xml_outer_union.serializer
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_outer_union.xsd"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_outer_union")
+  target_compile_definitions(xml_outer_union_test PRIVATE
+    OUTER_UNION_XSD_PATH="${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_outer_union.xsd")
+  target_link_libraries(xml_outer_union_test PRIVATE Serializer::runtime GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(xml_outer_union_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_outer_union_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME xml_outer_union_test COMMAND xml_outer_union_test)
+  add_executable(xml_ordered_extensions_test xml_ordered_extensions_test.cpp)
+  serializer_generate(TARGET xml_ordered_extensions_test SCHEMAS resources/xml_ordered_extensions.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_ordered_extensions.ini"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_ordered_extensions")
+  target_link_libraries(xml_ordered_extensions_test PRIVATE Serializer::runtime GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(xml_ordered_extensions_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_ordered_extensions_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME xml_ordered_extensions_test COMMAND xml_ordered_extensions_test)
+  add_executable(xml_suffix_extensions_test xml_suffix_extensions_test.cpp)
+  serializer_generate(TARGET xml_suffix_extensions_test SCHEMAS resources/xml_suffix_extensions.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_suffix_extensions.ini"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_suffix_extensions")
+  target_link_libraries(xml_suffix_extensions_test PRIVATE Serializer::runtime GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(xml_suffix_extensions_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_suffix_extensions_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME xml_suffix_extensions_test COMMAND xml_suffix_extensions_test)
+  add_executable(xml_unicode_patterns_sdk xml_unicode_patterns_test.cpp)
+  serializer_generate(TARGET xml_unicode_patterns_sdk SCHEMAS resources/xml_unicode_patterns.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_unicode_patterns")
+  target_link_libraries(xml_unicode_patterns_sdk PRIVATE Serializer::runtime)
+  if(MSVC)
+    target_compile_options(xml_unicode_patterns_sdk PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_unicode_patterns_sdk PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
   if(Python3_Interpreter_FOUND)
     add_test(NAME xml_ordered_generation_test
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_ordered_generation_test.py"
@@ -1628,6 +1686,33 @@ if(SERIALIZER_WITH_XML)
     CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/opc_profile.ini"
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/package_relocation")
   target_link_libraries(package_relocation_sdk PRIVATE Serializer::runtime)
+  add_executable(package_pipeline_sdk package_pipeline_test.cpp)
+  serializer_generate(TARGET package_pipeline_sdk SCHEMAS resources/package_pipeline.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/package_pipeline.ini"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/package_pipeline")
+  target_link_libraries(package_pipeline_sdk PRIVATE Serializer::runtime)
+  file(READ "${CMAKE_CURRENT_SOURCE_DIR}/resources/package_pipeline.serializer" pipeline_binary_schema)
+  string(REPLACE "codec(json);" "codec(xml);" pipeline_binary_schema "${pipeline_binary_schema}")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS resources/package_pipeline.serializer)
+  file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/package_pipeline_binary/model.serializer"
+    CONTENT "${pipeline_binary_schema}" @ONLY)
+  serializer_generate_source(TARGET package_pipeline_binary_generated
+    SCHEMA "${CMAKE_CURRENT_BINARY_DIR}/package_pipeline_binary/model.serializer"
+    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/package_pipeline_binary/package_pipeline.hpp"
+    LANGUAGE cpp CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/package_pipeline.ini"
+    OPTIONS --protocols binary_none --cpp.format false)
+  add_executable(package_pipeline_binary_sdk package_pipeline_test.cpp)
+  add_dependencies(package_pipeline_binary_sdk package_pipeline_binary_generated)
+  target_include_directories(package_pipeline_binary_sdk PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/package_pipeline_binary")
+  target_link_libraries(package_pipeline_binary_sdk PRIVATE Serializer::runtime)
+  target_compile_definitions(package_pipeline_binary_sdk PRIVATE SERIALIZER_PIPELINE_BINARY_ONLY=1)
+  if(MSVC)
+    target_compile_options(package_pipeline_sdk PRIVATE /W4 /WX)
+    target_compile_options(package_pipeline_binary_sdk PRIVATE /W4 /WX)
+  else()
+    target_compile_options(package_pipeline_sdk PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_compile_options(package_pipeline_binary_sdk PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
   if(SERIALIZER_WITH_ZLIB)
     add_executable(package_reproducibility_cpp "${PROJECT_SOURCE_DIR}/qualification/package_reproducibility/cpp_producer.cpp")
     serializer_generate(TARGET package_reproducibility_cpp SCHEMAS resources/package_relocation.serializer
@@ -1646,6 +1731,16 @@ if(SERIALIZER_WITH_XML)
     target_compile_options(package_relocation_sdk PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   if(Python3_Interpreter_FOUND)
+    add_test(NAME serializer_package_pipeline_cpp
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_pipeline_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --language cpp
+        --consumer "$<TARGET_FILE:package_pipeline_sdk>"
+        --build "${CMAKE_CURRENT_BINARY_DIR}/package_pipeline_cpp")
+    add_test(NAME serializer_package_pipeline_binary_cpp
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_pipeline_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --language cpp --binary-only
+        --consumer "$<TARGET_FILE:package_pipeline_binary_sdk>"
+        --build "${CMAKE_CURRENT_BINARY_DIR}/package_pipeline_binary_cpp")
     add_test(NAME serializer_package_relocation_cpp
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_relocation_test.py"
         --compiler "$<TARGET_FILE:serializer>" --language cpp
@@ -1729,11 +1824,120 @@ if(SERIALIZER_WITH_XML)
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_ordered_portable_test.py"
         --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_ordered"
         --language python)
+    foreach(process strict lax)
+      foreach(retention preserve skip)
+        add_test(NAME python_xml_empty_inventory_${process}_${retention}_test
+          COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_wildcard_empty_inventory_test.py"
+            --compiler "$<TARGET_FILE:serializer>"
+            --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_empty_inventory_${process}_${retention}"
+            --language python --process ${process} --retention ${retention})
+        add_test(NAME python_xml_wildcard_${process}_${retention}_test
+          COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_wildcard_validation_test.py"
+            --compiler "$<TARGET_FILE:serializer>"
+            --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_wildcard_${process}_${retention}"
+            --language python --process ${process} --retention ${retention})
+      endforeach()
+    endforeach()
+    foreach(retention preserve skip)
+      add_test(NAME python_xml_unknown_${retention}_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_unknown_policy_test.py"
+          --compiler "$<TARGET_FILE:serializer>"
+          --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_unknown_${retention}"
+          --language python --retention ${retention} --field-count 300)
+    endforeach()
+    add_test(NAME python_xml_wildcard_identity_policy_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_wildcard_identity_policy_test.py"
+        --compiler "$<TARGET_FILE:serializer>"
+        --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_wildcard_identity_policy"
+        --language python)
     if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
+      add_test(NAME portable_xml_wildcard_identity_policy_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_wildcard_identity_policy_test.py"
+          --compiler "$<TARGET_FILE:serializer>"
+          --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_wildcard_identity_policy"
+          --language javascript,typescript,java,csharp,go,kotlin,swift,rust,c)
+      foreach(process strict lax)
+        foreach(retention preserve skip)
+          add_test(NAME portable_xml_empty_inventory_${process}_${retention}_test
+            COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_wildcard_empty_inventory_test.py"
+              --compiler "$<TARGET_FILE:serializer>"
+              --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_empty_inventory_${process}_${retention}"
+              --language javascript,typescript,java,csharp,go,kotlin,swift,rust,c
+              --process ${process} --retention ${retention})
+          add_test(NAME portable_xml_wildcard_${process}_${retention}_test
+            COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_wildcard_validation_test.py"
+              --compiler "$<TARGET_FILE:serializer>"
+              --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_wildcard_${process}_${retention}"
+              --language javascript,typescript,java,csharp,go,kotlin,swift,rust,c
+              --process ${process} --retention ${retention})
+        endforeach()
+      endforeach()
+      foreach(retention preserve skip)
+        add_test(NAME portable_xml_unknown_${retention}_test
+          COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_unknown_policy_test.py"
+            --compiler "$<TARGET_FILE:serializer>"
+            --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_unknown_${retention}"
+            --language javascript,typescript,java,csharp,go,kotlin,swift,rust,c
+            --retention ${retention} --field-count 300)
+      endforeach()
+      foreach(group all choice choice-explicit)
+        foreach(process skip strict lax)
+          add_test(NAME portable_xml_group_${group}_${process}_test
+            COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_group_extensions_test.py"
+              --compiler "$<TARGET_FILE:serializer>"
+              --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_group_${group}_${process}"
+              --language python,javascript,typescript,java,csharp,go,kotlin,swift,rust,c
+              --group ${group} --process ${process})
+        endforeach()
+      endforeach()
       add_test(NAME portable_xml_ordered_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_ordered_portable_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_ordered"
           --language javascript,typescript,java,csharp,go,kotlin,swift,rust,c)
+      add_test(NAME portable_xml_ordered_xsd_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_ordered_portable_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_ordered_xsd"
+          --grouped-xsd)
+      add_test(NAME native_xml_namespace_graph_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_namespace_graph_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_namespace_graphs")
+      add_test(NAME native_xml_extension_graph_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_extension_graph_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_extension_graphs")
+      add_test(NAME native_xml_qname_constraints_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_qname_constraints_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_qname_constraints")
+        add_test(NAME native_xml_qname_defaults_test
+          COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_qname_defaults_test.py"
+            --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_qname_defaults")
+        add_test(NAME native_package_pipeline_graph_test
+          COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_package_pipeline_graph_test.py"
+            --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_package_pipeline_graph")
+        add_test(NAME native_xml_outer_qname_union_test
+          COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_outer_qname_union_test.py"
+            --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_outer_qname_union")
+        add_test(NAME native_xml_restricted_list_test
+          COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_restricted_list_test.py"
+            --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_restricted_list")
+        foreach(scope children attributes owner_text)
+          if(scope STREQUAL "children")
+            set(native_qname_scope --schema-defaults)
+          elseif(scope STREQUAL "attributes")
+            set(native_qname_scope --attributes)
+          else()
+            set(native_qname_scope --owner-text)
+          endif()
+          add_test(NAME native_xml_qname_defaults_${scope}_test
+            COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_outer_qname_union_test.py"
+              ${native_qname_scope} --compiler "$<TARGET_FILE:serializer>"
+              --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_qname_defaults_${scope}")
+        endforeach()
+      add_test(NAME xml_ordered_extensions_sdk_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_ordered_extensions_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/xml_ordered_extensions_sdk")
+      add_test(NAME portable_xml_outer_union_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_outer_union_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_outer_union")
       add_test(NAME python_xml_choice_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_xml_choice_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_choice")

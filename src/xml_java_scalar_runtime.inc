@@ -14,14 +14,38 @@ R"xmlscalar(
   private String[][][] qnameLists;
   private String defaultText;
   private boolean defaultAttribute;
+  private UnionValue[] unionValues;
+  private UnionValue unionFixed;
+  private SrlXmlRule listItem;
+  /** Prepare one complete atomic or union list item rule without changing builtin list checks. */
+  SrlXmlRule listItem(SrlXmlRule item){listItem=item;return this;}
+  /** Publish recursively prepared selected list/union constants. */
+  SrlXmlRule unionValues(UnionValue[] values){unionValues=values;return this;}
+  /** Publish a recursively prepared fixed scalar/list identity. */
+  SrlXmlRule unionFixed(UnionValue value){unionFixed=value;return this;}
   private java.util.Map<String,String> defaultScope=java.util.Map.of();
   /** Bind schema-owned expanded identities before publishing this immutable prepared field rule. */
   SrlXmlRule namespaceValues(String[][] names,String[][][] lists){qnames=names;qnameLists=lists;return this;}
+  /** Prepare immutable selected-member identities using each literal's original schema scope. */
+  SrlXmlRule unionValues(String[][] values,String[][][] names){unionValues=new UnionValue[values.length];for(int index=0;index<values.length;++index)unionValues[index]=new UnionValue(values[index],names[index]);return this;}
+  /** Bind a fixed union value independently of the instance's unrelated namespace aliases. */
+  SrlXmlRule unionFixed(String[] value,String[][] names){unionFixed=new UnionValue(value,names);return this;}
+  /** Retain only the selected primitive and expanded names, without any provider tree or scope map. */
+  private static final class UnionValue {
+    final SrlXmlRule rule;final String text;final String[][] names;final UnionValue[] items;
+    /** Complete trusted static preparation before publishing the generated rule. */
+    UnionValue(String[] value,String[][] names){rule=new SrlXmlRule(value[0],"preserve",0,new String[]{"","","",""},-1,-1,-1,new String[0],false,new Pattern[0][],value[1],new SrlXmlRule[0],null);text=value[2];this.names=names;items=new UnionValue[0];}
+    /** Retain ordered primitive identities for a list literal including heterogeneous union items. */
+    UnionValue(String[] value,String[][] names,UnionValue[] items){rule=new SrlXmlRule(value[0],"preserve",0,new String[]{"","","",""},-1,-1,-1,new String[0],false,new Pattern[0][],value[1],new SrlXmlRule[0],null);text=value[2];this.names=names;this.items=items;}
+  }
   /** Preserve prefix spellings observed by a pattern or lexical prefix-list enumeration. */
   SrlXmlRule namespaceLexical(){keepNamespaceLexical=true;return this;}
   private boolean keepNamespaceLexical;
   /** Retain only schema lexical aliases needed to materialize an absent attribute or empty element. */
-  SrlXmlRule namespaceDefault(String text,String[][] bindings,String[][] names,boolean fixedValue,boolean attribute){defaultText=text;defaultNames=names;defaultAttribute=attribute;fixedNames=fixedValue?names:null;var scope=new java.util.LinkedHashMap<String,String>();for(var binding:bindings)scope.put(binding[0],binding[1]);defaultScope=java.util.Map.copyOf(scope);return this;}
+  SrlXmlRule namespaceDefault(String text,String[][] bindings,String[][] names,boolean fixedValue,boolean attribute,boolean content){defaultContent=content;defaultText=text;defaultNames=names;defaultAttribute=attribute;fixedNames=fixedValue?names:null;var scope=new java.util.LinkedHashMap<String,String>();for(var binding:bindings)scope.put(binding[0],binding[1]);defaultScope=java.util.Map.copyOf(scope);return this;}
+  private boolean defaultContent;
+  /** Reuse an empty element only when the exact native schema literal retains all used bindings. */
+  boolean matchesSchemaDefault(String text,java.util.Map<String,String> scope){if(!(defaultContent||defaultAttribute)||!text.equals(defaultText))return false;for(var binding:defaultScope.entrySet())if(!scope.getOrDefault(binding.getKey(),"").equals(binding.getValue()))return false;return true;}
   /** Identify the selected leaf without interpreting an ordinary string union member as a QName. */
   int namespaceMode(){return listKind.equals("QName")?1:kind.equals("QName")?0:-1;}
   /** Omit an optional default only when its complete expanded value is schema-equivalent. */
@@ -128,7 +152,8 @@ R"xmlscalar(  /** Carry the operation's native collection admission limit throug
   }
   /** Share native scalar and Thompson execution with the enclosing package ledger. */
   String check(String text,int maximumItems,SrlXmlBudget budget){
-    return check(text, new Work(MAX_WORK_UNITS, maximumItems,budget));
+    String checked=check(text, new Work(MAX_WORK_UNITS, maximumItems,budget));
+    return members.length==0?checked:text;
   }
   /** Preserve present normalized empty tokens without activating an element's nonempty default. */
   String output(String text, String fallback, int maximumItems) {
@@ -145,7 +170,7 @@ R"xmlscalar(  /** Carry the operation's native collection admission limit throug
   }
   /** Share work across recursive union alternatives; resource failures cannot select another branch. */
   private String check(String text, Work work) {
-    work.spend(text.length()); text = normalize(text); lexical(text);
+    work.spend(text.length()); if(members.length==0){text = normalize(text); lexical(text);}
     SrlXmlRule selected=this;
     if (members.length != 0) {
       boolean matched = false;
@@ -157,7 +182,7 @@ R"xmlscalar(  /** Carry the operation's native collection admission limit throug
       if (!matched) throw new IllegalArgumentException("XML union has no matching member");
     }
     long count = text.codePointCount(0, text.length());
-    if (!listKind.isEmpty()) { String[] items = tokens(text, work.maximumItems); count = items.length; var item = itemRule(listKind); for (String value : items) item.check(value, work); }
+    if (!listKind.isEmpty()) { String[] items = tokens(text, work.maximumItems); count = items.length; var item = listItem!=null?listItem:itemRule(listKind); for (String value : items) item.check(value, work); }
     if (length >= 0 && count != length || minimum >= 0 && count < minimum || maximum >= 0 && count > maximum) throw new IllegalArgumentException("XML length facet failed");
     for (int index = 0; index < bounds.length; ++index) {
       if (bounds[index].isEmpty()) continue;
@@ -166,10 +191,10 @@ R"xmlscalar(  /** Carry the operation's native collection admission limit throug
     }
     if (enumeration.length != 0 && (qnames==null||qnames.length==0) && (qnameLists==null||qnameLists.length==0)) {
       boolean matched = false;
-      for (String allowed : enumeration) { Integer order = compare(text, normalize(allowed)); if (order != null && order == 0) { matched = true; break; } }
+      for (int index=0;index<enumeration.length;++index) {String allowed=enumeration[index];if(unionValues!=null?constantEqual(text,selected,unionValues[index],work):members.length!=0?unionEqual(text,selected,allowed,work):Integer.valueOf(0).equals(compare(text,normalize(allowed)))) { matched = true; break; } }
       if (!matched) throw new IllegalArgumentException("XML enumeration facet failed");
     }
-    if (fixed != null && fixedNames==null && !Integer.valueOf(0).equals(compare(text, normalize(fixed)))) throw new IllegalArgumentException("XML fixed value differs");
+    if (fixed != null && fixedNames==null && !(unionFixed!=null?constantEqual(text,selected,unionFixed,work):members.length!=0?unionEqual(text,selected,fixed,work):Integer.valueOf(0).equals(compare(text,normalize(fixed))))) throw new IllegalArgumentException("XML fixed value differs");
     if(work.scope!=null&&namespaceMode()>=0)checkNames(text,work);
     if (finite && !Double.isFinite(srlXmlFloat(text, kind.equals("float")))) throw new IllegalArgumentException("XML finite facet failed");
     if (groups.length != 0) {
@@ -182,7 +207,35 @@ R"xmlscalar(  /** Carry the operation's native collection admission limit throug
     work.selected=selected;return text;
   }
   /** Validate a complete scalar in its original scope, retaining the first successful leaf. */
-  Work checkNamespace(String text,java.util.Map<String,String> scope,int maximum,SrlXmlBudget budget){var work=new Work(MAX_WORK_UNITS,maximum,budget);work.scope=scope;work.checked=check(text,work);return work;}
+  Work checkNamespace(String text,java.util.Map<String,String> scope,int maximum,SrlXmlBudget budget){var work=new Work(MAX_WORK_UNITS,maximum,budget);work.scope=scope;String checked=check(text,work);work.checked=members.length==0?checked:text;return work;}
+  /** Keep primitive value families distinct when different union alternatives accept the same spelling. */
+  private String valueFamily(){if(!listKind.isEmpty())return "list:"+itemRule(listKind).valueFamily();if(integerWidth(kind)!=0||integerKind(kind)||kind.equals("decimal"))return "decimal";if(kind.equals("boolean")||kind.equals("float")||kind.equals("double")||kind.equals("anyURI")||kind.equals("QName"))return kind;return "string";}
+  /** Compare normalized leaf values without imposing the other alternative's native integer width. */
+  private boolean identityEqual(String first,SrlXmlRule other,String second,Work work){
+    work.spend(first.length()+second.length()+1);if(!valueFamily().equals(other.valueFamily()))return false;
+    if(!listKind.isEmpty()){String[] left=tokens(first,work.maximumItems),right=tokens(second,work.maximumItems);if(left.length!=right.length)return false;var item=itemRule(listKind);var otherItem=itemRule(other.listKind);for(int index=0;index<left.length;++index)if(!item.identityEqual(left[index],otherItem,right[index],work))return false;return true;}
+    if(valueFamily().equals("decimal"))return new java.math.BigDecimal(first).compareTo(new java.math.BigDecimal(second))==0;
+    return Integer.valueOf(0).equals(compare(first,second));
+  }
+  /** Select a schema literal through the same ordered member contracts as the instance. */
+  private boolean unionEqual(String text,SrlXmlRule selected,String allowed,Work work){
+    for(var member:members){String expected;try{expected=member.check(allowed,work);}catch(LimitFailure failure){throw failure;}catch(IllegalArgumentException rejected){if(work.callbackFailure!=null)throw work.callbackFailure;continue;}return selected.identityEqual(text,work.selected,expected,work);}return false;
+  }
+  /** Compare expanded names only after preserving the selected primitive family and ordered list shape. */
+  private boolean constantEqual(String text,SrlXmlRule selected,UnionValue expected,Work work){
+    if(selected.listKind.isEmpty()!=expected.rule.listKind.isEmpty())return false;
+    if(!selected.listKind.isEmpty()&&(expected.items.length!=0||expected.text.isEmpty())){
+      String[] values=tokens(text,work.maximumItems);if(values.length!=expected.items.length)return false;
+      var item=selected.listItem!=null?selected.listItem:itemRule(selected.listKind);
+      for(int index=0;index<values.length;++index){String value=item.check(values[index],work);if(!constantEqual(value,work.selected,expected.items[index],work))return false;}return true;
+    }
+    if(!selected.valueFamily().equals(expected.rule.valueFamily()))return false;
+    if(selected.namespaceMode()<0)return selected.identityEqual(text,expected.rule,expected.text,work);
+    if(work.scope==null)throw new IllegalArgumentException("Missing XML union namespace scope");
+    String[] tokens=tokens(text,work.maximumItems);work.charge("allocation",tokens.length*64L+text.length()*4L);
+    String[][] names=new String[tokens.length][];for(int index=0;index<tokens.length;++index)names[index]=SrlXmlNamespaceValues.resolve(tokens[index],selected.namespaceMode(),work.scope);
+    return equalNames(names,expected.names,work);
+  }
   /** Admit temporary identities before resolving aliases and comparing schema-owned values. */
   private void checkNames(String text,Work work){
     final int identityEntryBytes=64;int count=0;boolean inside=false;

@@ -79,7 +79,7 @@ fn srl_xml_token_value_with_operation(raw:&str,attribute:bool,literal:bool,maxim
 }
 /// Feed typed generated readers from pinned xmlparser tokens with active namespace scopes only.
 struct SrlXmlInput<'a,'operation> {
-    operation:Option<@xml_operation@::State<'operation>>,permitted_root_type:Option<(&'a str,&'a str)>,
+    operation:Option<@xml_operation@::State<'operation>>,permitted_root_type:Option<(&'a str,&'a str)>,package_contract:Option<@xml_operation@::PackageContract>,
     parser:xmlparser::Tokenizer<'a>, current:SrlXmlToken<'a>, limits:XmlLimits, map_limits:XmlMapLimits, mixed_limits:XmlMixedLimits, digest_limits:XmlDigestLimits,
     ancestors:Vec<SrlXmlTokenAncestor<'a>>, bindings:Vec<(&'a str,String)>,
     nodes:usize, attributes:usize, text_bytes:usize, empty_end:bool, seen_root:bool,
@@ -104,7 +104,7 @@ impl<'a,'operation> SrlXmlInput<'a,'operation> {
         // Admit the bounded header/DTD/provider scans before visiting untrusted input bytes.
         @xml_operation@::consume(operation.as_ref(),@xml_operation@::Resource::WorkUnits,text.len().saturating_mul(3))?;
         srl_xml_header(text)?; srl_xml_reject_dtd(text)?;
-        let mut result=Self {operation,permitted_root_type:None,parser:xmlparser::Tokenizer::from(text),current:SrlXmlToken::Eof,limits,map_limits:XmlMapLimits::default(),mixed_limits:XmlMixedLimits::default(),digest_limits:XmlDigestLimits::default(),
+        let mut result=Self {operation,permitted_root_type:None,package_contract:None,parser:xmlparser::Tokenizer::from(text),current:SrlXmlToken::Eof,limits,map_limits:XmlMapLimits::default(),mixed_limits:XmlMixedLimits::default(),digest_limits:XmlDigestLimits::default(),
             ancestors:Vec::new(),bindings:Vec::new(),nodes:0,attributes:0,text_bytes:0,empty_end:false,seen_root:false};
         result.advance()?; Ok(result)
     }
@@ -257,6 +257,22 @@ R"rustpull(
     fn open(&mut self,uri:&str,local:&str) -> Result<SrlXmlTokenFields<'a>,Error> {
         if !self.has(uri,local)? { return Err(Error("Required XML element missing")); }
         if self.ancestors.len()==1 {
+            if let Some(contract)=self.package_contract {
+                let attributes=match &self.current{SrlXmlToken::Start(_,values)=>values,_=>unreachable!()};
+                if contract.requires_type&&!attributes.iter().any(|(name,_)|name.uri=="http://www.w3.org/2001/XMLSchema-instance"&&name.local=="type"){return Err(Error("Required package XML type is missing"));}
+                if let Some((_,lexical))=attributes.iter().find(|(name,_)|name.uri=="http://schemas.openxmlformats.org/markup-compatibility/2006"&&name.local=="MustUnderstand") {
+                    let mut count=0usize;
+                    for prefix in lexical.split([' ','\t','\r','\n']).filter(|value|!value.is_empty()) {
+                        @xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::WorkUnits,prefix.len().saturating_add(1))?;
+                        if !prefix.chars().enumerate().all(|(index,value)|srl_xml_scalar_name_character(value as u32,index==0,false)){return Err(Error("Invalid package capability prefix"));}
+                        let uri=self.namespace(prefix,false)?;let mut understood=false;
+                        for candidate in contract.vocabularies{@xml_operation@::consume(self.operation.as_ref(),@xml_operation@::Resource::WorkUnits,uri.len().saturating_add(candidate.len()))?;if uri==*candidate{understood=true;break;}}
+                        if uri.is_empty()||!understood{return Err(Error("Required package vocabulary is not understood"));}count+=1;
+                    }
+                    if count==0{return Err(Error("Empty package capability declaration"));}
+                    if let SrlXmlToken::Start(_,values)=&mut self.current{values.retain(|(name,_)|name.uri!="http://schemas.openxmlformats.org/markup-compatibility/2006"||name.local!="MustUnderstand");}
+                }
+            }
             if let Some((expected_uri,expected_local))=self.permitted_root_type.take() {
                 let value=match &self.current {SrlXmlToken::Start(_,values)=>values.iter().find(|(name,_)|name.uri=="http://www.w3.org/2001/XMLSchema-instance"&&name.local=="type").map(|(_,value)|{self.allocate(value.len())?;Ok::<_,Error>(value.clone())}).transpose()?,_=>None};
                 if let Some(value)=value {

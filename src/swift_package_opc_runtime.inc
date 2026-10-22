@@ -38,7 +38,7 @@ extension @package_name@ {
             self.source = source; self.id = id; self.type = type; self.target = target; self.external = external
         }
     }
-    fileprivate struct Relocation { let destination: Swift.String; let role: Swift.String }
+    fileprivate struct Relocation { let destination: Swift.String; let role: Swift.String; var dynamic: Swift.Bool = false }
     public struct Extensions {
         public let parts: [BinaryPart]
         public let relationships: [Relationship]
@@ -48,6 +48,16 @@ extension @package_name@ {
         /// Keep loaded moved-role provenance private until the edited aggregate is composed.
         fileprivate init(parts: [BinaryPart], relationships: [Relationship], relocations: [Swift.String:Relocation]) {
             self.parts = parts; self.relationships = relationships; self.relocations = relocations
+        }
+        /// Bind discovered dynamic identities independently of edited list order or native model values.
+        public func withRenames(_ names: [Swift.String:Swift.String]) throws -> Extensions {
+            var selected = relocations
+            for (original,destination) in names {
+                let key = @package_name@.fold(original)
+                guard let previous = selected[key], previous.dynamic else { throw Failure(.invalidOptions,"Rename origin is not a discovered dynamic role",part:original) }
+                selected[key] = Relocation(destination:destination,role:previous.role,dynamic:true)
+            }
+            return Extensions(parts:parts,relationships:relationships,relocations:selected)
         }
     }
     public enum Unknown { case reject, skip, preserve }
@@ -214,6 +224,8 @@ R"packageopc(                guard ended else { throw Failure(.invalidMetadata,"
     public static func xmlLimits(_ context: CodecContext) -> XmlLimits {
         var limits = xmlLimits(context.budget)
         limits.srlPackageRootType = context.definition.expectedType
+        limits.srlPackageRequiresType = context.definition.requiresType
+        limits.srlPackageVocabularies = context.definition.vocabularies
         limits.srlPackageConsume = { kind, amount in try context.consume(kind == "allocation" ? .decoderAllocationBytes : kind == "reference" ? .references : kind == "preserved" ? .preservedBytes : .workUnits,amount) }
         limits.srlPackageLimit = { message in Failure(.resourceLimit,message,part:context.part,fieldPath:context.role,relationshipId:context.relationshipId) }
         return limits

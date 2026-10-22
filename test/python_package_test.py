@@ -1335,8 +1335,11 @@ class python_package_test(unittest.TestCase):
             """Model an arbitrary caller failure that package annotations must leave untouched."""
             raise RuntimeError('original caller callback')
         shared.limits = dataclasses.replace(shared.limits, deadline=None, is_cancelled=fail)
-        with self.assertRaisesRegex(RuntimeError, 'original caller callback'):
+        with self.assertRaisesRegex(RuntimeError, 'original caller callback') as first:
             child.check()
+        with self.assertRaises(RuntimeError) as repeated:
+            child.check()
+        self.assertIs(repeated.exception, first.exception)
         class caller_error(module.PackageError):
             """Keep a caller's derived package error distinct from runtime budget failures."""
         original = caller_error('semantic', 'original derived caller error')
@@ -1351,6 +1354,9 @@ class python_package_test(unittest.TestCase):
             self.assertEqual(caught.exception.part, '')
             self.assertEqual(caught.exception.field_path, '')
             self.assertEqual(caught.exception.relationship_id, '')
+        shared.limits = dataclasses.replace(shared.limits, is_cancelled=None)
+        child.consume('work_units', 1)
+        self.assertEqual(shared.used['work_units'], 1)
 
     def test_generated_field_work_failure_identifies_part_and_generated_link(self):
         """Automatic facade contexts attribute exhausted scalar validation before publishing output."""

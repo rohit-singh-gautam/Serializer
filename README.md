@@ -44,12 +44,40 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Release **2.28.0** binds [explicit ordered storage](docs/serialization/ordered_xml.md)
+to fixed-XSD sequence/choice groups in all eleven owning outputs, enforces their
+complete occurrence grammar, and exports/compares those grammars. The release
+also implements namespace-aware reject/skip/preserve slots, exact wildcard
+positions and counts, and strict/lax validation against pinned declarations in
+all eleven outputs; see the [wildcard qualification](docs/verification/verification-xml-wildcards-2026-10-22.md).
+It also broadens
+[C/Rust namespace companions](docs/verification/verification-native-namespace-graphs-2026-10-22.md)
+through wrappers, nil values, mixed/ordered children, all groups and lifecycle
+metadata, preserving native protocol bytes and bounded namespace retention.
+It also completes [borrowed XML namespace graphs and depth qualification](docs/verification/verification-readonly-xml-graphs-2026-10-22.md)
+in all eleven outputs, with source lifetime, native storage identity and
+transactional output preserved.
+The same release completes schema-scoped QName/list union constraints, defaults,
+fixed values and restricted atomic/union list items in all eleven outputs.
+Unicode categories, blocks, XML name escapes and class subtraction compile into
+bounded portable pattern programs. Regenerate affected codecs; native payload
+APIs and wire formats are unchanged. See the [scalar identity matrix](docs/verification/verification-scalar-identities-2026-10-22.md)
+and [Unicode pattern qualification](docs/verification/verification-unicode-xml-patterns-2026-10-22.md).
+
+Compiler/runtime **2.28.0** composes generated package profiles in all eleven
+outputs: typed XML, native JSON or BINARY_NONE inside stored/DEFLATE parts,
+fixed/default/runtime envelope selection, root vocabulary/type checks, inert
+external byte relationships and explicit repeated-role renames. Model, root,
+MIME and container identities stay bound to the schema. C/Rust package owners
+retain XML namespace/foreign companions per physical occurrence; encoding borrows
+the original native payload and sidecar. See the [pipeline contract](docs/serialization/xml_packages.md#generated-package-pipelines)
+and [executed SDK evidence](docs/verification/verification-package-pipelines-2026-10-22.md).
+
 Release **2.27.0** extends [element-only ordered XML](docs/serialization/ordered_xml.md)
 to all eleven owning outputs. Regenerate models using `ordered=member` to retain
 heterogeneous child order in native variant arrays, including exact fixed-array
 cardinality and whitespace-only gaps with a zero mixed-text budget. Native wire
-formats and schema language remain unchanged. Fixed-XSD grouped bindings and the
-other open OPC/3MF requirements remain in [the backlog](docs/pending.md).
+formats and schema language remain unchanged.
 
 Release **2.26.0** adds [C++ native origin metadata and prepared/confirmed Save](docs/managed/document_origin.md).
 The application chooses an owned full recovery main or a durable original with
@@ -61,8 +89,8 @@ Existing flat journals retain their layout and recovery support.
 Release **2.25.0** adds opt-in [C++ ordered element-only XML](docs/serialization/ordered_xml.md).
 An array of typed variants preserves child order directly, without a text
 alternative or hidden order metadata. Existing models, mixed content and native
-bytes retain their behavior. Fixed-XSD grouped bindings and XSD export remain
-explicitly gated; OPC-R04 remains open.
+bytes retain their behavior. Its original fixed-XSD and export restrictions are
+addressed by the 2.28.0 ordered-content update.
 
 Release **2.24.0** adds opt-in [collaborative retained-branch merging](docs/managed/branch_merging.md#collaboration).
 Tree authorities advertise `branch_merges_enabled()` after the host enables
@@ -71,15 +99,15 @@ the accepted cursor and native target revision. Complete-candidate policy/locks,
 accepted field deltas, selective Undo/Redo and native two-parent journal recovery
 use the existing publication boundary. The host may install an explicit conflict
 resolver; clients cannot supply ancestry or bypass the current policy.
-Go/Java/C# XML codecs also retain schema-scope QName scalar/list enumeration,
-default and fixed identities, including QName/list union members. Kotlin/Swift
-add scalar/list expanded enumeration checks. These five codecs retain aliases
-observed by QName patterns and prefix-list string enumeration. Regenerate
-affected codecs; [the executed checks and remaining boundaries](docs/verification/verification-qname-constraints-2026-10-21.md)
-keep broader OPC requirements separate.
+All eleven XML outputs now retain schema-scope QName scalar/list enumeration,
+default and fixed identities, including first-selected outer unions and restricted
+list items. QName-pattern aliases and prefix-list string enumeration retain their
+lexical contracts. The [2.28 scalar evidence](docs/verification/verification-scalar-identities-2026-10-22.md)
+includes native wire identity and independent original/exported schema checks.
 The [large readonly XML checks](docs/verification/verification-readonly-xml-stress-2026-10-21.md)
 exercise 25,000 borrowed values in all eleven outputs, with storage identity,
-exact byte bounds and recovery; broader OPC-R10 combinations remain pending.
+exact byte bounds and recovery. Current namespace-sensitive graph coverage is
+recorded in the [2.28 borrowed XML checks](docs/verification/verification-readonly-xml-graphs-2026-10-22.md).
 
 Release **2.23.0** adds [native C++ branch merging](docs/managed/branch_merging.md)
 for retained tree revisions, with explicit conflict choices, two-parent ancestry
@@ -124,7 +152,7 @@ Regenerate Python package facades for cancellation checks after Save hooks:
 pre-publication cancellation preserves the old file; a failure after replacement
 reports `publication_uncertain` with the complete new archive retained.
 
-The current compiler and runtime release is **2.27.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.28.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.21.0**;
@@ -178,8 +206,8 @@ all eleven outputs. Preserved links resolve in their original source scope befor
 simultaneous rebinding; selectors, external URI references and opaque bytes retain
 their values. Removed moved roles and path/relationship collisions reject before
 publication. C/Rust canonical writers and Go canonical loaders are additive opt-in
-APIs; existing defaults retain their behavior. Dynamic role renames still require
-application rebinding. See the [package preservation contract](docs/serialization/xml_packages.md#fixed-singleton-path-canonicalization)
+APIs; existing defaults retain their behavior. Explicit dynamic/repeated role renames are available in 2.28; supply the generated
+rename plan so preserved scopes and links rebind together. See the [package preservation contract](docs/serialization/xml_packages.md#fixed-singleton-path-canonicalization)
 and [executed relocation checks](docs/verification/verification-package-relocation-2026-10-21.md).
 
 Release **2.18.0** adds caller-owned native XML operation contexts in
@@ -189,7 +217,7 @@ codecs compose with the same package budget in Go, JavaScript/TypeScript and
 Kotlin consuming applications. Existing model APIs, limit layouts, schema
 language and serialized representations retain their contracts. Logical
 admissions do not measure provider or opaque factory internals as hard process
-peaks; document-companion package graphs remain explicitly gated.
+peaks. Version 2.28 additionally supports document-companion package graphs.
 See the [native operation and public codec verification](docs/verification/verification-native-xml-operations-2026-10-21.md).
 
 Release **2.17.1** fixes initial C++ collaboration joins of documents containing
@@ -204,8 +232,7 @@ Generated [C](docs/languages/c_packages.md), [Rust](docs/languages/rust_packages
 and [Swift](docs/languages/swift_packages.md) outputs now provide bounded owning
 ZIP/OPC facades, typed loading, preservation and staged Save. Both editor packages
 are **2.0.11** and recognize language **1.21.0** package declarations.
-C/Rust package graphs requiring XML document companions reject explicitly;
-their ordinary XML document APIs retain those separate contracts.
+Version 2.28 composes C/Rust XML document companions with typed package roles.
 Language 1.21 declarations select fixed/default ZIP storage and scoped typed keys
 and references. Runtime storage overrides retain declared XML/model identities;
 automatic duplicate, missing and wrong-type checks run before aggregate/file
@@ -219,7 +246,8 @@ native-authoring bindings; C/Rust retain these scopes in XML document companions
 XML mapping names and prefixes now accept valid Unicode NCNames. Native wire
 formats and schema language **1.20.0** retain their contracts. See
 [executed checks and remaining boundaries](docs/verification/verification-qname-scopes-2026-10-20.md);
-the broader `OPC-R01` requirement remains tracked in [the backlog](docs/pending.md).
+the earlier `OPC-R01` scope is superseded by the
+[2.28.0 scalar and graph qualification](docs/verification/verification-scalar-identities-2026-10-22.md).
 
 The same release checks canonical decimal float/double default overflow and
 explicitly qualified enum defaults in language 1.14+ declarations. C++/Python
@@ -243,7 +271,7 @@ paths, including original relative scopes and query/fragment selectors. Regenera
 affected outputs and retain the loaded extensions when saving. Integer-default
 overflow diagnostics now identify the declaring member and its source location.
 See the [scope and verification](docs/verification/verification-pending-xml-2026-10-20.md);
-broader QName storage, other package backends and the remaining backlog stay open.
+the former QName and package-backend gates are superseded by the 2.28.0 contracts.
 
 Release **2.14.0** adds [compiler-only installed CMake discovery](docs/guides/cmake_integration.md#compiler-only-source-generation).
 Use `find_package(Serializer 2.14 CONFIG REQUIRED COMPONENTS compiler)` to load
@@ -391,16 +419,26 @@ portable scalar/facet and pattern programs and separate approved HTML adapters i
 adds revision/magic checks, owning digest values and positioned extension slots;
 their supported combinations remain documented individually. JavaScript/TypeScript
 add direct incremental token input through the pinned SAX provider. Java/C# add
-namespace-independent exact scalar, list/union and default/fixed adapters.
+exact scalar, scoped QName/list/union and default/fixed adapters.
 Kotlin/Swift maps use independent companion limits that propagate through nested
 records; `mixedLimits` independently bounds ordered fragments and text.
 JavaScript/TypeScript also check revision/magic layouts, owning digest values and
 positioned foreign extensions.
 Java/C#/Go/Kotlin/Swift also preserve positioned foreign extensions with explicit
 capability and independent owner-local admission policies.
+In **2.28.0**, all eleven owning outputs also bind fixed-XSD wildcard namespace
+predicates and strict/lax declaration inventories from pinned local bundles.
+Validation and skip/preserve retention are independent; private replay shares the
+original operation's budgets and cancellation. Scalar-text and singleton
+`all`/choice mappings accept foreign attributes and end-child slots. See the
+[wildcard, closed-core fallback and resource contract](docs/serialization/xml_tokens.md#xsd-wildcards-and-positioned-extensions-in-2280).
 C/Rust expose owning XML document companions that keep native values separate
 from opaque extension state; their item and retained-byte policies are cumulative
 over the complete document.
+These companions also check QName/list enums, namespace-aware union selection
+and schema-owned defaults/fixed values across children, attributes and text.
+Keep the companion with its native value when editing or re-encoding; see the
+[native constraint and provider checks](docs/verification/verification-native-qname-constraints-2026-10-22.md).
 Serializer lifecycle metadata stays closed under permissive extension policies.
 Owning revision/magic, digest values, readonly reference output and scoped-translator
 XML output pass in every output's selected native contract. Real prepared XSD callbacks
@@ -434,8 +472,8 @@ Release **2.10.0** adds an incremental LibXml2-backed C++
 without a retained tree, plus checked [shared XML contracts](docs/serialization/xml_shared_contracts.md)
 for presence/nil, ordered mixed content, maps, variants and positioned extension
 slots. The new configured contracts bind shared compiler IR and reference
-validation; their generated codecs remain pending in every language and fail
-with an explicit capability diagnostic. The public extension-slot helper supports
+validation; the corresponding selected generated owning codecs are now implemented
+in all eleven outputs under the 2.28.0 contract. The public extension-slot helper supports
 raw semantic preservation with namespace context. Schema language **1.20.0**,
 both editor packages **2.0.5**, and existing generated/native wire contracts are
 unchanged. See [executed checks](docs/verification/verification-xml-shared-contracts-2026-10-19.md).
@@ -498,16 +536,17 @@ C++ adds cooperative compression cancellation, ZIP64, opt-in bounded spooling,
 transactional OPC aggregate loading,
 opaque extension policies and canonical package ordering. See
 [the API contract](docs/serialization/xml_packages.md) and the
-[remaining requirements](docs/pending.md); the full XML/package design is
-not yet implemented. Schema language 1.17.0 and existing wire formats are unchanged.
+[remaining requirements](docs/pending.md). This was the initial XML/package
+checkpoint; current 2.28.0 support is described in the linked contract.
+Schema language 1.17.0 and existing wire formats were unchanged by that release.
 
 For OPC application/library responsibilities, remaining 3MF authoring requirements
 and a restricted schema/build example, see the
 [OPC and 3MF authoring design](docs/design/opc_3mf_support.md). The C++ OPC runtime
 generates standard content-type and relationship metadata; application schemas
-describe payloads. C++ package declarations generate complete assembly and typed
-loading through the existing OPC runtime; other-language package parity remains
-pending. The design also covers
+describe payloads. Package declarations generate complete assembly and typed
+loading in all eleven outputs under the documented shared pipeline contract.
+The design also covers
 [schema-first binding and XSD declaration import](docs/design/opc_3mf_support.md#schema-first-authoring-and-declaration-import),
 which remove duplicate field placement lists for the supported XSD subset.
 The [XML authoring workflow](docs/design/opc_3mf_support.md#schema-first-authoring-and-declaration-import)
@@ -822,7 +861,9 @@ Application runtime headers, compiled helpers, and managed support use the
 C++ models or `Serializer::managed` for managed applications. Generation helpers
 choose the runtime target automatically. The compiler and its
 `Serializer::serializer_lib` parser/generator API remain
-[GPL-3.0-or-later](LICENSE). Third-party dependencies retain their own licenses.
+[GPL-3.0-or-later](LICENSE). Frozen Unicode pattern data retains the
+[Unicode data license](LICENSE-UNICODE), installed with the runtime licenses.
+Third-party dependencies retain their own licenses.
 See [licensing and schema notices](docs/project/licensing.md) before redistributing a package.
 The [licensing rationale](docs/project/licensing.md#why-the-license-was-separated)
 explains why application support has separate permissions while the compiler

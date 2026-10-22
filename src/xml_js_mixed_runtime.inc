@@ -12,6 +12,7 @@ export class XmlMixedLimits {
 
 // Append one statically selected native fragment without exposing an incomplete owning value.
 function srlXmlMixedAppend(frame,index,value) {
+  if(frame.mixed.grammar.length){frame.orderedState=frame.mixed.grammar[frame.orderedState][index];if(!frame.orderedState)throw new Error('Ordered XSD content mismatch');}
   const fragments=frame.mixed.get(frame.value);
   if(fragments.length>=frame.limits.mixed.maxFragments)throw srlXmlQuotaError('XML mixed fragment limit');
   const factory=frame.mixed.fragment(),fragment=factory.create();factory.set(fragment,[index,value]);fragments.push(fragment);
@@ -24,6 +25,7 @@ function srlXmlMixedFlush(frame) {
 
 // Charge UTF-8 text before retaining it; empty parser notifications never create authored fragments.
 function srlXmlMixedCharacters(frame,value) {
+  if(frame.mixedClosed&&!frame.mixed.elementOnly&&value.length)throw new Error('Mixed XML text follows an end extension slot');
   if(frame.mixed.elementOnly){
     if(!/^[ \t\r\n]*$/.test(value))throw new Error('Text in element-only XML content');
     return;
@@ -35,7 +37,7 @@ function srlXmlMixedCharacters(frame,value) {
 
 // Visit every authored fragment, including adjacent/empty text, in its original native array order.
 function srlXmlMixedWrite(owner,meta,output) {
-  const fragments=meta.get(owner),bounds=output.limits.mixed,factory=meta.fragment();let textBytes=0;
+  const fragments=meta.get(owner),bounds=output.limits.mixed,factory=meta.fragment();let textBytes=0,orderedState=1;
   if(!Array.isArray(fragments))throw new Error('XML mixed fragment limit');
   if(fragments.length>bounds.maxFragments)throw srlXmlQuotaError('XML mixed fragment limit');
   if(meta.elementOnly&&meta.extent&&fragments.length!==meta.extent)throw new Error('XML ordered fixed extent mismatch');
@@ -48,8 +50,10 @@ function srlXmlMixedWrite(owner,meta,output) {
     }else{
       const child=meta.children.find(child=>child.alternative===index);
       if(!child)throw new Error('Unknown XML mixed alternative');
+      if(meta.grammar.length){orderedState=meta.grammar[orderedState][index];if(!orderedState)throw new Error('Ordered XSD content mismatch');}
       (child.payload.projection ? value.readValue() : value)._srlXmlWrite(output,child.payload.local,child.payload.uri);
     }
   }
+  if(meta.grammar.length&&!meta.accepting.includes(orderedState))throw new Error('Incomplete ordered XSD content');
 }
 )jsmixed"

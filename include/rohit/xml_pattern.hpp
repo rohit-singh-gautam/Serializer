@@ -54,8 +54,9 @@ public:
       operation_context* context = nullptr) const;
 };
 
-// Support literals, dot, ranges/negated ranges, grouping, alternation, ?, *, + and bounded repeats.
-// Escapes are punctuation and n/r/t only; category/name escapes and class subtraction reject.
+// Support XSD literals, dot, groups, alternatives, repetitions, class subtraction and set escapes.
+// General categories/blocks use frozen Unicode 17 data with historical XSD block spellings;
+// i/c name classes use XML 1.0 fifth-edition names. Lookaround and backreferences reject.
 // ^ and $ are literal characters, as in XSD 1.0, rather than host-regex anchors.
 [[nodiscard]] portable_pattern compile_portable_pattern(std::string_view expression,
     const pattern_limits& limits = {}, operation_context* context = nullptr);

@@ -15,6 +15,7 @@ private val srlEmptyIds = intArrayOf()
 enum class ReadPolicy { STRICT, COMPATIBLE, FLEXIBLE }
 data class Limits(val maxBytes: Int = 64*1024*1024, val maxStringBytes: Int = 16*1024*1024, val maxElements: Int = 1000000, val maxDepth: Int = 64, val readPolicy: ReadPolicy = ReadPolicy.STRICT) {
     init { require(maxBytes >= 0 && maxStringBytes >= 0 && maxElements >= 0 && maxDepth >= 0) { "Invalid decode limit" } }
+    internal var srlOperation: ((String,Long) -> Unit)? = null
 }
 /** Invalid input/value or exceeded resource policy; no partial decode result escapes. */
 class SerializerException(message: String) : IllegalArgumentException(message)
@@ -51,17 +52,26 @@ private fun srlVersionParts(value: String, count: Int): List<Int> { val parts = 
 // Compare numeric components in declaration order.
 private fun srlVersionCompare(a: String, b: String, count: Int): Int { val x = srlVersionParts(a, count); val y = srlVersionParts(b, count); for (i in 0 until count) if (x[i] != y[i]) return x[i].compareTo(y[i]); return 0 }
 // Backpatch fixed-width bytes in the existing buffer without copying the message.
-private class SrlSizeBuffer : ByteArrayOutputStream(256) {
+private class SrlSizeBuffer(private val operation: ((String,Long) -> Unit)? = null, private val maximum: Int = Int.MAX_VALUE) : ByteArrayOutputStream(if(operation == null) 256 else 0) {
+    // Admit bounded growth before the base stream allocates or mutates private encoded bytes.
+    private fun admit(length: Int) {
+        if (length < 0 || length > maximum-count) throw SerializerException("Message byte limit")
+        operation?.invoke("work",length.toLong()+1)
+        if (length > buf.size-count) operation?.invoke("allocation",maxOf(count+length,buf.size.toLong().times(2).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()).toLong())
+    }
+    override fun write(value: Int) { admit(1); super.write(value) }
+    override fun write(value: ByteArray, offset: Int, length: Int) { admit(length); super.write(value,offset,length) }
+    override fun toByteArray(): ByteArray { operation?.invoke("allocation",count.toLong()); return super.toByteArray() }
     fun patchInteger(position: Int, value: ULong, width: Int) {
         if (position < 0 || width > count-position) throw SerializerException("Invalid size patch")
         for (index in 0 until width) buf[position+index] = (value shr (index*Byte.SIZE_BITS)).toByte()
     }
 }
-internal class SrlWriter(val protocol: Protocol) {
+internal class SrlWriter(val protocol: Protocol, private val operation: ((String,Long) -> Unit)? = null, maximum: Int = Int.MAX_VALUE) {
     // Write count-free binary components or canonical JSON text.
     fun version(value: String, count: Int) { val parts = srlVersionParts(value, count); if (json()) text(value) else for (n in parts) integer(n.toULong(), 2, true) }
 
-    private val output = SrlSizeBuffer()
+    private val output = SrlSizeBuffer(operation,maximum)
     private var depth = 0
     // Return an independent exact-size encoding.
     fun bytes(): ByteArray = output.toByteArray()
@@ -114,6 +124,8 @@ internal class SrlWriter(val protocol: Protocol) {
     fun boolean(value: Boolean) { if (json()) raw(if (value) "true" else "false") else output.write(if (value) 1 else 0) }
     // Encode strict Unicode and escape JSON control characters.
     fun text(value: String) {
+        operation?.invoke("allocation",value.length.toLong()*3)
+        operation?.invoke("work",value.length.toLong()+1)
         val bytes = srlUtf8(value)
         if (!json()) { compact(bytes.size); output.write(bytes); return }
         output.write(34)
@@ -137,9 +149,10 @@ internal class SrlWriter(val protocol: Protocol) {
         if (json() || (protocol == Protocol.BINARY_STRING && !collection)) text(names[value]) else compact(value)
     }
     // Bound cycles and recursive object graphs before traversal.
-    fun beginObject() { depth++; if (depth > 64) throw SerializerException("Encode depth limit"); if (json()) output.write(123) }
+    fun beginObject() { operation?.invoke("work",1); depth++; if (depth > 64) throw SerializerException("Encode depth limit"); if (json()) output.write(123) }
     // Append a cached schema key without encoding its string again.
     fun field(id: Int, key: Int, first: Boolean) {
+        operation?.invoke("work",1)
         if (json()) { if (!first) output.write(44); output.write(srlFields[key].json) }
         else if (protocol == Protocol.BINARY_INTEGER) compact(id)
         else if (protocol == Protocol.BINARY_STRING) output.write(srlFields[key].binary)
@@ -149,7 +162,7 @@ internal class SrlWriter(val protocol: Protocol) {
     // Begin a collection using its actual element count.
     // Write optional framing with one binary presence byte.
     fun beginOptional(present: Boolean) { if (json()) output.write(91) else integer(if (present) 1uL else 0uL, 1, true) }
-    fun beginArray(count: Int) { if (json()) output.write(91) else compact(count) }
+    fun beginArray(count: Int) { operation?.invoke("work",count.toLong()+1); if (json()) output.write(91) else compact(count) }
     // Separate JSON entries.
     fun element(index: Int) { if (json() && index != 0) output.write(44) }
     // Finish JSON collection framing.
@@ -177,12 +190,13 @@ internal class SrlReader(val data: ByteArray, val protocol: Protocol, val limits
     private val utf8 = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
     // Normalize malformed byte sequences to the codec's public validation exception.
     private fun decodeUtf8(bytes: ByteBuffer): String {
+        limits.srlOperation?.invoke("allocation",bytes.remaining().toLong()*2)
         return try { utf8.reset().decode(bytes).toString() }
             catch (error: java.nio.charset.CharacterCodingException) { throw SerializerException("Invalid UTF-8") }
     }
     init { if (data.size > limits.maxBytes) throw SerializerException("Message byte limit") }
     // Check before indexing or slicing incoming bytes.
-    private fun requireBytes(count: Int) { if (count < 0 || count > data.size-offset) throw SerializerException("Truncated input") }
+    private fun requireBytes(count: Int) { limits.srlOperation?.invoke("work",count.toLong()+1); if (count < 0 || count > data.size-offset) throw SerializerException("Truncated input") }
     // Test the active protocol.
     fun json(): Boolean = protocol == Protocol.JSON
     // Skip exactly the four JSON whitespace bytes.
@@ -280,6 +294,7 @@ R"serializer(        if (!json()) {
         expect(34); val start = offset; val bytes = ByteArrayOutputStream()
         while (true) {
             requireBytes(1); val byte = data[offset++].toInt() and 255
+            limits.srlOperation?.invoke("allocation",8)
             if (offset-start-1 > limits.maxStringBytes) throw SerializerException("String limit")
             if (byte == 34) break
             if (byte < 32) throw SerializerException("Unescaped control")
@@ -311,7 +326,7 @@ R"serializer(        if (!json()) {
         if (value !in names.indices) throw SerializerException("Unknown enum"); return value
     }
     // Bound nesting before reading object fields.
-    fun beginObject() { depth++; if (depth > limits.maxDepth) throw SerializerException("Depth limit"); if (json()) expect(123) }
+    fun beginObject() { limits.srlOperation?.invoke("work",1); limits.srlOperation?.invoke("allocation",64); depth++; if (depth > limits.maxDepth) throw SerializerException("Depth limit"); if (json()) expect(123) }
     // Read positional IDs or keyed names; the caller maintains a local field cursor.
     fun key(ids: IntArray, cursor: Int): SrlKey? {
         if (protocol == Protocol.BINARY_NONE) return ids.getOrNull(cursor)?.let { SrlKey(it) }
@@ -325,12 +340,12 @@ R"serializer(        if (!json()) {
     // Validate collection counts before allocation.
     fun beginArray(): Int { if (json()) { expect(91); return -1 }; val count = compact(); if (count > limits.maxElements-elements) throw SerializerException("Element limit"); return count }
     // Reserve primitive arrays only after their input lower bound is validated.
-    fun capacity(count: Int, width: Int): Int { if (count < 0) return 0; if (width > 0 && count > (data.size-offset)/width) throw SerializerException("Truncated array"); return if (width == 0) minOf(count, 256) else count }
+    fun capacity(count: Int, width: Int): Int { if (count < 0) return 0; if (width > 0 && count > (data.size-offset)/width) throw SerializerException("Truncated array"); val capacity = if (width == 0) minOf(count, 256) else count; limits.srlOperation?.invoke("allocation",capacity.toLong()*maxOf(width,8)); return capacity }
     // Charge collection slots and reject incomplete JSON entries.
     fun nextElement(index: Int, count: Int): Boolean {
         if (!json()) { if (index == count) return false }
         else { whitespace(); requireBytes(1); if (data[offset].toInt() == 93) { offset++; return false }; if (index != 0) expect(44) }
-        if (elements == limits.maxElements) throw SerializerException("Element limit"); elements++; return true
+        if (elements == limits.maxElements) throw SerializerException("Element limit"); limits.srlOperation?.invoke("allocation",8); limits.srlOperation?.invoke("work",1); elements++; return true
     }
     // Require exact consumption before returning a fresh owning value.
     fun finish() { if (json()) whitespace(); if (offset != data.size) throw SerializerException("Trailing input") }

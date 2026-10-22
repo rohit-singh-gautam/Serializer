@@ -8,19 +8,23 @@ R"packagecs(
     private const long XmlDispatchAdmissionBytes=256;
     // Resolve only declared ZIP storage choices without replacing model or vocabulary identities.
     public static Role[] ResolveProfiles(Role[] roles,global::System.Collections.Generic.IReadOnlyDictionary<string,string>? overrides=null) {
+      return ResolveProfiles(roles,overrides,null);
+    }
+    // Resolve all codec/storage choices before native work while preserving older storage-map calls.
+    public static Role[] ResolveProfiles(Role[] roles,global::System.Collections.Generic.IReadOnlyDictionary<string,string>? overrides,global::System.Collections.Generic.IReadOnlyDictionary<string,PipelineProfile>? pipelines) {
       var selected=(Role[])roles.Clone();
-      if(overrides==null)return selected;
-      foreach(var item in overrides) {
+      if(overrides!=null)foreach(var item in overrides) {
         int index=global::System.Array.FindIndex(selected,role=>role.Field==item.Key);
         if(index<0||item.Value!="stored"&&item.Value!="deflate")throw new PackageError(Code.InvalidState,"Unknown package profile override");
         if(selected[index].Policy=="fixed"&&selected[index].Compression!=item.Value)throw new PackageError(Code.InvalidState,"Fixed package profile cannot change",fieldPath:item.Key);
         selected[index]=selected[index] with {Compression=item.Value};
       }
+      if(pipelines!=null)foreach(var item in pipelines){int index=global::System.Array.FindIndex(selected,role=>role.Field==item.Key);if(index<0||item.Value==null)throw new PackageError(Code.InvalidState,"Unknown package pipeline role");var original=roles[index];string codec=item.Value.Codec??original.Codec,compression=item.Value.Compression??selected[index].Compression;if(overrides!=null&&overrides.TryGetValue(item.Key,out string? storage)&&item.Value.Compression!=null&&storage!=compression)throw new PackageError(Code.InvalidState,"Conflicting package storage overrides",fieldPath:item.Key);if((original.Codec=="bytes"?codec!="bytes":codec!="xml"&&codec!="json"&&codec!="binary_none")||compression!="stored"&&compression!="deflate"||original.Policy=="fixed"&&(codec!=original.Codec||compression!=original.Compression))throw new PackageError(Code.InvalidState,"Conflicting package pipeline override",fieldPath:item.Key);selected[index]=selected[index] with{Codec=codec,Compression=compression};}
       return selected;
     }
     // Inspect one root event before the generated native decoder constructs model fields.
     private static void Dispatch(byte[] bytes,Role role,State state,string part,string link) {
-      if(role.ExpectedRoot==null)return;
+      if(role.Codec!="xml"||role.ExpectedRoot==null)return;
       state.Budget.ConsumeAt(Resource.WorkUnits,bytes.Length,part,()=>role.Field,link);
       state.Budget.ConsumeAt(Resource.DecoderAllocationBytes,XmlDispatchAdmissionBytes,part,()=>role.Field,link);
       var settings=new global::System.Xml.XmlReaderSettings {DtdProcessing=global::System.Xml.DtdProcessing.Prohibit,XmlResolver=null,MaxCharactersInDocument=state.Budget.Limits.MaxPartBytes,CloseInput=false};
@@ -30,6 +34,8 @@ R"packagecs(
       string root=reader.NamespaceURI.Length==0?reader.LocalName:"{"+reader.NamespaceURI+"}"+reader.LocalName;
       if(root!=role.ExpectedRoot)throw new PackageError(Code.Codec,"Package expected XML root mismatch",part,role.Field,relationshipId:link);
       string? type=reader.GetAttribute("type","http://www.w3.org/2001/XMLSchema-instance");
+      if(role.RequiresType&&type==null)throw new PackageError(Code.Codec,"Required package XML type missing",part,role.Field,relationshipId:link);
+      string? required=reader.GetAttribute("MustUnderstand","http://schemas.openxmlformats.org/markup-compatibility/2006");if(required!=null){var prefixes=required.Split(new[]{' ','\t','\r','\n'},global::System.StringSplitOptions.RemoveEmptyEntries);if(prefixes.Length==0)throw new PackageError(Code.Codec,"Empty package MustUnderstand vocabulary",part,role.Field,relationshipId:link);foreach(string prefix in prefixes){global::System.Xml.XmlConvert.VerifyNCName(prefix);string? uri=reader.LookupNamespace(prefix);bool understood=false;foreach(string candidate in role.Vocabularies)if(candidate==uri){understood=true;break;}if(uri==null||uri.Length==0||!understood)throw new PackageError(Code.Codec,"Unsupported package MustUnderstand vocabulary",part,role.Field,relationshipId:link);}}
       if(type!=null) {
         var pieces=type.Trim(' ','\t','\r','\n').Split(':');
         if(pieces.Length>2||pieces[0].Length==0||pieces[^1].Length==0)throw new PackageError(Code.Codec,"Invalid package XML type",part,role.Field,relationshipId:link);

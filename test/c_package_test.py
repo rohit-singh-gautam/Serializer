@@ -105,8 +105,16 @@ def main():
     companion = build / 'companion.serializer'
     companion.write_text(corpus.COMPANION_GRAPH, encoding='utf-8')
     (build / 'companion.h').unlink(missing_ok=True)
-    diagnostic = run([compiler, '--input', companion, '--language', 'c', '--output', build / 'companion.h'], 'companion-graph-rejection', failure=True)
-    assert 'document-companion' in diagnostic and not (build / 'companion.h').exists()
+    run([compiler, '--input', companion, '--language', 'c', '--output', build / 'companion.h'], 'companion-graph-generation')
+    companion_text = (build / 'companion.h').read_text(encoding='utf-8')
+    companion_helper = re.search(r'/\* Generated C package prefix: (\w+) \*/', companion_text).group(1)
+    assert 'srl_xml_extension_state* _srl_xml_main;' in companion_text
+    (build / 'companion_main.c').write_text((ROOT / 'test/resources/package_companion_main.c').read_text(encoding='utf-8').replace('@p@', companion_helper), encoding='utf-8')
+    companion_executable = build / ('companion_consumer.exe' if os.name == 'nt' else 'companion_consumer')
+    companion_command = [str(value).replace(str(build / 'main.c'), str(build / 'companion_main.c')).replace(str(executable), str(companion_executable)).replace(str(build / 'main.obj'), str(build / 'companion_main.obj')) for value in compile_command]
+    run(companion_command, 'companion-graph-compile')
+    run([companion_executable, corpus.companion_fixture(build), build / 'companion-output.opc'], 'companion-graph-acceptance')
+    corpus.inspect_companion(build / 'companion-output.opc')
     run([compiler, '--input', ROOT / 'test/resources/opc_identity.serializer',
          '--config', ROOT / 'test/resources/opc_identity.ini', '--language', 'c',
          '--output', build / 'identity.h'], 'identity-package-generation')

@@ -15,8 +15,13 @@ namespace rohit::serializer::writer::package_codegen {
 inline std::string python(const package_node& package, const std::string& name,
     const std::function<std::string(const type_name&)>& render_type,
     const std::function<std::string(std::string_view)>& render_field,
-    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {}) {
-  const auto parts = ordered(package);
+    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {},
+    bool binary_only = false) {
+  const auto configured_package = configure_package(package, xml);
+  const auto parts = ordered(configured_package);
+  for (const auto* part : parts) {
+    if (binary_only && part->codec == "json") { throw std::invalid_argument{"JSON package pipeline disabled during generation"}; }
+  }
   const auto contract = compile_package_profile(package, xml);
   std::string output;
   const auto line = [&](const std::string& text = {}) { output += text + '\n'; };
@@ -72,6 +77,9 @@ inline std::string python(const package_node& package, const std::string& name,
           render_type(*(*target)->value_type) + "),";
     }
     keys += ')'; references += ')';
+    std::string vocabularies{"("};
+    if (profile->decoder) { for (const auto& uri : profile->decoder->vocabularies) { vocabularies += literal(uri) + ','; } }
+    vocabularies += ')';
     const auto optional = [&](const auto& value) { return value ? literal(*value) : "None"; };
     line("        {'field': " + literal(render_field(part->name)) + ", 'role': " + literal(part->name) +
         ", 'model': " + (part->value_type ? render_type(*part->value_type) : "None") +
@@ -81,7 +89,8 @@ inline std::string python(const package_node& package, const std::string& name,
         ", 'relationship': " + literal(part->relationship) + ", 'id': " + optional(part->relationship_id) +
         ", 'compression': " + literal(part->compression) + ", 'minimum': " + std::to_string(part->min_occurs) +
         ", 'maximum': " + (part->max_occurs ? std::to_string(*part->max_occurs) : "None") +
-        ", 'policy': " + literal(part->profile_policy) + ", 'keys': " + keys + ", 'references': " + references +
+        ", 'policy': " + literal(part->profile_policy) + ", 'codec': " + literal(part->codec) + ", 'target_mode': " + literal(part->target_mode) + ", 'keys': " + keys + ", 'references': " + references +
+        ", 'binary_only': " + (binary_only ? "True" : "False") + ", 'vocabularies': " + vocabularies + ", 'requires_type': " + (part->requires_type ? "True" : "False") +
         ", 'root': " + (profile->decoder ? expanded(profile->decoder->root) : "None") +
         ", 'type': " + (profile->decoder && profile->decoder->type ? expanded(*profile->decoder->type) : "None") + "},");
   }
@@ -100,19 +109,19 @@ inline std::string python(const package_node& package, const std::string& name,
   line("        shared = _pkg_budget(limits, budget)");
   line("        _pkg_write_stream(destination, _pkg_profile_encode(value, cls._roles, shared), shared)");
   line("    @classmethod");
-  line("    def load(cls, source, limits=None, policy=None, validate=None, budget=None):");
+  line("    def load(cls, source, limits=None, policy=None, validate=None, budget=None, profiles=None):");
   line("        \"\"\"Return only a fully checked fresh aggregate; external targets are never opened.\"\"\"");
   line("        shared = _pkg_budget(limits, budget)");
   line("        if isinstance(source, (str, _pkg_os.PathLike)):");
   line("            with open(source, 'rb') as stream:");
-  line("                return _pkg_profile_load(stream, cls._roles, cls.Value, shared, policy, validate)");
-  line("        return _pkg_profile_load(source, cls._roles, cls.Value, shared, policy, validate)");
+  line("                return _pkg_profile_load(stream, cls._roles, cls.Value, shared, policy, validate, profiles)");
+  line("        return _pkg_profile_load(source, cls._roles, cls.Value, shared, policy, validate, profiles)");
   line("    @classmethod");
   line("    def save(cls, path, value, limits=None, validate=None, budget=None, fault=None):");
   line("        \"\"\"Validate staged bytes and atomically replace the final file after file synchronization.\"\"\"");
   line("        shared = _pkg_budget(limits, budget)");
   line("        data = _pkg_profile_encode(value, cls._roles, shared)");
-  line("        _pkg_profile_load(data, cls._roles, cls.Value, shared, ExtensionPolicy('preserve', 'preserve'), validate)");
+  line("        _pkg_profile_load(data, cls._roles, cls.Value, shared, ExtensionPolicy('preserve', 'preserve'), validate, getattr(value, " + literal(profiles_field) + ", None))");
   line("        _pkg_save(path, data, shared, fault)");
   return output;
 }

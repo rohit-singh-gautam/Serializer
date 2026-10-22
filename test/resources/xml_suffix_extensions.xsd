@@ -1,0 +1,6 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="all"><xs:complexType><xs:all>
+    <xs:element name="first" type="xs:string"/>
+    <xs:element name="second" type="xs:string" minOccurs="0"/>
+  </xs:all></xs:complexType></xs:element>
+</xs:schema>

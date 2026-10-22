@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from xml.sax.saxutils import quoteattr
+import xml_unicode_pattern_fixture as unicode_patterns
 
 ROOT = Path(__file__).resolve().parent.parent
 NS = 'urn:serializer:scalar-tokens'
@@ -22,7 +23,7 @@ PATTERNS = (
     ('((a?)*)b?', ('', 'a', 'aaaa', 'aaab', 'b', 'ba', 'abbb')),
     ('(a|ab){0,3}', ('', 'a', 'ababab', 'aaab', 'abababab', 'b')),
     ('[a-zA-Z0-9_\\-]+', ('a_Z-09', 'é', '', 'a b', 'a.b')),
-)
+) + unicode_patterns.PATTERNS
 
 
 def document(root, attributes):
@@ -102,10 +103,10 @@ class javascript_xml_scalar_test(unittest.TestCase):
         for index, (expression, values) in enumerate(PATTERNS):
             for value in values:
                 xml = document('p' + str(index), {'value': value})
-                cases.append(['JsScalarsP' + str(index), xml, self.oracle.validate(self.provider.fromstring(xml.encode())), expression + ': ' + value])
+                cases.append(['JsScalarsP' + str(index), xml, self.pattern_oracle.validate(self.provider.fromstring(xml.encode())), expression + ': ' + value])
         for value in ('a', 'aa', 'b', 'bb', 'aaa', 'ab', ''):
             xml = document('groups', {'value': value})
-            cases.append(['JsScalarsGroups', xml, self.oracle.validate(self.provider.fromstring(xml.encode())), 'intersected groups: ' + value])
+            cases.append(['JsScalarsGroups', xml, self.pattern_oracle.validate(self.provider.fromstring(xml.encode())), 'intersected groups: ' + value])
         output = self.run_node('''
         const outputs=[];globalThis.RegExp=function(){throw new Error('Dynamic host pattern compilation forbidden');};
         for(const [name,document,expected,label] of ''' + json.dumps(cases) + '''){
@@ -121,7 +122,7 @@ class javascript_xml_scalar_test(unittest.TestCase):
         console.log(JSON.stringify(outputs));
         ''')
         for xml in json.loads(output):
-            self.assertTrue(self.oracle.validate(self.provider.fromstring(xml.encode())), self.oracle.error_log)
+            self.assertTrue(self.pattern_oracle.validate(self.provider.fromstring(xml.encode())), self.pattern_oracle.error_log)
 
     def test_fixed_defaults_whitespace_and_value_space_enumerations(self):
         """Materialize defaults, compare fixed numeric aliases and normalize only XML whitespace."""
@@ -250,7 +251,7 @@ class javascript_xml_scalar_test(unittest.TestCase):
 
     def test_unsupported_pattern_preflight_preserves_artifacts(self):
         """Keep genuine provider-only expressions explicit until an independent runtime adapter is implemented."""
-        for index, expression in enumerate(('\\p{L}+', '[a-z-[aeiou]]+')):
+        for index, expression in enumerate((r'\1', '(?:a)')):
             xsd = self.directory / ('unsupported' + str(index) + '.xsd')
             xsd.write_text('<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="root"><xs:complexType>'
                            '<xs:attribute name="value" use="required"><xs:simpleType><xs:restriction base="xs:string">'
@@ -262,7 +263,7 @@ class javascript_xml_scalar_test(unittest.TestCase):
             result = subprocess.run([str(self.compiler), '--language', 'js', '--input', str(source), '--js.output', str(output)],
                                     capture_output=True, text=True, encoding='utf-8')
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn('portable', result.stderr.lower())
+            self.assertTrue('portable' in result.stderr.lower() or 'xsd' in result.stderr.lower())
             self.assertEqual(output.read_text(encoding='utf-8'), 'preserve existing output\n')
 
 
@@ -337,6 +338,7 @@ def main():
         source.write_text(native + '}', encoding='utf-8')
         schema.write_text(xsd + '</xs:schema>', encoding='utf-8')
         oracle = provider.XMLSchema(provider.parse(str(schema)))
+        pattern_oracle = unicode_patterns.Oracle(schema.read_text(encoding='utf-8'))
         subprocess.run([str(args.compiler.resolve()), '--language', 'js,typescript', '--input', str(source),
                         '--js.output', str(directory / 'scalars.mjs'), '--typescript.output', str(directory / 'scalars.d.mts')], check=True)
         subprocess.run([str(args.compiler.resolve()), '--language', 'js,typescript', '--input', str(source), '--xml.enabled', 'false',
@@ -344,6 +346,7 @@ def main():
         javascript_xml_scalar_test.directory, javascript_xml_scalar_test.compiler = directory, args.compiler.resolve()
         javascript_xml_scalar_test.typescript = modules / 'typescript/bin/tsc'
         javascript_xml_scalar_test.oracle, javascript_xml_scalar_test.provider = oracle, provider
+        javascript_xml_scalar_test.pattern_oracle = pattern_oracle
         result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(javascript_xml_scalar_test))
         if not result.wasSuccessful():
             raise SystemExit(1)

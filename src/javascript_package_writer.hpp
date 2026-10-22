@@ -16,8 +16,13 @@ inline std::string javascript(const package_node& package, const std::string& na
     const std::string& helper, bool declarations,
     const std::function<std::string(const type_name&)>& render_type,
     const std::function<std::string(std::string_view)>& render_field,
-    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {}) {
-  const auto parts = ordered(package);
+    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {},
+    bool binary_only = false) {
+  const auto configured_package = configure_package(package, xml);
+  const auto parts = ordered(configured_package);
+  for (const auto* part : parts) {
+    if (binary_only && part->codec == "json") { throw std::invalid_argument{"JSON package pipeline disabled during generation"}; }
+  }
   const auto contract = compile_package_profile(package,xml);
   std::set<std::string> fields{"extensions"};
   std::set<std::pair<std::string, std::string>> dispatch;
@@ -29,9 +34,6 @@ inline std::string javascript(const package_node& package, const std::string& na
     if ((part->part_name || part->relationship_id) && (!part->max_occurs || *part->max_occurs > 1U)) {
       throw std::invalid_argument{"Repeated package roles require dynamic names and generated relationship IDs"};
     }
-    if (part->value_type && part->codec != "xml") {
-      throw std::invalid_argument{"JavaScript typed package roles currently require the XML codec"};
-    }
   }
   std::string output;
   const auto line = [&](const std::string& text = {}) { output += text + '\n'; };
@@ -42,12 +44,12 @@ inline std::string javascript(const package_node& package, const std::string& na
       const auto metadata = std::find_if(contract.parts.begin(),contract.parts.end(),[&](const auto& value){return value.role==part->name;});
       std::string selectors;
       const auto get = [&](std::string_view field){return "value=>value."+render_field(selector_member(*part,field).name);};
-      selectors += ",policy:"+literal(part->profile_policy)+",keys:[";
+      selectors += ",policy:"+literal(part->profile_policy)+",codec:"+literal(part->codec)+",binaryOnly:"+(binary_only ? "true" : "false")+",targetMode:"+literal(part->target_mode)+",keys:[";
       for(const auto& key:part->keys){selectors+="{scope:"+literal(key.scope)+",field:"+literal(key.field)+",get:"+get(key.field)+"},";}
       selectors += "],references:[";
       for(const auto& reference:part->references){selectors+="{scope:"+literal(reference.scope)+",field:"+literal(reference.field)+",target:"+literal(render_field(reference.target_role))+",get:"+get(reference.field)+"},";}
       selectors += "]";
-      if(metadata->decoder){const auto& decoder=*metadata->decoder;selectors+=",expectedTypeUri:"+literal(decoder.type->namespace_uri)+",expectedTypeLocal:"+literal(decoder.type->local);}
+      if(metadata->decoder){const auto& decoder=*metadata->decoder;selectors+=",expectedTypeUri:"+literal(decoder.type->namespace_uri)+",expectedTypeLocal:"+literal(decoder.type->local)+",requiresType:"+(decoder.requires_type?"true":"false")+",vocabularies:[";for(const auto& uri:decoder.vocabularies){selectors+=literal(uri)+",";}selectors+="]";}
       const auto optional = [&](const auto& value) { return value ? literal(*value) : "null"; };
       line("  {field:" + literal(render_field(part->name)) + ",role:" + literal(part->name) +
           ",model:" + (part->value_type ? render_type(*part->value_type) : "null") +

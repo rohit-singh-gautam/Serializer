@@ -24,12 +24,16 @@ internal inline fun <T> srlXmlTokenCheck(action: () -> T): T = try { action() }
 // Identify the reserved nil attribute independently of its presentation prefix.
 internal val srlXmlNilName = SrlXmlName("nil", "http://www.w3.org/2001/XMLSchema-instance")
 // Pull one operation-local provider event without retaining completed model subtrees.
-internal class SrlXmlInput(bytes: ByteArray, limits: XmlLimits, val mapLimits: XmlMapLimits = XmlMapLimits(), val mixedLimits: XmlMixedLimits = XmlMixedLimits(), val digestLimits: XmlDigestLimits = XmlDigestLimits(), val identityLimits: XmlIdentityLimits = XmlIdentityLimits(), val extensionOptions: XmlExtensionOptions = XmlExtensionOptions(), private val preserveNamespaces: Boolean = false) : java.io.Closeable {
+internal class SrlXmlInput(bytes: ByteArray, private val limits: XmlLimits, val mapLimits: XmlMapLimits = XmlMapLimits(), val mixedLimits: XmlMixedLimits = XmlMixedLimits(), val digestLimits: XmlDigestLimits = XmlDigestLimits(), val identityLimits: XmlIdentityLimits = XmlIdentityLimits(), val extensionOptions: XmlExtensionOptions = XmlExtensionOptions(), private val preserveNamespaces: Boolean = false) : java.io.Closeable {
+    private val packageVocabularies = limits.srlPackageVocabularies
+    private val packageRequiresType = limits.srlPackageRequiresType
     private val budget = SrlXmlBudget(limits)
     private val operation = limits.srlPackageContext
     val packageActive: Boolean get() = operation != null
     // Borrow the active package ledger adapter without copying its namespace or field state.
     fun packageContext(): SrlXmlBudget.Operation? = operation
+    // Preserve scalar/map/mixed/identity bounds for same-operation private declaration replay.
+    fun declarationPolicy(): SrlXmlDeclaredPolicy = SrlXmlDeclaredPolicy(limits,mapLimits,mixedLimits,digestLimits,identityLimits,extensionOptions)
     private data class PackageRecord(val depth: Int, val owner: String, val children: Map<SrlXmlName,String>, val attributes: Map<SrlXmlName,String>)
     private val packageRecords = mutableListOf<PackageRecord>()
     private val packagePaths = mutableListOf<String>()
@@ -188,8 +192,23 @@ internal class SrlXmlInput(bytes: ByteArray, limits: XmlLimits, val mapLimits: X
 )serializer"
 R"serializer(        require(has(name)) { "Unexpected XML element" }
         val attributes = linkedMapOf<SrlXmlName, String>()
+        if (depth == 1 && packageVocabularies != null) {
+            require(!packageRequiresType || reader.getAttributeValue("http://www.w3.org/2001/XMLSchema-instance","type") != null) { "Required package XML type is missing" }
+            reader.getAttributeValue("http://schemas.openxmlformats.org/markup-compatibility/2006","MustUnderstand")?.let { lexical ->
+                var count = 0
+                for (match in Regex("[^ \\t\\r\\n]+").findAll(lexical)) {
+                    val prefix=match.value; operation?.charge("work",prefix.length+1L); operation?.charge("allocation",prefix.length*2L)
+                    require(srlXmlNcName(prefix)) { "Invalid package capability prefix" }
+                    val uri=reader.getNamespaceURI(prefix); var understood=false
+                    for (candidate in packageVocabularies) { operation?.charge("work",(uri?.length ?: 0)+candidate.length+1L); if (uri == candidate) { understood=true; break } }
+                    require(!uri.isNullOrEmpty() && understood) { "Required package vocabulary is not understood" }; ++count
+                }
+                require(count > 0) { "Empty package capability declaration" }
+            }
+        }
         for (index in 0 until reader.attributeCount) {
             val key = SrlXmlName(reader.getAttributeLocalName(index), reader.getAttributeNamespace(index) ?: "")
+            if (depth == 1 && packageVocabularies != null && key == SrlXmlName("MustUnderstand","http://schemas.openxmlformats.org/markup-compatibility/2006")) continue
             if (consumeNil && key == srlXmlNilName) continue
             if (consumeType && key == SrlXmlName("type", "http://www.w3.org/2001/XMLSchema-instance")) continue
             if (operation != null) {
@@ -247,6 +266,12 @@ R"serializer(        require(has(name)) { "Unexpected XML element" }
         advance()
         operation?.charge("allocation",text.length*2L); return text.toString()
     }
+    // Retain contiguous scalar text while leaving the explicit opaque suffix pending.
+    fun prefixText(): String {
+        val text = StringBuilder()
+        while (kind == 't') { operation?.charge("allocation",reader.textLength*2L); text.append(reader.text); advance() }
+        operation?.charge("allocation",text.length*2L); return text.toString()
+    }
     // Coalesce adjacent provider chunks through comments and CDATA until the next typed child.
     fun mixedText(mixed: SrlXmlMixedBudget): String {
         val text = StringBuilder()
@@ -281,6 +306,16 @@ internal class SrlXmlInputFields(private val input: SrlXmlInput, private val att
     fun text(): String {
         require(attributes.isEmpty()) { "Unexpected XML attribute" }
         val result = input.text(); closed = true; return result
+    }
+    // Leave the first foreign child or record end pending for the explicit suffix adapter.
+    fun prefixText(): String {
+        require(attributes.isEmpty()) { "Unexpected XML attribute" }
+        return input.prefixText()
+    }
+    // Refuse even whitespace text after a foreign suffix because it belongs to scalar storage.
+    fun finishTextExtensions() {
+        require(attributes.isEmpty() && input.kind == 'e') { "Unexpected XML scalar extension content" }
+        input.advance()
     }
     // Reject unknown attributes and out-of-order or duplicate children transactionally.
     fun finish() {

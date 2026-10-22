@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: 0BSD
 // Serializer runtime template source; emitted support may also be used under 0BSD.
 R"packagejs(
+const SerializerNativeLimits=Limits;
 /** Bounded ZIP/OPC support. Node providers and filesystem hosts are explicitly acquired. */
 export const SerializerPackage = (() => {
   const C = SerializerCompression, NativePromise = (async () => {})().constructor;

@@ -126,7 +126,8 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
                            const std::function<std::string(const type_name&)>& native_type,
                            const xml_portable::alternative_name& alternative,
                            bool needs_base_bridges, bool readonly = false,
-                           const xml_portable::field_name& projection = {}) {
+                           const xml_portable::field_name& projection = {}, int declaration_inventory = -1, std::string_view declaration_prefix = {}) {
+  const std::string declaration_policy = declaration_prefix.empty() ? "SrlXmlDeclarationPolicy" : std::string{declaration_prefix} + "Policy";
   const bool export_graph = readonly || xml_codegen::native_xml_export_graph(object);
   const bool namespace_values = std::any_of(contract.fields.begin(), contract.fields.end(), xml_portable::namespace_dependent);
   const bool namespace_reservations = xml_codegen::namespace_union_graph(object, xml_binding::schema{options});
@@ -260,7 +261,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
   if(contract.extensions){
     for(const auto& source_field:object.member_list)if(field_name(source_field)=="SrlXmlPreservedState"||field_name(source_field)=="SrlXmlExtensionMetadata")throw std::invalid_argument{"C# XML extension state collides with a native field"};
     line("// Immutable foreign-only permissions and XML-only preservation state.");
-    line("private static readonly SrlXmlExtensionContract SrlXmlExtensionMetadata="+xml_codegen::portable_extension_metadata(*contract.extensions,quote,expanded,"csharp")+';');
+    line("private static readonly SrlXmlExtensionContract SrlXmlExtensionMetadata="+xml_codegen::portable_extension_metadata(*contract.extensions,quote,expanded,"csharp",declaration_inventory)+';');
     if(!readonly)line("private SrlXmlPreserved? SrlXmlPreservedState;");
   }
   if (namespace_values) {
@@ -306,7 +307,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
   line("public byte[] EncodeXml(Limits limits, XmlSchema? schema, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity, XmlDigestLimits digests, XmlExtensionOptions extensions) {"); ++indent;
   line("var output = new SrlXmlOutput(limits, maps, mixed, identity, digests, extensions);");
   if (namespace_reservations) { line("XmlWrite(output,0);"); }
-  line("XmlWrite(output, " + expanded(contract.root) + ");");
+  line("XmlWrite(output, " + expanded(contract.root) + ",limits.XmlRequiresType?limits.XmlExpectedType:null);");
   line("byte[] bytes = output.Finish();");
   if (!options.runtime_xsd) { line("if (schema != null) throw new System.InvalidOperationException(\"Runtime XSD was not enabled during generation\");"); }
   else if (options.validation_scope != "input") { line("if (schema != null) schema.Validate(bytes, limits);"); }
@@ -337,7 +338,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
   if (!options.runtime_xsd) { line("if (schema != null) throw new System.InvalidOperationException(\"Runtime XSD was not enabled during generation\");"); }
   else if (options.validation_scope != "output") { line("if (schema != null) schema.Validate(bytes, limits);"); }
   line("using var input = new SrlXmlInput(bytes, limits, maps, mixed, identity, digests, extensions);");
-  line("if (limits.XmlExpectedType != null) { input.ExpectType(limits.XmlExpectedType, false); }");
+  line("if(limits.XmlPackageProfile)input.PackageCapabilities(limits.XmlVocabularies);if (limits.XmlExpectedType != null) { input.ExpectType(limits.XmlExpectedType, limits.XmlRequiresType); }");
   line("var value = XmlRead(input, " + expanded(contract.root) + ");");
   line("input.Finish();"); line("return value;");
   }
@@ -368,7 +369,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
   if(contract.extensions){
     line(readonly?"var srlScope=new System.Collections.Generic.Dictionary<string,string>();":"var srlScope=SrlXmlPreservedState?.Scope??new System.Collections.Generic.Dictionary<string,string>();");
     if (owner_union) { line("if(srlOwnerDefault!=null&&srlOwnerDefault!=(srlScope.TryGetValue(\"\",out string? srlPreservedDefault)?srlPreservedDefault:\"\"))throw new System.FormatException(\"Conflicting XML union and preserved defaults\");"); }
-    line("var srlExtensions=new SrlXmlExtensions(SrlXmlExtensionMetadata,srlScope,output.ExtensionOptions,"+std::string{readonly?"null":"SrlXmlPreservedState"}+",output.Operation);");
+    line("var srlExtensions=new SrlXmlExtensions(SrlXmlExtensionMetadata,srlScope,output.ExtensionOptions,"+std::string{readonly?"null":"SrlXmlPreservedState"}+",output.Operation,new "+declaration_policy+"(output));");
     line("output.Open(name,srlScope);");
   } else if (namespace_values || namespace_reservations) {
     line("output.Open(name,new System.Collections.Generic.Dictionary<string,string>{{\"\"," +
@@ -463,7 +464,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
         field_name, alternative, "csharp"));
   }
   line("output.Field(\"\");");
-  if(contract.extensions){line("srlExtensions.EmitAt(output,"+std::to_string(contract.fields.size())+",0);");line("srlExtensions.FinishOutput();");}
+  if(contract.extensions){line("srlExtensions.EmitAt(output,"+std::to_string(contract.fields.size()+(contract.mixed?contract.mixed->children.size():0U))+",0);");line("srlExtensions.FinishOutput();");}
   line("output.Close();");
   if (contract.identity) { line("output.IdentityFinish(srlIdentity);"); }
   --indent; line("}");
@@ -476,7 +477,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
   }
   line("using var srlOperationOwner=input.FieldOwner();");
   if (contract.identity) { line("var srlIdentity=input.IdentityScope(SrlXmlIdentityMetadata);"); }
-  if(contract.extensions)line("var srlExtensions=new SrlXmlExtensions(SrlXmlExtensionMetadata,input.NamespaceScope(),input.ExtensionOptions,null,input.Operation);");
+  if(contract.extensions)line("var srlExtensions=new SrlXmlExtensions(SrlXmlExtensionMetadata,input.NamespaceScope(),input.ExtensionOptions,null,input.Operation,new "+declaration_policy+"(input));");
   if (std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& item) {
         return (item.attribute || item.text) && xml_portable::namespace_dependent(item);
       })) { line("var srlNamespaceScope=input.NamespaceScope();"); }
@@ -493,8 +494,8 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
         quote(*contract.model.magic) + ") throw new System.FormatException(\"XML magic mismatch\");");
   }
   for (const bool attributes : {true, false}) {
-    if (all && !attributes) { continue; }
     if(contract.extensions&&!attributes)line("foreach(var entry in fields.Attributes)srlExtensions.Attribute(entry.Key,entry.Value);fields.Attributes.Clear();");
+    if (all && !attributes) { continue; }
     for (const auto& item : contract.fields) {
       if (item.attribute != attributes) { continue; }
       line("input.Field(" + quote(item.source->name) + ");");
@@ -505,7 +506,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
         const bool optional = item.source->type_name_list.front().is_optional();
         const auto text = item.attribute ? "fields.Attribute(" + expanded(item.qualified_name) + ',' +
             (item.min_occurs == 0U ? "true" : "false") + ')' :
-            item.text ? "fields.Text()" : "input.Scalar(" + expanded(item.qualified_name) + ')';
+            item.text ? (contract.extensions ? "fields.PrefixText()" : "fields.Text()") : "input.Scalar(" + expanded(item.qualified_name) + ')';
         if (!item.attribute && !item.text && optional) { line("if(input.Has(" + expanded(item.qualified_name) + ")) {"); ++indent; }
         line(xml_portable::list_read(item, rule_indices.at(item.source), access, text, native_type, scalar, "csharp"));
         if (!item.attribute && !item.text && optional) { --indent; line("}else{" + access + "=null;}"); }
@@ -541,7 +542,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
       };
       line("{"); ++indent;
       if (item.text) {
-        line(access + " = " + read_value("fields.Text()") + ";");
+        line(access + " = " + read_value(contract.extensions ? "fields.PrefixText()" : "fields.Text()") + ";");
       } else if (item.attribute) {
         line("var text = fields.Attribute(" + expanded(item.qualified_name) + ", " + (item.min_occurs == 0U ? "true" : "false") + ");");
         line(access + " = " + (optional ? (item.default_value || item.fixed_value ? "new System.ValueTuple<" + native_type(type) + ">(" + read_value("text") + ")" : "text == null ? null : new System.ValueTuple<" + native_type(type) + ">(" + read_value("text") + ")") : read_value("text!")) + ";");
@@ -552,7 +553,7 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
         if (optional) { line(access + " = null;"); }
         line("while (input.Has(" + expanded(item.qualified_name) + ")) {"); ++indent;
         const auto maximum = value.fixed_extent ? std::optional<std::size_t>{static_cast<std::size_t>(value.fixed_extent)} : item.max_occurs;
-        if (maximum) { line("if (count >= " + std::to_string(*maximum) + ") throw new System.FormatException(\"XML occurrence mismatch\");"); }
+        if (maximum) { line("if (count >= " + std::to_string(*maximum) + ") " + (contract.extensions ? "break;" : "throw new System.FormatException(\"XML occurrence mismatch\");")); }
         const auto decoded = read_value("input.Scalar(" + expanded(item.qualified_name) + ")");
         line(item.repeated ? access + ".Add(" + decoded + ");" : access + " = " + (optional ? "new System.ValueTuple<" + native_type(type) + ">(" + decoded + ")" : decoded) + ";");
         line("++count;");
@@ -605,8 +606,9 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
       line(seen + " = true;"); line("++allCount;"); line("break;");
       --indent; line("}");
     }
-    line("default: throw new System.FormatException(\"Unexpected XML all child\");");
+    line(contract.extensions ? "default: goto srlAllChildrenComplete;" : "default: throw new System.FormatException(\"Unexpected XML all child\");");
     --indent; line("}"); --indent; line("}");
+    if (contract.extensions) { line("srlAllChildrenComplete:"); }
     const bool optional_group = contract.all_groups.front().minimum == 0U;
     if (optional_group) { line("if (allCount != 0) {"); ++indent; }
     else { line("_ = allCount;"); }
@@ -621,11 +623,13 @@ inline std::string methods(const class_node& object, const xml_binding::record& 
   if (contract.mixed) {
     line("input.Field(" + quote(contract.mixed->source->name) + ");");
     line(xml_portable::mixed_read(*contract.mixed, "result." + mapped_field(*contract.mixed->source),
-        native_type, field_name, alternative, "csharp"));
+        native_type, field_name, alternative, "csharp", {},
+        contract.extensions ? std::to_string(contract.fields.size()+contract.mixed->children.size()) : std::string{}));
   }
   line("input.Field(\"\");");
-  if(contract.extensions){line("srlExtensions.ReadAt(input,"+std::to_string(contract.fields.size())+",0);");line("srlExtensions.Finish();");line("result.SrlXmlPreservedState=srlExtensions.State;");}
-  line("fields.Finish();");
+  const bool scalar_extensions = contract.extensions && std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.text; });
+  if(contract.extensions){line("srlExtensions.ReadAt(input,"+std::to_string(contract.fields.size()+(contract.mixed?contract.mixed->children.size():0U))+",0"+(scalar_extensions ? ",false" : "")+");");line("srlExtensions.Finish();");line("result.SrlXmlPreservedState=srlExtensions.State;");}
+  line(scalar_extensions ? "fields.FinishTextExtensions();" : "fields.Finish();");
   if (contract.identity) { line("input.IdentityFinish(srlIdentity);"); }
   line(xml_portable::choice_check(contract,
       [&](const member& item) { return "result." + mapped_field(item); }, "csharp"));

@@ -55,6 +55,7 @@ function srlXmlTokenWrite(owner,meta,output,local,uri,variantType=null) {
   for (let index=0;index<meta.fields.length;++index) {
     const field=meta.fields[index],item=selected[index];
     if (field.mode==='attribute' && item.present) {
+      if(prepared.get(index).omitDefault)continue;
       if(variantType!==null && field.name===srlXmlTokenTypeName) throw new Error('XML variant type metadata conflicts with mapped attribute');
       output.attribute(field.local,field.uri,prepared.get(index).text,attributeIndex++);
     }
@@ -82,18 +83,19 @@ function srlXmlTokenWrite(owner,meta,output,local,uri,variantType=null) {
     for (let itemIndex=0;itemIndex<item.values.length;++itemIndex) {
       if(field.repeated && field.wrapper===null)srlXmlExtensionAt(extension,output,index,itemIndex);
       const value=item.values[itemIndex];
-      if (field.mode==='text') output.escaped(prepared.get(index).text,false);
+      if (field.mode==='text') output.escaped(prepared.get(index).omitDefault?'':prepared.get(index).text,false);
       else if (field.model) (field.projection ? value.readValue() : value)._srlXmlWrite(output,field.local,field.uri);
       else {const scalar=srlXmlPrepareField(owner,field,value,output.limits,itemIndex);
         srlXmlVariantStart(output,field.local,field.uri,null,scalar.bindings);
         srlXmlCheckPreparedNamespace(field,scalar,output);output.put('>');
-        output.escaped(scalar.text,false);output.close(field.local);}
+        output.escaped(scalar.omitDefault?'':scalar.text,false);output.close(field.local);}
     }
     if (field.wrapper!==null) output.close(local);
     if(field.repeated && field.wrapper===null)srlXmlExtensionAt(extension,output,index,item.values.length);
     srlXmlExtensionPositionEnd(extension,index);
   }
-  srlXmlExtensionAt(extension,output,meta.fields.length);srlXmlExtensionPositionEnd(extension,meta.fields.length);
+  const endPosition=meta.fields.length+(meta.mixed ? meta.mixed.children.length : 0);
+  srlXmlExtensionAt(extension,output,endPosition);srlXmlExtensionPositionEnd(extension,endPosition);
   if(extension)extension.tracker.finish();
   output.close(local);
   if(identity){output.identities.pop();identity.finish();}
@@ -121,10 +123,10 @@ class SrlXmlTokenFrame {
     if(model)attrs=model.attributes;
     this.active=model ? model.active : [];
     this.identity=meta && meta.identity ? new SrlXmlIdentity(meta.identity,limits.identity,limits.operation,limits.operationField||"") : null;
-    this.extensions=meta && meta.extensions ? new SrlXmlExtensions(meta.extensions,scope,limits.extensions) : null;
+    this.extensions=meta && meta.extensions ? new SrlXmlExtensions(meta.extensions,scope,limits.extensions,limits) : null;
     this.value=meta ? meta.create() : null; this.fields=meta ? meta.fields : [];
     if(meta && meta.model.revision)meta.model.revision.set(this.value,model.value);
-    this.mixed=meta ? meta.mixed : null;this.mixedText='';this.mixedTextBytes=0;
+    this.mixed=meta ? meta.mixed : null;this.mixedText='';this.mixedTextBytes=0;this.orderedState=1;
     if(this.mixed)this.mixed.set(this.value,[]);
     this.counts=new Array(this.fields.length).fill(0); this.position=0;
     this.text=''; this.values=[];
@@ -151,15 +153,22 @@ class SrlXmlTokenFrame {
   }
   // Resolve one permitted opaque root at an exact static-field/repeated-item boundary before traversing it.
   foreign(name,position,item=0) {
-    if(!this.extensions || this.extensions.slot(name,false,position)<0)return null;
+    if(!this.extensions)return null;
+    const selected=this.extensions.slot(name,false,position);
+    if(selected<0)return null;
+    if(position<this.fields.length && this.counts[position] && (!this.fields[position].repeated || this.fields[position].wrapper!==null || this.extensions.meta.slots[selected].match && this.extensions.meta.slots[selected].match!==4))return null;
     const preserve=this.extensions.admit(name,false,position);
-    return [{foreign:{tracker:this.extensions,preserve}},{extension:true,position,item},false];
+    if(this.fields.some(field=>field.mode==='text'))this.scalarClosed=true;
+    return [{foreign:{tracker:this.extensions,preserve,validation:this.extensions.process}},{extension:true,position,item},false];
   }
   // Select one statically bound field in sequence and reject unknown or duplicate siblings immediately.
   child(name) {
     if(this.mixed){
       srlXmlMixedFlush(this);const child=this.mixed.children.find(child=>child.payload.name===name);
-      if(!child)throw new Error('Unknown XML mixed child');return [child.payload,-child.alternative-1,false];
+      if(child){if(this.mixedClosed)throw new Error('Known XML child follows an end extension slot');return [child.payload,-child.alternative-1,false];}
+      const foreign=this.foreign(name,this.fields.length+this.mixed.children.length);
+      if(foreign){this.mixedClosed=true;return foreign;}
+      throw new Error('Unknown XML mixed child');
     }
     if (!this.meta) {
       if (this.nil) throw new Error('Nil XML element cannot contain text or child elements');
@@ -188,9 +197,11 @@ class SrlXmlTokenFrame {
         this.position=Math.max(...group.fields)+1;continue;
       }
       const wrapped=field.wrapper!==null, expected=wrapped ? field.wrapper : field.name;
+      const prefix=this.foreign(name,index,field.repeated && !wrapped ? this.counts[index] : 0);
+      if(prefix)return prefix;
       if (expected===name) {
         const maximum=wrapped ? 1 : field.maximum;
-        if (maximum!==null && this.counts[index]>=maximum) throw new Error('XML field occurrence maximum');
+        if (maximum!==null && this.counts[index]>=maximum) {if(this.extensions){++this.position;continue;}throw new Error('XML field occurrence maximum');}
         return [field,index,wrapped];
       }
       if(!field.repeated && this.counts[index] || wrapped && this.counts[index]){++this.position;continue;}
@@ -224,6 +235,7 @@ class SrlXmlTokenFrame {
   }
   // Retain only scalar/simple-content text; ordinary record indentation is discarded immediately.
   characters(value) {
+    if(value && this.scalarClosed)throw new Error('Scalar text follows an XML extension suffix');
     if (this.nil && value.length) throw new Error('Nil XML element cannot contain text or child elements');
     if(this.mixed){srlXmlMixedCharacters(this,value);return;}
     if (!this.meta || this.fields.some(field=>field.mode==='text')) this.text+=value;
@@ -241,6 +253,7 @@ class SrlXmlTokenFrame {
     }
     if(this.mixed){
       srlXmlMixedFlush(this);
+      if(this.mixed.grammar.length&&!this.mixed.accepting.includes(this.orderedState))throw new Error('Incomplete ordered XSD content');
       if(this.mixed.elementOnly&&this.mixed.extent&&this.mixed.get(this.value).length!==this.mixed.extent)throw new Error('XML ordered fixed extent mismatch');
     }
     for (let index=0;index<this.fields.length;++index) {
@@ -305,13 +318,15 @@ function srlXmlTokenDecode(meta,chunks,limits,strings=false) {
     }
     let frame,index=null;
     if (!stack.length) {
-      if (rootSeen || name!==meta.root) throw new Error('Unexpected XML root');
+      if (rootSeen || name!==meta.root) throw new Error('Unexpected XML root');)jstoken"
+R"jstoken(
+      srlXmlPackageRoot(attrs,prefix=>{for(let current=scope;current;current=current.parent)if(current.bindings.has(prefix))return current.bindings.get(prefix);return prefix==='xml'?'http://www.w3.org/XML/1998/namespace':'';},limits);
       if(attrs.has(srlXmlTokenTypeName)&&limits.expectedType!==undefined){if(srlXmlVariantQName(attrs.get(srlXmlTokenTypeName),scope)!==limits.expectedType)throw new Error('Conflicting expected XML type');attrs.delete(srlXmlTokenTypeName);}
       rootSeen=true; frame=new SrlXmlTokenFrame(meta,name,attrs,null,false,limits,scope);
     } else {
       const parent=stack[stack.length-1][0],selected=parent.child(name,attrs,scope),field=selected[0];
       index=selected[1];
-      frame=field.foreign ? new SrlXmlForeignFrame(name,attrs,scope,field.foreign.tracker,field.foreign.preserve) :
+      frame=field.foreign ? new SrlXmlForeignFrame(name,attrs,scope,field.foreign.tracker,field.foreign.preserve,field.foreign.validation||0) :
         field.map ? new SrlXmlMapFrame(field,name,attrs,limits) :
         field.variant ? new SrlXmlVariantFrame(field,name,attrs) :
         new SrlXmlTokenFrame(!selected[2] && field.model ? field.model() : null,name,attrs,field,selected[2],limits,scope);

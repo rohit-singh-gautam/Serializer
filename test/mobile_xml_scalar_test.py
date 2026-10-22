@@ -195,6 +195,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--compiler', type=Path, required=True); parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--language', default='kotlin,swift'); parser.add_argument('--wsl-languages', default='')
+    parser.add_argument('--modes', default='scalar,numeric,pattern,large')
     parser.set_defaults(cpp_library=None, executable=None, sanitize=False)
     args = parser.parse_args(); args.compiler, args.build = args.compiler.resolve(), args.build.resolve()
     languages = args.language.split(',')
@@ -203,14 +204,15 @@ def main():
     if args.build == ROOT or ROOT in args.build.parents and 'out' not in args.build.relative_to(ROOT).parts:
         parser.error('In-repository output must be beneath ignored out/')
     runner = sdk.Runner(args); total = 0
-    for mode in ('scalar', 'numeric', 'pattern', 'large'):
+    for mode in args.modes.split(','):
+        if mode not in ('scalar', 'numeric', 'pattern', 'large'): parser.error('Unknown scalar mode')
         directory = args.build / mode; directory.mkdir(parents=True, exist_ok=True)
         if mode == 'scalar':
             xsd, model, probes = scalars.XSD, scalars.MODEL, scalars.cases(); oracle = scalars.oracle_schema()
             validate = lambda data: scalars.independent(data, oracle)
         else:
             xsd, model, probes = facets.numeric_cases(directory) if mode == 'numeric' else facets.pattern_cases(mode == 'large')
-            oracle = etree.XMLSchema(etree.fromstring(xsd.encode())); validate = lambda data: oracle.validate(etree.fromstring(data))
+            oracle = facets.pattern_fixture.unicode_patterns.Oracle(xsd) if mode == 'pattern' else etree.XMLSchema(etree.fromstring(xsd.encode())); validate = lambda data: oracle.validate(etree.fromstring(data))
         paths = []
         for index, probe in enumerate(probes):
             if mode == 'scalar':
@@ -247,14 +249,14 @@ def main():
                 elif emitted.exists():
                     raise AssertionError(f'Invalid scalar output published: {emitted}')
         if mode == 'pattern':
-            (directory / 'sample.xsd').write_text(xsd.replace('A[😀-🙏]{1,2}|B[0-9]+|^$|C[^0-9]{1,2}|D(a?)*', r'\p{L}+'), encoding='utf-8')
+            (directory / 'sample.xsd').write_text(xsd.replace('A[😀-🙏]{1,2}|B[0-9]+|^$|C[^0-9]{1,2}|D(a?)*', r'\1'), encoding='utf-8')
             result = subprocess.run([str(value) for value in command], capture_output=True, text=True, timeout=60)
-            if result.returncode == 0 or 'approved portable XSD regex subset' not in result.stdout + result.stderr:
+            if result.returncode == 0 or 'XSD' not in result.stdout + result.stderr:
                 raise AssertionError('Unsupported mobile regex requires its portable-subset diagnostic')
             if any((directory / language / sdk.OUTPUTS[language]).read_bytes() != original[language] for language in languages):
                 raise AssertionError('Rejected pattern replaced generated source')
         total += len(paths)
-    binding_checks = scalars.rejected_bindings(args, languages)
+    binding_checks = scalars.rejected_bindings(args, languages) if "scalar" in args.modes.split(",") else 0
     print(f'PASS: {total} independent exact scalar/list/union/default/pattern probes and {binding_checks} binding checks across {len(languages)} SDKs', flush=True)
 
 

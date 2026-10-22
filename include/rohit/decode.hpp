@@ -14,6 +14,14 @@
 
 namespace rohit::serializer {
 
+enum class decode_operation_resource { work_units, allocation_bytes };
+
+// Optional synchronous admission borrows its callback state for the complete nested decoder lifetime.
+struct decode_operation {
+  void* state{};
+  void (*consume)(void*, decode_operation_resource, std::size_t){};
+};
+
 // Limits are copied into a decoder and shared by every nested value in that decoder.
 // Allocation accounting measures cumulative requested storage, not allocator-specific heap usage.
 struct decode_limits {
@@ -25,6 +33,7 @@ struct decode_limits {
   std::size_t max_allocation_bytes{64 * mebibyte};
   std::size_t max_work_units{128 * mebibyte};
   rohit::exception::diagnostic_options diagnostics{};
+  const decode_operation* operation{};
 };
 
 namespace exception {
@@ -90,6 +99,7 @@ protected:
   // Consume a previously inspected span with one cursor update and charge its byte work.
   constexpr const std::uint8_t* read_bytes(std::size_t size) {
     require_input(size);
+    if (limits.operation && limits.operation->consume) { limits.operation->consume(limits.operation->state, decode_operation_resource::work_units, size); }
     input_bytes += size;
     work_units += size;
     return in_stream.get_curr_and_increase_unchecked(size);
@@ -104,6 +114,8 @@ protected:
 
   // Probe a fixed-field batch without changing state; the scalar fallback owns failure diagnostics.
   [[nodiscard]] constexpr bool can_read_batch(std::size_t byte_count, std::size_t value_count) const {
+    // The scalar path admits callbacks before publication; the unchecked batch remains nonthrowing.
+    if (limits.operation) { return false; }
     return byte_count <= limits.max_input_bytes - input_bytes &&
            has_work_budget(byte_count, value_count) && byte_count <= in_stream.remaining_buffer();
   }
@@ -121,6 +133,7 @@ protected:
     if (count > limits.max_work_units - work_units) {
       fail_limit("Work limit exceeded");
     }
+    if (limits.operation && limits.operation->consume) { limits.operation->consume(limits.operation->state, decode_operation_resource::work_units, count); }
     work_units += count;
   }
 
@@ -129,7 +142,9 @@ protected:
     if (element_bytes != 0 && count > (limits.max_allocation_bytes - allocation_bytes) / element_bytes) {
       fail_limit("Allocation limit exceeded");
     }
-    allocation_bytes += count * element_bytes;
+    const auto bytes = count * element_bytes;
+    if (limits.operation && limits.operation->consume) { limits.operation->consume(limits.operation->state, decode_operation_resource::allocation_bytes, bytes); }
+    allocation_bytes += bytes;
   }
 
   // Validate a collection count before reserving or traversing its elements.

@@ -34,15 +34,24 @@ inline std::vector<document::part_profile> resolve_profiles(
         [&](const auto& item) { return item.role == role; });
     if (found == profiles.end()) { throw std::invalid_argument{"Unknown package profile role"}; }
     auto resolved = document::resolve_profile(found->envelope, override_value);
-    if (resolved.format != found->envelope.format ||
+    if ((found->decoder ? resolved.format == document::payload_format::opaque_bytes :
+            resolved.format != document::payload_format::opaque_bytes) ||
         resolved.container != found->envelope.container ||
         (resolved.compression != compression::format::none &&
          resolved.compression != compression::format::deflate)) {
-      throw std::invalid_argument{"Package runtime profiles support stored/deflate ZIP storage only"};
+      throw std::invalid_argument{"Package runtime profile conflicts with its bound model/container"};
     }
     found->envelope = resolved;
   }
   return profiles;
+}
+
+// Borrow one complete resolved role envelope while preserving its generated expected model identity.
+inline const document::part_profile& profile_options(std::span<const document::part_profile> profiles,
+                                                    std::string_view role) {
+  const auto found = std::find_if(profiles.begin(), profiles.end(), [&](const auto& item) { return item.role == role; });
+  if (found == profiles.end()) { throw std::invalid_argument{"Unknown package profile role"}; }
+  return *found;
 }
 
 // Retrieve validated per-role storage without changing payload encoding or OPC content types.

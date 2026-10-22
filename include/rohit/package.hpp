@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <exception>
 #include <functional>
 #include <iosfwd>
 #include <memory>
@@ -107,6 +108,7 @@ class budget {
   std::uint64_t references_{};
   std::uint64_t preserved_bytes_{};
   std::uint64_t reserved_buffer_bytes_{};
+  mutable std::exception_ptr callback_failure_{};
   // Invoke user cancellation outside all runtime-error annotation handlers.
   [[nodiscard]] std::optional<error_code> interruption() const;
   // Charge counters after interruption has been checked; only runtime budget failures originate here.
@@ -122,6 +124,8 @@ public:
   [[nodiscard]] std::uint64_t available_buffer_bytes() const noexcept;
   // Check cancellation at a bounded processing boundary.
   void check_cancelled() const;
+  // Restore the original policy callback exception before a surrounding codec handler annotates it.
+  void rethrow_callback_failure() const;
   // Charge work before allocation/I/O; failure never wraps a counter.
   void consume(resource selected, std::uint64_t count, std::string_view part = {});
   // Retain caller-declared reference diagnostics without changing callback exception types.
@@ -411,12 +415,14 @@ struct opaque_part {
   part metadata;
   std::vector<std::uint8_t> bytes;
   entry_options storage{};
+  std::size_t source_index{};
 };
 
 // Bind a discovered typed role to its declared output name without changing opaque payloads.
 struct part_relocation {
   std::string original;
   std::string canonical;
+  std::string dynamic_role{};
 };
 
 // Own optional unknown payloads verbatim with their authored relationship context.
@@ -426,6 +432,9 @@ struct preserved_extensions {
   std::vector<opaque_part> parts{};
   std::vector<relationship> relationships{};
   std::vector<part_relocation> relocations{};
+  // Return independent preservation state with explicit renames of discovered dynamic occurrences.
+  // Origins remain stable across native collection reorder; unknown or fixed origins reject.
+  [[nodiscard]] preserved_extensions with_renames(std::span<const part_relocation> names) const;
 };
 
 struct extension_policy {
@@ -461,6 +470,12 @@ public:
       std::string_view expected_content_type,
       const std::function<void(std::span<const std::uint8_t>, const part&, budget&)>& decode,
       std::size_t minimum, std::size_t maximum, bool allow_any_content_type);
+  // Select inert external occurrences without opening a target; callbacks stage unpublished role values.
+  void read_related_modes(std::string_view source, std::string_view relationship_type,
+      std::string_view expected_content_type,
+      const std::function<void(std::span<const std::uint8_t>, const part&, budget&)>& decode,
+      std::size_t minimum, std::size_t maximum, bool allow_any_content_type,
+      bool allow_internal, const std::function<void(const relationship&, budget&)>& external);
   // Validate every remaining payload's integrity, then apply optional extension policies.
   // Call only after application references and semantic checks succeed; no destination is changed.
   [[nodiscard]] preserved_extensions finish();
@@ -500,6 +515,9 @@ void load_opc_into(opc_reader& reader, aggregate_result<Model>& destination, Dec
 
 // Append retained opaque bytes/links after known edits; finish revalidates all target identities.
 void write_preserved(opc_writer& writer, const preserved_extensions& extensions);
+// Check dynamic occurrence liveness in its declared role before retargeting retained links.
+void write_preserved(opc_writer& writer, const preserved_extensions& extensions,
+    const std::function<bool(const part_relocation&)>& present);
 // Canonical writers sort complete supplied parts and relationships, use fixed ZIP metadata and
 // preserve authored IDs. Byte identity requires identical codec bytes, compressor/version/options.
 // The caller owns part bytes; aggregate scratch is bounded before any archive output is emitted.

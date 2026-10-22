@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <charconv>
 #include <functional>
+#include <map>
 #include <set>
 #include <stdexcept>
 #include <string_view>
@@ -214,6 +215,126 @@ particle_contract compile_particle_contract(const schema_bundle& bundle,
     }
   };
   attribution(attribution, result.root, {});
+  return result;
+}
+
+// Convert the schema grammar to a bounded epsilon NFA, then determinize its reachable states.
+ordered_automaton compile_ordered_automaton(const particle_contract& contract,
+    std::span<const xml::name> symbols, const particle_limits& limits) {
+  struct edge { std::optional<std::size_t> symbol; std::size_t target; };
+  using state_set = std::set<std::size_t>;
+  std::vector<std::vector<edge>> nodes;
+  std::size_t remaining = limits.max_work_units;
+  const auto work = [&] {
+    if (remaining == 0U) { throw std::length_error{"Ordered XML grammar work limit exceeded"}; }
+    --remaining;
+  };
+  const auto state = [&] {
+    work();
+    if (nodes.size() >= limits.max_states) {
+      throw std::length_error{"Ordered XML grammar state limit exceeded"};
+    }
+    nodes.emplace_back();
+    return nodes.size() - 1U;
+  };
+  const auto connect = [&](std::size_t from, std::size_t to,
+                           std::optional<std::size_t> symbol = {}) {
+    work(); nodes[from].push_back({symbol, to});
+  };
+  std::function<void(const content_particle&, std::size_t, std::size_t, std::size_t)> emit;
+  const auto body = [&](const content_particle& value, std::size_t from,
+                        std::size_t to, std::size_t depth) {
+    work();
+    if (value.kind == particle_kind::element) {
+      const auto found = std::find(symbols.begin(), symbols.end(), value.name);
+      if (found == symbols.end()) {
+        throw std::invalid_argument{"Ordered XML variant is missing an XSD child alternative"};
+      }
+      connect(from, to, static_cast<std::size_t>(found - symbols.begin()));
+    } else if (value.kind == particle_kind::choice) {
+      for (const auto& child : value.children) { emit(child, from, to, depth + 1U); }
+    } else if (value.kind == particle_kind::sequence) {
+      auto current = from;
+      for (std::size_t index{}; index < value.children.size(); ++index) {
+        const auto next = index + 1U == value.children.size() ? to : state();
+        emit(value.children[index], current, next, depth + 1U);
+        current = next;
+      }
+      if (value.children.empty()) { connect(from, to); }
+    } else {
+      throw std::invalid_argument{"Ordered XML grammar requires typed sequence/choice particles"};
+    }
+  };
+  emit = [&](const content_particle& value, std::size_t from, std::size_t to,
+             std::size_t depth) {
+    work();
+    if (depth > limits.max_depth) { throw std::length_error{"Ordered XML grammar depth exceeded"}; }
+    auto current = from;
+    for (std::size_t count{}; count < value.minimum; ++count) {
+      const auto next = state();
+      body(value, current, next, depth);
+      current = next;
+    }
+    connect(current, to);
+    if (!value.maximum) {
+      const auto next = state();
+      body(value, current, next, depth);
+      connect(next, current);
+    } else {
+      for (auto count = value.minimum; count < *value.maximum; ++count) {
+        const auto next = state();
+        body(value, current, next, depth);
+        connect(next, to);
+        current = next;
+      }
+    }
+  };
+  const auto begin = state(), end = state();
+  emit(contract.root, begin, end, 0U);
+  const auto closure = [&](state_set values) {
+    std::vector<std::size_t> pending(values.begin(), values.end());
+    while (!pending.empty()) {
+      const auto current = pending.back(); pending.pop_back();
+      for (const auto& edge : nodes[current]) {
+        work();
+        if (!edge.symbol && values.insert(edge.target).second) { pending.push_back(edge.target); }
+      }
+    }
+    return values;
+  };
+  ordered_automaton result;
+  std::vector<state_set> states{{}, closure({begin})};
+  std::map<state_set, std::size_t> identities{{{}, 0U}, {states[1U], 1U}};
+  std::vector<bool> used(symbols.size());
+  for (std::size_t index{}; index < states.size(); ++index) {
+    if (symbols.size() > limits.max_states ||
+        states.size() > limits.max_states / std::max<std::size_t>(symbols.size(), 1U)) {
+      throw std::length_error{"Ordered XML transition table limit exceeded"};
+    }
+    result.accepting.push_back(states[index].contains(end));
+    std::vector<std::size_t> row;
+    for (std::size_t symbol{}; symbol < symbols.size(); ++symbol) {
+      state_set targets;
+      for (const auto source : states[index]) {
+        for (const auto& edge : nodes[source]) {
+          work();
+          if (edge.symbol == symbol) { targets.insert(edge.target); used[symbol] = true; }
+        }
+      }
+      auto selected = closure(std::move(targets));
+      if (!identities.contains(selected) &&
+          states.size() >= limits.max_states / std::max<std::size_t>(symbols.size(), 1U)) {
+        throw std::length_error{"Ordered XML transition table limit exceeded"};
+      }
+      const auto [found, inserted] = identities.emplace(selected, states.size());
+      if (inserted) { states.push_back(std::move(selected)); }
+      row.push_back(found->second);
+    }
+    result.transitions.push_back(std::move(row));
+  }
+  if (std::find(used.begin(), used.end(), false) != used.end()) {
+    throw std::invalid_argument{"Ordered XML variant contains an alternative absent from its XSD grammar"};
+  }
   return result;
 }
 

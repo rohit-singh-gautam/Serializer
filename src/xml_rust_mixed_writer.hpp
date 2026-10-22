@@ -4,6 +4,7 @@
 
 #include "native_schema.hpp"
 #include "xml_schema.hpp"
+#include "xml_ordered_writer.hpp"
 
 #include <functional>
 #include <string>
@@ -19,6 +20,7 @@ inline std::string rust_mixed_method(const mixed_contract& mixed, const std::str
   const auto variant = native::snake(mixed.variant->name);
   const auto text = variant + '_' + native::snake(mixed.text_branch);
   line("{");
+  line(xml_codegen::ordered_start(mixed, "rust"));
   if (input) {
     line("let mut items=Vec::new();");
     if (!mixed.element_only) { line("let mut text_bytes=0usize;"); }
@@ -38,6 +40,7 @@ inline std::string rust_mixed_method(const mixed_contract& mixed, const std::str
     }
     for (const auto& child : mixed.children) {
       line(std::string{mixed.element_only && &child == mixed.children.data() ? "if" : "} else if"} + " matches!(&input.current,SrlXmlToken::Start(name,_) if name.uri == " + quote(child.qualified_name.namespace_uri) + " && name.local == " + quote(child.qualified_name.local) + ") {");
+      line(xml_codegen::ordered_step(mixed, std::to_string(child.alternative), "rust", "return Err(Error(\"Ordered XSD content mismatch\"));"));
       line("fragment." + variant + "_index=" + std::to_string(child.alternative) + "; fragment." + variant + '_' + native::snake(child.branch) + '=' +
           type_identifier(*child.value_type) + "::srl_xml_read_tokens(input," + quote(child.qualified_name.namespace_uri) + ',' + quote(child.qualified_name.local) + ")?;");
     }
@@ -57,10 +60,13 @@ inline std::string rust_mixed_method(const mixed_contract& mixed, const std::str
       line(std::to_string(mixed.text_alternative) + "=>{ let value=&fragment." + text + "; if value.len() > output.mixed_limits.max_text_bytes.saturating_sub(text_bytes) { return Err(output.quota(\"XML mixed text byte limit\")); } text_bytes+=value.len(); output.escaped(value,false)?; },");
     }
     for (const auto& child : mixed.children) {
-      line(std::to_string(child.alternative) + "=>fragment." + variant + '_' + native::snake(child.branch) + ".srl_xml_write(output," + quote(child.qualified_name.local) + ',' + quote(child.qualified_name.namespace_uri) + ")?,");
+      line(std::to_string(child.alternative) + "=>{");
+      line(xml_codegen::ordered_step(mixed, std::to_string(child.alternative), "rust", "return Err(Error(\"Ordered XSD content mismatch\"));"));
+      line("fragment." + variant + '_' + native::snake(child.branch) + ".srl_xml_write(output," + quote(child.qualified_name.local) + ',' + quote(child.qualified_name.namespace_uri) + ")?; },");
     }
     line("_=>return Err(Error(\"Unknown native XML mixed discriminator\")) } }");
   }
+  line(xml_codegen::ordered_finish(mixed, "rust", "return Err(Error(\"Incomplete ordered XSD content\"));"));
   line("}");
   return result;
 }

@@ -14,8 +14,15 @@ pub mod @xml_operation@ {
  /// Logical admissions shared with the selected package or application operation.
  #[derive(Clone,Copy,Debug,PartialEq,Eq)]
  pub enum Resource {WorkUnits,DecoderAllocationBytes,XmlNodes,XmlAttributes,ScalarBytes,References}
+ /// Immutable generated package root capabilities; ordinary XML operations do not install this scope.
+ #[derive(Clone,Copy)]
+ pub struct PackageContract {pub expected_type:Option<(&'static str,&'static str)>,pub requires_type:bool,pub vocabularies:&'static [&'static str]}
  /// Borrow one caller-owned ledger for the entire synchronous native codec invocation.
  pub trait Operation {
+  /// Return a package-owned root contract without interpreting ordinary model XML as package metadata.
+  fn package_contract(&self)->Option<PackageContract>{None}
+  /// Admit XML-only bytes before retention; old operations need no additional resource enum arm.
+  fn preserve_bytes(&mut self,_count:usize,_field:&str)->Result<()>{Ok(())}
   fn consume(&mut self,resource:Resource,count:usize,field:&str)->Result<()>;
   fn poll(&mut self,field:&str)->Result<()>;
   fn limit(&mut self,message:&'static str,field:&str)->Failure;
@@ -38,12 +45,24 @@ pub mod @xml_operation@ {
   fn decode_xml_with_operation(text:&str,options:Options<'_>,operation:&mut dyn Operation)->Result<Self>;
   fn decode_package_with_operation(text:&str,options:Options<'_>,expected_type:Option<(&str,&str)>,operation:&mut dyn Operation)->Result<Self>;
  }
+ /// Add opaque XML companions without changing native values or the existing Codec contract.
+ pub trait DocumentCodec:Codec {
+  /// Borrow payload and immutable scopes until complete output admission succeeds.
+  fn encode_document_with_operation(&self,extensions:Option<&super::XmlExtensionState>,options:Options<'_>,operation:&mut dyn Operation)->Result<String>;
+  /// Keep a fresh model and independently owned presentation private until complete validation.
+  fn decode_document_with_operation(text:&str,options:Options<'_>,expected_type:Option<(&str,&str)>,operation:&mut dyn Operation)->Result<super::XmlDocument<Self>>;
+  /// Capture presentation for a caller-selected decoder without constructing another model.
+  fn prepare_document_with_operation(text:&str,options:Options<'_>,operation:&mut dyn Operation)->Result<super::XmlExtensionState>;
+ }
  /// Diagnostic metadata is parallel to the unchanged native identity descriptors.
  pub(super) struct SrlXmlIdentityDiagnosticConstraint {pub(super) name:&'static str,pub(super) fields:&'static [&'static str]}
  pub(super) struct SrlXmlIdentityDiagnosticScalar {pub(super) uri:&'static str,pub(super) local:&'static str,pub(super) member:&'static str,pub(super) attribute:bool,pub(super) text:bool}
  pub(super) struct SrlXmlIdentityDiagnosticNode {pub(super) owner:&'static str,pub(super) constraints:&'static [SrlXmlIdentityDiagnosticConstraint],pub(super) edges:&'static [&'static str],pub(super) scalars:&'static [SrlXmlIdentityDiagnosticScalar]}
+ /// Copy independent native policies into private replay without retaining caller-owned option lifetimes.
+ #[derive(Clone,Copy,Default)]
+ pub(super) struct Policies {pub(super) map:super::XmlMapLimits,pub(super) mixed:super::XmlMixedLimits,pub(super) digest:super::XmlDigestLimits,pub(super) identity:super::XmlIdentityLimits}
  /// Only an active operation allocates shared synchronous state; no thread-local or global context exists.
- struct Core<'a> {operation:&'a mut dyn Operation,first:Option<Failure>,field:&'static str,
+ struct Core<'a> {operation:&'a mut dyn Operation,first:Option<Failure>,field:&'static str,policies:Policies,
   graph:&'static [super::SrlXmlIdentityNode],diagnostics:&'static [SrlXmlIdentityDiagnosticNode],path:Vec<(usize,&'static str)>}
  #[derive(Clone)]
  pub(super) struct State<'a> {core:Rc<RefCell<Core<'a>>>,primary:bool}
@@ -52,8 +71,12 @@ pub mod @xml_operation@ {
   pub(super) fn new(operation:&'a mut dyn Operation,graph:&'static [super::SrlXmlIdentityNode],diagnostics:&'static [SrlXmlIdentityDiagnosticNode])->Result<Self> {
    let field=diagnostics.first().map_or("",|item|item.owner);
    operation.poll(field)?;operation.consume(Resource::DecoderAllocationBytes,std::mem::size_of::<Core<'_>>().saturating_add(2*std::mem::size_of::<usize>()),field)?;
-   Ok(Self{core:Rc::new(RefCell::new(Core{operation,first:None,field,graph,diagnostics,path:Vec::new()})),primary:true})
+   Ok(Self{core:Rc::new(RefCell::new(Core{operation,first:None,field,policies:Policies::default(),graph,diagnostics,path:Vec::new()})),primary:true})
   }
+  /// Preserve the original independent policies for every nested private declaration replay.
+  pub(super) fn configure(&self,options:&Options<'_>) {self.core.borrow_mut().policies=Policies{map:options.map_limits,mixed:options.mixed_limits,digest:options.digest_limits,identity:options.identity_limits};}
+  /// Copy policies without holding a shared-state borrow across decoder callbacks.
+  pub(super) fn policies(&self)->Policies {self.core.borrow().policies}
   /// Identity reparsing spends real work and allocation but never repeats primary XML admissions.
   pub(super) fn secondary(&self)->Self {Self{core:self.core.clone(),primary:false}}
   /// Update a compiler-owned native projection before work whose logical member is already selected.
@@ -62,6 +85,11 @@ pub mod @xml_operation@ {
   pub(super) fn poll(&self)->std::result::Result<(),super::Error> {
    let mut core=self.core.borrow_mut();if core.first.is_some(){return Err(super::Error("XML operation failed"));}
    let field=core.field;match core.operation.poll(field){Ok(())=>Ok(()),Err(error)=>{core.first=Some(error);Err(super::Error("XML operation failed"))}}
+  }
+  /// Share preservation admission and latch its exact first caller failure before copying state.
+  pub(super) fn preserve_bytes(&self,count:usize)->std::result::Result<(),super::Error>{
+   self.poll()?;let mut core=self.core.borrow_mut();let field=core.field;
+   match core.operation.preserve_bytes(count,field){Ok(())=>Ok(()),Err(error)=>{core.first=Some(error);Err(super::Error("XML operation failed"))}}
   }
   /// Charge the selected caller ledger; a failed invocation cannot call it again or clear its error.
   pub(super) fn consume(&self,resource:Resource,count:usize)->std::result::Result<(),super::Error> {

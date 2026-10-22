@@ -97,6 +97,56 @@ TEST(xml_extension_slot, reject_skip_and_exact_occurrence_contracts) {
   EXPECT_THROW((void)xml::collect_extension_slots(contract, scope, {}), std::invalid_argument);
   const std::array repeated{items.front(), items.front()};
   EXPECT_THROW((void)xml::collect_extension_slots(contract, scope, repeated), std::length_error);
+  contract.slots.front().namespace_match = xml::extension_namespace_match::one_of;
+  EXPECT_THROW((void)xml::collect_extension_slots(contract, scope, repeated), std::invalid_argument);
+}
+
+// processContents validates declared payloads before either discarding or publishing opaque state.
+TEST(xml_extension_slot, declaration_validation_is_independent_of_retention) {
+  auto scope = owner();
+  auto child = foreign_child();
+  child.children.clear(); child.attributes.clear(); child.text_segments.clear(); child.text = "q:Value";
+  child.namespace_bindings["q"] = "urn:allowed";
+  const std::array items{xml::extension_item_view{nullptr, &child, 1U, 1U}};
+  for (const auto policy : {xml::unknown_policy::skip, xml::unknown_policy::preserve}) {
+    auto contract = child_contract(policy);
+    contract.validate_declaration = [](const xml::element&, const xml::attribute* attribute,
+        const xml::element* element, xml::limits, xml::operation_context* context) {
+      if (context) { context->consume(xml::operation_resource::work_units, 1U); }
+      if (attribute || element->qualified_name.local != "extra") { return false; }
+      if (xml::resolve_qname(element->text, *element).namespace_uri != "urn:allowed") {
+        throw std::invalid_argument{"Declared QName does not satisfy its restriction"};
+      }
+      return true;
+    };
+    for (const auto process : {xml::wildcard_process_contents::lax, xml::wildcard_process_contents::strict}) {
+      contract.slots.front().process_contents = process;
+      const auto retained = xml::collect_extension_slots(contract, scope, items);
+      EXPECT_EQ(retained.children.empty(), policy == xml::unknown_policy::skip);
+      child.namespace_bindings["q"] = "urn:shadowed";
+      EXPECT_THROW((void)xml::collect_extension_slots(contract, scope, items), std::invalid_argument);
+      child.namespace_bindings["q"] = "urn:allowed";
+      child.qualified_name.local = "undeclared";
+      if (process == xml::wildcard_process_contents::strict) {
+        EXPECT_THROW((void)xml::collect_extension_slots(contract, scope, items), std::invalid_argument);
+      } else {
+        EXPECT_NO_THROW((void)xml::collect_extension_slots(contract, scope, items));
+      }
+      child.qualified_name.local = "extra";
+    }
+    contract.slots.front().process_contents = xml::wildcard_process_contents::skip;
+    child.namespace_bindings["q"] = "urn:shadowed";
+    EXPECT_NO_THROW((void)xml::collect_extension_slots(contract, scope, items));
+    child.namespace_bindings["q"] = "urn:allowed";
+    contract.slots.front().process_contents = xml::wildcard_process_contents::strict;
+    xml::operation_context context{};
+    context.charge = [](xml::operation_resource resource, std::size_t amount) {
+      if (resource == xml::operation_resource::work_units && amount == 1U) {
+        throw std::runtime_error{"Original caller interruption"};
+      }
+    };
+    EXPECT_THROW((void)xml::collect_extension_slots(contract, scope, items, {}, {}, {}, &context), std::runtime_error);
+  }
 }
 
 // Independent owning copies preserve exact mixed order and lexical scope through serialization.

@@ -41,8 +41,13 @@ inline std::string kotlin(const package_node& package, const std::string& name,
     const std::string& helper,
     const std::function<std::string(const type_name&)>& render_type,
     const std::function<std::string(std::string_view)>& render_field,
-    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {}) {
-  const auto parts = ordered(package);
+    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {},
+    bool binary_only = false) {
+  const auto configured_package = configure_package(package, xml);
+  const auto parts = ordered(configured_package);
+  for (const auto* part : parts) {
+    if (binary_only && part->codec == "json") { throw std::invalid_argument{"JSON package pipeline disabled during generation"}; }
+  }
   const auto contract = compile_package_profile(package, xml);
   std::string profiles_field{"profileOverrides"};
   while (std::any_of(parts.begin(), parts.end(),
@@ -59,15 +64,14 @@ inline std::string kotlin(const package_node& package, const std::string& name,
     if ((part->part_name || part->relationship_id) && (!part->max_occurs || *part->max_occurs > 1U)) {
       throw std::invalid_argument{"Repeated package roles require dynamic names and generated relationship IDs"};
     }
-    if (part->value_type && part->codec != "xml") {
-      throw std::invalid_argument{"Kotlin typed package roles require the XML codec"};
-    }
   }
   std::string output;
   const auto line = [&](const std::string& value = {}) { output += value + '\n'; };
   const auto api = [&](std::string_view type) { return helper + "." + std::string{type}; };
   const std::string input = name == "Input" ? "Input_2" : "Input";
   const std::string value = name == "Value" ? "Value_2" : "Value";
+  std::string pipelines_field{"pipelineOverrides"};
+  while (fields.contains(pipelines_field) || pipelines_field == profiles_field) { pipelines_field += '_'; }
   line("/** Complete schema-bound OPC profile; infrastructure metadata is compiler-owned. */");
   line("object " + name + " {");
   line("    /** Bind ordinary owning model/binary values for synchronous composition. */");
@@ -80,6 +84,7 @@ inline std::string kotlin(const package_node& package, const std::string& name,
   }
   line("        var extensions = " + api("Extensions") + "()");
   line("        var " + profiles_field + ": Map<String,String> = emptyMap()");
+  line("        var " + pipelines_field + ": Map<String," + api("TypedPipeline") + "> = emptyMap()");
   line("    }");
   line("    /** Own an unpublished freshly decoded complete aggregate. */");
   line("    class " + std::string{value} + " internal constructor() : " + input + "()");
@@ -97,14 +102,16 @@ inline std::string kotlin(const package_node& package, const std::string& name,
         optional(part->relationship_id) + "," + literal(part->compression) + "," + std::to_string(part->min_occurs) + "L," +
         (part->max_occurs ? std::to_string(*part->max_occurs) : "-1") + "L," + literal(part->profile_policy) + "," +
         (profile->decoder ? expanded(profile->decoder->root) : "null") + "," +
-        (profile->decoder && profile->decoder->type ? expanded(*profile->decoder->type) : "null") + "," + literal(part->name) + ")");
+        (profile->decoder && profile->decoder->type ? expanded(*profile->decoder->type) : "null") + "," + literal(part->name) + "," + literal(part->codec) + "," + literal(part->target_mode) + "," + (part->requires_type ? "true" : "false") + "," + [&]() { std::string result{"listOf("}; if(profile->decoder){for(const auto& uri:profile->decoder->vocabularies){result+=literal(uri)+",";}}return result+")"; }() + ")");
   }
   std::string declared_roles;
   for (std::size_t role_index{}; role_index < parts.size(); ++role_index) {
     declared_roles += "role" + std::to_string(role_index) + ",";
   }
   line("    /** Resolve storage overrides without replacing expected payload identities. */");
-  line("    fun selectProfiles(profiles: Map<String,String> = emptyMap()): List<" + api("Role") + "> = " + helper + ".resolveProfiles(listOf(" + declared_roles + "),profiles)");
+  line("    fun selectProfiles(profiles: Map<String,String> = emptyMap()): List<" + api("Role") + "> = selectPipelines(profiles)");
+  line("    /** Resolve an additive typed pipeline table together with legacy compression choices. */");
+  line("    fun selectPipelines(profiles: Map<String,String> = emptyMap(), pipelines: Map<String," + api("TypedPipeline") + "> = emptyMap()): List<" + api("Role") + "> = " + helper + ".resolveProfiles(listOf(" + declared_roles + "),profiles,pipelines)" + (binary_only ? ".also { if(it.any { role -> role.codec == \"json\" }) throw " + api("PackageError") + "(" + api("Code") + ".INVALID_OPTIONS,\"JSON package pipeline disabled during generation\") }" : ""));
   line("    /** Check generated scalar identities and forward references before publication. */");
   line("    private fun checkReferences(value: " + input + ", budget: " + api("Budget") + ", locate: ((String,Int)->" + api("PayloadLocation") + ")? = null) {");
   line("        val references = " + api("ReferenceIndex") + "(budget)");
@@ -136,21 +143,23 @@ inline std::string kotlin(const package_node& package, const std::string& name,
   line("        val bytes = minOf(context.budget.configured().maxPartBytes,Int.MAX_VALUE.toLong()).toInt()");
   line("        val nodes = minOf(context.budget.remaining(" + api("Resource") + ".WORK_UNITS),Int.MAX_VALUE.toLong()).toInt()");
   line("        return XmlLimits(bytes,nodes,64,bytes).also { it.srlPackageContext = SrlXmlBudget.Operation(context::check,context::consume,context::resourceLimit); it.srlPackageRootType = context.role.expectedType?.let { value -> val end=value.indexOf('}'); if(value.startsWith('{')) SrlXmlName(value.substring(end+1),value.substring(1,end)) else SrlXmlName(value) } }");
+  line("            .also { it.srlPackageVocabularies=context.role.vocabularies; it.srlPackageRequiresType=context.role.requiresType }");
   line("    }");
   line("    /** Narrow caller-selected native limits while retaining this exact package context and root type. */");
   line("    fun xmlLimits(context: " + api("CodecContext") + ", configured: XmlLimits): XmlLimits {");
   line("        val shared = xmlLimits(context)");
   line("        return XmlLimits(minOf(shared.maxBytes,configured.maxBytes),minOf(shared.maxNodes,configured.maxNodes),minOf(shared.maxDepth,configured.maxDepth),minOf(shared.maxTextBytes,configured.maxTextBytes)).also { it.srlPackageContext = shared.srlPackageContext; it.srlPackageRootType = shared.srlPackageRootType }");
+  line("            .also { it.srlPackageVocabularies=shared.srlPackageVocabularies; it.srlPackageRequiresType=shared.srlPackageRequiresType }");
   line("    }");
   line("    /** Return an owning archive after all declared roles and preserved edges validate. */");
   line("    fun encode(value: " + std::string{input} + ", budget: " + api("Budget") + " = " + api("Budget") + "()): ByteArray {");
   line("        val composer = " + api("Composer") + "(budget)");
-  line("        checkReferences(value,budget); val profiles = selectProfiles(value." + profiles_field + ")");
+  line("        checkReferences(value,budget); val profiles = selectPipelines(value." + profiles_field + ",value." + pipelines_field + ")");
   index = 0;
   for (const auto* part : parts) {
     line("        composer." + std::string{part->value_type ? (singleton(*part) ? "single" : "models") : "binaries"} +
         "(profiles[" + std::to_string(index++) + "],value." + render_field(part->name) +
-        (part->value_type ? ") { model,context -> model.encodeXml(xmlLimits(context)) }" : ")"));
+        (part->value_type ? ") { model,context -> if(context.role.codec == \"xml\") model.encodeXml(xmlLimits(context),extensionOptions=XmlExtensionOptions(context.role.vocabularies)) else { val writer=SrlWriter(if(context.role.codec == \"json\") Protocol.JSON else Protocol.BINARY_NONE,context::nativeOperation,minOf(context.budget.configured().maxPartBytes,Int.MAX_VALUE.toLong()).toInt()); model.srlWrite(writer); writer.bytes() } }" : ")"));
   }
   line("        return composer.finish(value.extensions)");
   line("    }");
@@ -158,13 +167,19 @@ inline std::string kotlin(const package_node& package, const std::string& name,
   line("    fun write(destination: java.io.OutputStream, value: " + std::string{input} + ", budget: " + api("Budget") + " = " + api("Budget") + "()) { " + helper + ".write(destination,encode(value,budget),budget) }");
   line("    /** Publish only a fresh complete aggregate after capability and optional domain validation. */");
   line("    fun load(source: Any, budget: " + api("Budget") + " = " + api("Budget") + "(), policy: " + api("ExtensionPolicy") + " = " + api("ExtensionPolicy") + "(), validate: ((" + value + "," + api("Budget") + ") -> Unit)? = null): " + api("Result") + "<" + value + "> {");
+  line("        return loadProfiles(source,budget,policy,validate)");
+  line("    }");
+  line("    /** Load a selected native/XML pipeline without changing the original load signature. */");
+  line("    fun loadProfiles(source: Any, budget: " + api("Budget") + " = " + api("Budget") + "(), policy: " + api("ExtensionPolicy") + " = " + api("ExtensionPolicy") + "(), validate: ((" + value + "," + api("Budget") + ") -> Unit)? = null, profiles: Map<String,String> = emptyMap(), pipelines: Map<String," + api("TypedPipeline") + "> = emptyMap()): " + api("Result") + "<" + value + "> {");
+  line("        val selected=selectPipelines(profiles,pipelines)");
   line("        " + helper + ".Loader(source,budget).use { loader ->");
   line("            val value = " + std::string{value} + "()");
+  line("            value." + profiles_field + "=profiles.toMap(); value." + pipelines_field + "=pipelines.toMap()");
   index = 0;
   for (const auto* part : parts) {
     line("            value." + render_field(part->name) + " = loader." +
-        std::string{part->value_type ? (singleton(*part) ? "single" : "models") : "binaries"} + "(role" + std::to_string(index++) +
-        (part->value_type ? ") { bytes,context -> " + render_type(*part->value_type) + ".decodeXml(bytes,xmlLimits(context)) }" : ")"));
+        std::string{part->value_type ? (singleton(*part) ? "single" : "models") : "binaries"} + "(selected[" + std::to_string(index++) + "]" +
+        (part->value_type ? ") { bytes,context -> if(context.role.codec == \"xml\") " + render_type(*part->value_type) + ".decodeXml(bytes,xmlLimits(context),extensionOptions=XmlExtensionOptions(context.role.vocabularies)) else { val limits=Limits(maxBytes=minOf(context.budget.configured().maxPartBytes,Int.MAX_VALUE.toLong()).toInt()).also { it.srlOperation=context::nativeOperation }; val reader=SrlReader(bytes,if(context.role.codec == \"json\") Protocol.JSON else Protocol.BINARY_NONE,limits); context.consume(\"work\",bytes.size.toLong()); val decoded=" + render_type(*part->value_type) + ".srlCreate(reader); reader.finish(); decoded } }" : ")"));
   }
   line("            checkReferences(value,budget,loader::location)");
   line("            return loader.finish(value,policy,validate) { candidate,extensions -> candidate.extensions = extensions }");
@@ -173,7 +188,7 @@ inline std::string kotlin(const package_node& package, const std::string& name,
   line("    /** Validate the entire staged round trip before creating a sibling or replacing the destination. */");
   line("    fun save(path: java.nio.file.Path, value: " + std::string{input} + ", budget: " + api("Budget") + " = " + api("Budget") + "(), validate: ((" + value + "," + api("Budget") + ") -> Unit)? = null, fault: ((String) -> Unit)? = null) {");
   line("        val bytes = encode(value,budget)");
-  line("        load(bytes,budget," + api("ExtensionPolicy") + "(" + api("Unknown") + ".PRESERVE," + api("Unknown") + ".PRESERVE),validate)");
+  line("        loadProfiles(bytes,budget," + api("ExtensionPolicy") + "(" + api("Unknown") + ".PRESERVE," + api("Unknown") + ".PRESERVE),validate,value." + profiles_field + ",value." + pipelines_field + ")");
   line("        " + helper + ".save(path,bytes,budget,fault)");
   line("    }");
   line("}");

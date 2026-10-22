@@ -9,12 +9,22 @@ typedef struct srl_xml_scalar_state {
 } srl_xml_scalar_state;
 typedef struct srl_xml_scalar_pattern { size_t start; const srl_xml_scalar_state* states; size_t state_count; } srl_xml_scalar_pattern;
 typedef struct srl_xml_scalar_group { const srl_xml_scalar_pattern* patterns; size_t count; } srl_xml_scalar_group;
+/* Schema literal identities retain expanded names rather than namespace prefix spellings. */
+typedef struct srl_xml_scalar_expanded_name { const char *uri, *local; } srl_xml_scalar_expanded_name;
+typedef struct srl_xml_scalar_identity {
+  const char *kind, *list_kind, *lexical; const srl_xml_scalar_expanded_name* names; size_t name_count;
+  const struct srl_xml_scalar_identity* items; size_t item_count;
+} srl_xml_scalar_identity;
 /* SIZE_MAX represents an unspecified length; every pointer/count pair refers to immutable generated data. */
 typedef struct srl_xml_scalar_rule {
   const char *kind, *whitespace; const char* bounds[4]; size_t length, minimum, maximum;
   const char* const* enumeration; size_t enumeration_count; bool finite;
   const srl_xml_scalar_group* groups; size_t group_count; const char* list_kind;
   const struct srl_xml_scalar_rule* members; size_t member_count; const char* fixed;
+  bool namespace_dependent; const srl_xml_scalar_identity* identities; size_t identity_count;
+  const srl_xml_scalar_identity* fixed_identity;
+  const struct srl_xml_scalar_rule* item_rule;
+  const char* schema_default;
 } srl_xml_scalar_rule;
 typedef struct srl_xml_scalar_work { size_t remaining, max_items; } srl_xml_scalar_work;
 /* Admit instruction visits and lexical scans before performing their work. */
@@ -199,17 +209,33 @@ static inline srl_status srl_xml_scalar_compare(const srl_xml_scalar_rule* rule,
     srl_string_free(&a);srl_string_free(&b);if (status!=srl_ok||*order!=0) { return status; }
   } *order=0;return srl_ok;
 }
+/* Compare primitive type families independently of authored member names and bounded integer widths. */
+static inline const char* srl_xml_scalar_value_family(const char* kind) {
+  if (srl_xml_scalar_integer(kind)||!strcmp(kind,"decimal")) { return "decimal"; }
+  return !strcmp(kind,"boolean")||!strcmp(kind,"float")||!strcmp(kind,"double")||!strcmp(kind,"anyURI")||!strcmp(kind,"QName") ? kind : "string";
+}
+/* Keep scalar and ordered-list identities distinct while admitting derived numeric item families. */
+static inline bool srl_xml_scalar_same_family(const srl_xml_scalar_rule* first,const srl_xml_scalar_rule* second) {
+  if (!!*first->list_kind!=!!*second->list_kind) { return false; }
+  return !strcmp(srl_xml_scalar_value_family(*first->list_kind?first->list_kind:first->kind),srl_xml_scalar_value_family(*second->list_kind?second->list_kind:second->kind));
+}
+/* Compare an outer enumeration/fixed literal through the union's own ordered members. */
+static inline srl_status srl_xml_scalar_union_equal(const srl_xml_scalar_rule* rule,const srl_xml_scalar_rule* selected,
+    const char* text,const char* allowed,srl_xml_scalar_work* work,int* order);
+/* Compare a prepared schema identity without reselecting its authored lexical spelling. */
+static inline srl_status srl_xml_scalar_stored_equal(const srl_xml_scalar_rule*,const char*,const srl_xml_scalar_identity*,srl_xml_scalar_work*,bool*);
 /* Validate one normalized candidate, retaining resource failures across independent union alternatives. */
-static inline srl_status srl_xml_scalar_check_work(const srl_xml_scalar_rule* rule, const char* raw, size_t size,
-    srl_xml_scalar_work* work, srl_string* result) {
+static inline srl_status srl_xml_scalar_check_selected(const srl_xml_scalar_rule* rule, const char* raw, size_t size,
+    srl_xml_scalar_work* work, srl_string* result,const srl_xml_scalar_rule** selected_leaf) {
+  const srl_xml_scalar_rule* selected=rule;
   srl_status status=srl_xml_scalar_spend(work,size);if (status!=srl_ok) { return status; } srl_string text={0};
-  status=srl_xml_scalar_normalize(raw,size,rule->whitespace,&text);if (status!=srl_ok) { return status; }
-  status=srl_xml_scalar_lexical(rule->kind,text.data);if (status!=srl_ok) { goto done; }
+  status=srl_xml_scalar_normalize(raw,size,rule->member_count?"preserve":rule->whitespace,&text);if (status!=srl_ok) { return status; }
+  if (!rule->member_count) { status=srl_xml_scalar_lexical(rule->kind,text.data);if (status!=srl_ok) { goto done; } }
   if (rule->member_count) {
     bool matched=false;
     for (size_t index=0;index<rule->member_count;++index) {
-      srl_string alternative={0};status=srl_xml_scalar_check_work(&rule->members[index],text.data,text.size,work,&alternative);srl_string_free(&alternative);
-      if (status==srl_ok) { matched=true;break; } if (status==srl_limit||status==srl_allocation) { goto done; }
+      srl_string alternative={0};status=srl_xml_scalar_check_selected(&rule->members[index],text.data,text.size,work,&alternative,&selected);
+      if (status==srl_ok) { srl_string_free(&text);text=alternative;matched=true;break; } srl_string_free(&alternative);if (status==srl_limit||status==srl_allocation) { goto done; }
     } if (!matched) { status=srl_invalid;goto done; }
   }
   size_t count=0;
@@ -219,7 +245,8 @@ static inline srl_status srl_xml_scalar_check_work(const srl_xml_scalar_rule* ru
     while (srl_xml_scalar_token(text.data,&offset,&begin,&item_size)) {
       srl_string item={0};status=srl_xml_scalar_spend(work,item_size);
       if (status==srl_ok) { status=srl_string_set(&item,text.data+begin,item_size); }
-      if (status==srl_ok) { status=srl_xml_scalar_lexical(rule->list_kind,item.data); }
+      if(status==srl_ok&&rule->item_rule){srl_string checked={0};status=srl_xml_scalar_check_selected(rule->item_rule,item.data,item.size,work,&checked,NULL);srl_string_free(&checked);}
+      else if(status==srl_ok){status=srl_xml_scalar_lexical(rule->list_kind,item.data);}
       srl_string_free(&item);if (status!=srl_ok) { goto done; }
     }
   } else { size_t offset=0;while (offset<text.size) { srl_xml_scalar_code(text.data,&offset);++count; } }
@@ -230,17 +257,27 @@ static inline srl_status srl_xml_scalar_check_work(const srl_xml_scalar_rule* ru
     if (status!=srl_ok) { goto done; }
     if (order==2||((index==0u||index==2u)&&order<0)||((index==1u||index==3u)&&order>0)||(index>=2u&&order==0)) { status=srl_invalid;goto done; }
   }
+  if(rule->identity_count){
+    bool matched=false;for(size_t index=0;status==srl_ok&&!matched&&index<rule->identity_count;++index){
+      status=srl_xml_scalar_stored_equal(selected,text.data,&rule->identities[index],work,&matched);
+    }if(status!=srl_ok){goto done;}if(!matched){status=srl_invalid;goto done;}
+  }
+  if(rule->fixed_identity){bool matched=false;status=srl_xml_scalar_stored_equal(selected,text.data,rule->fixed_identity,work,&matched);if(status!=srl_ok){goto done;}if(!matched){status=srl_invalid;goto done;}}
   if (rule->enumeration_count) {
     bool matched=false;
     for (size_t index=0;index<rule->enumeration_count;++index) {
-      srl_string expected={0};int order=0;status=srl_xml_scalar_normalize(rule->enumeration[index],strlen(rule->enumeration[index]),rule->whitespace,&expected);
-      if (status==srl_ok) { status=srl_xml_scalar_compare(rule,text.data,expected.data,true,work,&order); } srl_string_free(&expected);
+      srl_string expected={0};int order=0;if (rule->member_count) { status=srl_xml_scalar_union_equal(rule,selected,text.data,rule->enumeration[index],work,&order); } else {
+        status=srl_xml_scalar_normalize(rule->enumeration[index],strlen(rule->enumeration[index]),rule->whitespace,&expected);
+        if (status==srl_ok) { status=srl_xml_scalar_compare(rule,text.data,expected.data,true,work,&order); }
+      } srl_string_free(&expected);
       if (status!=srl_ok) { goto done; } if (!order) { matched=true;break; }
     } if (!matched) { status=srl_invalid;goto done; }
   }
   if (rule->fixed) {
-    srl_string expected={0};int order=0;status=srl_xml_scalar_normalize(rule->fixed,strlen(rule->fixed),rule->whitespace,&expected);
-    if (status==srl_ok) { status=srl_xml_scalar_compare(rule,text.data,expected.data,true,work,&order); } srl_string_free(&expected);
+    srl_string expected={0};int order=0;if (rule->member_count) { status=srl_xml_scalar_union_equal(rule,selected,text.data,rule->fixed,work,&order); } else {
+      status=srl_xml_scalar_normalize(rule->fixed,strlen(rule->fixed),rule->whitespace,&expected);
+      if (status==srl_ok) { status=srl_xml_scalar_compare(rule,text.data,expected.data,true,work,&order); }
+    } srl_string_free(&expected);
     if (status!=srl_ok) { goto done; } if (order) { status=srl_invalid;goto done; }
   }
   if (rule->finite) { double number=0;if (!srl_xml_float(text.data,strcmp(rule->kind,"float")==0,&number)||!isfinite(number)) { status=srl_invalid;goto done; } }
@@ -252,7 +289,51 @@ static inline srl_status srl_xml_scalar_check_work(const srl_xml_scalar_rule* ru
     } if (!matched) { status=srl_invalid;goto done; }
   }
 done:
-  if (status==srl_ok) { srl_string_free(result);*result=text; } else { srl_string_free(&text); } return status;
+  if (status==srl_ok) { if(selected_leaf){*selected_leaf=selected;}srl_string_free(result);*result=text; } else { srl_string_free(&text); } return status;
+}
+/* Compare selected item identities in order, preserving independent union families per token. */
+static inline srl_status srl_xml_scalar_stored_equal(const srl_xml_scalar_rule* selected,const char* text,
+    const srl_xml_scalar_identity* identity,srl_xml_scalar_work* work,bool* equal) {
+  *equal=false;srl_status status=srl_xml_scalar_spend(work,strlen(text));if(status!=srl_ok){return status;}
+  srl_xml_scalar_rule expected={0};expected.kind=identity->kind;expected.list_kind=identity->list_kind;
+  if(!srl_xml_scalar_same_family(selected,&expected)){return srl_ok;}
+  if(*selected->list_kind){
+    size_t count=0;status=srl_xml_scalar_count(text,work->max_items,&count);if(status!=srl_ok||count!=identity->item_count){return status;}
+    size_t offset=0,begin=0,size=0,index=0;bool matched=true;
+    srl_xml_scalar_rule builtin={0};builtin.kind=selected->list_kind;builtin.whitespace="collapse";builtin.list_kind="";
+    builtin.length=builtin.minimum=builtin.maximum=SIZE_MAX;for(size_t bound=0;bound<sizeof(builtin.bounds)/sizeof(builtin.bounds[0]);++bound){builtin.bounds[bound]="";}
+    while(status==srl_ok&&matched&&srl_xml_scalar_token(text,&offset,&begin,&size)){
+      srl_string token={0},checked={0};const srl_xml_scalar_rule* item=&builtin;
+      status=srl_string_set(&token,text+begin,size);
+      if(status==srl_ok&&selected->item_rule){status=srl_xml_scalar_check_selected(selected->item_rule,token.data,token.size,work,&checked,&item);}
+      if(status==srl_ok){status=srl_xml_scalar_stored_equal(item,selected->item_rule?checked.data:token.data,&identity->items[index++],work,&matched);}
+      srl_string_free(&token);srl_string_free(&checked);
+    }*equal=status==srl_ok&&matched;return status;
+  }
+  int order=1;status=srl_xml_scalar_compare(selected,text,identity->lexical,true,work,&order);*equal=status==srl_ok&&!order;return status;
+})cscalar"
+R"cscalar(
+/* Resolve schema literals without applying the outer enumeration recursively. */
+static inline srl_status srl_xml_scalar_union_equal(const srl_xml_scalar_rule* rule,const srl_xml_scalar_rule* selected,
+    const char* text,const char* allowed,srl_xml_scalar_work* work,int* order) {
+  *order=1;
+  for(size_t index=0;index<rule->member_count;++index) {
+    srl_string expected={0};const srl_xml_scalar_rule* leaf=NULL;
+    srl_status status=srl_xml_scalar_check_selected(&rule->members[index],allowed,strlen(allowed),work,&expected,&leaf);
+    if(status==srl_ok) { if(srl_xml_scalar_same_family(selected,leaf)){status=srl_xml_scalar_compare(selected,text,expected.data,true,work,order);}srl_string_free(&expected);return status; }
+    srl_string_free(&expected);if(status==srl_limit||status==srl_allocation) {return status;}
+  }return srl_ok;
+}
+/* Preserve the original union spelling so a later encode cannot select an earlier different member. */
+static inline srl_status srl_xml_scalar_check_work(const srl_xml_scalar_rule* rule,const char* raw,size_t size,
+    srl_xml_scalar_work* work,srl_string* result) {
+  /* Namespace-aware union selection is performed by the owning XML companion before publication. */
+  if (rule->namespace_dependent) {
+    srl_status status=srl_xml_scalar_spend(work,size);
+    return status==srl_ok ? srl_xml_scalar_normalize(raw,size,rule->member_count?"preserve":rule->whitespace,result) : status;
+  }
+  srl_string checked={0};srl_status status=srl_xml_scalar_check_selected(rule,raw,size,work,&checked,NULL);
+  if(status==srl_ok&&rule->member_count) {status=srl_string_set(result,raw,size);srl_string_free(&checked);}else if(status==srl_ok){srl_string_free(result);*result=checked;}return status;
 }
 /* Start independent scalar work only after document admission has bounded the raw text. */
 static inline srl_status srl_xml_scalar_check(const srl_xml_scalar_rule* rule, const char* raw, size_t size,

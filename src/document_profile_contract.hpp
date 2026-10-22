@@ -19,6 +19,12 @@ struct package_profile_contract {
   std::vector<document::part_profile> parts{};
 };
 
+// Apply one explicit package-qualified INI role profile without altering model fields or wire identities.
+[[nodiscard]] package_node configure_package(const package_node& source, const xml_options& options);
+// Reject unused package/role selectors before any generated output is published.
+void validate_package_options(const std::vector<std::unique_ptr<syntax_node>>& statements,
+                              const xml_options& options);
+
 // Compile existing schema package declarations to portable profile/dispatch metadata.
 // Typed XML roots use the same authoritative binder as their generated codecs.
 [[nodiscard]] package_profile_contract compile_package_profile(const package_node& source,

@@ -1833,6 +1833,16 @@ void profile_loader::read_related(std::string_view source, std::string_view rela
     std::string_view expected_content_type,
     const std::function<void(std::span<const std::uint8_t>, const part&, budget&)>& decode,
     std::size_t minimum, std::size_t maximum, bool allow_any_content_type) {
+  read_related_modes(source, relationship_type, expected_content_type, decode, minimum, maximum,
+      allow_any_content_type, true, {});
+}
+
+// Stage internal bytes or inert external URI values under the same source-scoped occurrence contract.
+void profile_loader::read_related_modes(std::string_view source, std::string_view relationship_type,
+    std::string_view expected_content_type,
+    const std::function<void(std::span<const std::uint8_t>, const part&, budget&)>& decode,
+    std::size_t minimum, std::size_t maximum, bool allow_any_content_type,
+    bool allow_internal, const std::function<void(const relationship&, budget&)>& external) {
   if (finished_ || failed_ || minimum > maximum || !decode) {
     throw error{error_code::invalid_state, "Invalid or finished package profile"};
   }
@@ -1852,7 +1862,24 @@ void profile_loader::read_related(std::string_view source, std::string_view rela
   for (const auto* link : links) {
     shared.consume(resource::work_units, 1, source);
     if (link->mode != target_mode::internal) {
+      if (external) {
+        shared.consume(resource::metadata_bytes, sizeof(link), source);
+        selected_.insert(link);
+        try {
+          external(*link, shared);
+        } catch (const error& failure) {
+          throw error{failure.code, failure.what(), failure.part.empty() ? link->source : failure.part,
+              failure.offset_bytes, failure.required, failure.permitted, failure.field_path,
+              failure.reference, failure.relationship_id.empty() ? link->id : failure.relationship_id};
+        }
+        shared.check_cancelled();
+        continue;
+      }
       throw error{error_code::invalid_relationship, "Typed profile requires an internal target",
+                  link->source, 0, 0, 0, {}, link->target, link->id};
+    }
+    if (!allow_internal) {
+      throw error{error_code::invalid_relationship, "Profile requires an external target",
                   link->source, 0, 0, 0, {}, link->target, link->id};
     }
     const auto name = resolve_target(link->source, link->target);
@@ -1884,10 +1911,12 @@ void profile_loader::read_related(std::string_view source, std::string_view rela
     try {
       decode(bytes, *selected, shared);
     } catch (const error& failure) {
+      shared.rethrow_callback_failure();
       throw error{failure.code, failure.what(), failure.part.empty() ? selected->name : failure.part,
                   failure.offset_bytes, failure.required, failure.permitted, failure.field_path,
                   failure.reference, failure.relationship_id.empty() ? link->id : failure.relationship_id};
     } catch (const std::exception&) {
+      shared.rethrow_callback_failure();
       throw error{error_code::codec, "Profile part decoding failed", selected->name,
                   0, 0, 0, {}, {}, link->id};
     }
@@ -1957,8 +1986,30 @@ preserved_extensions profile_loader::finish() {
 // Return the single budget used by archive, metadata, typed callbacks and references.
 budget& profile_loader::shared_budget() const noexcept { return *reader_.shared_budget(); }
 
-// Rebind preserved links simultaneously; relative targets resolve in their original source scope.
+// Stage only explicit dynamic provenance changes before returning independent owning state.
+preserved_extensions preserved_extensions::with_renames(std::span<const part_relocation> names) const {
+  auto result = *this;
+  for (const auto& requested : names) {
+    validate_payload_name(requested.original);
+    validate_payload_name(requested.canonical);
+    const auto found = std::find_if(result.relocations.begin(), result.relocations.end(),
+        [&](const auto& item) { return !item.dynamic_role.empty() && equal_identity(item.original, requested.original); });
+    if (found == result.relocations.end()) {
+      throw error{error_code::invalid_state, "Rename origin is not a discovered dynamic role", requested.original};
+    }
+    found->canonical = requested.canonical;
+  }
+  return result;
+}
+
+// Preserve the original runtime entrypoint for independently authored relocation records.
 void write_preserved(opc_writer& writer, const preserved_extensions& extensions) {
+  write_preserved(writer, extensions, {});
+}
+
+// Rebind preserved links simultaneously; relative targets resolve in their original source scope.
+void write_preserved(opc_writer& writer, const preserved_extensions& extensions,
+    const std::function<bool(const part_relocation&)>& present) {
   auto& shared = *writer.shared_budget();
   using relocation_pointer = const part_relocation*;
   if (extensions.relocations.size() > shared.available_buffer_bytes() / sizeof(relocation_pointer)) {
@@ -1994,8 +2045,13 @@ void write_preserved(opc_writer& writer, const preserved_extensions& extensions)
   const auto relocated = [&](std::string_view name) -> std::string_view {
     const auto found = std::lower_bound(ordered.begin(), ordered.end(), name,
         [&](const auto* item, auto key) { return compare(item->original, key); });
-    return found != ordered.end() && equal_identity((*found)->original, name) ?
-        std::string_view{(*found)->canonical} : name;
+    if (found != ordered.end() && equal_identity((*found)->original, name)) {
+      if (!(*found)->dynamic_role.empty() && present && !present(**found)) {
+        throw error{error_code::missing_part, "Preserved relationship refers to removed dynamic occurrence", std::string{name}};
+      }
+      return (*found)->canonical;
+    }
+    return name;
   };
   for (const auto& item : extensions.parts) {
     writer.add_part(item.metadata.name, item.metadata.content_type, item.bytes, item.storage);

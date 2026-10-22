@@ -72,7 +72,7 @@ Unknown core markup rejects. Optional and explicitly required relationship types
 have separate reject/skip/preserve policies. Preserved payload bytes and original
 source-local target strings are revalidated during encoding. `Value::paths`
 retains discovered singleton paths, allowing a loaded package to keep its relative
-relationship scopes. Dynamic role renames still require application rebinding.
+relationship scopes. Explicit dynamic/repeated moves use generated rename plans in version 2.28.
 
 Release 2.19.0 adds the helper-module `CanonicalPackage` trait. It leaves existing
 `encode`, `write`, `save` and selected-codec methods unchanged, including their
@@ -126,9 +126,11 @@ publication. Forward references are valid; duplicate, missing and wrong-model
 keys reject. Numeric keys use exact native decimal values, including `uint64`
 boundaries. Nested paths, optional/container selectors and inherited selectors are
 not supported by this contract.
-Typed package graphs requiring document companions for QName/list/prefix scopes
-or preserved XML extension slots reject, including nested/inherited uses. Existing
-ordinary native and XML document-companion APIs retain their support separately.
+Typed package graphs with QName/list/prefix scopes or preserved XML extension
+slots compose through aggregate `xml_companions`, including supported nested and
+inherited graphs. Keep these role/original-part associations with their native
+values when reordering parts. See [Profile pipelines and XML companions](#profile-pipelines-and-xml-companions)
+for selected codecs, borrowing and explicit rename handling.
 Compiler/runtime 2.18.0 admits supported XSD key/unique/keyref package graphs.
 Each complete tuple spends one reference before equal keyrefs are deduplicated;
 nested owners retain independent indexes. Identity replays add their actual
@@ -195,3 +197,22 @@ See the [common metadata qualification](../verification/verification-opc-metadat
 The selected Windows Rust SDK gate covers these package work units. It does not
 close the broader official 3MF corpus, all XML graph combinations or other platform gates in
 [the pending backlog](../pending.md).
+
+## Profile pipelines and XML companions
+
+Version 2.28 composes the [generated profile pipeline](../serialization/xml_packages.md#generated-package-pipelines)
+with namespace/foreign graph roles. Aggregate `xml_companions` retains role and
+original physical-name associations outside unchanged native models and
+`ModelPart` layouts. Keep this store with reordered values; singleton associations
+use the empty occurrence key. Borrowed encoders never construct another owning
+payload. Selected callbacks use the supplied document codec context and operation;
+preparation captures presentation independently from a selected decoder.
+
+`encode_renamed_profiles` and `save_renamed_profiles` combine runtime envelope
+selection with explicit repeated/dynamic rename plans. Existing methods preserve
+their signatures/meaning. Case-equivalent original OPC names identify the same
+companion; opaque External URIs remain outside internal rename matching.
+`Operation::preserve_bytes` has a default implementation, preserving existing
+implementers, and package adapters forward retained bytes to the shared ledger.
+Native JSON/BINARY_NONE bytes exclude XML companions. See the
+[actual SDK and archive checks](../verification/verification-package-pipelines-2026-10-22.md).

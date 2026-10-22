@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 namespace package = rohit::serializer::package;
@@ -111,8 +112,14 @@ TEST(package_application, profiles_and_generated_forward_references) {
   overrides = {{"fixed", {.compression = compression::format::deflate}}};
   EXPECT_THROW(encode(input), std::invalid_argument);
   EXPECT_THROW(contract::archive::select_profiles({{"absent", {}}}), std::invalid_argument);
-  EXPECT_THROW(contract::archive::select_profiles({{"targets", {.format = document::payload_format::json}}}),
-      std::invalid_argument);
+  for (const auto format : {document::payload_format::json, document::payload_format::binary_none}) {
+    overrides = {{"targets", {.format = format}}};
+    std::istringstream native_source{encode(input), std::ios::binary};
+    const auto native_loaded = contract::archive::load(native_source, {}, {}, {}, overrides);
+    ASSERT_EQ(native_loaded.value.targets.size(), 1U);
+    ASSERT_EQ(native_loaded.value.sources.size(), 1U);
+    EXPECT_EQ(native_loaded.value.sources.front().value.target_id, native_loaded.value.targets.front().value.id);
+  }
 }
 
 // Generated indexes reject duplicates, missing targets and targets from a different native model.
@@ -161,5 +168,32 @@ TEST(package_application, shared_reference_budget_retains_field_location) {
     EXPECT_EQ(error.part, "/target.xml");
     EXPECT_EQ(error.field_path, "targets.id");
   }
+}
+
+// An empty positional record still performs traversal even though it emits zero bytes.
+struct empty_native_record {
+  // Exercise the production native empty-object path without adding unrelated wire fields.
+  template <typename Protocol> void serialize_out(Protocol& protocol) const {
+    protocol.struct_serialize_out_empty();
+  }
+};
+
+// Native operation admission must measure actual visits that cannot be inferred from output size.
+TEST(package_application, native_output_counts_zero_byte_record_visits) {
+  const rohit::stream_limits bounds{0U, 4096U};
+  const auto encode_records = [&](std::size_t count, package::budget& shared) {
+    package::native_part_output output{bounds, {shared, "/empty.bin", "main"}};
+    rohit::serializer::binary_none<rohit::serializer::serialize_type::out, package::native_part_output> encoder{output};
+    encoder.serialize_out(std::vector<empty_native_record>(count));
+    return output.current_offset();
+  };
+  package::budget one{}, many{};
+  EXPECT_EQ(encode_records(1U, one), encode_records(63U, many));
+  EXPECT_GT(one.remaining(package::resource::work_units), many.remaining(package::resource::work_units));
+  const auto used = many.configured().max_work_units - many.remaining(package::resource::work_units);
+  package::budget exact{package::limits{.max_work_units = used}};
+  EXPECT_NO_THROW(static_cast<void>(encode_records(63U, exact)));
+  package::budget tight{package::limits{.max_work_units = used - 1U}};
+  EXPECT_THROW(static_cast<void>(encode_records(63U, tight)), package::error);
 }
 } // namespace

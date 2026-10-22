@@ -126,7 +126,7 @@ R"packagejs(
   function occurs(count, role) { if (count < role.minimum || role.maximum !== null && count > role.maximum) { const error = new PackageError(Code.Occurrence, 'Package role occurrence constraint failed'); error.fieldPath = role.field; throw error; } }
   // Create a schema-bound facade after model constructors exist; ordinary model codec APIs stay unchanged.
   function profile(roles) {
-    const origins = new WeakMap();
+    const origins = extensionOrigins;
     // Poll caller policy separately so only ledger-owned exhaustion acquires relocation context.
     function relocationConsume(state,resource,count,part,field='relationships',id='') {
       state.poll();try{state.budget.consume(resource,count,part);}catch(error){if(error instanceof PackageError){error.fieldPath=field;error.relationshipId=id;}throw error;}
@@ -135,7 +135,8 @@ R"packagejs(
     function preservedRelationships(extensions,sources,state) {
       const provenance=origins.get(extensions);if(!provenance||!provenance.size)return extensions.relationships;
       let moves=null;const destinations=new Map(),absent=new Set();
-      for(const [role,[origin,canonical]]of provenance){
+      for(const [slot,record]of provenance){
+        const [origin,canonical]=record,role=record[2]??slot;partName(origin);partName(canonical);
         state.poll();state.budget.consume('workUnits',origin.length+canonical.length+1,origin);
         if(!sources.get(role)?.includes(canonical)){state.budget.consume('decoderAllocationBytes',64+2*origin.length,origin);absent.add(fold(origin));continue;}
         if(origin===canonical)continue;state.budget.consume('decoderAllocationBytes',160+4*(origin.length+canonical.length),origin);
@@ -161,8 +162,8 @@ R"packagejs(          const destination=moves?.get(fold(original))??original;
     }
     // Bridge native scalar/events and identity tuples through the package ledger.
     function nativeLimits(state,role,part,link='') {
-      return new XmlLimits({expectedType:role.expectedTypeUri+'\0'+role.expectedTypeLocal,maxBytes:Math.min(state.budget.limits.maxPartBytes,16777216),operation(resource,count,field){
-        try{state.poll();}catch(error){throw state.fail(error);}try{state.budget.consume(resource==='allocation'?'decoderAllocationBytes':resource==='reference'?'references':'workUnits',count,part);}
+      return new XmlLimits({expectedType:role.expectedTypeUri+'\0'+role.expectedTypeLocal,srlPackageVocabularies:role.vocabularies??[],srlPackageRequiresType:role.requiresType??false,extensions:{understoodNamespaces:role.vocabularies??[]},maxBytes:Math.min(state.budget.limits.maxPartBytes,16777216),operation(resource,count,field){
+        try{state.poll();}catch(error){throw state.fail(error);}try{state.budget.consume(resource==='allocation'?'decoderAllocationBytes':resource==='reference'?'references':resource==='preserved'?'preservedBytes':'workUnits',count,part);}
         catch(error){if(error instanceof PackageError){error.fieldPath=role.field+(field?'.'+field:'');if(!error.relationshipId)error.relationshipId=link;}throw state.fail(error);}
         try{state.poll();}catch(error){throw state.fail(error);}
       }});
@@ -188,7 +189,7 @@ R"packagejs(          const destination=moves?.get(fold(original))??original;
 )packagejs"
 R"packagejs(
     // Validate runtime overrides against the closed role inventory before provider work.
-    function profiles(options){const selected=new Map(),supplied=options.profiles||{};for(const key of Object.keys(supplied))if(!roles.some(role=>role.role===key))throw new PackageError(Code.InvalidOptions,'Unknown package profile role');for(const role of roles){const compression=!Object.hasOwn(supplied,role.role)||supplied[role.role]===undefined?role.compression:supplied[role.role];if(!['stored','deflate'].includes(compression)||role.policy==='fixed'&&compression!==role.compression)throw new PackageError(Code.InvalidOptions,'Conflicting package profile override');selected.set(role.field,compression);}return selected;}
+    function profiles(options){const selected=new Map(),supplied=options.profiles||{};for(const key of Object.keys(supplied))if(!roles.some(role=>role.role===key))throw new PackageError(Code.InvalidOptions,'Unknown package profile role');for(const role of roles){const override=supplied[role.role];let compression=role.compression,codec=role.codec??(role.model===null?'bytes':'xml');if(override!==undefined){if(typeof override==='string')compression=override;else if(override&&typeof override==='object'&&!Array.isArray(override)){for(const key of Object.keys(override))if(!['codec','compression'].includes(key))throw new PackageError(Code.InvalidOptions,'Unknown package envelope override');compression=override.compression??compression;codec=override.codec??codec;}else throw new PackageError(Code.InvalidOptions,'Invalid package envelope override');}if(!['stored','deflate'].includes(compression)||role.binaryOnly&&codec==='json'||!(role.model===null?['bytes']:['xml','json','binary_none']).includes(codec)||role.policy==='fixed'&&(compression!==role.compression||codec!==(role.codec??(role.model===null?'bytes':'xml'))))throw new PackageError(Code.InvalidOptions,'Conflicting package profile override');selected.set(role.field,{compression,codec});}return selected;}
     // Snapshot selected synchronous directions before an asynchronous provider can change caller options.
     function codecs(options){const selected=new Map(),supplied=options.codecs;if(supplied===undefined)return selected;if(supplied===null||typeof supplied!=='object'||Array.isArray(supplied))throw new PackageError(Code.InvalidOptions,'Expected a role codec table');for(const key of Object.keys(supplied)){const role=roles.find(role=>role.role===key),value=supplied[key];if(!role||role.model===null||value===null||typeof value!=='object'||Array.isArray(value))throw new PackageError(Code.InvalidOptions,'Invalid selected codec role');const encode=value.encode,decode=value.decode;if(encode!==undefined&&typeof encode!=='function'||decode!==undefined&&typeof decode!=='function')throw new PackageError(Code.InvalidOptions,'Expected synchronous codec functions');selected.set(role.field,Object.freeze({encode,decode}));}return selected;}
     // Check immutable expanded root/type before a selected decoder receives the complete XML payload.
@@ -198,9 +199,43 @@ R"packagejs(
       const size=srlXmlUtf8Length(text);if(size>state.budget.limits.maxPartBytes)throw new PackageError(Code.ResourceLimit,'Payload exceeds part limit',part,link);state.budget.consume('workUnits',size,part);state.budget.consume('decoderAllocationBytes',Math.min(2*text.length,2*chunkBytes),part);
       parser.on('error',()=>{throw failure();});parser.on('doctype',()=>{throw failure();});
       parser.on('xmldecl',value=>{if(value.version!=='1.0'||value.encoding&&fold(value.encoding)!=='utf-8')throw failure();});
-      parser.on('opentag',node=>{if(srlXmlTokenName(node.uri||'',node.local)!==role.model._srlXmlToken.root)throw failure();for(const attribute of Object.values(node.attributes)){if(attribute.uri!=='http://www.w3.org/2001/XMLSchema-instance'||attribute.local!=='type')continue;const parts=srlXmlTrim(attribute.value).split(':');if(parts.length>2||parts.some(value=>!SrlXmlNcName.test(value)))throw failure();const prefix=parts.length===2?parts[0]:'',local=parts[parts.length-1],uri=node.ns[prefix]||'';if(prefix&&!Object.hasOwn(node.ns,prefix)||uri!==role.expectedTypeUri||local!==role.expectedTypeLocal)throw failure();}found=true;throw stop;});
+      parser.on('opentag',node=>{if(srlXmlTokenName(node.uri||'',node.local)!==role.model._srlXmlToken.root)throw failure();const attributes=new Map();for(const attribute of Object.values(node.attributes)){attributes.set(srlXmlTokenName(attribute.uri||'',attribute.local),attribute.value);if(attribute.uri!=='http://www.w3.org/2001/XMLSchema-instance'||attribute.local!=='type')continue;const parts=srlXmlTrim(attribute.value).split(':');if(parts.length>2||parts.some(value=>!srlXmlCompleteName(SrlXmlNcName,value)))throw failure();const prefix=parts.length===2?parts[0]:'',local=parts[parts.length-1],uri=node.ns[prefix]||'';if(prefix&&!Object.hasOwn(node.ns,prefix)||uri!==role.expectedTypeUri||local!==role.expectedTypeLocal)throw failure();}srlXmlPackageRoot(attributes,prefix=>node.ns[prefix]||'',nativeLimits(state,role,part,link));found=true;throw stop;});
       try{for(let at=0;at<text.length;at+=chunkBytes){state.poll();parser.write(text.slice(at,at+chunkBytes));}parser.close();}catch(error){if(error!==stop)throw error;}if(!found)throw failure();state.poll();
     }
+    // Native package adapters preserve the existing wire parser while sharing one operation ledger.
+    function xmlEncode(model,role,limits){if(!role.requiresType)return model.encodeXml(limits);const output=new SrlXmlWriter(limits),root=role.model._srlXmlToken.root,split=root.indexOf('\0');model._srlXmlWrite(output,root.slice(split+1),root.slice(0,split),{typeUri:role.expectedTypeUri,typeLocal:role.expectedTypeLocal});return output.text;}
+    class NativeReader extends SrlReader {
+      constructor(data,codec,state,role,part,id){super(data,codec==='json'?Protocol.JSON:Protocol.BINARY_NONE,new SerializerNativeLimits(state.budget.limits.maxPartBytes,state.budget.limits.maxPartBytes,Math.min(1000000,state.budget.remaining('workUnits')),64));Object.assign(this,{state,role,part,id,inText:false});}
+      // Classify only this adapter's local structural quotas as package resource failures.
+      fail(message){if(this.state&&['Message byte limit','String limit','Element limit','Depth limit'].includes(message)){const failure=new PackageError(Code.ResourceLimit,message,this.part,this.id);failure.fieldPath=this.role.field;throw failure;}super.fail(message);}
+      // Admit bounded scanner work and string storage before inspecting or copying each input range.
+      require(count){relocationConsume(this.state,'workUnits',count+1,this.part,this.role.field,this.id);super.require(count);if(this.inText)relocationConsume(this.state,'decoderAllocationBytes',count*2,this.part,this.role.field,this.id);}
+      // Retain exact native string grammar without introducing a second model representation.
+      text(){this.inText=true;try{return super.text();}finally{this.inText=false;}}
+      // Admit a native token's temporary decoded text before creating it.
+      token(){this.whitespace();const start=this.offset;while(this.offset<this.bytes.length&&![44,125,93,32,9,10,13].includes(this.bytes[this.offset]))++this.offset;if(start===this.offset)this.fail('Missing token');relocationConsume(this.state,'decoderAllocationBytes',2*(this.offset-start),this.part,this.role.field,this.id);return srlDecoder.decode(this.bytes.subarray(start,this.offset));}
+      // Account for owning record traversal even when the positional record has no payload bytes.
+      beginObject(){relocationConsume(this.state,'decoderAllocationBytes',64,this.part,this.role.field,this.id);relocationConsume(this.state,'workUnits',1,this.part,this.role.field,this.id);super.beginObject();}
+      // Bound native collection slots before their generated append operation.
+      nextElement(index,count){const present=super.nextElement(index,count);if(present){relocationConsume(this.state,'decoderAllocationBytes',8,this.part,this.role.field,this.id);relocationConsume(this.state,'workUnits',1,this.part,this.role.field,this.id);}return present;}
+    }
+    class NativeWriter extends SrlWriter {
+      constructor(codec,state,role,part,id){relocationConsume(state,'decoderAllocationBytes',256,part,role.field,id);state.hold(256,part);super(codec==='json'?Protocol.JSON:Protocol.BINARY_NONE);Object.assign(this,{state,role,part,id});}
+      // Keep exact part-byte limits distinct from the existing native writer's buffer capacity.
+      reserve(count){if(!Number.isSafeInteger(count)||count<0||count>this.state.budget.limits.maxPartBytes-this.offset)throw new PackageError(Code.ResourceLimit,'Native package output exceeds part limit',this.part,this.id);relocationConsume(this.state,'workUnits',count+1,this.part,this.role.field,this.id);if(this.offset+count>this.buffer.length){const capacity=Math.max(this.offset+count,Math.min(0x7fffffff,this.buffer.length*2));relocationConsume(this.state,'decoderAllocationBytes',capacity,this.part,this.role.field,this.id);this.state.hold(capacity,this.part);}super.reserve(count);}
+      // Reserve exact UTF-8 byte counts so a fitting part does not fail a pessimistic text estimate.
+      raw(text){if(text.length>this.state.budget.limits.maxPartBytes-this.offset)throw new PackageError(Code.ResourceLimit,'Native package text exceeds part limit',this.part,this.id);relocationConsume(this.state,'workUnits',text.length+1,this.part,this.role.field,this.id);relocationConsume(this.state,'decoderAllocationBytes',text.length*3,this.part,this.role.field,this.id);this.put(srlUtf8(text));}
+      // Admit UTF8 and escaped JSON scalar temporaries before the existing native encoder constructs them.
+      text(value){if(typeof value==='string'){relocationConsume(this.state,'workUnits',value.length+1,this.part,this.role.field,this.id);relocationConsume(this.state,'decoderAllocationBytes',value.length*(this.json()?16:3),this.part,this.role.field,this.id);}super.text(value);}
+      // Admit collection and empty-record traversal before borrowing source elements.
+      beginObject(){relocationConsume(this.state,'workUnits',1,this.part,this.role.field,this.id);super.beginObject();}
+      beginArray(count){relocationConsume(this.state,'workUnits',count+1,this.part,this.role.field,this.id);super.beginArray(count);}
+      // A returned native message owns one exact-size snapshot.
+      bytes(){relocationConsume(this.state,'decoderAllocationBytes',this.offset,this.part,this.role.field,this.id);this.state.hold(this.offset,this.part);return super.bytes();}
+    }
+    // Run statically typed native codec entrypoints without cloning the payload into an XML/JSON tree.
+    function nativeEncode(model,codec,state,role,part,id){const writer=new NativeWriter(codec,state,role,part,id);model.write(writer);return writer.bytes();}
+    function nativeDecode(data,codec,state,role,part,id){relocationConsume(state,'workUnits',data.length,part,role.field,id);const reader=new NativeReader(data,codec,state,role,part,id),model=role.model.read(reader,new role.model());reader.finish();return model;}
     // Retain even falsy thrown values and reject asynchronous codecs before any package publication.
     function selectedCodec(callback,value,limits,state,role,part,link){try{state.poll();const context=Object.freeze({budget:state.budget,role:role.role,part,relationshipId:link}),result=callback(value,limits,context);if(result&&typeof result.then==='function'){NativePromise.resolve(result).catch(()=>{});throw new PackageError(Code.InvalidOptions,'Selected codecs must return synchronously',part,link);}state.poll();return result;}catch(error){throw state.fail(nativeFailure(error,state,role,part,link));}}
     // Prepare all native payloads and metadata before the first asynchronous provider call.
@@ -220,16 +255,18 @@ R"packagejs(      const budget = getBudget(options), state = new State(budget), 
           if (typeof name !== 'string' || typeof contentType !== 'string') throw new PackageError(Code.InvalidOptions, 'Part metadata must be strings');
           budget.consume('metadataBytes', name.length + contentType.length, name);
           if (!parents || parent >= parents.length) throw new PackageError(Code.InvalidRelationship, 'Package source occurrence is missing', name);
+          const mode=role.targetMode??'internal',external=mode==='external'||mode==='both'&&contentType==='';
+          if(external){if(role.model!==null||contentType!==''||!(item.data instanceof Uint8Array)||item.data.length)throw new PackageError(Code.InvalidRelationship,'External package role requires empty media type and payload',name);uri(name);links.push(new Relationship(parents[parent],role.id===null?'srl_'+role.role+'_'+index:role.id,role.relationship,name,'external'));continue;}
           partName(name); mimeIdentity(contentType); let data;
           if (role.model !== null) {
             const model = role.singleton ? item : item.value; if (!(model instanceof role.model)) throw new PackageError(Code.InvalidOptions, 'Typed package resource has the wrong native type', name);
-            const id=role.id===null?'srl_'+role.role+'_'+index:role.id,codec=selectedCodecs.get(role.field)?.encode;state.poll();try{data=srlXmlWithPackageQuota(()=>{const limits=nativeLimits(state,role,name,id),text=codec?selectedCodec(codec,model,limits,state,role,name,id):model.encodeXml(limits);if(typeof text!=='string')throw new PackageError(Code.InvalidOptions,'Selected encoder must return XML text',name,id);if(codec)typedHeader(text,state,role,name,id);return srlUtf8(text);});}catch(cause){throw nativeFailure(cause,state,role,name,id);}state.poll();
+            const id=role.id===null?'srl_'+role.role+'_'+index:role.id,codec=selectedCodecs.get(role.field)?.encode,envelope=selectedProfiles.get(role.field);state.poll();try{if(envelope.codec!=='xml'){if(codec)throw new PackageError(Code.InvalidOptions,'Selected XML codecs require an XML envelope',name,id);data=nativeEncode(model,envelope.codec,state,role,name,id);}else{data=srlXmlWithPackageQuota(()=>{const limits=nativeLimits(state,role,name,id),text=codec?selectedCodec(codec,model,limits,state,role,name,id):xmlEncode(model,role,limits);if(typeof text!=='string')throw new PackageError(Code.InvalidOptions,'Selected encoder must return XML text',name,id);if(codec)typedHeader(text,state,role,name,id);return srlUtf8(text);});}}catch(cause){throw nativeFailure(cause,state,role,name,id);}state.poll();
 )packagejs"
 R"packagejs(          } else data = item.data;
           if (!(data instanceof Uint8Array)) throw new PackageError(Code.InvalidOptions, 'Package resource requires bytes', name);
           if (data.length > budget.limits.maxPartBytes) throw new PackageError(Code.ResourceLimit, 'Package part extent exceeds limit', name);
           budget.consume('decoderAllocationBytes', data.length, name); state.hold(data.length, name);
-          const independent = copyBytes(data, state); parts.push(new BinaryPart(independent, name, contentType, parent, selectedProfiles.get(role.field)));
+          const independent = copyBytes(data, state); parts.push(new BinaryPart(independent, name, contentType, parent, selectedProfiles.get(role.field).compression));
           links.push(new Relationship(parents[parent], role.id === null ? 'srl_' + role.role + '_' + index : role.id, role.relationship, name)); discovered.push(name);
         }
         sources.set(role.field, discovered);
@@ -245,7 +282,7 @@ R"packagejs(          } else data = item.data;
     async function load(source, options = {}) {
       const budget = getBudget(options), state = new State(budget), policy = options.policy === undefined ? new ExtensionPolicy() : options.policy;
       if (!(policy instanceof ExtensionPolicy) || options.validate !== undefined && typeof options.validate !== 'function') throw new PackageError(Code.InvalidOptions, 'Invalid package load policy');
-      const selectedCodecs=codecs(options);
+      const selectedCodecs=codecs(options),selectedProfiles=profiles(options);
       const archive = await ZipReader.open(source, {...options, limits: undefined, budget});
       try {
         const metadata = await opcRead(archive, budget), candidate = new Value(), sources = new Map(), locations=new Map(), decoded = new Map(), selected = new Map();let provenance=null;
@@ -254,14 +291,19 @@ R"packagejs(          } else data = item.data;
           for (let parent = 0; parent < parents.length; ++parent) for (let index = 0; index < metadata.relationships.length; ++index) {
             state.poll(); budget.consume('workUnits', 1); const link = metadata.relationships[index];
             if (fold(link.source) !== fold(parents[parent]) || link.type !== role.relationship) continue;
-            if (link.mode !== 'internal') throw new PackageError(Code.InvalidRelationship, 'Typed role requires an internal target', link.source, link.id);
+            const mode=role.targetMode??'internal';
+            if(link.mode==='external'){if(!['external','both'].includes(mode)||role.model!==null)throw new PackageError(Code.InvalidRelationship,'Package role requires an internal target',link.source,link.id);budget.consume('decoderAllocationBytes',64+2*link.target.length,link.source);selected.set(index,true);values.push(new BinaryPart(new Uint8Array(),link.target,'',parent,role.compression));roleLocations.push([link.target,link.id]);continue;}
+            if(mode==='external')throw new PackageError(Code.InvalidRelationship,'Package role requires an external target',link.source,link.id);
             const key = fold(targetName(link.source, link.target)), part = metadata.parts.get(key);
             if (role.mime !== null && !mimeEqual(part.contentType, role.mime)) throw new PackageError(Code.ContentType, 'Typed package MIME mismatch', part.name, link.id);
             if (decoded.has(key)) throw new PackageError(Code.InvalidRelationship, 'Package part is claimed by multiple role occurrences', part.name, link.id);
             if(role.policy==='fixed'&&part.entry.method!==role.compression)throw new PackageError(Code.InvalidOptions,'Fixed package compression mismatch',part.name,link.id);
-            budget.consume('decoderAllocationBytes',64,part.name);roleLocations.push([part.name,link.id]);selected.set(index, true); decoded.set(key, true); const data = await archive.read(part.entry.name); state.poll();
+            budget.consume('decoderAllocationBytes',64,part.name);roleLocations.push([part.name,link.id]);selected.set(index, true); decoded.set(key, true);
+            // Admit provenance before native decoding while its actual relationship is available.
+            if(role.name===null){relocationConsume(state,'decoderAllocationBytes',160+4*part.name.length+2*role.field.length,part.name,role.field,link.id);if(provenance===null)provenance=new Map();provenance.set('\0'+part.name,[part.name,part.name,role.field]);}
+            const data = await archive.read(part.entry.name); state.poll();
             if (role.model !== null) {
-              const codec=selectedCodecs.get(role.field)?.decode;let model; try { model = srlXmlWithPackageQuota(()=>{const text=srlDecoder.decode(data),limits=nativeLimits(state,role,part.name,link.id);if(codec)typedHeader(text,state,role,part.name,link.id);const value=codec?selectedCodec(codec,text,limits,state,role,part.name,link.id):role.model.decodeXml(text,limits);if(!(value instanceof role.model))throw new PackageError(Code.InvalidMetadata,'Selected decoder returned the wrong native model',part.name,link.id);return value;}); } catch (cause) { const selected=nativeFailure(cause,state,role,part.name,link.id);if(state.failed||selected instanceof PackageError)throw selected;const error = new PackageError(Code.InvalidMetadata, 'Typed package XML decoding failed', part.name, link.id); error.cause = selected; throw error; }
+              const codec=selectedCodecs.get(role.field)?.decode,envelope=selectedProfiles.get(role.field);let model; try { if(envelope.codec!=='xml'){if(codec)throw new PackageError(Code.InvalidOptions,'Selected XML codecs require an XML envelope',part.name,link.id);model=nativeDecode(data,envelope.codec,state,role,part.name,link.id);}else{model = srlXmlWithPackageQuota(()=>{const text=srlDecoder.decode(data),limits=nativeLimits(state,role,part.name,link.id);typedHeader(text,state,role,part.name,link.id);const value=codec?selectedCodec(codec,text,limits,state,role,part.name,link.id):role.model.decodeXml(text,limits);if(!(value instanceof role.model))throw new PackageError(Code.InvalidMetadata,'Selected decoder returned the wrong native model',part.name,link.id);return value;});} } catch (cause) { const selected=nativeFailure(cause,state,role,part.name,link.id);if(state.failed||selected instanceof PackageError)throw selected;const error = new PackageError(Code.InvalidMetadata, 'Typed package payload decoding failed', part.name, link.id); error.cause = selected; throw error; }
               state.poll(); values.push(role.singleton ? model : new ModelPart(model, part.name, part.contentType, parent));
             } else values.push(new BinaryPart(data, part.name, part.contentType, parent, part.entry.method)); discovered.push(part.name);
           }

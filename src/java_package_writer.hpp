@@ -17,21 +17,22 @@ inline std::string java(const package_node& package, const std::string& name, st
     const std::function<std::string(std::string_view)>& helper_type,
     const std::function<std::string(const type_name&)>& render_type,
     const std::function<std::string(std::string_view)>& render_field,
-    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {}) {
-  const auto parts = ordered(package);
+    const std::function<std::string(std::string_view)>& literal, const xml_options& xml = {}, bool binary_none_only = false) {
+  const auto configured_package = configure_package(package, xml);
+  const auto parts = ordered(configured_package);
   const auto contract = compile_package_profile(package,xml);
   std::set<std::string> fields{"extensions"};
   std::set<std::pair<std::string, std::string>> dispatch;
   for (const auto* part : parts) {
+    if (binary_none_only && part->value_type && part->codec == "json") {
+      throw std::invalid_argument{"JSON package profile requires the JSON native protocol"};
+    }
     if (!fields.insert(render_field(part->name)).second ||
         !dispatch.emplace(part->source, part->relationship).second) {
       throw std::invalid_argument{"Java package field or role dispatch collision: " + part->name};
     }
     if ((part->part_name || part->relationship_id) && (!part->max_occurs || *part->max_occurs > 1U)) {
       throw std::invalid_argument{"Repeated package roles require dynamic names and generated relationship IDs"};
-    }
-    if (part->value_type && part->codec != "xml") {
-      throw std::invalid_argument{"Java typed package roles currently require the XML codec"};
     }
   }
   std::string output;
@@ -79,12 +80,15 @@ inline std::string java(const package_node& package, const std::string& name, st
     const auto metadata=std::find_if(contract.parts.begin(),contract.parts.end(),[&](const auto& item){return item.role==part->name;});
     const auto expanded=[&](const auto& item){return literal(item.namespace_uri.empty()?item.local:"{"+item.namespace_uri+"}"+item.local);};
     const auto expected=metadata->decoder?","+expanded(metadata->decoder->root)+","+expanded(*metadata->decoder->type):",null,null";
+    std::string vocabularies{"java.util.List.of("};
+    if (metadata->decoder) { for (const auto& uri : metadata->decoder->vocabularies) { if (vocabularies.back() != '(') { vocabularies += ','; } vocabularies += literal(uri); } }
+    vocabularies += ')';
     const auto optional = [&](const auto& item) { return item ? literal(*item) : "null"; };
     line("  private static final " + api("Role") + " role" + std::to_string(index++) + " = new " + api("Role") + "(" +
         literal(render_field(part->name)) + "," + optional(part->part_name) + "," + optional(part->content_type) + "," +
         literal(part->source == "/" ? "/" : render_field(part->source)) + "," + literal(part->relationship) + "," +
         optional(part->relationship_id) + "," + literal(part->compression) + "," + std::to_string(part->min_occurs) + "L," +
-        (part->max_occurs ? std::to_string(*part->max_occurs) : "-1") + "L,"+literal(part->profile_policy)+expected+","+literal(part->name)+");");
+        (part->max_occurs ? std::to_string(*part->max_occurs) : "-1") + "L,"+literal(part->profile_policy)+expected+","+literal(part->name)+","+literal(part->value_type?part->codec:"bytes")+","+literal(part->target_mode)+","+(part->requires_type?"true":"false")+","+vocabularies+");");
   }
   line("  /** Validate compiler-declared scalar application references before publication. */");
   line("  private static void references("+input+" value,"+api("Budget")+" budget)throws java.io.IOException{references(value,budget,null);}");
@@ -110,16 +114,27 @@ inline std::string java(const package_node& package, const std::string& name, st
   line("    return encode(value,budget,java.util.Map.of());}");
   line("  /** Apply per-role compression defaults while fixed policies retain their declared envelope. */");
   line("  public static byte[] encode("+input+" value,"+api("Budget")+" budget,java.util.Map<String,String> profiles)throws java.io.IOException{");
-  line("    java.util.Objects.requireNonNull(value);profiles=java.util.Map.copyOf(profiles);references(value,budget);");
+  line("    return encodeProfiles(value,budget,profiles,java.util.Map.of());}");
+  line("  /** Select native/XML codecs and entry storage without replacing bound model identities. */");
+  line("  public static byte[] encodeWithPipelineProfiles("+input+" value,"+api("Budget")+" budget,java.util.Map<String,"+api("PipelineProfile")+"> profiles)throws java.io.IOException{return encodeProfiles(value,budget,java.util.Map.of(),profiles);}");
+  line("  /** Snapshot and validate every envelope before invoking any native codec. */");
+  line("  private static byte[] encodeProfiles("+input+" value,"+api("Budget")+" budget,java.util.Map<String,String> profiles,java.util.Map<String,"+api("PipelineProfile")+"> pipelines)throws java.io.IOException{");
+  line("    java.util.Objects.requireNonNull(value);profiles=java.util.Map.copyOf(profiles);pipelines=java.util.Map.copyOf(pipelines);references(value,budget);");
   std::string known;
   for(const auto* part:parts){if(!known.empty()){known+="&&";}known+="!key.equals("+literal(part->name)+")";}
   line("    for(String key:profiles.keySet())if("+(known.empty()?"true":known)+")throw new "+api("PackageError")+"("+api("Code")+".INVALID_OPTIONS,\"Unknown package profile role\");var composer=new "+api("Composer")+"(budget);");
+  line("    for(String key:pipelines.keySet())if("+(known.empty()?"true":known)+")throw new "+api("PackageError")+"("+api("Code")+".INVALID_OPTIONS,\"Unknown package profile role\");");
+  for (std::size_t role_index{}; role_index < parts.size(); ++role_index) {
+    line("    final var selectedRole"+std::to_string(role_index)+"="+helper+".selectProfile(role"+std::to_string(role_index)+",profiles,pipelines);");
+    if (binary_none_only) { line("    if(selectedRole"+std::to_string(role_index)+".codec.equals(\"json\"))throw new "+api("PackageError")+"("+api("Code")+".INVALID_OPTIONS,\"JSON native protocol is disabled\");"); }
+  }
   index = 0;
   for (const auto* part : parts) {
     const auto field = render_field(part->name);
     line("    composer." + std::string{part->value_type ? (singleton(*part) ? "single" : "models") : "binaries"} +
-        "("+helper+".selectProfile(role" + std::to_string(index++) + ",profiles),value." + field +
-        (part->value_type ? ",(model,limits)->model.encodeXml(limits,null)" : "") + ");");
+        "(selectedRole" + std::to_string(index) + ",value." + field +
+        (part->value_type ? ",(model,limits)->{if(selectedRole"+std::to_string(index)+".codec.equals(\"xml\"))return model.encodeXml(limits,null);var output=new Writer(selectedRole"+std::to_string(index)+".codec.equals(\"json\")?Protocol.JSON:Protocol.BINARY_NONE,limits);model.write(output);return output.bytes.toByteArray();}" : "") + ");");
+    ++index;
   }
   line("    return composer.finish(value.extensions);");
   line("  }");
@@ -129,12 +144,21 @@ inline std::string java(const package_node& package, const std::string& name, st
   line("  public static " + api("Result") + "<" + value + "> load(Object source) throws java.io.IOException { return load(source,new " + api("Budget") + "(),null,null); }");
   line("  /** Apply explicit extension policy and complete-aggregate domain validation before publication. */");
   line("  public static " + api("Result") + "<" + value + "> load(Object source," + api("Budget") + " budget," + api("ExtensionPolicy") + " policy," + api("Validator") + "<" + value + "> validate) throws java.io.IOException {");
+  line("    return loadWithPipelineProfiles(source,budget,policy,validate,java.util.Map.of());}");
+  line("  /** Decode selected native/XML envelopes into a fresh complete aggregate. */");
+  line("  public static "+api("Result")+"<"+value+"> loadWithPipelineProfiles(Object source,"+api("Budget")+" budget,"+api("ExtensionPolicy")+" policy,"+api("Validator")+"<"+value+"> validate,java.util.Map<String,"+api("PipelineProfile")+"> pipelines)throws java.io.IOException{");
+  line("    pipelines=java.util.Map.copyOf(pipelines);for(String key:pipelines.keySet())if("+(known.empty()?"true":known)+")throw new "+api("PackageError")+"("+api("Code")+".INVALID_OPTIONS,\"Unknown package profile role\");");
+  for (std::size_t role_index{}; role_index < parts.size(); ++role_index) {
+    line("    final var selectedRole"+std::to_string(role_index)+"="+helper+".selectProfile(role"+std::to_string(role_index)+",java.util.Map.of(),pipelines);");
+    if (binary_none_only) { line("    if(selectedRole"+std::to_string(role_index)+".codec.equals(\"json\"))throw new "+api("PackageError")+"("+api("Code")+".INVALID_OPTIONS,\"JSON native protocol is disabled\");"); }
+  }
   line("    try(var loader=new " + api("Loader") + "(source,budget)){var value=new " + value + "();");
   index = 0;
   for (const auto* part : parts) {
     line("      value." + render_field(part->name) + "=loader." +
-        std::string{part->value_type ? (singleton(*part) ? "single" : "models") : "binaries"} + "(role" + std::to_string(index++) +
-        (part->value_type ? ",(bytes,limits)->" + render_type(*part->value_type) + ".decodeXml(bytes,limits,null)" : "") + ");");
+        std::string{part->value_type ? (singleton(*part) ? "single" : "models") : "binaries"} + "(selectedRole" + std::to_string(index) +
+        (part->value_type ? ",(bytes,limits)->selectedRole"+std::to_string(index)+".codec.equals(\"xml\")?"+render_type(*part->value_type)+".decodeXml(bytes,limits,null):"+render_type(*part->value_type)+".decode(bytes,selectedRole"+std::to_string(index)+".codec.equals(\"json\")?Protocol.JSON:Protocol.BINARY_NONE,limits)" : "") + ");");
+    ++index;
   }
   line("      references(value,budget,loader);");
   line("      return loader.finish(value,policy,validate,(candidate,extensions)->candidate.extensions=extensions);");
@@ -144,6 +168,8 @@ inline std::string java(const package_node& package, const std::string& name, st
   line("  public static void save(java.nio.file.Path path," + input + " value," + api("Budget") + " budget," + api("Validator") + "<" + value + "> validate," + api("SaveFault") + " fault) throws java.io.IOException {");
   line("    byte[] bytes=encode(value,budget);load(bytes,budget,new " + api("ExtensionPolicy") + "(" + api("Unknown") + ".PRESERVE," + api("Unknown") + ".PRESERVE,null,null),validate);" + helper + ".save(path,bytes,budget,fault);");
   line("  }");
+  line("  /** Revalidate the same selected envelopes before atomic final file publication. */");
+  line("  public static void saveWithPipelineProfiles(java.nio.file.Path path,"+input+" value,"+api("Budget")+" budget,"+api("Validator")+"<"+value+"> validate,"+api("SaveFault")+" fault,java.util.Map<String,"+api("PipelineProfile")+"> profiles)throws java.io.IOException{profiles=java.util.Map.copyOf(profiles);byte[] bytes=encodeWithPipelineProfiles(value,budget,profiles);loadWithPipelineProfiles(bytes,budget,new "+api("ExtensionPolicy")+"("+api("Unknown")+".PRESERVE,"+api("Unknown")+".PRESERVE,null,null),validate,profiles);"+helper+".save(path,bytes,budget,fault);}");
   line("}");
   return output;
 }

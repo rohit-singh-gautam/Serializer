@@ -43,6 +43,28 @@ static inline bool srl_xml_input_type(srl_xml_input* input,srl_xml_type_identity
   if (!input->member_attributes) { srl_xml_type_free(result); return false; }
   --input->member_attributes; result->present=true; return true;
 }
+/* Validate root-only MustUnderstand tokens without broadening ordinary model attribute membership. */
+static inline bool srl_xml_package_capabilities(srl_xml_input* input,srl_xml_operation* operation) {
+  const srl_xml_package_contract* contract=operation?operation->package_contract:NULL;
+  if(!contract){return true;}if(contract->vocabulary_count&&!contract->vocabularies){return false;}
+  const char* mc="http://schemas.openxmlformats.org/markup-compatibility/2006";
+  if(xmlTextReaderMoveToAttributeNs(input->reader,BAD_CAST "MustUnderstand",BAD_CAST mc)!=1){return true;}
+  const xmlChar* source=xmlTextReaderConstValue(input->reader);const size_t size=source?(size_t)xmlStrlen(source):0;
+  const bool admitted=size!=SIZE_MAX&&srl_xml_operation_input_allocate(input,size+1u)&&srl_xml_operation_charge(operation,srl_xml_operation_work,size+1u);
+  xmlChar* raw=admitted?xmlStrdup(source?source:BAD_CAST ""):NULL;xmlTextReaderMoveToElement(input->reader);
+  if(!admitted||!raw){if(admitted){input->status=srl_allocation;}return false;}
+  xmlChar* cursor=raw;size_t count=0;bool good=true;
+  while(good&&*cursor){while(srl_xml_space(*cursor)){++cursor;}if(!*cursor){break;}xmlChar* token=cursor;
+    while(*cursor&&!srl_xml_space(*cursor)){++cursor;}const xmlChar saved=*cursor;*cursor=0;
+    if(++count>input->limits.max_elements||xmlValidateNCName(token,0)!=0||xmlStrEqual(token,BAD_CAST "xmlns")){good=false;}
+    xmlChar* uri=good?xmlTextReaderLookupNamespace(input->reader,token):NULL;bool understood=false;
+    if(uri&&*uri){for(size_t index=0;index<contract->vocabulary_count;++index){
+      if(!srl_xml_operation_charge(operation,srl_xml_operation_work,1u)){good=false;break;}
+      if(contract->vocabularies[index]&&!strcmp((const char*)uri,contract->vocabularies[index])){understood=true;break;}
+    }}else{good=false;}xmlFree(uri);good=good&&understood;*cursor=saved;
+  }
+  xmlFree(raw);if(!good||!input->member_attributes){return false;}--input->member_attributes;return true;
+}
 /* Attach one configured type marker to the payload just opened by a scalar or nested record. */
 static inline bool srl_xml_output_type(xmlTextWriterPtr writer,srl_xml_output* output) {
   if (!output->pending_type_local) { return true; }

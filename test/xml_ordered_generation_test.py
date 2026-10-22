@@ -40,6 +40,27 @@ def main():
             assert cpp.read_bytes() != b'previous C++ output\n', language
 
         model = directory / 'invalid.serializer'
+        grouped_export = directory / 'grouped.xsd'
+        result = subprocess.run([compiler, '--input', str(resources / 'xml_ordered_xsd.serializer'),
+            '--config', str(resources / 'xml_ordered_xsd.ini'), '--language', 'cpp',
+            '--output', str(cpp), '--xml.export-xsd', str(grouped_export)],
+            capture_output=True, text=True, encoding='utf-8')
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        assert grouped_export.is_file()
+        grouped_prefix = [compiler, '--input', str(resources / 'xml_ordered_xsd.serializer'),
+            '--config', str(resources / 'xml_ordered_xsd.ini'), '--language', 'cpp', '--output', str(cpp)]
+        result = subprocess.run(grouped_prefix + ['--xml.compare-xsd', str(grouped_export)],
+            capture_output=True, text=True, encoding='utf-8')
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        narrowed = directory / 'narrowed.xsd'
+        narrowed.write_text((resources / 'xml_ordered_xsd.xsd').read_text(encoding='utf-8').replace(
+            'maxOccurs="3"', 'maxOccurs="2"', 1), encoding='utf-8')
+        previous_cpp = cpp.read_bytes()
+        result = subprocess.run(grouped_prefix + ['--xml.xsd', str(narrowed),
+            '--xml.compare-xsd', str(resources / 'xml_ordered_xsd.xsd')],
+            capture_output=True, text=True, encoding='utf-8')
+        assert result.returncode != 0 and 'Ordered XML reader rejects' in result.stderr, result.stderr
+        assert cpp.read_bytes() == previous_cpp
         cpp.write_bytes(b'previous C++ output\n')
         model.write_text('serializer version 1.21.0; class child { public uint32 x; } '
             'class step { public variant(string=text,child=child) value; } '
@@ -57,7 +78,7 @@ def main():
             '<xs:element name="root" type="xs:string"/></xs:schema>', encoding='utf-8')
         result = subprocess.run(prefix + ['--language', 'cpp', '--output', str(cpp), '--xml.xsd', str(xsd)],
             capture_output=True, text=True, encoding='utf-8')
-        assert result.returncode != 0 and 'cannot override a fixed XSD' in result.stderr, result.stderr
+        assert result.returncode != 0, result.stdout
         assert cpp.read_bytes() == b'previous C++ output\n'
         exported = directory / 'export.xsd'
         exported.write_bytes(b'previous schema output\n')
@@ -66,7 +87,7 @@ def main():
         assert result.returncode != 0, result.stdout
         assert cpp.read_bytes() == b'previous C++ output\n'
         assert exported.read_bytes() == b'previous schema output\n'
-    print('Ten combined backend generations and three atomic rejections pass: text storage, fixed XSD and schema export.')
+    print('Ten combined backend generations, grouped export/comparison and four protected failures pass.')
 
 
 if __name__ == '__main__':

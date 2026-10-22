@@ -1828,6 +1828,33 @@ TEST(package_profile, xml_and_reference_callbacks_preserve_package_error_subtype
   EXPECT_THROW(context.consume(xml::operation_resource::work_units, 1U), caller_error);
 }
 
+// Typed package decoding preserves arbitrary exceptions thrown inside nested budget callbacks.
+TEST(package_profile, nested_codec_retains_policy_callback_exception_identity) {
+  if (!rohit::serializer::xml::available()) { GTEST_SKIP(); }
+  struct caller_error : std::runtime_error {
+    // Provide a recognizable caller-owned type that the codec wrapper must preserve.
+    caller_error() : std::runtime_error{"original native policy failure"} {}
+  };
+  std::ostringstream output;
+  package::opc_writer writer{output};
+  writer.add_part("/model.bin", "application/octet-stream", as_bytes("native"));
+  writer.add_relationship({"/", "modelLink", "urn:test:main", "model.bin"});
+  writer.finish();
+  bool armed{};
+  auto shared = std::make_shared<package::budget>(package::limits{.is_cancelled = [&] {
+    if (armed) { throw caller_error{}; }
+    return false;
+  }});
+  std::istringstream input{output.str()};
+  package::opc_reader reader{input, shared};
+  package::profile_loader loader{reader};
+  EXPECT_THROW(loader.read_related("/", "urn:test:main", "application/octet-stream",
+      [&](std::span<const std::uint8_t>, const package::part&, package::budget& operation) {
+        armed = true;
+        operation.consume(package::resource::work_units, 1U);
+      }), caller_error);
+}
+
 // Live canonical indexes reserve scratch that remains unavailable to nested compression calls.
 TEST(package_profile, live_scratch_reservations_share_capacity_and_release_on_failure) {
   package::budget shared{package::limits{.max_buffer_bytes = 10}};

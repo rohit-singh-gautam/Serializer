@@ -125,7 +125,8 @@ inline std::string methods(const class_node& owner, std::string_view owner_name,
     std::string_view language, const type_renderer& type, const name_renderer& name,
     const default_renderer& initial,
     const std::function<std::string(const conversion_declaration&, std::string_view)>& codecs,
-    bool rust_declarations = false) {
+    bool rust_declarations = false,
+    const std::function<std::string(const conversion_declaration&)>& extra_storage = {}) {
   std::string output;
   const bool cpp = language == "cpp", c = language == "c", rust = language == "rust";
   const bool swift = language == "swift", kotlin = language == "kotlin", python = language == "python";
@@ -207,6 +208,7 @@ inline std::string methods(const class_node& owner, std::string_view owner_name,
       else if (swift) { output += "    fileprivate var " + storage + ": " + native_type + " = " + initial(value.field) + "\n"; }
       else if (kotlin) { output += "    private val " + storage + ": " + native_type + " = " + initial(value.field) + "\n"; }
     }
+    if (extra_storage) { output += extra_storage(method); }
     if (js) { output += "    }\n"; }
     if (c) { output += "} " + view + ";\n"; }
     if (go) { output += "}\n"; }

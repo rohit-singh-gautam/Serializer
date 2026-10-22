@@ -678,6 +678,7 @@ int main(const int argc, const char* argv[]) {
       }
     };
     collect_xml_records(collect_xml_records, schema.statements);
+    std::set<const class_node*> xml_storage_fragments;
     for (std::size_t index{}; index < configurations.size(); ++index) {
       if (!configurations[index].options.cpp.xml.enabled) { continue; }
       // Bind inline XSDs before collecting dependencies or publishing any generated files.
@@ -686,7 +687,7 @@ int main(const int argc, const char* argv[]) {
         return request.configuration_index != index || request.language == "python" || request.language == "cpp" ||
             request.language == "js" || request.language == "typescript" || request.language == "java" ||
             request.language == "csharp" || request.language == "go" || request.language == "kotlin" || request.language == "swift" ||
-            request.language == "c" || request.language == "rust";
+            request.language == "c" || request.language == "rust" || request.language == "xsd";
       });
       std::set<const class_node*> mixed_fragments{};
       const auto& mappings = configurations[index].options.cpp.xml.classes;
@@ -705,6 +706,7 @@ int main(const int argc, const char* argv[]) {
       for (const auto* record : xml_records) {
         if (!mixed_fragments.contains(record)) { static_cast<void>(xml_contracts[index].bind(*record)); }
       }
+      if (index == 0U) { xml_storage_fragments = mixed_fragments; }
       const auto bundle_dependencies = xml_contracts[index].dependencies();
       configuration_dependencies.insert(configuration_dependencies.end(), bundle_dependencies.begin(), bundle_dependencies.end());
     }
@@ -730,6 +732,7 @@ int main(const int argc, const char* argv[]) {
       const writer::xml_binding::schema previous{previous_options};
       bool compatible{true};
       for (const auto* record : xml_records) {
+        if (xml_storage_fragments.contains(record)) { continue; }
         for (const auto& diagnostic : writer::xml_binding::compare_contracts(
             previous.bind(*record), xml_contracts.front().bind(*record))) {
           std::cerr << "XML incompatibility: " << record->get_full_name();

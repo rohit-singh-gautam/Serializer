@@ -64,7 +64,17 @@ func (in *srlReader) skipValue() {
 }
 
 // srlWriter owns one output message and retains its first failure.
-type srlWriter struct { protocol Protocol; bytes []byte; depth int; err error }
+type srlWriter struct { protocol Protocol; bytes []byte; depth int; err error; operation func(string,int64,string)error; maximumBytes int }
+// consume shares optional package work/allocation accounting while preserving the first caller failure.
+func (out *srlWriter) consume(resource string,amount int64)bool{if out.err!=nil{return false};if out.operation!=nil{out.err=out.operation(resource,amount,"")};return out.err==nil}
+// reserve admits actual owned buffer growth before allocating or copying native payload bytes.
+func (out *srlWriter) reserve(count int)bool{
+  if count<0||count>int(^uint(0)>>1)-len(out.bytes){out.fail("Native output size overflow");return false}
+  if !out.consume("work",int64(count)){return false};needed:=len(out.bytes)+count
+  if out.operation==nil{return true};if needed>out.maximumBytes{out.fail("Native output byte limit");return false}
+  if needed<=cap(out.bytes){return true};capacity:=cap(out.bytes);if capacity==0{capacity=256};for capacity<needed{if capacity>out.maximumBytes/2{capacity=needed;break};capacity*=2};if capacity>out.maximumBytes{capacity=needed}
+  if !out.consume("allocation",int64(capacity)){return false};storage:=make([]byte,len(out.bytes),capacity);copy(storage,out.bytes);out.bytes=storage;return true
+}
 // srlNewWriter validates protocol selection.
 func srlNewWriter(protocol Protocol) *srlWriter {
   result := &srlWriter{protocol: protocol, bytes: make([]byte, 0, 256)}
@@ -84,13 +94,14 @@ func (out *srlWriter) patchInteger(position int, value uint64, width int) {
   if width == 4 { binary.LittleEndian.PutUint32(out.bytes[position:position+width], uint32(value)) } else { binary.LittleEndian.PutUint64(out.bytes[position:position+width], value) }
 }
 // raw appends punctuation or already validated numeric text.
-func (out *srlWriter) raw(value string) { if out.err == nil { out.bytes = append(out.bytes, value...) } }
+func (out *srlWriter) raw(value string) { if out.reserve(len(value)) { out.bytes = append(out.bytes, value...) } }
 // compact writes the native two-bit length tag.
 func (out *srlWriter) compact(value int) {
   if out.err != nil { return }
   if value < 0 || value > 0x3fffffff { out.fail("Compact integer out of range"); return }
   extra := 0
   if value > 0x3fffff { extra = 3 } else if value > 0x3fff { extra = 2 } else if value > 0x3f { extra = 1 }
+  if !out.reserve(extra+1){return}
   out.bytes = append(out.bytes, byte(extra << 6 | value >> (extra * 8)))
   for shift := (extra - 1) * 8; shift >= 0; shift -= 8 { out.bytes = append(out.bytes, byte(value >> shift)) }
 }
@@ -98,6 +109,7 @@ func (out *srlWriter) compact(value int) {
 func (out *srlWriter) compactPrefixBits(value uint64) {
   extra := 0
   if value > 0x3fffff { extra = 3 } else if value > 0x3fff { extra = 2 } else if value > 0x3f { extra = 1 }
+  if !out.reserve(extra+1){return}
   out.bytes = append(out.bytes, byte(uint64(extra) << 6 | value >> (extra * 8)))
   for shift := (extra - 1) * 8; shift >= 0; shift -= 8 { out.bytes = append(out.bytes, byte(value >> shift)) }
 }
@@ -121,7 +133,7 @@ func (out *srlWriter) compactVarint(value uint64, width int) {
   for {
     payload := byte(value & srlVarintPayloadMask); value >>= srlVarintPayloadBits
     if value != 0 { payload |= srlVarintContinuation }
-    out.bytes = append(out.bytes, payload)
+    if !out.reserve(1){return};out.bytes = append(out.bytes, payload)
     if value == 0 { return }
   }
 }
@@ -136,6 +148,7 @@ func (out *srlWriter) integer(value uint64, width int, unsigned bool) {
       out.raw(strconv.FormatInt(int64(value << shift) >> shift, 10))
     }
   } else {
+    if !out.reserve(width){return}
     switch width {
     case 1: out.bytes = append(out.bytes, byte(value))
     case 2: out.bytes = binary.LittleEndian.AppendUint16(out.bytes, uint16(value))
@@ -168,11 +181,33 @@ func (out *srlWriter) character(value byte) {
 }
 // text enforces the portable UTF-8 string contract.
 func (out *srlWriter) text(value string) {
+  if !out.consume("work",int64(len(value))){return}
   if !utf8.ValidString(value) { out.fail("Invalid UTF-8"); return }
-  if out.json() { encoded, err := json.Marshal(value); if err != nil { out.fail("Invalid string"); return }; out.raw(string(encoded)) } else { out.compact(len(value)); out.raw(value) }
+  if out.json() {
+    if out.operation!=nil { out.quoted(value);return }
+    encoded, err := json.Marshal(value); if err != nil { out.fail("Invalid string"); return }; out.raw(string(encoded))
+  } else { out.compact(len(value)); out.raw(value) }
+}
+// quoted writes exactly encoding/json's HTML-safe string spelling without a temporary payload copy.
+// The complete escaped size is checked and admitted before growing the output buffer.
+func (out *srlWriter) quoted(value string) {
+  count:=2
+  for _,r:=range value { extra:=utf8.RuneLen(r);switch r{case '"','\\','\b','\f','\n','\r','\t':extra=2;case '<','>','&','\u2028','\u2029':extra=6;default:if r<0x20{extra=6}};if extra>int(^uint(0)>>1)-count{out.fail("Native string size overflow");return};count+=extra }
+  if !out.reserve(count){return};out.bytes=append(out.bytes,'"');const hex="0123456789abcdef"
+  for offset:=0;offset<len(value); {r,width:=utf8.DecodeRuneInString(value[offset:]);switch r {
+    case '"','\\':out.bytes=append(out.bytes,'\\',byte(r))
+    case '\b':out.bytes=append(out.bytes,'\\','b')
+    case '\f':out.bytes=append(out.bytes,'\\','f')
+    case '\n':out.bytes=append(out.bytes,'\\','n')
+    case '\r':out.bytes=append(out.bytes,'\\','r')
+    case '\t':out.bytes=append(out.bytes,'\\','t')
+    case '<','>','&','\u2028','\u2029':out.bytes=append(out.bytes,'\\','u',hex[(r>>12)&15],hex[(r>>8)&15],hex[(r>>4)&15],hex[r&15])
+    default:if r<0x20{out.bytes=append(out.bytes,'\\','u','0','0',hex[(r>>4)&15],hex[r&15])}else{out.bytes=append(out.bytes,value[offset:offset+width]...)}
+  };offset+=width };out.bytes=append(out.bytes,'"')
 }
 // beginObject bounds output recursion, including cycles in user objects.
 func (out *srlWriter) beginObject() {
+  if !out.consume("work",1){return}
   out.depth++
   if out.depth > 64 { out.fail("Encode depth limit"); return }
   if out.json() { out.raw("{") }
@@ -180,7 +215,7 @@ func (out *srlWriter) beginObject() {
 // field emits the native key without changing its schema identity.
 func (out *srlWriter) field(id int, key srlField, first bool) {
   if out.err != nil { return }
-  if out.json() { if !first { out.raw(",") }; out.bytes = append(out.bytes, key.json...) } else if out.protocol == BINARY_INTEGER { out.compact(id) } else if out.protocol == BINARY_STRING { out.bytes = append(out.bytes, key.binary...) }
+  if out.json() { if !first { out.raw(",") }; if out.reserve(len(key.json)){out.bytes = append(out.bytes, key.json...)} } else if out.protocol == BINARY_INTEGER { out.compact(id) } else if out.protocol == BINARY_STRING { if out.reserve(len(key.binary)){out.bytes = append(out.bytes, key.binary...)} }
 }
 // srlField holds immutable pre-encoded schema names shared by encoding sessions.
 type srlField struct { binary, json []byte }
@@ -195,7 +230,7 @@ func (out *srlWriter) endObject() { if out.json() { out.raw("}") } else if out.p
 // beginArray writes collection framing.
 // beginOptional stores one binary presence byte or starts its canonical JSON array.
 func (out *srlWriter) beginOptional(present bool) { if out.json() { out.raw("[") } else { var tag uint64; if present { tag = 1 }; out.integer(tag, 1, true) } }
-func (out *srlWriter) beginArray(count int) { if out.json() { out.raw("[") } else { out.compact(count) } }
+func (out *srlWriter) beginArray(count int) { if !out.consume("work",int64(count)){return};if out.json() { out.raw("[") } else { out.compact(count) } }
 // element separates JSON entries.
 func (out *srlWriter) element(index int) { if out.json() && index != 0 { out.raw(",") } }
 // endArray closes a JSON collection.
@@ -203,7 +238,9 @@ func (out *srlWriter) endArray() { if out.json() { out.raw("]") } }
 
 )serializer"
 R"serializer(// srlReader is a bounded shared cursor; methods stop after the first error.
-type srlReader struct { bytes []byte; protocol Protocol; limits Limits; offset, depth, elements int; err error }
+type srlReader struct { bytes []byte; protocol Protocol; limits Limits; offset, depth, elements int; err error; operation func(string,int64,string)error }
+// consume admits decoder work and owned values through the same optional package operation.
+func (in *srlReader) consume(resource string,amount int64)bool{if in.err!=nil{return false};if in.operation!=nil{in.err=in.operation(resource,amount,"")};return in.err==nil}
 // srlNewReader checks policy and input before any allocation driven by data.
 func srlNewReader(bytes []byte, protocol Protocol, limits Limits) *srlReader {
   in := &srlReader{bytes: bytes, protocol: protocol, limits: limits}
@@ -221,7 +258,7 @@ func (in *srlReader) json() bool { return in.protocol == JSON }
 // require checks lengths before indexing or arithmetic.
 func (in *srlReader) require(count int) bool {
   if in.err != nil { return false }
-  if count < 0 || count > len(in.bytes) - in.offset { in.fail("Truncated input"); return false }; return true
+  if count < 0 || count > len(in.bytes) - in.offset { in.fail("Truncated input"); return false }; return in.consume("work",int64(count))
 }
 // whitespace skips only the four JSON whitespace bytes.
 func (in *srlReader) whitespace() {
@@ -269,7 +306,7 @@ func (in *srlReader) compactVarint(width int) uint64 {
 func (in *srlReader) token() string {
   in.whitespace(); start := in.offset
   for in.offset < len(in.bytes) && !strings.ContainsRune(",}] \t\r\n", rune(in.bytes[in.offset])) { in.offset++ }
-  if start == in.offset { in.fail("Missing token") }; return string(in.bytes[start:in.offset])
+  if start == in.offset { in.fail("Missing token") }; if !in.consume("work",int64(in.offset-start))||!in.consume("allocation",int64(in.offset-start)){return ""};return string(in.bytes[start:in.offset])
 }
 // integer checks JSON grammar and exact integer ranges.
 func (in *srlReader) integer(width int, unsigned bool) uint64 {
@@ -323,7 +360,7 @@ func srlValidJSONText(bytes []byte) bool {
 func (in *srlReader) text() string {
   if !in.json() {
     count := in.compact(); if count > in.limits.MaxStringBytes { in.fail("String limit"); return "" }; if !in.require(count) { return "" }
-    value := string(in.bytes[in.offset:in.offset+count]); in.offset += count; if !utf8.ValidString(value) { in.fail("Invalid UTF-8") }; return value
+    if !in.consume("allocation",int64(count)){return ""};value := string(in.bytes[in.offset:in.offset+count]); in.offset += count; if !utf8.ValidString(value) { in.fail("Invalid UTF-8") }; return value
   }
   in.expect('"'); start := in.offset; escaped := false
   for in.require(1) {
@@ -332,6 +369,7 @@ func (in *srlReader) text() string {
 R"serializer(    if in.offset - start - 1 > in.limits.MaxStringBytes { in.fail("String limit"); return "" }
     if !escaped && c == '"' {
       raw := in.bytes[start-1:in.offset]; var value string
+      if !in.consume("allocation",int64(len(raw))*2){return ""}
       if !srlValidJSONText(raw) || json.Unmarshal(raw, &value) != nil { in.fail("Invalid JSON string"); return "" }
       if len(value) > in.limits.MaxStringBytes { in.fail("String limit") }; return value
     }
@@ -340,7 +378,7 @@ R"serializer(    if in.offset - start - 1 > in.limits.MaxStringBytes { in.fail("
   return ""
 }
 // beginObject bounds recursion before descending.
-func (in *srlReader) beginObject() { in.depth++; if in.depth > in.limits.MaxDepth { in.fail("Depth limit"); return }; if in.json() { in.expect('{') } }
+func (in *srlReader) beginObject() { if !in.consume("work",1)||!in.consume("allocation",64){return};in.depth++; if in.depth > in.limits.MaxDepth { in.fail("Depth limit"); return }; if in.json() { in.expect('{') } }
 // nextObject reads JSON framing while preserving duplicate keys.
 func (in *srlReader) nextObject(first bool) bool {
   in.whitespace(); if !in.require(1) { return false }; if in.bytes[in.offset] == '}' { in.offset++; return false }; if !first { in.expect(',') }; return in.err == nil
@@ -357,13 +395,14 @@ func (in *srlReader) beginArray() int {
 func (in *srlReader) arrayCapacity(count, width int) int {
   if in.err != nil || in.json() { return 0 }
   if width != 0 && count > (len(in.bytes) - in.offset) / width { in.fail("Truncated array"); return 0 }
+  storageWidth:=width;if storageWidth==0{storageWidth=strconv.IntSize/8};if !in.consume("allocation",int64(count)*int64(storageWidth)){return 0}
   return count
 }
 // nextElement charges every entry and terminates immediately on failure.
 func (in *srlReader) nextElement(index, count int) bool {
   if in.err != nil { return false }
   if in.json() { in.whitespace(); if !in.require(1) { return false }; if in.bytes[in.offset] == ']' { in.offset++; return false }; if index != 0 { in.expect(',') } } else if index == count { return false }
-  if in.elements >= in.limits.MaxElements { in.fail("Element limit"); return false }; in.elements++; return in.err == nil
+  if in.elements >= in.limits.MaxElements { in.fail("Element limit"); return false };if !in.consume("work",1)||(in.json()&&!in.consume("allocation",int64(strconv.IntSize/8))){return false}; in.elements++; return in.err == nil
 }
 // finish checks exact consumption of one message.
 func (in *srlReader) finish() { if in.json() { in.whitespace() }; if in.offset != len(in.bytes) { in.fail("Trailing input") } }

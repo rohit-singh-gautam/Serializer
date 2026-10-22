@@ -3,6 +3,7 @@
 #include <rohit/xml.hpp>
 #include <rohit/xml_name.hpp>
 #include <rohit/xml_tokens.hpp>
+#include "xml_extension_occurrence.hpp"
 
 #include <algorithm>
 #include <climits>
@@ -79,13 +80,15 @@ class document_writer {
   document_writer& operator=(const document_writer&) = delete;
   limits bounds_;
   operation_context* context_{};
+  std::span<const name> excluded_root_attributes_{};
   std::string bytes_{};
   std::size_t nodes_{};
   std::size_t attributes_{};
   std::size_t text_bytes_{};
   std::size_t name_bytes_{};
   std::map<std::string, std::string> prefixes_{};
-  std::set<std::string> retained_prefixes_{};
+  std::set<std::string, std::less<>> retained_prefixes_{};
+  std::size_t lexical_prefix_bytes_{};
   std::size_t namespace_bindings_{};
   // Append within the complete output budget.
   void append(std::string_view value) {
@@ -124,6 +127,31 @@ class document_writer {
     }
     append(value.substr(start));
   }
+  // New framing aliases must never bind a formerly unbound QName-looking lexical prefix.
+  void reserve_lexical_prefixes(std::string_view text) {
+    constexpr std::string_view generated_prefix{"srl"};
+    constexpr auto maximum_prefix_bytes = generated_prefix.size() +
+        std::numeric_limits<std::size_t>::digits10 + 1U;
+    if (context_) { context_->consume(operation_resource::work_units, text.size()); }
+    for (auto colon = text.find(':'); colon != std::string_view::npos; colon = text.find(':', colon + 1U)) {
+      auto begin = colon;
+      while (begin && ((text[begin - 1U] >= '0' && text[begin - 1U] <= '9') ||
+          (text[begin - 1U] >= 'A' && text[begin - 1U] <= 'Z') ||
+          (text[begin - 1U] >= 'a' && text[begin - 1U] <= 'z') ||
+          text[begin - 1U] == '_' || text[begin - 1U] == '-' || text[begin - 1U] == '.')) { --begin; }
+      const auto prefix = text.substr(begin, colon - begin);
+      if (prefix.size() > maximum_prefix_bytes || !prefix.starts_with(generated_prefix) ||
+          prefix.size() == generated_prefix.size() || !std::all_of(prefix.begin() + generated_prefix.size(), prefix.end(),
+              [](char digit) { return digit >= '0' && digit <= '9'; }) || retained_prefixes_.contains(prefix)) { continue; }
+      consume(lexical_prefix_bytes_, sizeof(std::string), bounds_.max_tree_bytes, context_);
+      consume(lexical_prefix_bytes_, prefix.size(), bounds_.max_tree_bytes, context_);
+      if (context_) {
+        context_->consume(operation_resource::allocation_bytes, sizeof(std::string));
+        context_->consume(operation_resource::allocation_bytes, prefix.size());
+      }
+      retained_prefixes_.emplace(prefix);
+    }
+  }
   // Register stable namespace prefixes in first-use traversal order.
   void register_name(const name& value) {
     consume(name_bytes_, value.local.size(), bounds_.max_name_bytes, context_);
@@ -144,6 +172,7 @@ class document_writer {
     if (depth > bounds_.max_depth) { reject_limit(context_, "XML depth limit exceeded", 1U, 0U); }
     consume(nodes_, 1U, bounds_.max_nodes, context_);
     consume(text_bytes_, node.text.size(), bounds_.max_text_bytes, context_);
+    reserve_lexical_prefixes(node.text);
     register_name(node.qualified_name);
     for (const auto& [prefix, uri] : node.namespace_bindings) {
       if (context_) {
@@ -184,6 +213,7 @@ class document_writer {
     std::set<std::pair<std::string, std::string>> names{};
     for (const auto& attribute : node.attributes) {
       const diagnostic_scope attribute_location{context_, attribute.diagnostic};
+      reserve_lexical_prefixes(attribute.value);
       if (context_) { context_->consume(operation_resource::work_units, 1U); }
       consume(attributes_, 1U, bounds_.max_attributes, context_);
       consume(text_bytes_, attribute.value.size(), bounds_.max_text_bytes, context_);
@@ -261,6 +291,8 @@ class document_writer {
     }
     for (const auto& attribute : node.attributes) {
       const diagnostic_scope attribute_location{context_, attribute.diagnostic};
+      if (root && std::find(excluded_root_attributes_.begin(), excluded_root_attributes_.end(),
+          attribute.qualified_name) != excluded_root_attributes_.end()) { continue; }
       append(" "); emit_name(attribute.qualified_name); append("=\"");
       escaped(attribute.value, true); append("\"");
     }
@@ -283,8 +315,9 @@ class document_writer {
   }
 public:
   // Bind immutable complete-document limits.
-  explicit document_writer(limits bounds, operation_context* context = nullptr)
-      : bounds_{bounds}, context_{context} {}
+  explicit document_writer(limits bounds, operation_context* context = nullptr,
+      std::span<const name> excluded_root_attributes = {})
+      : bounds_{bounds}, context_{context}, excluded_root_attributes_{excluded_root_attributes} {}
   // Return one complete document after all semantic/resource checks succeed.
   std::string encode(const element& document) {
     inspect(document, 1U);
@@ -956,6 +989,27 @@ bool matches_namespace_rule(std::string_view uri, std::string_view rule,
 
 // A selected wildcard is an additional restriction on the explicit application namespace policy.
 bool field_reader::accepts_extension(const name& value, bool child) const {
+  if (declaration_contract_) {
+    const auto position = declaration_position();
+    if (value.namespace_uri == model_metadata_namespace) { return false; }
+    const auto& known = !child && declaration_contract_->distinct_known_kinds ?
+        declaration_contract_->known_attributes : declaration_contract_->known_names;
+    const auto found = std::find(known.begin(), known.end(), value);
+    if (found != known.end() && (!child || declaration_contract_->known_positions.empty() ||
+        declaration_contract_->known_positions[static_cast<std::size_t>(found - known.begin())] >= position)) { return false; }
+    for (const auto& slot : declaration_contract_->slots) {
+      if (context_) { context_->consume(operation_resource::work_units, 1U); }
+      if (slot.attribute == child || (child && slot.before_field != position &&
+          slot.before_field != std::numeric_limits<std::size_t>::max())) { continue; }
+      if (found != known.end() && (slot.namespace_match == extension_namespace_match::explicit_foreign ||
+          slot.namespace_match == extension_namespace_match::foreign_fallback)) { continue; }
+      if ((slot.namespace_match == extension_namespace_match::explicit_foreign ||
+          slot.namespace_match == extension_namespace_match::foreign_fallback) &&
+          (value.namespace_uri.empty() || value.namespace_uri == declaration_contract_->core_namespace)) { continue; }
+      if (matches_extension_namespace(slot, value.namespace_uri)) { return true; }
+    }
+    return false;
+  }
   if (!context_ || context_->unknown_fields == unknown_policy::reject ||
       value.namespace_uri.empty() || value.namespace_uri == node_.qualified_name.namespace_uri ||
       !context_->permits_namespace || !context_->permits_namespace(value.namespace_uri)) { return false; }
@@ -966,6 +1020,39 @@ bool field_reader::accepts_extension(const name& value, bool child) const {
         (!child || rule.before_field == active_field_) &&
         matches_namespace_rule(value.namespace_uri, rule.namespace_rule, rule.target_namespace);
   });
+}
+
+// Attributes/text occupy native field IDs but do not advance the legacy ordered child cursor.
+std::size_t field_reader::declaration_position() const {
+  if (active_field_ < declaration_contract_->known_positions.size()) {
+    return declaration_contract_->known_positions[active_field_];
+  }
+  std::size_t end{};
+  for (const auto position : declaration_contract_->known_positions) {
+    if (position != std::numeric_limits<std::size_t>::max()) { end = std::max(end, position + 1U); }
+  }
+  for (const auto& slot : declaration_contract_->slots) {
+    if (slot.before_field != std::numeric_limits<std::size_t>::max()) { end = std::max(end, slot.before_field); }
+  }
+  return end;
+}
+
+// Check immutable metadata before any borrowed-view allocation or native field traversal.
+void field_reader::bind_extension_contract(const extension_contract& contract) {
+  auto bounds = context_ && context_->extension_bounds ? *context_->extension_bounds : extension_limits{};
+  if (context_ && !context_->extension_bounds && context_->document_bounds) { bounds.document = *context_->document_bounds; }
+  validate_extension_contract_at(contract, bounds, context_);
+  validate_required_capabilities(contract, node_, {}, context_ && context_->understood_namespaces ?
+      std::span<const std::string>{*context_->understood_namespaces} : std::span<const std::string>{}, bounds, context_);
+  declaration_contract_ = &contract;
+}
+
+// Legacy choice traversal already knows the exact field and repeated-child insertion boundary.
+void field_reader::record_declaration(const attribute* item, const element* child) const {
+  const auto maximum = context_ && context_->extension_bounds ? context_->extension_bounds->max_items : extension_limits{}.max_items;
+  if (declaration_items_.size() >= maximum) { reject_limit(context_, "XML extension item limit exceeded"); }
+  if (context_) { context_->consume(operation_resource::allocation_bytes, sizeof(extension_item_view)); }
+  declaration_items_.push_back({item, child, item ? 0U : declaration_position(), known_children_read_});
 }
 
 // Matching wildcard counts include skipped values and cannot exceed declared maxima.
@@ -1025,8 +1112,9 @@ void field_reader::skip_extensions(const name* requested) const {
     const auto& child = node_.children[next_child_];
     if ((requested && child.qualified_name == *requested) || !accepts_extension(child.qualified_name, true)) { return; }
     context_->consume(operation_resource::work_units, 1U);
-    record_extension(child.qualified_name, true);
-    if (context_->unknown_fields == unknown_policy::preserve) {
+    if (declaration_contract_) { record_declaration(nullptr, &child); }
+    else { record_extension(child.qualified_name, true); }
+    if (!declaration_contract_ && context_->unknown_fields == unknown_policy::preserve) {
       auto& extensions = retain_extensions();
       const auto bytes = retained_bytes(child, context_);
       context_->consume(operation_resource::preserved_bytes, bytes);
@@ -1045,8 +1133,9 @@ void field_reader::finish() const {
     const auto& item = node_.attributes[index];
     if (!accepts_extension(item.qualified_name, false)) { throw std::invalid_argument{"Unexpected XML attribute"}; }
     context_->consume(operation_resource::work_units, 1U);
-    record_extension(item.qualified_name, false);
-    if (context_->unknown_fields == unknown_policy::preserve) {
+    if (declaration_contract_) { record_declaration(&item, nullptr); }
+    else { record_extension(item.qualified_name, false); }
+    if (!declaration_contract_ && context_->unknown_fields == unknown_policy::preserve) {
       auto& extensions = retain_extensions();
       const auto bytes = sizeof(attribute) + item.qualified_name.local.size() +
           item.qualified_name.namespace_uri.size() + item.value.size();
@@ -1058,6 +1147,16 @@ void field_reader::finish() const {
   active_field_ = next_field_;
   skip_extensions();
   if (next_child_ != node_.children.size()) { throw std::invalid_argument{"Unexpected XML child"}; }
+  if (declaration_contract_) {
+    auto bounds = context_ && context_->extension_bounds ? *context_->extension_bounds : extension_limits{};
+    if (context_ && !context_->extension_bounds && context_->document_bounds) { bounds.document = *context_->document_bounds; }
+    auto candidate = collect_extension_slots(*declaration_contract_, node_, declaration_items_,
+        context_ && context_->understood_namespaces ? std::span<const std::string>{*context_->understood_namespaces} :
+        std::span<const std::string>{}, {}, bounds, context_);
+    if (!candidate.attributes.empty() || !candidate.children.empty()) { retain_extensions() = std::move(candidate); }
+    finished_ = true;
+    return;
+  }
   for (std::size_t index{}; index < extension_rules_.size(); ++index) {
     if (extension_counts_[index] < extension_rules_[index].minimum) {
       throw std::invalid_argument{"Required XML wildcard content missing"};
@@ -1272,6 +1371,18 @@ std::string write(const element& document, limits bounds) {
 // Selected package codecs share interruption and resource charges through their caller context.
 std::string write(const element& document, limits bounds, operation_context* context) {
   return document_writer{bounds, context}.encode(document);
+}
+
+// Declaration replay borrows the existing tree and never clones its descendants or lexical scopes.
+std::string write_without_root_attribute(const element& document, const name& excluded,
+    limits bounds, operation_context* context) {
+  return document_writer{bounds, context, {&excluded, 1U}}.encode(document);
+}
+
+// A borrowed exclusion span applies only to the root; descendant attributes retain their semantics.
+std::string write_without_root_attributes(const element& document, std::span<const name> excluded,
+    limits bounds, operation_context* context) {
+  return document_writer{bounds, context, excluded}.encode(document);
 }
 
 struct prepared_pattern::implementation {
@@ -2132,24 +2243,28 @@ extension_limits token_extension_bounds(operation_context* context) {
 std::span<const std::string> token_capabilities(operation_context* context) {
   return context && context->understood_namespaces ? std::span<const std::string>{*context->understood_namespaces} : std::span<const std::string>{};
 }
-// Match exact position/URI slots and reject unknown core names even when a wildcard is permissive.
+// Match exact generated predicates after known names are dispatched by element/attribute kind.
 std::size_t token_extension_slot(const extension_contract& contract, const name& selected,
     bool attribute, std::size_t field, operation_context* context) {
-  if (selected.namespace_uri.empty() || selected.namespace_uri == contract.core_namespace ||
-      selected.namespace_uri == model_metadata_namespace ||
-      std::find(contract.known_names.begin(), contract.known_names.end(), selected) != contract.known_names.end()) {
+  const auto& known = attribute && contract.distinct_known_kinds ? contract.known_attributes : contract.known_names;
+  const bool known_name = std::find(known.begin(), known.end(), selected) != known.end();
+  if (selected.namespace_uri == model_metadata_namespace) {
     throw std::invalid_argument{"Known, core or reserved XML names cannot enter an extension slot"};
   }
   for (std::size_t index{}; index < contract.slots.size(); ++index) {
     const auto& slot = contract.slots[index];
     if (context) { context->consume(operation_resource::work_units, 1U); }
-    if (slot.attribute != attribute || (!attribute && slot.before_field != field)) { continue; }
+    if (slot.attribute != attribute || (!attribute && slot.before_field != std::numeric_limits<std::size_t>::max() && slot.before_field != field)) { continue; }
+    if (known_name && (attribute || slot.namespace_match == extension_namespace_match::explicit_foreign ||
+        slot.namespace_match == extension_namespace_match::foreign_fallback)) { continue; }
+    if ((slot.namespace_match == extension_namespace_match::explicit_foreign || slot.namespace_match == extension_namespace_match::foreign_fallback) &&
+        (selected.namespace_uri.empty() || selected.namespace_uri == contract.core_namespace)) { continue; }
     for (const auto& uri : slot.namespaces) {
       if (context) { context->consume(operation_resource::work_units, std::min(uri.size(), selected.namespace_uri.size())); }
-      if (uri == selected.namespace_uri) {
-        if (slot.policy == unknown_policy::reject) { throw std::invalid_argument{"XML extension slot rejects this vocabulary"}; }
-        return index;
-      }
+    }
+    if (matches_extension_namespace(slot, selected.namespace_uri)) {
+      if (slot.policy == unknown_policy::reject) { throw std::invalid_argument{"XML extension slot rejects this vocabulary"}; }
+      return index;
     }
   }
   throw std::invalid_argument{"XML extension has no permitted position and vocabulary"};
@@ -2180,7 +2295,7 @@ struct token_extension_input::implementation {
   build_budget budget;
   extension_store candidate{};
   std::vector<std::size_t> counts{};
-  std::size_t items{}, unknown_children{}, preserved_bytes{};
+  std::size_t items{}, unknown_children{}, preserved_bytes{}, selected_slot{};
   bool failed{}, complete{}, scope_retained{};
 
   // Admit opaque storage before copies; cumulative operation counters are never refunded.
@@ -2196,33 +2311,36 @@ struct token_extension_input::implementation {
   unknown_policy admit(const name& selected, bool attribute, std::size_t field) {
     consume(items, 1U, bounds.max_items, reader.context());
     const auto index = token_extension_slot(contract, selected, attribute, field, reader.context());
+    selected_slot = index;
+    detail::validate_wildcard_occurrence(contract.slots[index], counts[index]);
     consume(counts[index], 1U, contract.slots[index].maximum.value_or(std::numeric_limits<std::size_t>::max()), reader.context());
-    return contract.slots[index].policy;
+    return reader.context() && reader.context()->declaration_validation ? unknown_policy::skip : contract.slots[index].policy;
   }
   // Capture only a selected foreign subtree; known fields never enter owning XML storage.
-  element capture() {
+  element capture(bool retain = true) {
     const auto& start = reader.current();
     const auto depth = budget.enter(start.qualified_name);
-    preserved(sizeof(element) + start.qualified_name.local.size() + start.qualified_name.namespace_uri.size());
+    if (retain) { preserved(sizeof(element) + start.qualified_name.local.size() + start.qualified_name.namespace_uri.size()); }
     element result{};
     result.qualified_name = start.qualified_name;
     result.namespace_bindings = reader.namespace_scope(&budget);
-    preserved_scope(result.namespace_bindings);
+    if (retain) { preserved_scope(result.namespace_bindings); }
     for (const auto& item : start.attributes) {
       budget.attribute_name(item.qualified_name); budget.text(item.value.size());
-      preserved(sizeof(attribute) + item.qualified_name.local.size() + item.qualified_name.namespace_uri.size() + item.value.size());
+      if (retain) { preserved(sizeof(attribute) + item.qualified_name.local.size() + item.qualified_name.namespace_uri.size() + item.value.size()); }
       result.attributes.push_back(item);
     }
     reader.advance();
     while (reader.current().kind != event_kind::end_element) {
-      if (reader.current().kind == event_kind::start_element) { result.children.push_back(capture()); }
+      if (reader.current().kind == event_kind::start_element) { result.children.push_back(capture(retain)); }
       else if (reader.current().kind == event_kind::text) {
         const auto& text = reader.current().text;
         budget.text(text.size()); budget.retained_storage(text.size());
-        preserved(text.size()); preserved(text.size());
+        if (retain) { preserved(text.size()); preserved(text.size()); }
         result.text += text;
         if (result.text_segments.empty() || result.text_segments.back().before_child != result.children.size()) {
-          budget.retained_storage(sizeof(element::text_segment)); preserved(sizeof(element::text_segment));
+          budget.retained_storage(sizeof(element::text_segment));
+          if (retain) { preserved(sizeof(element::text_segment)); }
           result.text_segments.push_back({result.children.size(), text});
         } else { result.text_segments.back().value += text; }
         reader.advance();
@@ -2244,7 +2362,7 @@ struct token_extension_input::implementation {
   // Bind immutable metadata and retain only permitted foreign owner attributes.
   implementation(token_reader& source, const extension_contract& selected, extension_slot& output)
       : reader{source}, contract{selected}, target{output}, bounds{token_extension_bounds(source.context())},
-        budget{[&] { auto document = bounds.document; document.max_tree_bytes = std::min(document.max_tree_bytes, bounds.max_preserved_bytes); return document; }(), source.context()} {
+        budget{bounds.document, source.context()} {
     validate_extension_contract_at(contract, bounds, source.context());
     if (source.current().kind != event_kind::start_element || source.current().qualified_name.namespace_uri != contract.core_namespace) {
       throw std::invalid_argument{"XML extension owner differs from its contract"};
@@ -2257,9 +2375,18 @@ struct token_extension_input::implementation {
     std::size_t index{};
     while (index < reader.current().attributes.size()) {
       const auto& item = reader.current().attributes[index];
-      if (std::find(contract.known_names.begin(), contract.known_names.end(), item.qualified_name) != contract.known_names.end() ||
+      const auto& known = contract.distinct_known_kinds ? contract.known_attributes : contract.known_names;
+      if (std::find(known.begin(), known.end(), item.qualified_name) != known.end() ||
           item.qualified_name.namespace_uri == model_metadata_namespace) { ++index; continue; }
-      if (admit(item.qualified_name, true, 0U) == unknown_policy::preserve) {
+      const auto policy = admit(item.qualified_name, true, 0U);
+      if (contract.slots[selected_slot].process_contents != wildcard_process_contents::skip) {
+        element attribute_scope{};
+        attribute_scope.qualified_name = source.current().qualified_name;
+        attribute_scope.namespace_bindings = reader.namespace_scope(&budget);
+        validate_wildcard_declaration(contract, contract.slots[selected_slot], attribute_scope,
+            &item, nullptr, bounds.document, reader.context());
+      }
+      if (policy == unknown_policy::preserve) {
         budget.attribute_name(item.qualified_name); budget.text(item.value.size());
         preserved(sizeof(attribute) + item.qualified_name.local.size() + item.qualified_name.namespace_uri.size() + item.value.size());
         if (!scope_retained) {
@@ -2280,27 +2407,84 @@ token_extension_input::token_extension_input(token_reader& reader, const extensi
 token_extension_input::~token_extension_input() = default;
 // Keep the known decoder on the token stream while visiting exact foreign-only boundaries.
 void token_extension_input::before_field(std::size_t index) {
+  before_field(index, true);
+}
+// Mixed-content end slots preserve text events so late text cannot silently change position.
+void token_extension_input::before_field(std::size_t index, bool skip_whitespace) {
+  before_field_impl(index, skip_whitespace, false);
+}
+// A generated wildcard can consume a completed native name or its required leading occurrence.
+void token_extension_input::before_field_impl(std::size_t index, bool skip_whitespace, bool completed_owner) {
   if (state_->failed || state_->complete) { throw std::logic_error{"XML extension input is closed or failed"}; }
   try {
     auto& state = *state_;
-    state.reader.skip_space();
-    while (state.reader.current().kind == event_kind::start_element &&
-        std::find(state.contract.known_names.begin(), state.contract.known_names.end(), state.reader.current().qualified_name) == state.contract.known_names.end()) {
+    if (skip_whitespace) { state.reader.skip_space(); }
+    while (state.reader.current().kind == event_kind::start_element) {
+      const auto& selected = state.reader.current().qualified_name;
+      const auto known = std::find(state.contract.known_names.begin(), state.contract.known_names.end(), selected);
+      if (known != state.contract.known_names.end() && !completed_owner) {
+        const auto known_index = static_cast<std::size_t>(known - state.contract.known_names.begin());
+        const bool pending = state.contract.known_positions.empty() || state.contract.known_positions[known_index] >= index;
+        bool required_wildcard{};
+        for (std::size_t slot_index{}; pending && slot_index < state.contract.slots.size(); ++slot_index) {
+          const auto& slot = state.contract.slots[slot_index];
+          if (!slot.attribute && slot.before_field == index &&
+              slot.namespace_match != extension_namespace_match::explicit_foreign &&
+              state.counts[slot_index] < slot.minimum && matches_extension_namespace(slot, selected.namespace_uri)) {
+            required_wildcard = true; break;
+          }
+        }
+        if (pending && !required_wildcard) { break; }
+      }
+      if (!completed_owner) {
+        bool current_slot{}, future_slot{};
+        for (const auto& slot : state.contract.slots) {
+          if (state.reader.context()) { state.reader.context()->consume(operation_resource::work_units, 1U); }
+          if (slot.attribute || (known != state.contract.known_names.end() &&
+              (slot.namespace_match == extension_namespace_match::explicit_foreign ||
+               slot.namespace_match == extension_namespace_match::foreign_fallback))) { continue; }
+          if ((slot.namespace_match == extension_namespace_match::explicit_foreign ||
+              slot.namespace_match == extension_namespace_match::foreign_fallback) &&
+              (selected.namespace_uri.empty() || selected.namespace_uri == state.contract.core_namespace)) { continue; }
+          if (!matches_extension_namespace(slot, selected.namespace_uri)) { continue; }
+          if (slot.before_field == index || slot.before_field == std::numeric_limits<std::size_t>::max()) { current_slot = true; }
+          else if (slot.before_field > index) { future_slot = true; }
+        }
+        // An absent optional field still owns its boundary. Leave a later permitted wildcard
+        // untouched until the known decoder advances; required fields keep their normal error.
+        if (!current_slot && future_slot) { break; }
+      }
       const auto position = state.reader.child_position() - state.unknown_children;
-      if (state.admit(state.reader.current().qualified_name, false, index) == unknown_policy::preserve) {
+      const auto policy = state.admit(state.reader.current().qualified_name, false, index);
+      const auto& slot = state.contract.slots[state.selected_slot];
+      if (policy == unknown_policy::preserve) {
         constexpr auto metadata_bytes = sizeof(extension_store::child_slot) - sizeof(element);
         state.budget.retained_storage(metadata_bytes); state.preserved(metadata_bytes);
-        state.candidate.children.push_back({position, state.capture(), index});
+        auto child = state.capture();
+        validate_wildcard_declaration(state.contract, slot, child, nullptr, &child,
+            state.bounds.document, state.reader.context());
+        state.candidate.children.push_back({position, std::move(child), index});
+      } else if (slot.process_contents != wildcard_process_contents::skip) {
+        const auto child = state.capture(false);
+        validate_wildcard_declaration(state.contract, slot, child, nullptr, &child,
+            state.bounds.document, state.reader.context());
       } else { state.skip(); }
       ++state.unknown_children;
-      state.reader.skip_space();
+      if (skip_whitespace) { state.reader.skip_space(); }
     }
   } catch (...) { state_->failed = true; throw; }
 }
 // Publish no opaque state until every slot's minimum and final boundary have succeeded.
 void token_extension_input::finish(std::size_t end_index) {
-  before_field(end_index);
+  finish(end_index, true);
+}
+// Scalar-prefix text cannot absorb, discard or reorder text after preserved foreign children.
+void token_extension_input::finish(std::size_t end_index, bool skip_whitespace) {
+  before_field_impl(end_index, skip_whitespace, true);
   try {
+    if (!skip_whitespace && state_->reader.current().kind == event_kind::text) {
+      throw std::invalid_argument{"Text after an XML extension suffix is not scalar prefix content"};
+    }
     for (std::size_t index{}; index < state_->counts.size(); ++index) {
       if (state_->counts[index] < state_->contract.slots[index].minimum) { throw std::invalid_argument{"Required XML extension occurrence is missing"}; }
     }

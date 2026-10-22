@@ -100,8 +100,8 @@ the same runtime and borrowed callback contracts.
 Schema 1.20 package declarations also generate asynchronous
 [JS/TS ZIP/OPC facades](javascript_packages.md), including strict matching types,
 explicit Node compression/filesystem admission, typed XML roles, opaque resources
-and preserved extension policies. Shared nested XML budgets and declarative
-runtime-profile/application-reference checks remain pending.
+and preserved extension policies. Current facades share nested XML budgets and
+provide declared runtime pipeline selection and application-reference checks.
 
 Fixed arrays without explicit initializers start with exactly `N` independent
 element defaults. Their generated JS codecs reject wrong lengths on write,

@@ -65,8 +65,12 @@ internal static class RelocationMain {
     Check(expected!="LOAD_ERROR","Invalid load published");
     Check(loaded.Value.First?.Id==11&&loaded.Value.First.Label=="first","First payload");
     Check(loaded.Value.Second?.Id==22&&loaded.Value.Second.Label=="second","Second payload");
-    Check(loaded.Value.Children.Count==1&&loaded.Value.Children[0].Value.Id==33&&loaded.Value.Children[0].SourceIndex==0,"Dynamic child routing");
+    Check(loaded.Value.Children.Count>=1&&loaded.Value.Children[0].Value.Id==33&&loaded.Value.Children[0].SourceIndex==0,"Dynamic child routing");
     var input=new A.Input{First=loaded.Value.First,Second=action=="remove_second"?null:loaded.Value.Second,Children=loaded.Value.Children,Extensions=loaded.Extensions};
+    if(name.StartsWith("dynamic-",StringComparison.Ordinal)){
+      const string original="/children/child.xml";var names=new System.Collections.Generic.Dictionary<string,string>();if(action=="swap_children"){names[original]="/children/other.xml";names["/children/other.xml"]=original;}else if(action!="remove_unreferenced_child")names[original]=action=="collision_child"?"/assets/blob.bin":"/renamed/child.xml";
+      input.Extensions=loaded.Extensions.WithRenames(names);var children=loaded.Value.Children.Select(item=>item with{Name=names.TryGetValue(item.Name,out var destination)?destination:item.Name}).ToList();if(action=="remove_child"||action=="remove_unreferenced_child")children.RemoveAt(0);if(action=="swap_children")children.Reverse();input.Children=children;
+    }
     string before=Snapshot(input.Extensions),child=input.Children[0].Name;
     if(expected=="REJECT"){
       Rejected(()=>A.Encode(input));Rejected(()=>A.Save(destination,input));

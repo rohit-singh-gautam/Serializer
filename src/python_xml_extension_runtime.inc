@@ -70,12 +70,19 @@ class _XmlExtensions:
         """Require vocabulary understanding before selecting any unknown extension payload."""
         self.meta, self.scope, self.context = meta, scope, context
         self.options = options or XmlExtensionOptions()
+        profile = getattr(context, '_xml_package_vocabularies', None)
+        if profile is not None:
+            self.options = XmlExtensionOptions(tuple(dict.fromkeys((*self.options.understood_namespaces, *profile))), self.options.required_prefixes, self.options.limits)
         if not isinstance(self.options, XmlExtensionOptions):
             raise ValueError('Expected XmlExtensionOptions')
         self.bounds = self.options.limits
-        if len(meta['slots']) > self.bounds.max_slots or len(meta['known']) > self.bounds.max_items or len(meta['required']) > self.bounds.max_items:
+        if len(meta['slots']) > self.bounds.max_slots or len(meta['known']) > self.bounds.max_items or len(meta.get('known_attributes', ())) > self.bounds.max_items or len(meta['required']) > self.bounds.max_items:
             _xml_limit(self.context, 'XML extension slot limit exceeded')
         self.counts, self.items, self.bytes, self.state = [0] * len(meta['slots']), 0, 0, None
+        self.process = 0
+        self.validation_limits = None
+        self.temporary_depth = 1 if getattr(context, '_xml_validation', False) else 0
+        self.temporary_bytes = 0
         self._work(len(meta['slots']) + 1)
         if context is not None:
             context.consume('decoder_allocation_bytes', len(meta['slots']) * 8)
@@ -107,21 +114,37 @@ class _XmlExtensions:
         return uri == capability
     def charge(self, size):
         """Admit retained logical bytes before allocating corresponding opaque storage."""
-        if size > self.bounds.max_preserved_bytes - self.bytes:
-            _xml_limit(self.context, 'XML extension preserved-byte limit exceeded')
-        self.bytes += size
+        if self.temporary_depth:
+            limits = self.validation_limits or Limits()
+            maximum = limits.max_bytes + limits.max_string_bytes + limits.max_elements * 64
+            if size > maximum - self.temporary_bytes:
+                _xml_limit(self.context, 'XML declaration temporary-byte limit exceeded')
+            self.temporary_bytes += size
+        else:
+            if size > self.bounds.max_preserved_bytes - self.bytes:
+                _xml_limit(self.context, 'XML extension preserved-byte limit exceeded')
+            self.bytes += size
         if self.context is not None:
-            self.context.consume('preserved_bytes', size)
+            if not self.temporary_depth:
+                self.context.consume('preserved_bytes', size)
             self.context.consume('decoder_allocation_bytes', size)
     def slot(self, name, attribute, position=None):
         """Resolve exactly one explicit URI/position slot; core and known names remain closed."""
         self._work(len(name) + len(self.meta['known']) + 1)
         uri = _xml_namespace(name)
-        if not uri or uri in (self.meta['core'], 'urn:serializer:xml:model') or name in self.meta['known']:
+        known = self.meta.get('known_attributes', self.meta['known']) if attribute else self.meta['known']
+        if uri == 'urn:serializer:xml:model' or attribute and name in known:
             return None
         for index, slot in enumerate(self.meta['slots']):
             self._work(len(slot['namespaces']) + 1)
-            if slot['attribute'] == attribute and (attribute or slot['position'] == position) and uri in slot['namespaces']:
+            if not attribute and name in known:
+                positions = self.meta.get('known_positions', ())
+                known_index = known.index(name)
+                if slot.get('match', 0) in (0, 4) or not (positions and positions[known_index] >= 0 and positions[known_index] < position or self.counts[index] < slot['minimum']):
+                    continue
+            contained = uri in slot['namespaces']
+            matched = slot.get('match', 0) == 1 or (not contained if slot.get('match', 0) in (3, 4) else contained)
+            if slot['attribute'] == attribute and (attribute or slot['position'] < 0 or slot['position'] == position) and matched:
                 return index
         return None
     def admit(self, name, attribute, position=None):
@@ -134,6 +157,13 @@ class _XmlExtensions:
             _xml_limit(self.context, 'XML extension item or occurrence limit exceeded')
         self.items += 1
         self.counts[index] += 1
+        self.process = slot.get('process', 0)
+        if self.process:
+            declarations = self.meta.get('declarations')
+            if declarations is None or (attribute, name) not in declarations():
+                if self.process == 2:
+                    raise ValueError('Strict XML wildcard requires a global declaration')
+                self.process = 0
         return slot['policy'] == 'preserve'
     def storage(self):
         """Materialize XML-only owner state lazily when the first preserved payload is admitted."""
@@ -144,7 +174,10 @@ class _XmlExtensions:
         return self.state
     def attribute(self, name, value):
         """Apply exact attribute policy without retaining skipped values or the owner tree."""
-        if self.admit(name, True):
+        preserve = self.admit(name, True)
+        if self.process:
+            self.validate([name, {name: value}, [], '', self.scope, []], True, self.process)
+        if preserve:
             self.charge(48 + len(name.encode('utf-8')) + len(value.encode('utf-8')))
             self.storage()[1][name] = value
     def child(self, position, before_item, node):
@@ -173,16 +206,99 @@ class _XmlExtensions:
             self._work()
             if count < slot['minimum']:
                 raise ValueError('Required XML extension occurrence missing')
+    def validate(self, node, attribute, process):
+        """Apply strict/lax global declaration dispatch through the original bounded operation."""
+        if not process:
+            return
+        self._work()
+        declarations = self.meta.get('declarations')
+        selected = declarations().get((attribute, node[0])) if declarations is not None else None
+        if selected is None:
+            if process == 2:
+                raise ValueError('Strict XML wildcard requires a global declaration')
+            return
+        model, nillable, abstract, nil_model, fixed, declared_type, codec_root, abstract_type, types = selected
+        if abstract:
+            raise ValueError('Abstract XML declaration cannot appear directly')
+        selected_type = node[1].get(_XML_TOKEN_TYPE_NAME)
+        if selected_type is not None:
+            identity = _xml_name(*_xml_resolve_qname(selected_type, node[4]))
+            if identity != declared_type:
+                selected = types.get(identity)
+                if selected is None:
+                    raise ValueError('Unexpected declared XML type')
+                model, nil_model, abstract_type, codec_root = selected
+            if self.context is not None:
+                self.context.consume('decoder_allocation_bytes', 48 * len(node[1]))
+            node = [node[0], {key: value for key, value in node[1].items() if key != _XML_TOKEN_TYPE_NAME}, *node[2:]]
+        if abstract_type:
+            raise ValueError('Abstract XML type cannot appear directly')
+        if node[0] != codec_root:
+            node = [codec_root, *node[1:]]
+        nil = node[1].get(_XML_TOKEN_NIL_NAME)
+        if nil is not None:
+            nil = nil.strip(' \t\r\n')
+            if not nillable or nil not in ('true', 'false', '1', '0'):
+                raise ValueError('Invalid declared XML nil state')
+            if nil in ('true', '1'):
+                if node[2] or node[3] or fixed:
+                    raise ValueError('Nil XML declaration contains a value')
+                if nil_model is None:
+                    raise ValueError('Missing nil XML validation codec')
+                model = nil_model)extensionpython"
+R"extensionpython(
+            node = [node[0], {key: value for key, value in node[1].items() if key != _XML_TOKEN_NIL_NAME}, *node[2:]]
+        self.temporary_depth += 1
+        try:
+            context = _XmlValidationContext(self.context)
+            writer = _XmlTokenOutput(self.validation_limits, context)
+            _xml_extension_emit(writer, self, node, 1)
+            data = b''.join(writer.parts)
+            model.decode_xml(data, limits=writer.budget.limits, context=context)
+        finally:
+            self.temporary_depth -= 1
+
+
+class _XmlValidationContext:
+    """Share caller admission while excluding outer package-root permissions from private validation."""
+    _xml_root_type = _xml_package_vocabularies = None
+    _xml_package_requires_type = False
+    _xml_validation = True
+    def __init__(self, context):
+        """Borrow the active operation without copying its counters or exception identities."""
+        self.context = context
+    def __getattr__(self, name):
+        """Forward all ordinary namespace, diagnostic and cancellation operations unchanged."""
+        return getattr(self.context, name)
+    def consume(self, resource, amount):
+        """Keep validation-only state marked even when the caller supplies no operation callbacks."""
+        if self.context is not None:
+            self.context.consume(resource, amount)
+    def check(self):
+        """Forward the original interruption boundary when an outer context exists."""
+        if self.context is not None:
+            self.context.check()
+    def check_buffer(self, amount):
+        """Keep optional simultaneous-buffer admission attached to the original operation."""
+        callback = getattr(self.context, 'check_buffer', None)
+        if callback is not None:
+            callback(amount)
 
 
 class _XmlForeignFrame:
     """Capture only a permitted foreign subtree, or retain no payload for a skip slot."""
-    def __init__(self, name, attrs, scope, tracker, preserve):
+    def __init__(self, name, attrs, scope, tracker, preserve, validation=0):
         """Keep provider state bounded independently of all known owning model destinations."""
-        self.name, self.scope, self.tracker, self.preserve = name, scope, tracker, preserve
+        self.name, self.scope, self.tracker = name, scope, tracker
+        self.retain, self.validation = preserve, validation
+        self.preserve = preserve or bool(validation)
+        self.temporary = bool(validation) and not preserve
+        if self.temporary:
+            tracker.temporary_depth += 1
+        self.context = tracker.context
         self.model, self.identity, self.nil, self.wrapper = None, None, False, False
         self.fields, self.fragments, self.pending = (), [], bytearray()
-        self.value = tracker.node(name, attrs, scope) if preserve else None
+        self.value = tracker.node(name, attrs, scope) if self.preserve else None
     def flush(self):
         """Join one provider-split text run only at semantic child boundaries."""
         if self.pending:
@@ -209,7 +325,12 @@ class _XmlForeignFrame:
         if self.preserve:
             self.flush()
             self.value[3] = ''.join(text for unused, text in self.value[5])
-        return self.value
+        try:
+            self.tracker.validate(self.value, False, self.validation)
+        finally:
+            if self.temporary:
+                self.tracker.temporary_depth -= 1
+        return self.value if self.retain else None
 
 )extensionpython"
 R"extensionpython(
@@ -228,6 +349,7 @@ def _xml_extension_output(model, writer):
         _xml_extension_bindings(state[0])
         scope.update(state[0])
     tracker = _XmlExtensions(meta, scope, writer.budget.limits.xml_extensions, writer.budget.context)
+    tracker.validation_limits = writer.budget.limits
     attributes = []
     if state is not None:
         if state[1] or state[2]:
@@ -237,6 +359,7 @@ def _xml_extension_output(model, writer):
             _xml_check_text(value)
             if not tracker.admit(name, True):
                 raise ValueError('Preserved XML attribute no longer has a preserve slot')
+            tracker.validate([name, {name: value}, [], '', scope, []], True, tracker.process)
             tracker.charge(48 + len(name.encode('utf-8')) + len(value.encode('utf-8')))
             attributes.append((name, value))
         previous = (-1, -1)
@@ -245,7 +368,7 @@ def _xml_extension_output(model, writer):
                 raise ValueError('Invalid XML extension child position')
             position, item, node = selected
             if type(position) is not int or type(item) is not int or position < 0 or item < 0 or (
-                position > len(model._xml_token_fields)) or (position, item) < previous:
+                position > len(model._xml_token_fields) + (len(model._xml_mixed['children']) if model._xml_mixed else 0)) or (position, item) < previous:
                 raise ValueError('Invalid XML extension child order')
             previous = position, item
     return tracker, state, attributes, scope
@@ -299,6 +422,7 @@ def _xml_extension_at(writer, tracker, state, cursor, position, item=0):
             raise ValueError('Invalid preserved XML extension child')
         if not tracker.admit(node[0], False, position):
             raise ValueError('Preserved XML child no longer has a preserve slot')
+        tracker.validate(node, False, tracker.process)
         tracker.charge(24)
         _xml_extension_emit(writer, tracker, node, len(writer.stack) + 1)
         cursor[0] += 1

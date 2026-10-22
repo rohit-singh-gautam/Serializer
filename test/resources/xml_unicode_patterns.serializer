@@ -1,0 +1,1 @@
+serializer version 1.20.0; namespace patterns { using schema "xml_unicode_patterns.xsd"; class sample { public string value; } }

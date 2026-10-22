@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: 0BSD
 #include <rohit/xml_extensions.hpp>
+#include "xml_extension_occurrence.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -97,22 +98,44 @@ void measure_child(const element& value, build_budget& budget,
 
 } // namespace
 
-// Exact namespace lists make slot overlap statically decidable and keep core names closed.
+// The finite set/complement representation keeps namespace matching and overlap decidable.
+bool matches_extension_namespace(const extension_slot_contract& slot, std::string_view namespace_uri) {
+  const bool contains = std::find(slot.namespaces.begin(), slot.namespaces.end(), namespace_uri) != slot.namespaces.end();
+  switch (slot.namespace_match) {
+  case extension_namespace_match::any: return true;
+  case extension_namespace_match::except:
+  case extension_namespace_match::foreign_fallback: return !contains;
+  case extension_namespace_match::explicit_foreign:
+  case extension_namespace_match::one_of: return contains;
+  }
+  throw std::invalid_argument{"Unknown XML extension namespace predicate"};
+}
+
+// Preserve foreign-only authored slots while checking generated namespace predicates for overlap.
 void validate_extension_contract_at(const extension_contract& contract, extension_limits bounds, operation_context* context) {
   if (contract.slots.size() > bounds.max_slots || contract.known_names.size() > bounds.max_items ||
+      contract.known_attributes.size() > bounds.max_items ||
       contract.required_namespaces.size() > bounds.max_items) {
     reject_limit(context, "XML extension contract metadata limit exceeded");
   }
+  if (!contract.known_positions.empty() && contract.known_positions.size() != contract.known_names.size()) {
+    throw std::invalid_argument{"Invalid XML known-child position metadata"};
+  }
   std::set<std::string> ids{};
-  std::set<std::pair<bool, std::pair<std::size_t, std::string>>> destinations{};
   std::size_t metadata_bytes{};
   for (const auto& known : contract.known_names) {
     add_bytes(metadata_bytes, known.local.size(), bounds.document.max_name_bytes, context);
     add_bytes(metadata_bytes, known.namespace_uri.size(), bounds.document.max_name_bytes, context);
   }
+  for (const auto& known : contract.known_attributes) {
+    add_bytes(metadata_bytes, known.local.size(), bounds.document.max_name_bytes, context);
+    add_bytes(metadata_bytes, known.namespace_uri.size(), bounds.document.max_name_bytes, context);
+  }
   for (const auto& slot : contract.slots) {
     add_bytes(metadata_bytes, slot.id.size(), bounds.document.max_name_bytes, context);
-    if (slot.id.empty() || !ids.insert(slot.id).second || slot.namespaces.empty() ||
+    const bool finite = slot.namespace_match == extension_namespace_match::explicit_foreign ||
+        slot.namespace_match == extension_namespace_match::one_of;
+    if (slot.id.empty() || !ids.insert(slot.id).second || (finite && slot.namespaces.empty()) ||
         slot.namespaces.size() > bounds.max_items ||
         (slot.maximum && slot.minimum > *slot.maximum) ||
         (slot.policy == unknown_policy::reject && slot.minimum != 0U)) {
@@ -122,13 +145,40 @@ void validate_extension_contract_at(const extension_contract& contract, extensio
         slot.policy != unknown_policy::preserve) {
       throw std::invalid_argument{"Unknown XML extension policy"};
     }
+    if ((slot.namespace_match != extension_namespace_match::explicit_foreign &&
+        slot.namespace_match != extension_namespace_match::any && slot.namespace_match != extension_namespace_match::one_of &&
+        slot.namespace_match != extension_namespace_match::except && slot.namespace_match != extension_namespace_match::foreign_fallback) ||
+        (slot.process_contents != wildcard_process_contents::skip && slot.process_contents != wildcard_process_contents::lax &&
+        slot.process_contents != wildcard_process_contents::strict)) {
+      throw std::invalid_argument{"Unknown XML wildcard predicate or process mode"};
+    }
+    std::set<std::string> local_namespaces;
     for (const auto& uri : slot.namespaces) {
       add_bytes(metadata_bytes, uri.size(), bounds.document.max_name_bytes, context);
-      if (uri.empty() || uri == contract.core_namespace ||
-          !destinations.emplace(slot.attribute,
-              std::pair{slot.attribute ? 0U : slot.before_field, uri}).second) {
+      if (!local_namespaces.insert(uri).second || (slot.namespace_match == extension_namespace_match::explicit_foreign &&
+          (uri.empty() || uri == contract.core_namespace))) {
         throw std::invalid_argument{"Ambiguous or core XML extension namespace slot"};
       }
+    }
+    if (slot.namespace_match == extension_namespace_match::foreign_fallback &&
+        (!local_namespaces.contains("") || !local_namespaces.contains(contract.core_namespace))) {
+      throw std::invalid_argument{"XML foreign fallback must exclude absent and core namespaces"};
+    }
+    for (const auto& previous : contract.slots) {
+      if (&previous == &slot) { break; }
+      const auto any_position = [](const auto& selected) {
+        return selected.namespace_match == extension_namespace_match::foreign_fallback &&
+            selected.before_field == std::numeric_limits<std::size_t>::max();
+      };
+      if (previous.attribute != slot.attribute || (!slot.attribute && previous.before_field != slot.before_field &&
+          !any_position(previous) && !any_position(slot))) { continue; }
+      const bool previous_finite = previous.namespace_match == extension_namespace_match::explicit_foreign ||
+          previous.namespace_match == extension_namespace_match::one_of;
+      const bool overlap = finite ? std::any_of(slot.namespaces.begin(), slot.namespaces.end(),
+          [&](const auto& uri) { return matches_extension_namespace(previous, uri); }) :
+          previous_finite ? std::any_of(previous.namespaces.begin(), previous.namespaces.end(),
+              [&](const auto& uri) { return matches_extension_namespace(slot, uri); }) : true;
+      if (overlap) { throw std::invalid_argument{"Ambiguous XML extension namespace predicates"}; }
     }
   }
   std::set<std::string> required{};
@@ -188,6 +238,22 @@ void validate_required_capabilities(const extension_contract& contract, const el
 }
 
 // Keep candidate storage local so any late occurrence/capability failure publishes nothing.
+// Declaration validation is orthogonal to namespace admission and opaque retention.
+void validate_wildcard_declaration(const extension_contract& contract,
+    const extension_slot_contract& slot, const element& scope, const attribute* attribute_value,
+    const element* child, limits bounds, operation_context* context) {
+  if (slot.process_contents == wildcard_process_contents::skip) { return; }
+  if (context) { context->consume(operation_resource::work_units, 1U); }
+  if ((attribute_value == nullptr) == (child == nullptr)) {
+    throw std::invalid_argument{"A validating XML wildcard requires exactly one payload"};
+  }
+  const bool declared = contract.validate_declaration &&
+      contract.validate_declaration(scope, attribute_value, child, bounds, context);
+  if (!declared && slot.process_contents == wildcard_process_contents::strict) {
+    throw std::invalid_argument{"Strict XML wildcard has no declaration in the pinned schema bundle"};
+  }
+}
+
 static extension_store inspect_extension_slots(const extension_contract& contract, const element& scope,
     std::span<const extension_item_view> items,
     std::span<const std::string> understood_namespaces, std::string_view required_prefixes,
@@ -224,10 +290,9 @@ static extension_store inspect_extension_slots(const extension_contract& contrac
     const auto& selected_name = item.attribute ? item.attribute->qualified_name :
         item.child->qualified_name;
     if (context) { context->consume(operation_resource::work_units, contract.known_names.size()); }
-    if (selected_name.namespace_uri.empty() || selected_name.namespace_uri == contract.core_namespace ||
-        selected_name.namespace_uri == model_metadata_namespace ||
-        std::find(contract.known_names.begin(), contract.known_names.end(), selected_name) !=
-            contract.known_names.end()) {
+    const auto& known_names = item.attribute && contract.distinct_known_kinds ? contract.known_attributes : contract.known_names;
+    const auto known = std::find(known_names.begin(), known_names.end(), selected_name);
+    if (selected_name.namespace_uri == model_metadata_namespace) {
       throw std::invalid_argument{"Known, core or reserved XML name cannot enter an extension slot"};
     }
     if (item.child) {
@@ -245,15 +310,22 @@ static extension_store inspect_extension_slots(const extension_contract& contrac
       const auto& slot = contract.slots[index];
       if (context) { context->consume(operation_resource::work_units, 1U); }
       if (slot.attribute != (item.attribute != nullptr) ||
-          (!slot.attribute && slot.before_field != item.before_field)) { continue; }
+          (!slot.attribute && slot.before_field != item.before_field &&
+              !(slot.namespace_match == extension_namespace_match::foreign_fallback && slot.before_field == std::numeric_limits<std::size_t>::max()))) { continue; }
+      if (known != known_names.end()) {
+        if (slot.namespace_match == extension_namespace_match::explicit_foreign || slot.namespace_match == extension_namespace_match::foreign_fallback || item.attribute) { continue; }
+        const auto known_index = static_cast<std::size_t>(known - known_names.begin());
+        if (!contract.known_positions.empty() && contract.known_positions[known_index] >= item.before_field &&
+            counts[index] >= slot.minimum) { continue; }
+      }
       for (const auto& uri : slot.namespaces) {
         if (context) {
           context->consume(operation_resource::work_units, 1U);
           context->consume(operation_resource::work_units,
               std::min(uri.size(), selected_name.namespace_uri.size()));
         }
-        if (uri == selected_name.namespace_uri) { selected = index; break; }
       }
+      if (matches_extension_namespace(slot, selected_name.namespace_uri)) { selected = index; }
       if (selected != contract.slots.size()) { break; }
     }
     if (selected == contract.slots.size() ||
@@ -261,9 +333,12 @@ static extension_store inspect_extension_slots(const extension_contract& contrac
       throw std::invalid_argument{"XML extension has no permitted slot"};
     }
     const auto& slot = contract.slots[selected];
+    detail::validate_wildcard_occurrence(slot, counts[selected]);
     add_bytes(counts[selected], 1U,
         slot.maximum.value_or(std::numeric_limits<std::size_t>::max()), context);
-    if (slot.policy == unknown_policy::skip) { continue; }
+    validate_wildcard_declaration(contract, slot, scope, item.attribute, item.child,
+        bounds.document, context);
+    if (slot.policy == unknown_policy::skip || (context && context->declaration_validation)) { continue; }
     const auto before = preserved_bytes;
     const bool copy_scope = item.attribute && !scope_retained;
     if (item.attribute) {
@@ -311,6 +386,37 @@ void validate_extension_slots(const extension_contract& contract, const element&
     std::span<const extension_item_view> items, std::span<const std::string> understood_namespaces,
     extension_limits bounds, operation_context* context) {
   (void)inspect_extension_slots(contract, scope, items, understood_namespaces, {}, bounds, context, false);
+}
+
+// Build only bounded borrowed views and the original attribute scope before validating retained data.
+void validate_tree_extension_store(const extension_contract& contract, const name& owner,
+    const extension_store& store, operation_context* context) {
+  auto bounds = context && context->extension_bounds ? *context->extension_bounds : extension_limits{};
+  if (context && !context->extension_bounds && context->document_bounds) { bounds.document = *context->document_bounds; }
+  if (store.attributes.size() > bounds.max_items || store.children.size() > bounds.max_items - store.attributes.size()) {
+    reject_limit(context, "XML extension item limit exceeded");
+  }
+  const auto count = store.attributes.size() + store.children.size();
+  if (count > std::numeric_limits<std::size_t>::max() / sizeof(extension_item_view)) {
+    reject_limit(context, "XML extension traversal metadata overflow");
+  }
+  if (context) {
+    context->consume(operation_resource::allocation_bytes, count * sizeof(extension_item_view));
+    context->consume(operation_resource::allocation_bytes, owner.local.size() + owner.namespace_uri.size());
+  }
+  std::vector<extension_item_view> items;
+  items.reserve(count);
+  for (const auto& item : store.attributes) { items.push_back({&item}); }
+  for (const auto& item : store.children) { items.push_back({nullptr, &item.value, item.before_field, item.before_child}); }
+  element scope{};
+  scope.qualified_name = owner;
+  for (const auto& [prefix, uri] : store.namespace_bindings) {
+    if (context) { context->consume(operation_resource::allocation_bytes,
+        sizeof(std::pair<const std::string, std::string>) + prefix.size() + uri.size()); }
+    scope.namespace_bindings.emplace(prefix, uri);
+  }
+  validate_extension_slots(contract, scope, items, context && context->understood_namespaces ?
+      std::span<const std::string>{*context->understood_namespaces} : std::span<const std::string>{}, bounds, context);
 }
 
 } // namespace rohit::serializer::xml

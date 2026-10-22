@@ -4,6 +4,7 @@
 
 #include <rohit/package.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
@@ -168,17 +169,36 @@ int run(int argc, char** argv) {
               << "\",\"checks\":" << checks << ",\"failure_stage\":\"load\"}\n";
     return 0;
   }
+  auto edited_extensions = loaded.extensions;
+  if (name.starts_with("dynamic-")) {
+    const std::string original{"/children/child.xml"}, other{"/children/other.xml"};
+    std::vector<package::part_relocation> names;
+    if (action == "swap_children") {
+      names = {{original, other}, {other, original}};
+    } else if (action != "remove_unreferenced_child") {
+      names = {{original, action == "collision_child" ? "/assets/blob.bin" : "/renamed/child.xml"}};
+    }
+    edited_extensions = loaded.extensions.with_renames(names);
+    for (auto& item : loaded.value.children) {
+      const auto found = std::find_if(names.begin(), names.end(), [&](const auto& move) { return move.original == item.name; });
+      if (found != names.end()) { item.name = found->canonical; }
+    }
+    if (action == "remove_child" || action == "remove_unreferenced_child") {
+      loaded.value.children.erase(loaded.value.children.begin());
+    }
+    if (action == "swap_children") { std::reverse(loaded.value.children.begin(), loaded.value.children.end()); }
+  }
   std::vector<package::model_part_view<relocation::payload>> children;
   for (const auto& item : loaded.value.children) {
     // The declared parent is a fixed singleton, so its only occurrence is zero.
-    children.push_back({&item.value, item.name, item.content_type, 0});
+    children.push_back({&item.value, item.name, item.content_type, item.source_index});
   }
   archive::input input;
   input.first = &loaded.value.first;
   input.second = action == "remove_second" || !loaded.value.second ? nullptr : &*loaded.value.second;
   input.children = children;
-  input.extensions = &loaded.extensions;
-  check(loaded.value.first.id == 11 && children.size() == 1 && children.front().source_index == 0,
+  input.extensions = &edited_extensions;
+  check(loaded.value.first.id == 11 && children.size() >= 1 && children.front().source_index == 0,
       "Typed identities or dynamic child source occurrence changed", checks);
   const auto original = snapshot(loaded.extensions);
   const auto destination = directory / (name + "-saved.opc");

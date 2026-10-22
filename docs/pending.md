@@ -6,8 +6,8 @@ implementations. `MG03`'s existing inherited authorization and publication bound
 is complete within Serializer; principal binding, policy persistence and policy
 administration belong to the host. See the
 [ownership decisions and remaining mixed requirements](project/application_responsibilities.md).
-The current inventory is **809 implemented/verified, 3 will not fix and 39 pending**
-out of 851 rows. **34 are active and five are deferred subsystem requirements**.
+The current inventory is **815 implemented/verified, 3 will not fix and 33 pending**
+out of 851 rows. **28 are active and five are deferred subsystem requirements**.
 By maintainer direction on 2026-10-21, new non-C++ managed engines (`MG01`),
 the page store/index (`PG01`), lazy model/history storage (`PG02`), database sinks
 (`DB01`) and sink migration/rebaseline (`MIG03`) are deferred to linked GitHub
@@ -19,9 +19,9 @@ contract: typed conflicts, two-parent ancestry, opt-in capability advertisement,
 exact-target/cursor requests, current policy/locks, accepted field deltas, selective
 Undo/Redo and Save/journal recovery. All four storage/ID profiles pass on Windows
 and Linux; [scope and executed evidence](verification/verification-collaboration-merging-2026-10-21.md).
-Unrelated qualification and OPC rows remain open. All six open OPC/3MF parents
-are required by the current implementation request; narrower verified slices do
-not establish 100% completion of those parents.
+The later 2.28.0 OPC/3MF completions and their acceptance evidence are recorded
+in the requirement table below. Unrelated active and deferred requirements
+remain separate from this batch.
 
 The 2.22.0 batch completes native capability activation/history-policy
 conversion (`MG02`), session/cache fault qualification (`MG05`) and outer Pack-IRI
@@ -32,7 +32,8 @@ separate targeted checks in the [aggregate verification record](verification/ver
 These results do not close unrelated OPC/3MF requirements. The selected official Core corpus now
 completes `OPC-R05`: [175 model parts accounted for, 156 round trips per supported consumer](verification/verification-core-conformance-2026-10-21.md).
 The mandatory fifth-edition metadata and Annex B corpus completes `OPC-R08`;
-six main OPC/3MF requirements remain open after the combined-operation closure below.
+At that checkpoint six main OPC/3MF requirements remained open; the latest
+requirement table below includes subsequent completions.
 `XML-B13` now completes the eleven-output prepared-provider and physical namespace
 admission matrix: [44,892 boundary decisions and actual provider checks](verification/verification-runtime-boundaries-2026-10-21.md).
 `OPC-R11`, `XML-B05` and `XML-B21` now complete the selected large owning
@@ -88,8 +89,10 @@ That checkpoint left 60 unchecked, with 787 of 847 rows checked.
 Compiler/runtime **2.19.0** completes `XML-B22` preservation/policy/collision
 qualification in supported XML/package graphs across all eleven outputs. Fixed
 singleton role paths rebind preserved links simultaneously, with opt-in canonical
-C/Rust writers and Go loaders. Dynamic renames, broader XML graphs, lexical XML,
-signatures and the remaining `OPC-R06` profile work stay separate. See the
+C/Rust writers and Go loaders. At that checkpoint, dynamic renames, broader XML
+graphs and `OPC-R06` profile work remained separate; the 2.28.0 pipeline checks
+below supersede those gates. Lexical XML and signatures retain their explicit
+capability boundaries. See the
 [actual SDK matrix and scope](verification/verification-package-relocation-2026-10-21.md).
 That checkpoint left 61 unchecked, with 786 of 847 rows checked.
 
@@ -129,45 +132,56 @@ See the [batch dependencies and verification](verification/verification-pending-
 
 ## OPC and 3MF requirements
 
-The 2.27.0 update extends `OPC-R04`'s explicit element-only ordered arrays to all
-eleven owning outputs, with exact fixed cardinality and independent SDK decisions.
-See the [portable ordered-content checks](verification/verification-ordered-xml-2026-10-22.md).
-This does not complete the six open parents: `OPC-R01`, `OPC-R02`, `OPC-R03`,
-`OPC-R04`, `OPC-R06` and `OPC-R10` remain implementation/qualification work.
+The 2.28.0 update completes `OPC-R04`'s explicit ordered owning storage across all
+eleven outputs, including fixed-XSD grouped/repeated sequence/choice binding,
+exact fixed cardinality, grammar-preserving export and bounded compatibility.
+See the [grouped-XSD acceptance checks](verification/verification-ordered-xsd-2026-10-22.md).
+The same update completes `OPC-R01` namespace identities and `OPC-R03`
+scalar/list/union restrictions in all eleven outputs; see the
+[scalar identity and actual SDK record](verification/verification-scalar-identities-2026-10-22.md)
+and [Unicode pattern checks](verification/verification-unicode-xml-patterns-2026-10-22.md).
+`OPC-R06` now composes XML/JSON/BINARY_NONE profiles, typed references, runtime
+selection and repeated-role relocation in all eleven outputs, including native
+XML companions; see the [package pipeline checks](verification/verification-package-pipelines-2026-10-22.md).
+`OPC-R02` completes namespace-aware wildcard admission and pinned strict/lax
+declaration validation across all eleven outputs, including required capabilities,
+shared resource policies, compositor combinations and native package companions.
+All **20 rows in this section are complete**. The [wildcard qualification](verification/verification-xml-wildcards-2026-10-22.md)
+records the SDK matrices and all 299 verified repository CTest cases, including
+the targeted replays after integration fixes.
 
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
-| [ ] | OPC-R01 | — | Complete qualified attributes, QName values and prefix lists in every backend; child-local/shadowed QName storage, equivalent prefixes, Unicode names and regenerated declarations preserve expanded identity. | — |
+| [x] | OPC-R01 | — | All eleven outputs preserve qualified attributes, Unicode names, QName/list/prefix-list occurrence scopes, equivalent prefixes, local shadowing and default-namespace absence. Native C/Rust document companions cover wrapped/nil, mixed/ordered/all, map/variant and lifecycle graphs without native model/wire changes. Namespace constraints/defaults use schema-owned expanded identities; [scalar checks](verification/verification-scalar-identities-2026-10-22.md), [native graph checks](verification/verification-native-namespace-graphs-2026-10-22.md). | — |
 | [x] | OPC-R01a | — | C++/Python scalar-child namespace scopes survive local declarations, shadowing, default namespace resets, optional/repeated occurrences and nested QName/QName-list unions. Native strings and wire codecs retain their contract; [2.16 checks](verification/verification-qname-scopes-2026-10-20.md). | — |
 | [x] | OPC-R01b | — | Shared UTF-8 XML NCName validation accepts Unicode mapping names and QName prefixes, with invalid encoding/name rejection; all eleven generators accept Unicode mappings. JavaScript/TypeScript independent XML checks verify qualified Unicode attributes, QName lists, prefix lists and child-local scopes; [2.16 checks](verification/verification-qname-scopes-2026-10-20.md). | — |
-| [x] | OPC-R01c | — | Go/Java/C# direct XML codecs retain plain QName, QName-list and prefix-list occurrence scopes and regenerate expanded identities, including qualified Unicode attributes, typed lists, copied native-authoring bindings and cumulative retention bounds. Thirteen independent namespace probes per backend plus 122 scalar probes and six binding gates pass; namespace-dependent unions/defaults/fixed/enumeration remain gated; [2.16 checks](verification/verification-qname-scopes-2026-10-20.md). | — |
-| [x] | OPC-R01d | — | Kotlin/Swift plain QName, QName-list and prefix-list scalar scopes retain local/shadowed declarations and explicit default absence; optional/repeated values, qualified attributes, native bindings and cumulative scope admission pass ten independent probes per actual SDK. Namespace-dependent union/default/fixed/enumeration combinations remain gated; [2.16 checks](verification/verification-qname-scopes-2026-10-20.md). | — |
-| [x] | OPC-R01e | — | C/Rust XML document companions retain plain QName/list/prefix-list occurrence scopes without changing native model structs or wire bytes. Thirteen namespace probes, independent retained-scope admission accounting and 29 existing extension probes pass in both actual SDKs. Wrapped/nil, mixed/all, revision/magic and other documented graph combinations remain gated; [2.16 checks](verification/verification-qname-scopes-2026-10-20.md). | — |
-| [ ] | OPC-R02 | — | Broaden namespace-aware reject/skip/preserve slots, exact wildcard positions/counts and required-capability handling beyond the selected generated graphs; unknown core names must still reject. | — |
-| [ ] | OPC-R03 | — | Complete lexical lists, exact facets, patterns and unions without duplicate INI inventories; broaden outer union identities/defaults, remaining QName-list constraints and numeric/provider boundaries; canonical numeric output satisfies its pattern. C++/Python/JavaScript/TypeScript list enumeration/default/fixed values retain ordered schema identities, including private no-namespace defaults under an active instance default. Go/Java/C# add scalar/list enumeration/default/fixed and selected union-member identities; Kotlin/Swift add expanded scalar/list enumeration. These five preserve qualified-name patterns and lexical prefix-list enumeration. [Initial four-backend scope](verification/verification-qname-lists-2026-10-21.md), [five further actual SDKs](verification/verification-qname-constraints-2026-10-21.md); broader outer-union/default/export combinations remain gated. | — |
-| [x] | OPC-R03a | — | C++ inherited/equivalent-scope QName/QName-list child unions preserve the first successful member and expanded identities; Python namespace-independent outer union enumeration/fixed values compare primitive/list value identities; [2.15 scope](verification/verification-pending-xml-2026-10-20.md). Child-local C++/Python scopes are implemented separately in OPC-R01a; broader backend/restriction combinations remain pending. | — |
-| [ ] | OPC-R04 | — | Complete multiple-typed-branch and grouped repeated choices plus ordered heterogeneous content; interleaving and occurrence semantics survive round trips. All eleven owning outputs support explicit [element-only ordered arrays](serialization/ordered_xml.md) without text alternatives, hidden ordering metadata or native format changes; existing mappings remain unchanged. Actual SDK checks cover private variants, interleaving, exact fixed cardinality and resource bounds; [2.27 evidence](verification/verification-ordered-xml-2026-10-22.md). Fixed-XSD grouped bindings and XSD tooling remain gated. | — |
+| [x] | OPC-R01c | — | Go/Java/C# retain QName/list/prefix-list occurrence scopes, qualified Unicode attributes, copied native-authoring bindings and cumulative retention bounds. Schema-scoped outer union enumeration/default/fixed and restricted atomic/union list items are implemented; [2.28 actual SDK evidence](verification/verification-scalar-identities-2026-10-22.md). | — |
+| [x] | OPC-R01d | — | Kotlin/Swift retain local/shadowed QName/list/prefix-list declarations and explicit default absence through optional/repeated values and qualified attributes. Direct and union enumeration/default/fixed, restricted list items and foreign schema-default isolation pass actual SDK/provider controls; [2.28 evidence](verification/verification-scalar-identities-2026-10-22.md). | — |
+| [x] | OPC-R01e | — | C/Rust XML document companions preserve occurrence namespaces across wrapped/nil records, mixed/ordered/all groups, lifecycle metadata, maps and element/xsi:type variants. Complete scalar/list/union restrictions and schema-owned defaults/fixed preserve native model structs and protocol bytes; [namespace graphs](verification/verification-native-namespace-graphs-2026-10-22.md), [native constraints](verification/verification-native-qname-constraints-2026-10-22.md). | — |
+| [x] | OPC-R02 | — | All eleven outputs enforce namespace-aware reject/skip/preserve slots, exact XSD predicates/positions/counts, required capabilities and pinned strict/lax declaration validation. Foreign fallback stays closed to unknown core/local names; private validators share the caller's resource and identity policies. Compositor combinations, large fallback owners, empty inventories, edited retained content and legacy C++ Core tree mappings pass actual SDK/provider checks. [Wildcard matrix and integrated verification](verification/verification-xml-wildcards-2026-10-22.md). | — |
+| [x] | OPC-R03 | — | All eleven outputs compile exact primitive/list/union facets, first-selected outer identities, schema-scoped QName enumeration/default/fixed and restricted atomic/union list-item contracts from the same XSD inventory. Export retains declaration scopes and restrictions. Bounded Unicode category/block/name escapes and recursive class subtraction run through prepared portable programs; numeric writers validate canonical spelling before publication. Native-width floating overflow remains an explicit representability boundary; external prefix-list defaults/export require a separate capability contract. [Scalar SDK/provider checks](verification/verification-scalar-identities-2026-10-22.md), [Unicode pattern matrix](verification/verification-unicode-xml-patterns-2026-10-22.md). | — |
+| [x] | OPC-R03a | — | First-successful union selection and recursive primitive/list item identities now apply in all eleven outputs, including outer enumeration/default/fixed and schema-scoped QName/list alternatives; [2.28 executed scope](verification/verification-scalar-identities-2026-10-22.md). | — |
+| [x] | OPC-R04 | — | All eleven owning outputs bind explicit [element-only ordered arrays](serialization/ordered_xml.md) to multiple typed choices and nested/repeated XSD sequence/choice groups. Readers and writers enforce complete grammar and exact fixed storage without hidden order metadata or native format changes. XSD export retains group occurrences; bounded reader-direction comparison rejects narrowing before publication. Actual SDKs pass 340 input decisions, edited-output rejection and native protocol parity; C++ adds 511 independently classified traces. [2.28 grouped-XSD evidence](verification/verification-ordered-xsd-2026-10-22.md). | — |
 | [x] | OPC-R05 | — | Selected published Core 1.4/XML bundle qualified against 175 official model parts with unchanged independent XSD oracles: 156 edited round trips per C++/Python consumer, six correct schema rejections, four bounded-resource rejections and nine explicit 16 MiB profile exclusions. Nine other backend selectors reject the unsupported rich graph precisely. Package/geometry conformance and three upstream positive/XSD disagreements remain distinct; [complete inventory](verification/verification-core-conformance-2026-10-21.md). | — |
-| [ ] | OPC-R06 | — | Complete generated profile/reference checks, target modes, vocabulary/type dispatch and fixed/default/runtime selection. Extend rename provenance/retargeting to dynamic and repeated roles; fixed singleton canonical rebinding is complete in OPC-R06a. Failures before publication preserve the old aggregate/file. | — |
-| [x] | OPC-R06a | — | Generated fixed singleton roles support preserved source/internal-target canonical rebinding across eleven outputs, with opt-in C/Rust writers and Go loaders; original relative scopes, selectors, external URI strings and opaque bytes retain their values. Removed moved roles, collisions and dangling references reject. Dynamic-role and broader profile work remains in OPC-R06; [2.19 scope](verification/verification-package-relocation-2026-10-21.md), [original 2.15 scope](verification/verification-pending-xml-2026-10-20.md). | — |
+| [x] | OPC-R06 | — | All eleven outputs compose immutable model/MIME/container identities with fixed/default/runtime XML/JSON/BINARY_NONE and stored/deflate profiles, typed references, exact internal/external target modes, root vocabulary/type checks and repeated/dynamic role rename provenance. C/Rust retain per-part XML namespace/foreign companions without native model/wire changes. Selected callbacks share the operation; rejected loads/Saves preserve prior publication. [Actual SDK and independent archive evidence](verification/verification-package-pipelines-2026-10-22.md). | — |
+| [x] | OPC-R06a | — | Generated fixed singleton roles support preserved source/internal-target canonical rebinding across eleven outputs, with opt-in C/Rust writers and Go loaders; original relative scopes, selectors, external URI strings and opaque bytes retain their values. Removed moved roles, collisions and dangling references reject. The later OPC-R06 completion adds repeated/dynamic explicit renames and selected profiles; [2.28 pipeline checks](verification/verification-package-pipelines-2026-10-22.md), [2.19 scope](verification/verification-package-relocation-2026-10-21.md), [original 2.15 scope](verification/verification-pending-xml-2026-10-20.md). | — |
 | [x] | OPC-R07 | — | Implement ZIP/OPC metadata, reader/writer, shared limits, preservation and full-Save APIs for every generated language, with independent producer/consumer tests; [2.14 checkpoint](verification/verification-backlog-2026-10-20.md), [eleven-output completion and limits](verification/verification-managed-reference-faults-2026-10-21.md#package-parent-reconciliation). | — |
 | [x] | OPC-R08 | — | Mandatory fifth-edition URI/content-type/Relationships and Annex B complete-rewrite contract qualified in all eleven actual SDKs: 196 shared physical-record/MCE/URI/IRI/encoding controls per backend, independent Windows/Linux native readers and metadata replay. Escaped/equivalent names, relative targets, collisions, physical metadata, string whitespace, UTF-16 and scoped Relationships compatibility retain their declared contracts. Optional Unicode part naming/interleaving/growth hints remain explicitly unsupported; [metadata qualification](verification/verification-opc-metadata-2026-10-21.md), [Annex B and replay](verification/verification-opc-annex-b-2026-10-21.md). | — |
 | [x] | OPC-R09 | — | Selected 75,000-tag owning XML workloads measured in all eleven Windows SDKs with actual providers, CPU/process peaks and encoded/generated sizes: 216 isolated profiles/1,080 timed batches and 132 large cancellation/deadline/recovery controls. Actual Linux C++ adds 54 profiles/270 calls and 12 controls. Public C#/Kotlin/Swift policies and bounded deferred Swift failure are implemented; final source bridges retain earlier timing provenance. Broader graphs/platform/provider qualification stays separate; [executed scope](verification/verification-large-xml-2026-10-21.md). | — |
-| [ ] | OPC-R10 | — | Broaden value-reference/scoped-projection XML graph, resource and stress qualification in every backend, preserving source lifetime and avoiding owning payload copies; separately define any durable-address XML contract. All eleven actual Windows outputs now qualify 25,000 borrowed collection values, storage identity, exact/one-tight byte limits and fresh recovery; broader graph/resource combinations remain pending. [Executed scope](verification/verification-readonly-xml-stress-2026-10-21.md). | — |
+| [x] | OPC-R10 | — | All eleven actual Windows outputs qualify namespace-sensitive scoped translators, borrowed native getters/storage, exact/one-tight depth and byte bounds, failure publication and fresh recovery, alongside 25,000-value stress controls. C++ borrows caller scope metadata; mobile outputs retain assigned source occurrence scopes; C/Rust provide encode-only borrowed companions. Durable-address XML has a separate explicit rejection policy, verified atomically in every output. [Graph/resource and lifetime evidence](verification/verification-readonly-xml-graphs-2026-10-22.md), [large stress controls](verification/verification-readonly-xml-stress-2026-10-21.md). | — |
 | [x] | OPC-R11 | — | One cumulative context spans the supported generated owning operation's XML, DEFLATE, ZIP, scoped identities, preservation and publication in all eleven outputs. Three 25,000-entry owners pass exact/one-tight reference/work/allocation admission, real cancellation/deadline boundaries, old-file preservation and fresh recovery; actual prepared-provider completion has separate checks. Public cross-call budget arguments differ by backend; [full executed scope](verification/verification-large-package-operations-2026-10-21.md). | — |
 | [x] | OPC-R12 | — | Fixed-XSD association/import/export and checked local bundles pass the rich text/wrapper/enum, namespace/particle and ambiguity/publication inventory. Authored names, IDs, defaults and behavior retain their contracts through all eleven ordinary Windows/Linux export/rebind outputs; imports remain reviewed. [2.20.0 scope and evidence](verification/verification-xsd-tooling-2026-10-21.md). | — |
 | [x] | OPC-R13 | — | One-source XSD/inline exception workflows pass staged new-field/rename imports, protected ambiguity failures and authored native-model XML rename/reorder in all eleven outputs on Windows/Linux. Native names, IDs, defaults, behavior and literal positional/integer/string bytes retain their contracts; imported evolution remains reviewed. [2.19.2 evidence](verification/verification-xsd-evolution-2026-10-21.md). | — |
 
-`OPC-R01` remains open beyond the checked slices. Go/Java/C# now implement scalar/list
-enumeration/default/fixed values and selected QName/list union members, with
-[111 actual-SDK decisions](verification/verification-qname-constraints-2026-10-21.md).
-Kotlin/Swift add 34 enumeration/pattern decisions; all five retain pattern-sensitive
-aliases and prefix-list string enumeration. Namespace-dependent outer-union
-constraints/defaults still reject. Kotlin/Swift keep namespace-dependent default/fixed
-and union gates; C/Rust retain their scalar/list constraint gates.
-C/Rust QName companion graphs additionally gate wrapped/nil scalars,
-mixed/all and revision/magic graphs. These combinations require implementations
-and actual SDK checks before the parent requirement can be checked.
+`OPC-R01` and `OPC-R03` are complete within their declared native-width and
+bounded portable execution contracts. The eleven-output SDK matrices preserve
+expanded namespace identities and native protocol bytes; QName defaults remain
+distinct from explicitly authored no-namespace values. The `prefix_list` adapter
+is an external capability vocabulary: its default/fixed semantics and XSD export
+need that separate contract, since an ordinary XSD string default does not assign
+namespace value semantics. This does not gate QName or QName-list constraints.
+Independent provider presentation disagreements and native floating-width bounds
+are recorded separately from implemented scalar validation.
 
 ## Managed references and migration
 

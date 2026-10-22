@@ -10,18 +10,38 @@ extension @package_name@ {
         public let source: Swift.String
         public let relationship: Swift.String
         public let id: Swift.String?
-        public let compression: Compression
+        public var compression: Compression
         public let minimum: Swift.Int
         public let maximum: Swift.Int?
         public let fixed: Swift.Bool
+        public var codec: Swift.String
+        public let targetMode: Swift.String
+        public let requiresType: Swift.Bool
+        public let vocabularies: [Swift.String]
         fileprivate let expectedRoot: SrlXmlName?
         fileprivate let expectedType: SrlXmlName?
         /// Immutable generated role/type dispatch is independent of runtime compression selection.
-        public init(_ field: Swift.String, name: Swift.String?, contentType: Swift.String?, source: Swift.String, relationship: Swift.String, id: Swift.String?, compression: Compression, minimum: Swift.Int, maximum: Swift.Int?, fixed: Swift.Bool = false, expectedRoot: Swift.String? = nil, expectedType: Swift.String? = nil) {
+        public init(_ field: Swift.String, name: Swift.String?, contentType: Swift.String?, source: Swift.String, relationship: Swift.String, id: Swift.String?, compression: Compression, minimum: Swift.Int, maximum: Swift.Int?, fixed: Swift.Bool = false, expectedRoot: Swift.String? = nil, expectedType: Swift.String? = nil, codec: Swift.String = "xml", targetMode: Swift.String = "internal", requiresType: Swift.Bool = false, vocabularies: [Swift.String] = []) {
             self.field = field; self.name = name; self.contentType = contentType; self.source = source
             self.relationship = relationship; self.id = id; self.compression = compression
             self.minimum = minimum; self.maximum = maximum; self.fixed = fixed
+            self.codec=codec; self.targetMode=targetMode; self.requiresType=requiresType; self.vocabularies=vocabularies
             self.expectedRoot = expectedRoot.map(expanded); self.expectedType = expectedType.map(expanded)
+        }
+    }
+    /// Select one existing native envelope with an optional ZIP storage override.
+    public struct TypedPipeline {
+        public let codec: Swift.String
+        public let compression: Compression?
+        public init(_ codec: Swift.String, compression: Compression? = nil) { self.codec=codec; self.compression=compression }
+    }
+    /// Reject all unknown/conflicting selections before a model, provider or destination is touched.
+    public static func resolveProfiles(_ roles: [Role], profiles: [Swift.String:Compression] = [:], pipelines: [Swift.String:TypedPipeline] = [:]) throws -> [Role] {
+        guard profiles.keys.allSatisfy({ key in roles.contains(where:{$0.field == key}) }), pipelines.keys.allSatisfy({ key in roles.contains(where:{$0.field == key}) }) else { throw Failure(.invalidOptions,"Unknown package profile role") }
+        return try roles.map { role in
+            let codec=pipelines[role.field]?.codec ?? role.codec, storage=pipelines[role.field]?.compression ?? profiles[role.field] ?? role.compression
+            guard (role.expectedRoot == nil ? ["bytes"] : ["xml","json","binary_none"]).contains(codec), !role.fixed || codec == role.codec && storage == role.compression else { throw Failure(.invalidOptions,"Fixed or unsupported package profile selection",part:role.field) }
+            var selected=role; selected.codec=codec; selected.compression=storage; return selected
         }
     }
     public struct CodecContext {
@@ -30,6 +50,7 @@ extension @package_name@ {
         public let part: Swift.String
         public let relationshipId: Swift.String
         fileprivate let definition: Role
+        public var codec: Swift.String { definition.codec }
         /// Keep exact logical codec location without exposing payload text.
         fileprivate init(_ budget: Budget, _ role: Role, _ part: Swift.String, _ id: Swift.String) {
             self.budget = budget; self.role = role.field; self.part = part; relationshipId = id; definition = role
@@ -79,9 +100,16 @@ extension @package_name@ {
         guard count >= role.minimum, role.maximum == nil || count <= role.maximum! else { throw Failure(.semantic,"Package role cardinality failed",part:role.field) }
     }
     private enum IdentityStop: Swift.Error { case accepted }
+    /// Translate only known native quota origins after restoring the exact first caller failure.
+    private static func nativeCodecFailure(_ error: any Swift.Error, _ context: CodecContext) throws -> any Swift.Error {
+        try context.check()
+        if let failure=error as? Failure { return failure }
+        if case SerializerError.invalid(let message)=error, ["Message byte limit","String limit","Element limit","Depth limit","Encode depth limit","Array allocation overflow"].contains(message) { return Failure(.resourceLimit,message,part:context.part,fieldPath:context.role,relationshipId:context.relationshipId) }
+        return Failure(.codec,"Package typed codec rejected part",part:context.part,fieldPath:context.role,relationshipId:context.relationshipId)
+    }
     /// Inspect only the typed root's expanded identities before entering an application codec callback.
     private static func checkIdentity(_ bytes: [Swift.UInt8], _ context: CodecContext) throws {
-        guard let expected = context.definition.expectedRoot else { return }
+        guard context.codec == "xml", let expected = context.definition.expectedRoot else { return }
         let limits = xmlLimits(context); try srlXmlTokenPreflight(bytes,limits); var accepted = false
         let handler = SrlXmlTokenParser(bytes,limits) { name,attributes in
             guard name == expected else { throw SerializerError.invalid("Unexpected package XML root") }
@@ -129,7 +157,7 @@ extension @package_name@ {
                 if let move = targetMove, !(sources[move.role]?.contains(where: { fold($0) == fold(move.destination) }) ?? false) {
                     throw Failure(.missingPart,"Preserved target role was removed",part:resolved,relationshipId:original.id)
                 }
-                if targetMove != nil || !source.utf8.elementsEqual(original.source.utf8) {
+                if targetMove.map({ !$0.destination.utf8.elementsEqual(resolved.utf8) }) == true || !source.utf8.elementsEqual(original.source.utf8) {
                     let destination = targetMove?.destination ?? resolved
                     let marker = selectorIndex(original.target)
                     let suffix = original.target[marker...]
@@ -147,7 +175,8 @@ extension @package_name@ {
     public final class Composer {
         private let budget: Budget
         private let profiles: [Swift.String:Compression]
-        private var selected: Swift.Set<Swift.String> = []
+        private var selected: Swift.Set<Swift.String> = [])packageprofile"
+R"packageprofile(
         private var sources: [Swift.String:[Swift.String]] = ["/":["/"]]
         private var parts: [BinaryPart] = []
         private var relationships: [Relationship] = []
@@ -173,8 +202,12 @@ extension @package_name@ {
         private func add(_ role: Role, _ data: [Swift.UInt8], _ name: Swift.String, _ type: Swift.String, _ sourceIndex: Swift.Int, _ index: Swift.Int) throws -> Swift.String {
             try budget.check(); guard !closed else { throw Failure(.invalidState,"Closed package composer") }
             let selectedName = role.name ?? name, selectedType = role.contentType ?? type
-            try partName(selectedName); _ = try media(selectedType)
             let source = try parent(role,sourceIndex), id = role.id ?? "srl_"+role.field+"_"+Swift.String(index)
+            if role.targetMode == "external" || role.targetMode == "both" && selectedType.isEmpty {
+                guard selectedType.isEmpty, data.isEmpty else { throw Failure(.invalidRelationship,"External package role requires empty media type and payload",part:selectedName,relationshipId:id) }
+                try iri(selectedName); relationships.append(Relationship(source:source,id:id,type:role.relationship,target:selectedName,external:true)); return ""
+            }
+            try partName(selectedName); _ = try media(selectedType)
 )packageprofile"
 R"packageprofile(            parts.append(BinaryPart(data,name:selectedName,contentType:selectedType,sourceIndex:sourceIndex,compression:try compression(role)))
             relationships.append(Relationship(source:source,id:id,type:role.relationship,target:selectedName)); return selectedName
@@ -192,7 +225,7 @@ R"packageprofile(            parts.append(BinaryPart(data,name:selectedName,cont
                     _ = try parent(role,item.sourceIndex); let name = role.name ?? item.name
                     let context = CodecContext(budget,role,name,role.id ?? "srl_"+role.field+"_"+Swift.String(index))
                     let data: [Swift.UInt8]
-                    do { data = try encoder(item.value,context); try checkIdentity(data,context) } catch let failure as Failure { throw failure } catch { try budget.check(); throw Failure(.codec,"Package typed XML encoder rejected part",part:name,fieldPath:role.field,relationshipId:context.relationshipId) }
+                    do { data = try encoder(item.value,context); try checkIdentity(data,context) } catch { throw try nativeCodecFailure(error,context) }
                     try context.check(); try budget.consume(.decoderAllocationBytes,data.count,part:name)
                     discovered.append(try add(role,data,item.name,item.contentType,item.sourceIndex,index))
                 }
@@ -202,7 +235,7 @@ R"packageprofile(            parts.append(BinaryPart(data,name:selectedName,cont
         /// Compose opaque bytes without interpreting attachments as XML or fetching any links.
         public func binaries(_ role: Role, _ values: [BinaryPart]) throws {
             try begin(role); defer { busy = false }
-            do { try occurs(role,values.count); var discovered: [Swift.String] = []; for (index,item) in values.enumerated() { discovered.append(try add(role,item.data,item.name,item.contentType,item.sourceIndex,index)) }; sources[role.field] = discovered }
+            do { try occurs(role,values.count); var discovered: [Swift.String] = []; for (index,item) in values.enumerated() { let name=try add(role,item.data,item.name,item.contentType,item.sourceIndex,index); if !name.isEmpty { discovered.append(name) } }; sources[role.field] = discovered }
             catch { closed = true; throw error }
         }
         /// Revalidate preserved edges against edited parts before returning complete canonical bytes.
@@ -232,7 +265,7 @@ R"packageprofile(            parts.append(BinaryPart(data,name:selectedName,cont
             self.budget = budget; archive = try ZipReader.openOpc(bytes,budget:budget)
             do { opc = try Opc(archive) } catch { archive.close(); throw error }
         }
-        private struct Occurrence { let metadata: PartMetadata; let parent: Swift.Int; let id: Swift.String }
+        private struct Occurrence { let metadata: PartMetadata?; let parent: Swift.Int; let id: Swift.String; var external: Swift.String = "" }
         /// Route by declared source/type/media; canonical output paths never select input codec types.
         private func discover(_ role: Role) throws -> [Occurrence] {
             guard !busy, !closed, selectedRoles.insert(role.field).inserted else { closed = true; throw Failure(.invalidState,"Closed, repeated or reentrant package loader") }; busy = true
@@ -240,23 +273,29 @@ R"packageprofile(            parts.append(BinaryPart(data,name:selectedName,cont
             var values: [Occurrence] = []
             for (parentIndex,parent) in parents.enumerated() {
                 for (index,link) in opc.relationships.enumerated() where fold(link.source) == fold(parent) && link.type.utf8.elementsEqual(role.relationship.utf8) {
-                    guard !link.external else { throw Failure(.invalidRelationship,"Typed role cannot use external relationship",part:role.field) }
+                    if link.external {
+                        guard ["external","both"].contains(role.targetMode), role.expectedRoot == nil else { throw Failure(.invalidRelationship,"Declared role requires an internal target",part:role.field) }
+                        try budget.consume(.decoderAllocationBytes,Swift.MemoryLayout<Occurrence>.stride+link.target.utf8.count,part:link.source)
+                        selectedLinks.insert(index); values.append(Occurrence(metadata:nil,parent:parentIndex,id:link.id,external:link.target)); continue
+                    }
+                    guard role.targetMode != "external" else { throw Failure(.invalidRelationship,"Declared role requires an external target",part:role.field) }
                     let target = try resolve(link.source,link.target)
                     guard let part = opc.parts.first(where: { fold($0.name) == fold(target) }) else { throw Failure(.missingPart,"Missing role payload",part:target) }
                     if let expected = role.contentType { guard try media(part.contentType) == media(expected) else { throw Failure(.semantic,"Package role content type differs",part:target) } }
                     guard !role.fixed || part.entry.compression == role.compression else { throw Failure(.invalidOptions,"Fixed package compression differs",part:target,fieldPath:role.field) }
                     guard selectedParts.insert(fold(part.name)).inserted else { throw Failure(.semantic,"Part selected by multiple roles",part:target) }
                     selectedLinks.insert(index); values.append(Occurrence(metadata:part,parent:parentIndex,id:link.id))
-                    if let canonical = role.name, !part.name.utf8.elementsEqual(canonical.utf8) {
+                    if role.name == nil || !part.name.utf8.elementsEqual(role.name!.utf8) {
+                        let canonical = role.name ?? part.name
                         try budget.consume(.workUnits,1,part:part.name)
                         try budget.consume(.decoderAllocationBytes,part.name.utf8.count,part:part.name)
                         try budget.consume(.decoderAllocationBytes,Swift.MemoryLayout<Relocation>.stride,part:part.name)
-                        aliases[fold(part.name)] = Relocation(destination:canonical,role:role.field)
+                        aliases[fold(part.name)] = Relocation(destination:canonical,role:role.field,dynamic:role.name == nil)
                     }
                 }
             }
-            try occurs(role,values.count); sources[role.field] = values.map { $0.metadata.name }
-            locations[role.field] = values.map { ($0.metadata.name,$0.id) }; return values
+            try occurs(role,values.count); sources[role.field] = values.compactMap { $0.metadata?.name }
+            locations[role.field] = values.map { ($0.metadata?.name ?? $0.external,$0.id) }; return values
         }
         /// Return the actual discovered source relationship for post-load reference diagnostics.
         public func location(_ role: Swift.String, _ index: Swift.Int) -> (part:Swift.String,relationshipId:Swift.String)? {
@@ -272,11 +311,12 @@ R"packageprofile(            parts.append(BinaryPart(data,name:selectedName,cont
             do {
                 let occurrences = try discover(role); var values: [ModelPart<T>] = []
                 for item in occurrences {
-                    let context = CodecContext(budget,role,item.metadata.name,item.id); try context.check()
-                    let bytes = try opc.read(item.metadata.name); let value: T
-                    do { try checkIdentity(bytes,context); value = try decoder(bytes,context) } catch let failure as Failure { throw failure } catch { try budget.check(); throw Failure(.codec,"Package typed XML decoder rejected part",part:item.metadata.name,fieldPath:role.field,relationshipId:context.relationshipId) }
+                    guard let metadata=item.metadata else { throw Failure(.invalidRelationship,"Typed role cannot use external target",part:role.field) }
+                    let context = CodecContext(budget,role,metadata.name,item.id); try context.check()
+                    let bytes = try opc.read(metadata.name); let value: T
+                    do { try checkIdentity(bytes,context); value = try decoder(bytes,context) } catch { throw try nativeCodecFailure(error,context) }
                     try context.check(); guard !closed else { throw Failure(.invalidState,"Closed package loader") }
-                    values.append(ModelPart(value,name:item.metadata.name,contentType:item.metadata.contentType,sourceIndex:item.parent))
+                    values.append(ModelPart(value,name:metadata.name,contentType:metadata.contentType,sourceIndex:item.parent))
                 }
                 return values
             } catch { closed = true; throw error }
@@ -284,7 +324,7 @@ R"packageprofile(            parts.append(BinaryPart(data,name:selectedName,cont
         /// Return independent checked opaque bytes using declared source-scoped role dispatch.
         public func binaries(_ role: Role) throws -> [BinaryPart] {
             defer { busy = false }
-            do { let occurrences = try discover(role); return try occurrences.map { item in BinaryPart(try opc.read(item.metadata.name),name:item.metadata.name,contentType:item.metadata.contentType,sourceIndex:item.parent,compression:item.metadata.entry.compression) } }
+            do { let occurrences = try discover(role); return try occurrences.map { item in if let metadata=item.metadata { return BinaryPart(try opc.read(metadata.name),name:metadata.name,contentType:metadata.contentType,sourceIndex:item.parent,compression:metadata.entry.compression) }; return BinaryPart([],name:item.external,contentType:"",sourceIndex:item.parent,compression:role.compression) } }
             catch { closed = true; throw error }
         }
         /// Preserve whole bytes and original link context; canonical relocation waits for edited composition.

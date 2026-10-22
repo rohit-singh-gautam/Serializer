@@ -1,0 +1,16 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+<xs:simpleType name="BooleanFirst"><xs:union memberTypes="xs:boolean xs:unsignedShort"/></xs:simpleType>
+<xs:simpleType name="NumberFirst"><xs:union memberTypes="xs:unsignedShort xs:boolean"/></xs:simpleType>
+<xs:simpleType name="Boolean"><xs:restriction base="BooleanFirst"><xs:enumeration value="1"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="Number"><xs:restriction base="NumberFirst"><xs:enumeration value="1"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="Numbers"><xs:list itemType="xs:unsignedShort"/></xs:simpleType>
+<xs:simpleType name="ListChoice"><xs:union memberTypes="Numbers xs:token"/></xs:simpleType>
+<xs:simpleType name="List"><xs:restriction base="ListChoice"><xs:enumeration value="1 2"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="PreserveChoice"><xs:union><xs:simpleType><xs:restriction base="xs:string"><xs:pattern value=" raw "/></xs:restriction></xs:simpleType><xs:simpleType><xs:restriction base="xs:token"/></xs:simpleType></xs:union></xs:simpleType>
+<xs:simpleType name="Preserve"><xs:restriction base="PreserveChoice"><xs:enumeration value=" raw "/></xs:restriction></xs:simpleType>
+<xs:element name="probe"><xs:complexType><xs:sequence>
+<xs:element name="boolean_value" type="Boolean"/><xs:element name="numeric_value" type="Number"/>
+<xs:element name="list_value" type="List"/><xs:element name="preserved" type="Preserve"/>
+<xs:element name="fixed_value" type="BooleanFirst" fixed="1"/>
+<xs:element name="default_value" type="NumberFirst" default="1"/>
+</xs:sequence></xs:complexType></xs:element></xs:schema>

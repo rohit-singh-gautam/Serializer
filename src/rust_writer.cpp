@@ -13,6 +13,7 @@
 #include "value_reference_native_writer.hpp"
 #include "comparison_writer.hpp"
 #include "xml_rust_writer.hpp"
+#include "xml_rust_declaration_writer.hpp"
 #include "xml_rust_projection_writer.hpp"
 #include "rust_package_writer.hpp"
 
@@ -840,7 +841,7 @@ class rust_emitter {
     write_output_body(target);
     projection_fields_.clear(); close();
     if (model.xml.enabled) {
-      const xml_binding::schema bindings{model.xml};
+      const xml_binding::schema bindings{model.xml, model.xml_inventories};
       const auto contract = bindings.bind(target);
       if (std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.variant_binding.has_value(); })) {
         throw std::invalid_argument{"Readonly XML translators require a native target getter for the complete variant storage"};
@@ -1029,7 +1030,7 @@ class rust_emitter {
     line("Err(Error(\"Export-only reference: decode into an ordinary owning target\"))");
     close();
     if (model.xml.enabled) {
-      const xml_binding::schema bindings{model.xml};
+      const xml_binding::schema bindings{model.xml, model.xml_inventories};
       auto contract = bindings.bind(value);
       if (value.reference->value_type.type == object_type::class_type) {
         contract = bindings.bind(static_cast<const class_node&>(*value.reference->value_type.resolved_node));
@@ -1048,9 +1049,9 @@ class rust_emitter {
           "encode_xml_with_identity_limits", "decode_xml_with_identity_limits", "srl_xml_identity_check", "srl_xml_encode_known", "srl_xml_decode_known",
           "encode_xml_with_mixed_limits", "decode_xml_with_mixed_limits", "encode_xml_with_policies", "decode_xml_with_policies",
           "srl_xml_write", "srl_xml_read", "srl_xml_read_tokens"};
-      const xml_binding::schema extension_bindings{model.xml};
+      const xml_binding::schema extension_bindings{model.xml, model.xml_inventories};
       if (xml_codegen::native_extension_graph(value, extension_bindings)) {
-        reserved.insert({"decode_xml_document", "encode_xml_with_extensions", "srl_xml_extension_model"});
+        reserved.insert({"decode_xml_document", "encode_xml_with_extensions", "prepare_xml_extensions", "srl_xml_extension_model"});
       }
       // Reserve selected XML APIs before any authored member or callable is emitted.
       const auto check_xml_name = [&](std::string_view name) {
@@ -1150,7 +1151,7 @@ class rust_emitter {
         [&](const auto& item) { return type(item); },
         [&](auto item, auto) { return field(item); });
     if (model.xml.enabled && !xml_mixed_fragments_.contains(&value)) {
-      const xml_binding::schema bindings{model.xml};
+      const xml_binding::schema bindings{model.xml, model.xml_inventories};
       std::map<const member*, std::string> paths{};
       // Rust module privacy permits typed access through the unchanged owning base composition.
       const auto collect_paths = [&](auto&& self, const class_node& owner, const std::string& prefix) -> void {
@@ -1382,7 +1383,7 @@ class rust_emitter {
     close();
     close();
     if (model.xml.enabled && !xml_mixed_fragments_.contains(&value)) {
-      const xml_binding::schema bindings{model.xml};
+      const xml_binding::schema bindings{model.xml, model.xml_inventories};
       output += xml_binding::rust_operation_impl(value, bindings.bind(value), name,
           xml_operation_module_, model.xml, lifetime);
     }
@@ -1409,7 +1410,7 @@ public:
     }
     collect_borrowed_nodes();
     if (model.xml.enabled) {
-      const xml_binding::schema bindings{model.xml};
+      const xml_binding::schema bindings{model.xml, model.xml_inventories};
       for (const auto* node : model.nodes) {
         if (node->type != object_type::class_type) { continue; }
         const auto& owner = static_cast<const class_node&>(*node);
@@ -1512,6 +1513,10 @@ public:
       close();
       close();
     }
+    if (model.xml.enabled) {
+      const xml_binding::schema bindings{model.xml, model.xml_inventories};
+      output += xml_codegen::rust_declaration_dispatch(model, bindings, xml_operation_module_);
+    }
     std::string compression_name;
     output += compression_support(model, &compression_name);
     if (!model.packages.empty()) {
@@ -1552,7 +1557,7 @@ public:
         output += package_codegen::rust(*package, model.names.at(package), helper, model.xml,
             [&](const auto& value) { return type(value); },
             [&](const auto value) { return field(value); },
-            [&](const auto value) { return quote(value); }, xml_operation_module_);
+            [&](const auto value) { return quote(value); }, xml_operation_module_, model.protocols == output_protocols::binary_none);
       }
     }
     return output;

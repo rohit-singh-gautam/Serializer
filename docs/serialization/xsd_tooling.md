@@ -1,9 +1,12 @@
 # Fixed XSD bundles and contract tools
 
-The [2.25 C++ ordered element-only mapping](ordered_xml.md) is an explicit
-non-XSD XML contract. It does not remove fixed-XSD grouped/repeated-particle
-generation gates. Export/compatibility tooling rejects that mapping before
-publication until the complete ordered grammar contract is implemented.
+The [ordered element-only mapping](ordered_xml.md) binds fixed-XSD nested/repeated
+sequence/choice groups in all eleven owning outputs in 2.28.0. The native variant
+array supplies one source of order. Export retains group structure and exact
+occurrences; reader-direction compatibility compares the bounded ordered languages.
+Incompatible comparisons reject before publishing generated output. Existing
+separate arrays retain their storage and require an intentional migration before
+they can express heterogeneous group order.
 
 Compiler/runtime **2.20.0** adds native-enum export/string-space binding and
 expanded tooling qualification. The
@@ -15,10 +18,10 @@ Schema language remains **1.21.0** and both editors remain **2.0.10**.
 
 Compiler/runtime **2.11.0** established the language-**1.20.0** tooling baseline.
 Serializer compiles
-a supported fixed XSD subset into generated XML mappings. The primitive/ordinary
-record baseline generates in all eleven outputs; rich scalar and content
-contracts have C++ and Python implementations. Other outputs reject unsupported
-rich combinations before publication. Bundle processing happens during generation
+a supported fixed XSD subset into generated XML mappings. In 2.28.0 the scalar,
+ordered-content and wildcard contracts described below generate in all eleven
+owning outputs. Unsupported storage/schema combinations reject before publication.
+Bundle processing happens during generation
 with the compiler's XML provider enabled; generated codecs do not load these files.
 
 ```ini
@@ -84,11 +87,11 @@ unambiguous anonymous complex type without its own global element. Defining
 document qualification defaults and wildcard target namespaces remain distinct
 from an element's global root namespace.
 
-C++ and Python enforce supported numeric bounds, Unicode/list lengths,
+All eleven owning outputs enforce supported numeric bounds, Unicode/list lengths,
 whitespace, enumeration/default/fixed values, XSD patterns and union branches,
-singleton choices, and a repeated-choice subset with one typed repeated branch
-plus positioned foreign wildcard content. Exact branch/group occurrence limits
-and interleaving are retained. The shared compiler retains a
+singleton choices, and the supported repeated-choice mappings with positioned
+wildcard content. Exact branch/group occurrence limits and interleaving are
+retained where the selected native storage represents that order. The shared compiler retains a
 bounded particle model for nested sequence/choice/all and heterogeneous repeated
 choices, checks ambiguity and exact occurrences, and supplies reference trace
 validation. Singleton `all` and supported global-owner key/unique/keyref contracts
@@ -96,8 +99,36 @@ have generated owning profiles across the outputs; storage combinations retain
 their backend capability gates. A compiled particle model is not a promise of
 generated ordered storage for grouped/repeated heterogeneous content. Supported
 mixed child/text mappings require their explicit ordered native storage;
-association does not infer arbitrary mixed layouts. `complexContent` restriction,
-dynamic/abstract type selection and restricted list item types remain unsupported.
+association does not infer arbitrary mixed layouts. General modeled
+`complexContent` restriction and dynamic/abstract native model selection remain
+unsupported. Wildcard validation has its separate finite declaration/type
+inventory below; restricted scalar/list-item facets are supported.
+
+### Generated wildcard declaration validation
+
+`xs:any`/`xs:anyAttribute` retain namespace predicates (`##any`, `##other`,
+`##local`, `##targetNamespace`, explicit URI sets), kind, position and occurrences.
+`skip` accepts matching content without declaration validation; `lax` validates
+declared names and accepts undeclared names; `strict` requires a matching global
+declaration of the same kind. The compiler prepares private validators from the
+same pinned bundle, including declarations not mapped to authored model fields.
+There is no runtime schema acquisition or instance-directed expansion.
+
+These validators reuse supported scalar facets, QName scopes, particles,
+attributes, identities and defaults/fixed values. Named `xsi:type` candidates are
+finite and respect derivation and `block`/`final`. Abstract global elements reject;
+abstract types require a permitted concrete selection. Nil values
+retain required-attribute validation and reject forbidden content/fixed values.
+Global attribute validators preserve present-empty values and the original
+namespace scope. Validation-only DTOs do not add native payload fields or wire IDs.
+
+Retention remains independent: accepted declared content can be skipped after
+validation or preserved and revalidated after edits. Private capture/replay shares
+the original operation's allocation/work/cancellation admission and does not
+consume a second preserved-byte quota. See the
+[generated wildcard and fallback contract](xml_tokens.md#xsd-wildcards-and-positioned-extensions-in-2280)
+for closed core namespaces, authored foreign slots, supported compositor positions
+and independent resource limits.
 
 Identity binding accepts a strict namespace-aware child-path XPath subset and
 same-owner key/unique references. Supported global owners used inside nested
@@ -116,48 +147,39 @@ validate their emitted canonical spelling. A valid integer input `01` can decode
 to native `1` yet fail output when a two-digit pattern rejects canonical `1`;
 original numeric spelling is not retained. Numeric enumeration/fixed/bound checks
 compare in the declared value space, including float/double width and XSD 1.0 NaN
-rules. C++ patterns use libxml2; Python patterns require the optional `lxml`
-provider. Provider calls are cooperative boundaries, not internally preemptible
-operations or a hard process-memory guarantee.
-C++ native floating conversion still rejects out-of-range lexical values,
-including underflow-to-zero inputs that XSD can round to zero. Complete floating
-conversion edge parity remains **OPC-R03**, separately from the checked facet
-comparison rules.
+rules. Supported XSD patterns compile into bounded portable programs in all eleven
+outputs, including Unicode categories/blocks, XML name escapes and recursive class
+subtraction. Optional runtime XSD provider calls remain cooperative boundaries,
+not internally preemptible operations or a hard process-memory guarantee.
+Native floating conversion preserves selected binary32/binary64 rounding,
+subnormal values and signed underflow to zero. The bounded native-width profile
+rejects finite lexical magnitudes that overflow its width, even where an XSD
+provider maps them to infinity. This representability boundary is separate from
+exact decimal/integer string value spaces and facet comparisons. A numeric writer
+validates its canonical output against the bound pattern before publication; a
+native value whose canonical spelling violates that pattern fails rather than
+emitting invalid XML.
 
-Python supports namespace-independent outer union enumeration/fixed constraints;
-other backend and namespace-dependent combinations retain their capability gates.
-C++, Python, JavaScript and TypeScript support QName-list enumeration, defaults and fixed values, including
-an enumerated list inside a union member. Schema values retain ordered expanded
-item identities, so instance prefix aliases and shadowed schema prefixes do not
-change acceptance. Empty lists and no-namespace items are distinct. Defaults
-use a private field scope; mixed no-namespace/default-namespace lists coexist with
-other QName attributes and string union fallbacks. Python/JavaScript/TypeScript
-keep the native lexical payload unchanged during output. C++ resolves root
-attribute/text presentation conflicts while constructing the fresh input candidate;
-it keeps existing lexical strings when their original owner scope still represents
-the same expanded identities. Native wire layouts and field IDs remain unchanged.
-C++ graphs using schema-owned QName-list defaults/fixed values use the direct token
-codec. Its bounded normalized-event prefix inventory prevents an early default
-from binding an otherwise unbound string-union prefix occurring later in the document.
-Automatic import supports builtin QName lists as native string arrays; backend
-capability checks still apply to their attached restrictions. Release 2.24 adds
-Go/Java/C# scalar/list enumeration, default/fixed values and selected QName/list
-union members with [separate executed evidence](../verification/verification-qname-constraints-2026-10-21.md).
-Kotlin/Swift also support expanded scalar/list enumeration and retain their
-namespace-dependent default/fixed and union gates. C/Rust keep their QName-list
-restriction gates. All five preserve QName-pattern aliases and lexical prefix-list
-enumeration. Namespace-dependent outer union restrictions and
-union defaults still reject, as does exporting these schema-scope QName-list
-constraints. See the [QName-list qualification](../verification/verification-qname-lists-2026-10-21.md).
+All eleven outputs support outer union enumeration/default/fixed constraints with
+first-successful member selection and exact primitive family identity. Atomic and
+union list-item restrictions compile once with their facets; ordered recursive
+item identities distinguish QName/string/numeric selections. Namespace-dependent
+QName/list literals retain declaration-owned expanded names, including schema
+prefix shadowing, empty lists and explicit no-namespace values. Writers retain
+pattern-sensitive lexical aliases and isolate schema defaults rather than changing
+another field's instance namespace. C/Rust retain these scopes in XML document
+companions; ordinary native fields and wire bytes remain unchanged.
 
-C++ and Python scalar children retain occurrence-specific namespace scopes
-for QName, QName-list, prefix-list and nested union values, including child-local
-declarations, shadowing and default-namespace resets. Native strings and wire
-codecs remain independent of this XML-only state. Applications editing or
-reordering indistinguishable lexical strings must keep the scope metadata with
-its corresponding occurrence. See the
-[qualified scope checks](../verification/verification-qname-scopes-2026-10-20.md);
-broader backend/restriction combinations remain **OPC-R01/OPC-R03**.
+XSD export reconstructs unions, restricted inline list items, inherited pattern
+intersections, namespace identities and default/fixed declaration scopes. Original
+and exported schemas are checked independently. The separate `prefix_list`
+external-capability adapter has no inferred XSD string-default namespace semantics;
+its default/fixed declaration and export require that external contract.
+
+Keep occurrence namespace metadata with its corresponding value when editing or
+reordering indistinguishable strings. See the [scalar identity matrix](../verification/verification-scalar-identities-2026-10-22.md),
+[native companion checks](../verification/verification-native-qname-constraints-2026-10-22.md)
+and [Unicode pattern qualification](../verification/verification-unicode-xml-patterns-2026-10-22.md).
 
 The pinned [official Core 1.4 fixture](../../test/resources/3mf_core_1_4/README.md)
 includes the local W3C XML vocabulary, language-or-empty union, numeric/matrix/color
@@ -183,9 +205,10 @@ the earlier 2.7 subset is recorded in the
 [2.7 checkpoint record](../verification/verification-opc-xsd-2026-10-19.md).
 The [2.8 backend record](../verification/verification-opc-backends-2026-10-19.md)
 records the new rich/Core checks and the status of full native qualification.
-Remaining constructs and backend/provider checks are tracked under **OPC-R03–R05**,
-**XML-B02/B10** and the XSD work units in [the central backlog](../pending.md).
-Historical baseline checks do not qualify later additions.
+The former **OPC-R03–R05** gaps are superseded by the 2.28.0 scalar, namespace and
+borrowed-graph qualification linked above. Other XSD constructs and provider/platform
+combinations retain their explicit documented boundaries and recorded evidence;
+historical baseline checks do not qualify later additions.
 
 ## Bind an existing model in its schema
 

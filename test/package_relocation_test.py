@@ -26,6 +26,8 @@ ROLE_PREFIX = 'urn:serializer:relocation:'
 FIRST = '/left/A.xml'
 SECOND = '/right/B.xml'
 CHILD = '/children/child.xml'
+OTHER_CHILD = '/children/other.xml'
+RENAMED_CHILD = '/renamed/child.xml'
 OPAQUE = {'/assets/blob.bin': b'untouched opaque payload\x00\xff',
           '/assets/unmoved.bin': b'unchanged target bytes'}
 
@@ -84,12 +86,14 @@ def preserved_links(first, second, include_second=True):
     return links
 
 
-def archive(first, second, extra_parts=None, links=None, duplicate_origin=False):
+def archive(first, second, extra_parts=None, links=None, duplicate_origin=False, repeated=False):
     """Write original model, content-type and relationship bytes with Python's independent ZIP implementation."""
     payloads = {first: b'<payload xmlns="' + MODEL_NAMESPACE.encode() + b'" id="11" label="first"/>',
                 second: b'<payload xmlns="' + MODEL_NAMESPACE.encode() + b'" id="22" label="second"/>',
                 CHILD: b'<payload xmlns="' + MODEL_NAMESPACE.encode() + b'" id="33" label="child"/>', **OPAQUE}
     payloads.update(extra_parts or {})
+    if repeated:
+        payloads[OTHER_CHILD] = b'<payload xmlns="' + MODEL_NAMESPACE.encode() + b'" id="34" label="other"/>'
     known = [
         {'source': '/', 'id': 'authored_first', 'type': ROLE_PREFIX + 'first', 'target': first, 'mode': 'internal'},
         {'source': '/', 'id': 'authored_second', 'type': ROLE_PREFIX + 'second',
@@ -97,12 +101,15 @@ def archive(first, second, extra_parts=None, links=None, duplicate_origin=False)
         {'source': first, 'id': 'authored_child', 'type': ROLE_PREFIX + 'child',
          'target': relative_target(first, CHILD), 'mode': 'internal'},
     ]
+    if repeated:
+        known.append({'source': first, 'id': 'authored_other_child', 'type': ROLE_PREFIX + 'child',
+                      'target': relative_target(first, OTHER_CHILD), 'mode': 'internal'})
     links = list(known) + list(links if links is not None else preserved_links(first, second))
     manifest = etree.Element('{' + CT + '}Types')
     entries = {name.lstrip('/'): data for name, data in payloads.items()}
     for name in payloads:
         etree.SubElement(manifest, '{' + CT + '}Override', {
-            'PartName': name, 'ContentType': MODEL_MIME if name in (first, second, CHILD) else 'application/octet-stream'})
+            'PartName': name, 'ContentType': MODEL_MIME if name in (first, second, CHILD, OTHER_CHILD) else 'application/octet-stream'})
     groups = {}
     for link in links:
         groups.setdefault(link['source'], []).append(link)
@@ -149,6 +156,23 @@ def build_fixtures(directory):
     add('removed-second', '/alternate/first.xml', '/alternate/second.xml', action='remove_second', expected='REJECT')
     add('swap-removed-second', SECOND, FIRST, action='remove_second', expected='REJECT')
     add('duplicate-origin', '/alternate/first.xml', '/alternate/second.xml', expected='LOAD_ERROR', duplicate_origin=True)
+    for action, expected, renames in (
+            ('rename_child', 'OK', {CHILD: RENAMED_CHILD}),
+            ('swap_children', 'OK', {CHILD: OTHER_CHILD, OTHER_CHILD: CHILD}),
+            ('remove_child', 'REJECT', {CHILD: RENAMED_CHILD}),
+            ('collision_child', 'REJECT', {CHILD: '/assets/blob.bin'}),
+            ('remove_unreferenced_child', 'OK', {})):
+        links = preserved_links(FIRST, SECOND)
+        if action != 'remove_unreferenced_child':
+            links += [
+                {'source': '/', 'id': 'keep_child', 'type': ROLE_PREFIX + 'keep:child_in', 'target': CHILD+'?v=%2f#child', 'mode': 'internal'},
+                {'source': CHILD, 'id': 'keep_out', 'type': ROLE_PREFIX + 'keep:child_out', 'target': '../assets/blob.bin#bytes', 'mode': 'internal'},
+                {'source': CHILD, 'id': 'keep_peer', 'type': ROLE_PREFIX + 'keep:child_peer', 'target': 'other.xml?raw=%2F#peer', 'mode': 'internal'},
+                {'source': OTHER_CHILD, 'id': 'keep_self', 'type': ROLE_PREFIX + 'keep:child_self', 'target': '#same', 'mode': 'internal'},
+                {'source': CHILD, 'id': 'keep_external', 'type': ROLE_PREFIX + 'keep:child_external', 'target': '../child.xml?q=%2f#inert', 'mode': 'external'}]
+        add('dynamic-'+action, FIRST, SECOND, action=action, expected=expected, links=links, repeated=True)
+        rows[-1]['renames'] = renames
+        rows[-1]['children'] = {CHILD: ('33', 'child'), OTHER_CHILD: ('34', 'other')}
     (directory / 'cases.tsv').write_text(''.join(row['name'] + '\t' + row['action'] + '\t' + row['expected'] + '\n' for row in rows), encoding='utf-8')
     (directory / 'manifest.json').write_text(json.dumps(rows, indent=2) + '\n', encoding='utf-8')
     return rows
@@ -237,9 +261,15 @@ def inspect_output(path, row, legacy=False):
     parts, links = read_opc(path)
     mapping = {} if legacy else {ascii_fold(original): canonical
         for original, canonical in ((row['first'], FIRST), (row['second'], SECOND)) if original != canonical}
+    if not legacy:
+        mapping.update({ascii_fold(original): destination for original, destination in row.get('renames', {}).items()})
     first = row['first'] if legacy else FIRST
     second = row['second'] if legacy else SECOND
-    expected_payloads = {first: ('11', 'first'), CHILD: ('33', 'child')}
+    expected_payloads = {first: ('11', 'first')}
+    for original, model in row.get('children', {CHILD: ('33', 'child')}).items():
+        if row['action'] == 'remove_unreferenced_child' and original == CHILD:
+            continue
+        expected_payloads[mapping.get(ascii_fold(original), original)] = model
     if row['action'] != 'remove_second':
         expected_payloads[second] = ('22', 'second')
     for name, (identity, label) in expected_payloads.items():
@@ -261,7 +291,10 @@ def inspect_output(path, row, legacy=False):
                 expected['target'] = moved + original['target'][selector_offset(original['target']):]
         assert retained[original['type']] == expected, (path, original, retained[original['type']], expected)
     children = [link for link in links if link['type'] == ROLE_PREFIX + 'child']
-    assert len(children) == 1 and children[0]['source'] == first and resolve(first, children[0]['target']) == CHILD
+    expected_children = set(expected_payloads) - {first, second}
+    assert len(children) == len(expected_children)
+    assert all(link['source'] == first for link in children)
+    assert {resolve(first, link['target']) for link in children} == expected_children
     return {'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
             'payloads': len(parts), 'preserved_relationships': len(retained)}
 

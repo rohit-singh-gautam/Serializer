@@ -200,7 +200,7 @@ void schema::collect(const std::vector<std::unique_ptr<syntax_node>>& values,
       continue;
     }
     if (value->type == object_type::generic_definition) { continue; }
-    const auto name = prefix + pascal(value->name);
+    auto name = prefix + pascal(value->name);
     if (value->type == object_type::namespace_type) {
       collect(static_cast<const namespace_node&>(*value).statements, name);
       continue;
@@ -208,6 +208,14 @@ void schema::collect(const std::vector<std::unique_ptr<syntax_node>>& values,
     validate_identifier(name, " ReadPolicy Protocol Limits Error Result String Int Float Double "
                               "Bool Data Vec Option Default "
                               "Self None Some Ok Err List Map Set Array ByteArray Unit Any ");
+    if (value->type == object_type::class_type &&
+        static_cast<const class_node&>(*value).prepared_xml_validation) {
+      const auto original_name = name;
+      std::size_t suffix{};
+      while (std::any_of(names.begin(), names.end(), [&](const auto& item) { return item.second == name; })) {
+        name = original_name + "Private" + std::to_string(++suffix);
+      }
+    }
     if (std::any_of(names.begin(), names.end(), [&](const auto& item) {
           const bool overload = value->type == object_type::function_type &&
               item.first->type == object_type::function_type &&
@@ -223,6 +231,54 @@ void schema::collect(const std::vector<std::unique_ptr<syntax_node>>& values,
     }
     nodes.push_back(value.get());
   }
+}
+// Preserve inventory lifetime and collect private codecs without changing authored field identities.
+void schema::collect_xml_validators() {
+  if (!xml.enabled) { return; }
+  const xml_binding::schema bindings{xml};
+  std::set<const class_node*> fragments;
+  for (const auto* node : nodes) {
+    if (node->type != object_type::class_type) { continue; }
+    const auto configured = xml.classes.find(node->get_full_name());
+    if (configured == xml.classes.end() || (!configured->second.contracts.contains("mixed") &&
+        !configured->second.contracts.contains("ordered"))) { continue; }
+    const auto contract = bindings.bind(static_cast<const class_node&>(*node));
+    if (contract.mixed && !xml.classes.contains(contract.mixed->fragment->get_full_name())) {
+      fragments.insert(contract.mixed->fragment);
+    }
+  }
+  for (std::size_t index = 0; index < nodes.size(); ++index) {
+    if (nodes[index]->type != object_type::class_type) { continue; }
+    const auto& source = static_cast<const class_node&>(*nodes[index]);
+    if (source.reference || fragments.contains(&source)) { continue; }
+    const auto contract = bindings.bind(source);
+    const auto inventory = contract.declarations;
+    if (!inventory || std::any_of(xml_inventories.begin(), xml_inventories.end(),
+        [&](const auto& stored) { return stored->storage == inventory->storage; })) { continue; }
+    xml_inventories.push_back(inventory);
+    for (const auto& group : inventory->statements()) { collect(group); }
+    for (const auto& group : inventory->statements()) {
+      const auto keys_for = [&](auto&& self, const auto& statements) -> void {
+        for (const auto& statement : statements) {
+          if (statement->type == object_type::namespace_type) {
+            self(self, static_cast<const namespace_node&>(*statement).statements);
+          } else if (statement->type == object_type::class_type) {
+            for (const auto& field : static_cast<const class_node&>(*statement).member_list) {
+              if (!field.transient) { add_key(field.display_name); }
+            }
+          }
+        }
+      };
+      keys_for(keys_for, group);
+    }
+  }
+}
+// Validator indices include reachable authored classes and each private imported class.
+const xml_binding::declaration_inventory* schema::inventory_for(const class_node* source) const {
+  for (const auto& inventory : xml_inventories) {
+    if (inventory->owner == source || inventory->validator_indices.contains(source)) { return inventory.get(); }
+  }
+  return nullptr;
 }
 // Validate generic containers using the same scalar-key contract as field-level maps.
 static void validate_generic_shape(const type_name& value) {

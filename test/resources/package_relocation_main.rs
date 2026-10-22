@@ -29,20 +29,26 @@ fn main(){
     let mut value=match A::load(&source,&mut p::Budget::default(),p::ExtensionPolicy::preserve()){
         Ok(value)=>value,Err(_)=>{check(expected=="LOAD_ERROR","unexpected legacy load rejection",&mut checks);println!("{{\"case\":\"{name}\",\"decision\":\"{expected}\",\"checks\":{checks},\"failure_stage\":\"load\"}}");return;}};
     check(expected!="LOAD_ERROR","invalid origin published",&mut checks);
-    check(value.first.as_ref().is_some_and(|item|item.id==11&&item.label=="first")&&value.children.len()==1&&value.children[0].value.id==33&&value.children[0].source_index==0,"typed payload identity and child route",&mut checks);
+    check(value.first.as_ref().is_some_and(|item|item.id==11&&item.label=="first")&&!value.children.is_empty()&&value.children[0].value.id==33&&value.children[0].source_index==0,"typed payload identity and child route",&mut checks);
     if action=="remove_second"{value.second=None;}
+    let mut renames=if name.starts_with("dynamic-"){<A as p::CanonicalPackage>::dynamic_paths(&value)}else{Vec::new()};
+    if name.starts_with("dynamic-"){
+        for rename in &mut renames{if action=="swap_children"{rename.destination=if rename.original=="/children/child.xml"{"/children/other.xml".into()}else{"/children/child.xml".into()};}else if action!="remove_unreferenced_child"&&rename.original=="/children/child.xml"{rename.destination=if action=="collision_child"{"/assets/blob.bin".into()}else{"/renamed/child.xml".into()};}}
+        for item in &mut value.children{if let Some(rename)=renames.iter().find(|rename|rename.original==item.name){item.name=rename.destination.clone();}}
+        if action=="remove_child"||action=="remove_unreferenced_child"{value.children.remove(0);}if action=="swap_children"{value.children.reverse();}
+    }
     let before=snapshot(&value);let saved=directory.join(format!("{name}-saved.opc"));let previous=b"previous destination";std::fs::write(&saved,previous).unwrap();
     if expected=="REJECT"{
-        check(<A as p::CanonicalPackage>::encode_canonical(&value,&mut p::Budget::default()).is_err(),"invalid canonical encode published",&mut checks);
-        check(<A as p::CanonicalPackage>::save_canonical(&saved,&value,&mut p::Budget::default(),None).is_err(),"invalid canonical Save published",&mut checks);
+        check(<A as p::CanonicalPackage>::encode_renamed(&value,&mut p::Budget::default(),&renames).is_err(),"invalid canonical encode published",&mut checks);
+        check(<A as p::CanonicalPackage>::save_renamed(&saved,&value,&mut p::Budget::default(),&renames,None).is_err(),"invalid canonical Save published",&mut checks);
         check(std::fs::read(&saved).unwrap()==previous,"rejected Save replaced destination",&mut checks);
     }else{
         check(expected=="OK","unknown expected decision",&mut checks);
-        let encoded=<A as p::CanonicalPackage>::encode_canonical(&value,&mut p::Budget::default()).unwrap();std::fs::write(directory.join(format!("{name}-encoded.opc")),&encoded).unwrap();
+        let encoded=<A as p::CanonicalPackage>::encode_renamed(&value,&mut p::Budget::default(),&renames).unwrap();std::fs::write(directory.join(format!("{name}-encoded.opc")),&encoded).unwrap();
         let repeated=A::load(&encoded,&mut p::Budget::default(),p::ExtensionPolicy::preserve()).unwrap();let again=<A as p::CanonicalPackage>::encode_canonical(&repeated,&mut p::Budget::default()).unwrap();
         check(encoded==again,"canonical output is not idempotent",&mut checks);std::fs::write(directory.join(format!("{name}-repeat.opc")),again).unwrap();
-        <A as p::CanonicalPackage>::save_canonical(&saved,&value,&mut p::Budget::default(),None).unwrap();
-        std::fs::write(directory.join(format!("{name}-legacy.opc")),A::encode(&value,&mut p::Budget::default()).unwrap()).unwrap();
+        <A as p::CanonicalPackage>::save_renamed(&saved,&value,&mut p::Budget::default(),&renames,None).unwrap();
+        if !name.starts_with("dynamic-"){std::fs::write(directory.join(format!("{name}-legacy.opc")),A::encode(&value,&mut p::Budget::default()).unwrap()).unwrap();}
         if name=="alternate"{
             bounds(&value,&mut checks);
             let mut written=Vec::new();<A as p::CanonicalPackage>::write_canonical(&mut written,&value,&mut p::Budget::default()).unwrap();check(written==encoded,"canonical borrowed writer changed bytes",&mut checks);

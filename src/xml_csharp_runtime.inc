@@ -96,6 +96,7 @@ R"xmlcs(
     private readonly System.Xml.XmlReader reader;
     private bool emptyEnd;
     private bool acceptedType;
+    private bool acceptedPackageCapabilities;
     private bool acceptedNil;
     internal char Kind;
     // Expose native collection admission without exposing mutable counters.
@@ -103,6 +104,7 @@ R"xmlcs(
     // Borrow the current native owner only when a package supplies shared accounting.
     internal global::System.IDisposable? FieldOwner()=>budget.Operation?.EnterOwner();
     internal Limits.IOperation? Operation=>budget.Operation;
+    internal SrlXmlBudget DeclarationBudget=>budget;
     // Select a native sibling before its scalar or descendant work is admitted.
     internal void Field(string member)=>budget.Operation?.SelectField(member);
     internal int NamespaceBytes;
@@ -174,14 +176,16 @@ R"xmlcs(          else if (reader.NodeType == System.Xml.XmlNodeType.Element) {
     internal SrlXmlInputFields Open(string name) {
       if (!Has(name)) throw new System.FormatException("Unexpected XML element");
       var attributes = new System.Collections.Generic.Dictionary<string, string>();
-      if (reader.MoveToFirstAttribute()) { do { if (reader.NamespaceURI != "http://www.w3.org/2000/xmlns/" && !((acceptedType && reader.LocalName == "type" || acceptedNil && reader.LocalName == "nil") && reader.NamespaceURI == "http://www.w3.org/2001/XMLSchema-instance") && !attributes.TryAdd(SrlXmlName(reader.NamespaceURI, reader.LocalName), reader.Value)) throw new System.FormatException("Duplicate XML attribute"); } while (reader.MoveToNextAttribute()); reader.MoveToElement(); }
-      acceptedType = false; acceptedNil = false; Advance(); return new SrlXmlInputFields(this, attributes);
+      if (reader.MoveToFirstAttribute()) { do { if (reader.NamespaceURI != "http://www.w3.org/2000/xmlns/" && !(acceptedPackageCapabilities&&reader.NamespaceURI=="http://schemas.openxmlformats.org/markup-compatibility/2006"&&reader.LocalName=="MustUnderstand") && !((acceptedType && reader.LocalName == "type" || acceptedNil && reader.LocalName == "nil") && reader.NamespaceURI == "http://www.w3.org/2001/XMLSchema-instance") && !attributes.TryAdd(SrlXmlName(reader.NamespaceURI, reader.LocalName), reader.Value)) throw new System.FormatException("Duplicate XML attribute"); } while (reader.MoveToNextAttribute()); reader.MoveToElement(); }
+      acceptedType = false; acceptedNil = false;acceptedPackageCapabilities=false; Advance(); return new SrlXmlInputFields(this, attributes);
     }
     // Check QName metadata in the payload's current namespace scope before advancing.
     internal void ExpectType(string expected, bool required) {
       string? selected = TypeIdentity(required);
       if (selected != null && selected != expected) throw new System.FormatException("Conflicting XML variant type");
     }
+    // Authorize only root MustUnderstand after resolving every prefix in the original provider scope.
+    internal void PackageCapabilities(System.Collections.Generic.IReadOnlyList<string> vocabularies){string? value=reader.GetAttribute("MustUnderstand","http://schemas.openxmlformats.org/markup-compatibility/2006");if(value==null)return;var prefixes=value.Split(new[]{' ','\t','\r','\n'},System.StringSplitOptions.RemoveEmptyEntries);if(prefixes.Length==0)throw new System.FormatException("Empty package MustUnderstand vocabulary");foreach(string prefix in prefixes){System.Xml.XmlConvert.VerifyNCName(prefix);string? uri=reader.LookupNamespace(prefix);bool understood=false;foreach(string candidate in vocabularies)if(candidate==uri){understood=true;break;}if(string.IsNullOrEmpty(uri)||!understood)throw new System.FormatException("Unsupported package MustUnderstand vocabulary");}acceptedPackageCapabilities=true;}
     // Resolve a type identity while the payload still owns its namespace scope.
     internal string? TypeIdentity(bool required) {
       SkipSpace(); if (Kind != 's') throw new System.FormatException("Missing XML variant payload");
@@ -238,6 +242,10 @@ R"xmlcs(          else if (reader.NodeType == System.Xml.XmlNodeType.Element) {
     internal string? Attribute(string name, bool optional) { if (Attributes.Remove(name, out string? value)) { input.AdmitScalar(value);return value; } if (!optional) throw new System.FormatException("Required XML attribute missing"); return null; }
     // Consume simple content after all mapped attributes have been checked.
     internal string Text() { if (Attributes.Count != 0) throw new System.FormatException("Unexpected XML attribute"); string text = input.Text(); closed = true; return text; }
+    // Read a scalar prefix while leaving its foreign suffix or owner end pending.
+    internal string PrefixText() { if (Attributes.Count != 0) throw new System.FormatException("Unexpected XML attribute"); var text = new System.Text.StringBuilder(); while (input.Kind == 't') { text.Append(input.ExtensionReader.Value); input.Advance(); } return text.ToString(); }
+    // Preserve scalar text placement, including significant whitespace after an opaque child.
+    internal void FinishTextExtensions() { if (Attributes.Count != 0 || input.Kind != 'e') throw new System.FormatException("Unexpected XML scalar extension content"); input.Advance(); }
     // Exhaust unknown attributes and require the matching record or wrapper end token.
     internal void Finish() { if (Attributes.Count != 0) throw new System.FormatException("Unexpected XML attribute"); if (!closed) { input.SkipSpace(); if (input.Kind != 'e') throw new System.FormatException("Unexpected XML field"); input.Advance(); } }
   }
@@ -296,6 +304,7 @@ R"xmlcs(
     // Borrow the current native owner only when a package supplies shared accounting.
     internal global::System.IDisposable? FieldOwner()=>budget.Operation?.EnterOwner();
     internal Limits.IOperation? Operation=>budget.Operation;
+    internal SrlXmlBudget DeclarationBudget=>budget;
     // Select a native sibling before its scalar or descendant work is admitted.
     internal void Field(string member)=>budget.Operation?.SelectField(member);
     // Carry one immutable map policy through every nested typed encoder.
@@ -362,7 +371,8 @@ R"xmlcs(
       Attribute("{http://www.w3.org/2001/XMLSchema-instance}type", lexical);
     }
     // Validate and emit one scalar without a retained XML node.
-    internal void Text(string text) { budget.Text(text); Seal(); foreach(var identity in identities)if(!identity.Complete)identity.Text(text); Escaped(text, false); }
+    internal bool SuppressNamespaceText;
+    internal void Text(string text) { budget.Text(text); Seal(); foreach(var identity in identities)if(!identity.Complete)identity.Text(text); if(!SuppressNamespaceText)Escaped(text, false); SuppressNamespaceText=false; }
     // Release each completed ancestor after its matching end token.
     internal void Close() { var frame = stack[^1];if(frame.Pending)IdentityStart(frame);foreach(var identity in identities)if(!identity.Complete)identity.End(IdentityNamespace);stack.RemoveAt(stack.Count - 1);Append(frame.Pending ? "/>" : "</" + frame.Name + ">"); }
     // Publish bytes only after the generated traversal completes.

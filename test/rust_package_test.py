@@ -88,6 +88,43 @@ namespace companion {
 '''
 
 
+
+def companion_fixture(build):
+    """Author one nested QName model through an independent standard ZIP producer."""
+    path = build / 'companion-input.opc'
+    parts = {
+        'model.xml': b'<outer xmlns="urn:serializer:companion" xmlns:p="urn:serializer:companion:qname"><nested><token>p:chosen</token></nested></outer>',
+        '[Content_Types].xml': ('<Types xmlns="' + independent.CT + '"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/model.xml" ContentType="application/vnd.companion+xml"/></Types>').encode(),
+        '_rels/.rels': ('<Relationships xmlns="' + independent.RELS + '"><Relationship Id="main" Type="urn:companion:main" Target="model.xml"/></Relationships>').encode(),
+    }
+    path.write_bytes(independent.independent_zip(parts))
+    return path
+
+
+def inspect_companion(path):
+    """Resolve output QName text in its actual occurrence scope independently from native strings."""
+    import xml.etree.ElementTree as provider
+    with zipfile.ZipFile(path) as archive:
+        assert archive.testzip() is None
+        text = archive.read('model.xml')
+    assert provider.fromstring(text).tag == '{urn:serializer:companion}outer'
+    scopes, pending, names = [], {}, []
+    for event, value in provider.iterparse(io.BytesIO(text), events=('start-ns', 'start', 'end')):
+        if event == 'start-ns':
+            pending[value[0]] = value[1]
+        elif event == 'start':
+            scope = dict(scopes[-1]) if scopes else {}
+            scope.update(pending)
+            pending.clear()
+            scopes.append(scope)
+        else:
+            if value.tag == '{urn:serializer:companion}token':
+                prefix, local = (value.text or '').split(':')
+                names.append((scopes[-1][prefix], local))
+            scopes.pop()
+    assert names == [('urn:serializer:companion:qname', 'chosen')], names
+
+
 def fixtures(build):
     """Author independent provider and raw-wire inputs, including malformed ZIP and OPC candidates."""
     directory = build / 'fixtures'
@@ -316,8 +353,18 @@ def main():
     companion = build / 'companion.serializer'
     companion.write_text(COMPANION_GRAPH, encoding='utf-8')
     (build / 'companion.rs').unlink(missing_ok=True)
-    diagnostic = run([compiler, '--input', companion, '--language', 'rust', '--rust.output', build / 'companion.rs'], 'companion-graph-rejection', failure=True)
-    assert 'document-companion' in diagnostic and not (build / 'companion.rs').exists()
+    run([compiler, '--input', companion, '--language', 'rust', '--rust.output', build / 'companion.rs'], 'companion-graph-generation')
+    companion_text = (build / 'companion.rs').read_text(encoding='utf-8')
+    companion_helper = re.search(r'// Generated Rust package helper module: (\w+)', companion_text).group(1)
+    assert 'pub xml_companions:' in companion_text
+    companion_build = build / 'companion-gate'
+    companion_build.mkdir(exist_ok=True)
+    shutil.copyfile(build / 'companion.rs', companion_build / 'schema.rs')
+    for name in ('Cargo.toml', 'Cargo.lock'):
+        shutil.copyfile(ROOT / 'example/xml/rust' / name, companion_build / name)
+    (companion_build / 'main.rs').write_text((ROOT / 'test/resources/package_companion_main.rs').read_text(encoding='utf-8').replace('@package_name@', companion_helper), encoding='utf-8')
+    run([args.cargo, 'run', '--locked', '--offline', '--release', '--manifest-path', companion_build / 'Cargo.toml', '--', companion_fixture(build), build / 'companion-output.opc'], 'companion-graph-sdk')
+    inspect_companion(build / 'companion-output.opc')
     run([compiler, '--input', ROOT / 'test/resources/opc_identity.serializer',
          '--config', ROOT / 'test/resources/opc_identity.ini', '--language', 'rust',
          '--rust.output', build / 'identity.rs'], 'identity-package-generation')

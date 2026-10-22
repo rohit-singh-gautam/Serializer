@@ -65,14 +65,14 @@ and `profileOverrides`, with `SelectProfiles`/`selectProfiles` facade methods.
 Other backend overloads are documented in their package guides. Override maps use
 schema role names.
 
-C/Rust package roles reject XML graphs requiring document-companion namespace or
-extension state. Their ordinary XML document APIs remain available. Release
-2.18.0 adds native operation hooks for supported XSD identity graphs and selected
-caller codecs; see [C package contexts](../languages/c_packages.md) and
+C/Rust package roles retain per-part document-companion namespace and extension
+state in 2.28.0. Keep it associated with the original physical occurrences when
+editing or reordering. Their native operation hooks share supported XSD identity
+and selected caller-codec work with the package ledger; see [C package contexts](../languages/c_packages.md) and
 [Rust package contexts](../languages/rust_packages.md). Declarative package
 `key`/`reference` selectors use the shared package ledger independently of XSD
 identity constraints. Unsupported combinations fail during generation.
 
-These additions do not close broader XML graph, official-format conformance,
-provider/platform, hard-allocation, signature or format-specific requirements.
-Verification records distinguish executed SDK/owning-model profiles from those gates.
+Official-format conformance, provider/platform qualification, process-memory
+ceilings, signatures and format-specific domain rules retain their separate
+contracts. Verification records identify the executed SDK and owning-model profiles.

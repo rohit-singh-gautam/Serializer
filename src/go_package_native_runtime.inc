@@ -4,8 +4,20 @@
 R"packagego(
 // metadataMethodMismatch compares fixed schema compression before payload interpretation.
 func metadataMethodMismatch(opc *srlPackageOPC,source string,link SerializerPackageRelationship,role srlPackageRole)bool{target,err:=srlPackageTarget(source,link.Target);if err!=nil{return false};part,ok:=opc.parts[srlPackageFold(target)];if !ok{return false};expected:=uint16(8);if role.compression=="stored"{expected=0};return part.entry.Method!=expected}
-// srlPackageSelectProfile applies a closed override without changing expected model/XML identity.
-func srlPackageSelectProfile(role srlPackageRole,profiles map[string]string)(srlPackageRole,error){if selected,ok:=profiles[role.role];ok{if selected!="stored"&&selected!="deflate"||role.policy=="fixed"&&selected!=role.compression{return role,srlPackageFailure(SerializerPackageInvalidOptions,"Conflicting package profile override",role.field)};role.compression=selected};return role,nil}
+// SerializerPackagePipelineProfile selects a closed codec/storage envelope without replacing model identities.
+type SerializerPackagePipelineProfile struct { Codec,Compression string }
+// srlPackageSnapshotPipelines freezes bounded caller options before Save can invoke any callback.
+func srlPackageSnapshotPipelines(profiles map[string]SerializerPackagePipelineProfile,roles []string)(map[string]SerializerPackagePipelineProfile,error){if len(profiles)>len(roles){return nil,srlPackageFailure(SerializerPackageInvalidOptions,"Unknown package profile role","")};for key:=range profiles{known:=false;for _,role:=range roles{if key==role{known=true;break}};if !known{return nil,srlPackageFailure(SerializerPackageInvalidOptions,"Unknown package profile role",key)}};result:=make(map[string]SerializerPackagePipelineProfile,len(profiles));for key,value:=range profiles{result[key]=value};return result,nil}
+// srlPackageSelectProfile applies old compression overrides and optional explicit codec/storage envelopes.
+func srlPackageSelectProfile(role srlPackageRole,profiles map[string]string,pipelines ...map[string]SerializerPackagePipelineProfile)(srlPackageRole,error){
+  codec,compression:=role.codec,role.compression;if codec==""{codec="xml"}
+  if selected,ok:=profiles[role.role];ok{compression=selected}
+  if len(pipelines)>1{return role,srlPackageFailure(SerializerPackageInvalidOptions,"Too many package pipeline profiles",role.field)}
+  if len(pipelines)==1{if selected,ok:=pipelines[0][role.role];ok{if selected.Codec!=""{codec=selected.Codec};if selected.Compression!=""{if prior,found:=profiles[role.role];found&&prior!=selected.Compression{return role,srlPackageFailure(SerializerPackageInvalidOptions,"Conflicting package storage overrides",role.field)};compression=selected.Compression}}}
+  originalCodec:=role.codec;if originalCodec==""{originalCodec="xml"}
+  if (originalCodec=="bytes"&&codec!="bytes"||originalCodec!="bytes"&&codec!="xml"&&codec!="json"&&codec!="binary_none")||compression!="stored"&&compression!="deflate"||role.policy=="fixed"&&(codec!=originalCodec||compression!=role.compression){return role,srlPackageFailure(SerializerPackageInvalidOptions,"Conflicting package profile override",role.field)}
+  role.codec,role.compression=codec,compression;return role,nil
+}
 type srlPackageReferences struct{budget *SerializerPackageBudget;keys map[string]string;pending [][5]string;part,id string}
 // consume preserves caller error identity and locates only runtime-owned admission failures.
 func(r *srlPackageReferences)consume(resource SerializerPackageResource,amount int64,field string)error{err:=r.budget.Consume(resource,amount,r.part);if failure,ok:=err.(*SerializerPackageError);ok&&r.budget.first!=err{copy:=*failure;copy.Part=r.part;copy.FieldPath=field;copy.RelationshipID=r.id;return &copy};return err}
@@ -20,17 +32,23 @@ func(r *srlPackageReferences)finish()error{for _,item:=range r.pending{r.part,r.
 func srlPackageNativeXMLAt(state *srlPackageState,role srlPackageRole,part,id string) XmlOptions {
   budget:=state.budget
   options:=DefaultXmlOptions();limits:=&options.Limits
+  if role.codec=="json"||role.codec=="binary_none"{native:=DefaultLimits();limits.MaxBytes=native.MaxBytes;limits.MaxTextBytes=native.MaxStringBytes;limits.MaxDepth=native.MaxDepth}
   narrow:=func(current int,maximum int64)int{if maximum<int64(current){return int(maximum)};return current}
   limits.MaxBytes=narrow(limits.MaxBytes,budget.limits.MaxPartBytes)
   limits.MaxTextBytes=narrow(limits.MaxTextBytes,budget.limits.MaxPartBytes)
   limits.MaxNodes=narrow(limits.MaxNodes,budget.Remaining(SerializerPackageWorkUnits))
   limits.MaxAttributes=narrow(limits.MaxAttributes,budget.Remaining(SerializerPackageWorkUnits))
   operation:=func(resource string,count int64,field string)error{
-    selected:=SerializerPackageWorkUnits;if resource=="allocation"{selected=SerializerPackageDecoderAllocationBytes}else if resource=="reference"{selected=SerializerPackageReferences}
+    selected:=SerializerPackageWorkUnits;if resource=="allocation"{selected=SerializerPackageDecoderAllocationBytes}else if resource=="reference"{selected=SerializerPackageReferences}else if resource=="preserved"{selected=SerializerPackagePreservedBytes}
     err:=state.consume(selected,count,part);if failure,ok:=err.(*SerializerPackageError);ok&&state.first!=err&&budget.first!=err{copy:=*failure;copy.Part=part;copy.FieldPath=role.field;if field!=""{copy.FieldPath+="."+field};copy.RelationshipID=id;err=&copy};if err!=nil{return state.fail(err)};return nil
   }
-  return srlXmlWithOperation(options,operation,role.expectedRoot,role.expectedType)
+  options=srlXmlWithOperation(options,operation,role.expectedRoot,role.expectedType)
+  context:=options.Validator.(srlXmlOperationValidator);context.packageProfile=true;context.requiresType=role.requiresType;context.vocabularies=role.vocabularies;options.Validator=context;return options
 }
+// srlPackageNativeWriter shares actual native traversal and output growth with the package operation.
+func srlPackageNativeWriter(codec string,options XmlOptions)(*srlWriter,error){protocol:=JSON;if codec=="binary_none"{protocol=BINARY_NONE}else if codec!="json"{return nil,srlPackageFailure(SerializerPackageInvalidOptions,"Invalid native package codec","")};out:=&srlWriter{protocol:protocol,bytes:[]byte{},maximumBytes:options.Limits.MaxBytes};if context,ok:=options.Validator.(srlXmlOperationValidator);ok{out.operation=context.operation};return out,nil}
+// srlPackageNativeReader admits strings, aggregates and collection slots before native retention.
+func srlPackageNativeReader(data []byte,codec string,options XmlOptions)(*srlReader,error){protocol:=JSON;if codec=="binary_none"{protocol=BINARY_NONE}else if codec!="json"{return nil,srlPackageFailure(SerializerPackageInvalidOptions,"Invalid native package codec","")};limits:=DefaultLimits();if options.Limits.MaxBytes<limits.MaxBytes{limits.MaxBytes=options.Limits.MaxBytes};if options.Limits.MaxTextBytes<limits.MaxStringBytes{limits.MaxStringBytes=options.Limits.MaxTextBytes};if options.Limits.MaxDepth<limits.MaxDepth{limits.MaxDepth=options.Limits.MaxDepth};input:=srlNewReader(data,protocol,limits);if context,ok:=options.Validator.(srlXmlOperationValidator);ok{input.operation=context.operation};return input,nil}
 // srlPackageNativeXML preserves the existing internal adapter for independent provider probes.
 func srlPackageNativeXML(budget *SerializerPackageBudget)XmlOptions{return srlPackageNativeXMLAt(&srlPackageState{budget:budget},srlPackageRole{},"","")}
 // srlPackageTypedHeader checks immutable expanded dispatch before selected callbacks; native codecs own XML counts.
@@ -44,7 +62,7 @@ func srlPackageTypedHeader(data []byte,state *srlPackageState,role srlPackageRol
   root,err:=input.peek();if err!=nil{return srlPackageCodec(role,part,id,err)}
   expanded:=func(name srlxml.Name)string{if name.Space==""{return name.Local};return "{"+name.Space+"}"+name.Local}
   if root.kind!='s'||expanded(root.name)!=role.expectedRoot{return srlPackageCodec(role,part,id,nil)}
-  selected,err:=input.typeIdentity(false);if err!=nil{return srlPackageCodec(role,part,id,err)};if selected.Local!=""&&expanded(selected)!=role.expectedType{return srlPackageCodec(role,part,id,nil)};return state.poll()
+  if err:=input.packageCapabilities(role.vocabularies);err!=nil{return srlPackageCodec(role,part,id,err)};selected,err:=input.typeIdentity(role.requiresType);if err!=nil{return srlPackageCodec(role,part,id,err)};if selected.Local!=""&&expanded(selected)!=role.expectedType{return srlPackageCodec(role,part,id,nil)};return state.poll()
 }
 // srlPackageEncodeNative preserves older callback controls while new facades receive the located XML policy.
 func srlPackageEncodeNative(encode any,value any,state *srlPackageState,role srlPackageRole,part,id string)([]byte,error){switch action:=encode.(type){case func(any,XmlOptions,string,string)([]byte,error):data,err:=action(value,srlPackageNativeXMLAt(state,role,part,id),part,id);if err!=nil{if _,limited:=err.(srlXmlLimitError);!limited{return nil,state.fail(err)}}else{if err=srlPackageTypedHeader(data,state,role,part,id);err!=nil{return nil,state.fail(err)}};return data,err;case func(any,XmlOptions)([]byte,error):return action(value,srlPackageNativeXMLAt(state,role,part,id));case func(any,*SerializerPackageBudget)([]byte,error):return action(value,state.budget);default:return nil,srlPackageFailure(SerializerPackageInvalidOptions,"Invalid typed package encoder",part)}}
@@ -58,7 +76,7 @@ func srlPackageCanonicalExtensions(loader *srlPackageLoader,extensions Serialize
   state:=&loader.state
   reserve:=func(amount int64,part string)error{if err:=state.consume(SerializerPackageDecoderAllocationBytes,amount,part);err!=nil{return err};return loader.hold(amount,part)}
   var aliases map[string]string
-  for _,role:=range roles{if role.name==""{continue};for _,item:=range loader.referenceLocations[role.field]{original:=item.metadata.Name;if original==role.name{continue}
+  for _,role:=range roles{if role.name==""{continue};for _,item:=range loader.referenceLocations[role.field]{if item.external{continue};original:=item.metadata.Name;if original==role.name{continue}
     if err:=state.consume(SerializerPackageWorkUnits,int64(len(original))+int64(len(role.name)),original);err!=nil{return SerializerPackageExtensions{},err}
     if err:=reserve(relocationDescriptorBytes+int64(len(original))+int64(len(role.name)),original);err!=nil{return SerializerPackageExtensions{},err}
     key:=srlPackageFold(original);if previous,found:=aliases[key];found&&previous!=role.name{return SerializerPackageExtensions{},srlPackageFailure(SerializerPackageInvalidRelationship,"Conflicting canonical role origins",original)};if aliases==nil{aliases=make(map[string]string)};aliases[key]=role.name
@@ -77,7 +95,7 @@ func srlPackageCanonicalExtensions(loader *srlPackageLoader,extensions Serialize
     key:=srlPackageFold(link.Source)+"\x00"+link.ID;if links[key]{return &SerializerPackageError{Code:SerializerPackageInvalidRelationship,Message:"Canonical source-local relationship ID collision",Part:link.Source,RelationshipID:link.ID}};if links==nil{links=make(map[string]bool)};links[key]=true
     if link.Mode=="internal"{target,err:=srlPackageTarget(link.Source,link.Target);if err!=nil{return err};if !parts[srlPackageFold(target)]{return &SerializerPackageError{Code:SerializerPackageMissingPart,Message:"Canonical relationship target missing",Part:link.Source,RelationshipID:link.ID}}};return state.poll()
   }
-  for _,role:=range roles{for index,item:=range loader.referenceLocations[role.field]{source:="/";if role.source!="/"{parents:=loader.sources[role.source];if item.parent<0||item.parent>=len(parents){return SerializerPackageExtensions{},srlPackageFailure(SerializerPackageMissingPart,"Canonical source occurrence missing",item.metadata.Name)};source=destination(parents[item.parent])};id:=role.id;if id==""{id="srl_"+role.field+"_"+srlPackageStrconv.Itoa(index)};if err:=check(SerializerPackageRelationship{Source:source,ID:id,Type:role.relationship,Target:destination(item.metadata.Name),Mode:"internal"});err!=nil{return SerializerPackageExtensions{},err}}}
+  for _,role:=range roles{for index,item:=range loader.referenceLocations[role.field]{if item.external{continue};source:="/";if role.source!="/"{parents:=loader.sources[role.source];if item.parent<0||item.parent>=len(parents){return SerializerPackageExtensions{},srlPackageFailure(SerializerPackageMissingPart,"Canonical source occurrence missing",item.metadata.Name)};source=destination(parents[item.parent])};id:=role.id;if id==""{id="srl_"+role.field+"_"+srlPackageStrconv.Itoa(index)};if err:=check(SerializerPackageRelationship{Source:source,ID:id,Type:role.relationship,Target:destination(item.metadata.Name),Mode:"internal"});err!=nil{return SerializerPackageExtensions{},err}}}
   if int64(len(extensions.Relationships))>int64(^uint64(0)>>1)/relocationDescriptorBytes{return SerializerPackageExtensions{},srlPackageFailure(SerializerPackageResourceLimit,"Canonical relationship inventory overflow","")};if err:=reserve(int64(len(extensions.Relationships))*relocationDescriptorBytes,"");err!=nil{return SerializerPackageExtensions{},err}
   result:=SerializerPackageExtensions{Parts:extensions.Parts,Relationships:make([]SerializerPackageRelationship,0,len(extensions.Relationships))}
   for _,original:=range extensions.Relationships{if err:=state.poll();err!=nil{return SerializerPackageExtensions{},err};link:=original;link.Source=destination(original.Source)

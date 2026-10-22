@@ -30,6 +30,34 @@ ordered=items
 [xml.class.ordered::fixed]
 ordered=items
 '''
+GROUPED_XSD = '''<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+<xs:complexType name="left"><xs:simpleContent><xs:extension base="xs:string"/></xs:simpleContent></xs:complexType>
+<xs:complexType name="right"><xs:attribute name="id" type="xs:unsignedInt" use="required"/></xs:complexType>
+<xs:element name="left" type="left"/><xs:element name="right" type="right"/>
+<xs:element name="root"><xs:complexType><xs:choice minOccurs="2" maxOccurs="3">
+<xs:sequence><xs:element ref="left"/><xs:element ref="right"/></xs:sequence>
+<xs:sequence><xs:element ref="right"/><xs:element ref="left"/></xs:sequence>
+</xs:choice></xs:complexType></xs:element>
+<xs:element name="fixed"><xs:complexType><xs:choice minOccurs="3" maxOccurs="3">
+<xs:element ref="left"/><xs:element ref="right"/></xs:choice></xs:complexType></xs:element>
+</xs:schema>'''
+
+
+def grouped_cases():
+    """Use an independent XSD provider to classify intact and broken repeated branch groups."""
+    from lxml import etree as oracle
+    validator = oracle.XMLSchema(oracle.fromstring(GROUPED_XSD.encode()))
+    words = ['', 'L', 'R', 'LR', 'RL', 'LLRR', 'LRLR', 'LRRL', 'RLLR', 'RLRL',
+             'RRLL', 'LLLR', 'LRR', 'LRLRL', 'LRLRLR', 'RLRLRL', 'LRRLLR',
+             'LLRRLR', 'LRLRLRLR', 'LRLRRR', 'RRRR', 'LLLL']
+    result = []
+    for index, word in enumerate(words):
+        document = '<root>\n' + ''.join('<left>A&amp;B</left>' if item == 'L'
+            else '<right id="42"/>' for item in word) + '\n</root>'
+        result.append((f'group-{index}', document, 8, validator.validate(oracle.fromstring(document.encode()))))
+    result += [('group-tight', '<root><left>A</left><right id="1"/><left>B</left><right id="2"/></root>', 3, False)]
+    result += [case for case in cases() if case[0].startswith('fixed') or not case[3]]
+    return result
 
 
 def cases():
@@ -223,7 +251,7 @@ done:ordered_KIND_free(&value);ordered_KIND_free(&copy);return status;
 '''
 
 
-def consumer(language):
+def consumer(language, grouped=False):
     """Generate small typed consumers; each branch uses its public owning facade."""
     bodies = []
     for kind in ('Fixed', 'Root'):
@@ -262,6 +290,36 @@ for protocol in [Protocol::Json,Protocol::BinaryNone,Protocol::BinaryInteger,Pro
 Ok(output)'''
         else:
             raise ValueError(language)
+        if grouped and kind == 'Root':
+            checks = {
+                'java': '''var removed=value.items.remove(value.items.size()-1);boolean rejected=false;
+try{value.encodeXml();}catch(IllegalArgumentException expected){rejected=true;}
+if(!rejected)throw new AssertionError("Incomplete output accepted");value.items.add(removed);''',
+                'csharp': '''var removed=value.Items[^1];value.Items.RemoveAt(value.Items.Count-1);bool rejected=false;
+try{value.EncodeXml();}catch(FormatException){rejected=true;}
+if(!rejected)throw new Exception("Incomplete output accepted");value.Items.Add(removed);''',
+                'kotlin': '''val removed=value.items.removeAt(value.items.lastIndex);var rejected=false
+try{value.encodeXml()}catch(expected:IllegalArgumentException){rejected=true}
+check(rejected);value.items.add(removed)''',
+                'swift': '''let removed=value.items.removeLast();var rejected=false
+do{_=try value.encodeXml()}catch{rejected=true}
+try require(rejected);value.items.append(removed)''',
+                'rust': '''let removed=value.items.pop().unwrap();assert!(value.encode_xml().is_err());value.items.push(removed);''',
+                'go': '''original:=value.Items;value.Items=original[:len(original)-1]
+if _,err:=value.EncodeXML();err==nil{panic("Incomplete output accepted")};value.Items=original
+''',
+            }
+            if language == 'swift':
+                body = body.replace('let value=try', 'var value=try')
+            elif language == 'rust':
+                body = body.replace('let value=', 'let mut value=')
+            check = checks[language]
+            if language == 'go':
+                body = body.replace('return output,nil', check + 'return output,nil')
+            elif language == 'rust':
+                body = body.replace('Ok(output)', check + '\nOk(output)')
+            else:
+                body += '\n' + check
         bodies.append(body)
     if language == 'java':
         condition = 'path.getFileName().toString().startsWith("fixed")'
@@ -280,6 +338,11 @@ Ok(output)'''
     return globals()[language.upper()].replace('BODY', f'if {condition}{{{bodies[0]}}}else{{{bodies[1]}}}')
 
 
+def observe(root):
+    """Compare expanded names and scalar child values independently of generated APIs."""
+    return root.tag, [(item.tag, item.attrib, item.text or '') for item in root]
+
+
 def execute(args):
     """Compile selected native SDKs and compare original child order and expanded names."""
     languages = args.language.split(',')
@@ -288,6 +351,10 @@ def execute(args):
     config = args.build / 'options.ini'
     config.write_text(CONFIG, encoding='utf-8')
     command = [args.compiler, '--input', source, '--config', config, '--go.package', 'main', '--kotlin.package=']
+    if args.grouped_xsd:
+        xsd = args.build / 'ordered.xsd'
+        xsd.write_text(GROUPED_XSD, encoding='utf-8')
+        command += ['--xml.xsd', xsd, '--xml.export-xsd', args.build / 'exported.xsd']
     targets = {}
     for language in languages:
         directory = args.build / language
@@ -299,10 +366,17 @@ def execute(args):
     for language, path in targets.items():
         command += [f'--{language}.output', path]
     sdk.run(command)
+    if args.grouped_xsd:
+        from lxml import etree as oracle
+        exported = oracle.XMLSchema(oracle.parse(str(args.build / 'exported.xsd')))
+        original = oracle.XMLSchema(oracle.fromstring(GROUPED_XSD.encode()))
+        for _, document, _, _ in grouped_cases():
+            parsed = oracle.fromstring(document.encode())
+            assert exported.validate(parsed) == original.validate(parsed), document
     if 'typescript' in languages and 'javascript' in languages:
         shutil.copyfile(targets['js'], args.build / 'typescript/schema.mjs')
     probes = []
-    for name, document, maximum, valid in cases():
+    for name, document, maximum, valid in grouped_cases() if args.grouped_xsd else cases():
         path = args.build / f'{name}.{"valid" if valid else "invalid"}.xml'
         path.write_text(document, encoding='utf-8')
         probes.append((path, maximum, valid))
@@ -317,7 +391,7 @@ def execute(args):
             for name in ('package.json', 'package-lock.json'):
                 shutil.copyfile(ROOT / 'test/resources/xml_shapes' / language / name, source / name)
         elif language == 'rust':
-            filename, body = 'main.rs', consumer(language)
+            filename, body = 'main.rs', consumer(language, args.grouped_xsd)
             for name in ('Cargo.toml', 'Cargo.lock'):
                 shutil.copyfile(ROOT / 'example/xml/rust' / name, source / name)
         elif language == 'python':
@@ -326,7 +400,28 @@ def execute(args):
             filename, body = 'main.c', C.replace('CHECKS', ''.join(C_CHECK.replace('KIND', kind) for kind in ('fixed', 'root')))
         else:
             filename = {'java': 'Main.java', 'csharp': 'Program.cs', 'kotlin': 'Main.kt', 'swift': 'main.swift', 'go': 'main.go'}[language]
-            body = consumer(language)
+            body = consumer(language, args.grouped_xsd)
+        if args.grouped_xsd and language == 'python':
+            body = body.replace("    path.with_name", '''    if path.name.startswith('group-'):
+        original=value.items; value.items=original[:-1]; rejected=False
+        try: value.encode_xml()
+        except ValueError: rejected=True
+        assert rejected,path
+        value.items=original
+    path.with_name''')
+        elif args.grouped_xsd and language in ('javascript', 'typescript'):
+            body = body.replace('  writeFileSync', '''  if(path.includes('group-')){
+    const original=value.items;value.items=original.slice(0,-1);let rejected=false;
+    try{value.encodeXml();}catch{rejected=true;}
+    assert.deepEqual(rejected,true);value.items=original;
+  }
+  writeFileSync''')
+        elif args.grouped_xsd and language == 'c':
+            marker = 'done:ordered_root_free'
+            body = body.replace(marker, '''--value.items.size;srl_buffer rejected={0};
+require(ordered_root_encode_xml(&value,&rejected,NULL)!=srl_ok && !rejected.data);
+++value.items.size;
+''' + marker)
         (source / filename).write_text(body, encoding='utf-8')
         launch = xml_runner.build_language(args, runner, language, directory, source_root=source.parent)
         arguments = []
@@ -337,8 +432,7 @@ def execute(args):
             output = Path(str(path) + f'.{language}.xml')
             if valid:
                 before, after = etree.parse(path).getroot(), etree.parse(output).getroot()
-                assert [(item.tag, item.attrib, item.text or '') for item in before] == [(item.tag, item.attrib, item.text or '') for item in after], output
-                assert before.tag == after.tag
+                assert observe(before) == observe(after), output
             else:
                 assert not output.exists(), output
         print(f'PASS: {language}: {len(probes)} ordered decisions and four native protocols', flush=True)
@@ -352,6 +446,7 @@ def main():
     parser.add_argument('--language', default='python,javascript,typescript,java,csharp,go,kotlin,swift,rust,c')
     parser.add_argument('--libxml2-prefix', type=Path)
     parser.add_argument('--wsl-languages', default='')
+    parser.add_argument('--grouped-xsd', action='store_true')
     parser.set_defaults(cpp_library=None, cpp_executable=None, executable=None, sanitize=False)
     args = parser.parse_args()
     args.compiler, args.build = args.compiler.resolve(), args.build.resolve()

@@ -17,6 +17,9 @@ public struct XmlLimits {
     internal var srlPackageConsume: ((String, Int) throws -> Void)?
     fileprivate var srlPackageLimit: ((String) -> any Swift.Error)?
     fileprivate var srlPackageRootType: SrlXmlName?
+    fileprivate var srlPackageRequiresType = false
+    fileprivate var srlPackageVocabularies: [String]?
+    fileprivate var srlDeclarationTemporary = false
     // A package-only synchronous observer may retain selected resolved bindings, never the borrowed lookup closure.
     fileprivate var srlPackageNamespaceScope: ((SrlXmlNode, (String) -> String?) throws -> Void)?
     public init() {}

@@ -30,7 +30,8 @@ export declare namespace SerializerPackage {
   interface Sink { write(bytes: Uint8Array): void | globalThis.PromiseLike<void>; }
   type Source = Uint8Array | RandomSource | SequentialSource | string;
   interface Host { readonly open: (source: string | SequentialSource, options: Options, budget: Budget) => globalThis.Promise<RandomSource>; readonly save: (path: string, bytes: Uint8Array, budget: Budget, fault?: ((stage: string) => void) | null) => globalThis.Promise<void>; }
-  interface Options { profiles?: Readonly<Record<string,'stored'|'deflate'>>; limits?: Limits | LimitOptions; budget?: Budget; compressionProvider?: SerializerCompression.Provider | null; host?: Host; spoolDirectory?: string; maxSpoolBytes?: number; forceZip64?: boolean; descriptor?: 'none' | 'signed' | 'unsigned'; }
+  interface EnvelopeOverride { codec?: 'xml'|'json'|'binary_none'|'bytes'; compression?: 'stored'|'deflate'; }
+  interface Options { profiles?: Readonly<Record<string,'stored'|'deflate'|EnvelopeOverride>>; limits?: Limits | LimitOptions; budget?: Budget; compressionProvider?: SerializerCompression.Provider | null; host?: Host; spoolDirectory?: string; maxSpoolBytes?: number; forceZip64?: boolean; descriptor?: 'none' | 'signed' | 'unsigned'; }
   interface LoadOptions<T> extends Options { policy?: ExtensionPolicy; validate?: (candidate: T, budget: Budget) => void | globalThis.PromiseLike<void>; }
   interface SaveOptions<T> extends LoadOptions<T> { host: Host; fault?: (stage: string) => void; }
   interface ZipEntry { readonly name: string; readonly method: 'stored' | 'deflate'; readonly flags: number; readonly compressedBytes: number; readonly expandedBytes: number; readonly crc32: number; readonly headerOffsetBytes: number; readonly dataOffsetBytes: number; readonly zip64Sizes: boolean; readonly creatorSystem: number; readonly externalAttributes: number; }
@@ -40,7 +41,7 @@ export declare namespace SerializerPackage {
   class BinaryPart { data: Uint8Array; name: string; contentType: string; sourceIndex: number; compression: 'stored' | 'deflate'; constructor(data: Uint8Array, name: string, contentType: string, sourceIndex?: number, compression?: 'stored' | 'deflate'); }
   class ModelPart<T> { value: T; name: string; contentType: string; sourceIndex: number; constructor(value: T, name: string, contentType: string, sourceIndex?: number); }
   class Relationship { source: string; id: string; type: string; target: string; mode: 'internal' | 'external'; constructor(source: string, id: string, type: string, target: string, mode?: 'internal' | 'external'); }
-  class Extensions { parts: readonly BinaryPart[]; relationships: readonly Relationship[]; constructor(parts?: readonly BinaryPart[], relationships?: readonly Relationship[]); }
+  class Extensions { parts: readonly BinaryPart[]; relationships: readonly Relationship[]; constructor(parts?: readonly BinaryPart[], relationships?: readonly Relationship[]); withRenames(names: ReadonlyMap<string,string> | Record<string,string>): Extensions; }
   interface PartMetadata { readonly name: string; readonly contentType: string; readonly entry: ZipEntry; }
   interface ExtensionOptions { parts?: 'reject' | 'skip' | 'preserve'; relationships?: 'reject' | 'skip' | 'preserve'; isRequiredPart?: ((part: PartMetadata) => boolean) | null; isRequiredRelationship?: ((link: Relationship) => boolean) | null; }
   class ExtensionPolicy { readonly parts: 'reject' | 'skip' | 'preserve'; readonly relationships: 'reject' | 'skip' | 'preserve'; readonly isRequiredPart: ((part: PartMetadata) => boolean) | null; readonly isRequiredRelationship: ((link: Relationship) => boolean) | null; constructor(options?: ExtensionOptions); }

@@ -1,0 +1,4 @@
+serializer version 1.21.0; namespace outer { using schema "xml_outer_union.xsd";
+class probe { public string boolean_value; public string numeric_value; public string list_value;
+public string preserved; public string fixed_value; public string default_value; }
+}

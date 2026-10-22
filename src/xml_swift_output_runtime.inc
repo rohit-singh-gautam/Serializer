@@ -28,6 +28,8 @@ fileprivate final class SrlXmlOutput {
         var digestLimits=digestLimits;digestLimits.srlPackageLimit=limits.srlPackageLimit
         var identityLimits=identityLimits;identityLimits.srlPackageLimit=limits.srlPackageLimit;identityLimits.srlPackageConsume=limits.srlPackageConsume
         var extensionOptions=extensionOptions;extensionOptions.srlPackageLimit=limits.srlPackageLimit;extensionOptions.srlPackageConsume=limits.srlPackageConsume
+        extensionOptions.srlDeclarationPolicy=SrlXmlDeclarationPolicy(limits,mapLimits,mixedLimits,digestLimits,identityLimits)
+        extensionOptions.srlDeclarationTemporary=limits.srlDeclarationTemporary
         try mapLimits.validate()
         try mixedLimits.validate()
         try digestLimits.validate()
@@ -36,7 +38,7 @@ fileprivate final class SrlXmlOutput {
         self.limits = limits; self.mapLimits = mapLimits; self.mixedLimits = mixedLimits; self.digestLimits = digestLimits; self.identityLimits = identityLimits; self.extensionOptions = extensionOptions; self.budget = SrlXmlBudget(limits)
     }
     // Check encoded length before growing the owned document buffer.
-    private func append(_ value: String) throws { guard bytes.count <= limits.maxBytes && value.utf8.count <= limits.maxBytes - bytes.count else { throw srlXmlLimitFailure(limits,"XML output limit") }; bytes.append(contentsOf: value.utf8) }
+    private func append(_ value: String) throws { guard bytes.count <= limits.maxBytes && value.utf8.count <= limits.maxBytes - bytes.count else { throw srlXmlLimitFailure(limits,"XML output limit") }; try limits.srlPackageConsume?("allocation",value.utf8.count);bytes.append(contentsOf: value.utf8) }
     // Resolve QName vocabulary through active generated start tags without retaining completed elements.
     private func identityNamespace(_ prefix: String) -> String? {
         if prefix == "xml" { return "http://www.w3.org/XML/1998/namespace" }
@@ -86,6 +88,7 @@ fileprivate final class SrlXmlOutput {
             }
         }
         stack.append(Frame(name:name,local:local,bindings:bindings,pinned:preservedScope != nil))
+        if stack.count == 1, limits.srlPackageRequiresType, let type = limits.srlPackageRootType { try typeName(type) }
     }
     // Choose generated prefixes without shadowing a retained opaque QName vocabulary binding.
     private func prefixFor(_ uri: String, _ preferred: String) throws -> String {

@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from unittest import mock
 from xml.sax.saxutils import quoteattr
+import xml_unicode_pattern_fixture as unicode_patterns
 
 ROOT = Path(__file__).resolve().parent.parent
 NS = 'urn:serializer:scalar-tokens'
@@ -25,7 +26,7 @@ PATTERNS = (
     ('[a-zA-Z0-9_\\-]+', ('a_Z-09', 'é', '', 'a b', 'a.b')),
     ('\\p{L}+', ('abc', 'é', '漢字', '123', '')),
     ('[a-z-[aeiou]]+', ('bcd', 'rhythm', 'ae', 'é', '')),
-)
+) + unicode_patterns.PATTERNS
 
 
 UNION_TYPES = '''
@@ -263,14 +264,14 @@ class python_xml_scalar_test(unittest.TestCase):
                 candidate.encode_xml()
             setattr(candidate, member, previous)
 
-    def test_legacy_patterns_retain_explicit_provider_requirement(self):
-        """Keep category escapes and class subtraction on the existing genuine XSD provider path."""
+    def test_unicode_patterns_use_provider_independent_instructions(self):
+        """Match Unicode categories and nested subtraction using immutable portable instructions."""
         for index, (expression, values) in enumerate(PATTERNS[8:], 8):
             model_type = getattr(self.module, 'ScalarsP' + str(index))
-            self.assertIsNone(model_type._xml_rules[0]['portable_patterns'][0])
+            self.assertIsNotNone(model_type._xml_rules[0]['portable_patterns'][0])
             for value in values:
                 data = document('p' + str(index), {'value': value})
-                expected = self.oracle.validate(self.provider.fromstring(data))
+                expected = self.pattern_oracle.validate(self.provider.fromstring(data))
                 with self.subTest(expression=expression, value=value, expected=expected):
                     if expected:
                         self.assertEqual(model_type.decode_xml(data).value, value)
@@ -279,8 +280,7 @@ class python_xml_scalar_test(unittest.TestCase):
                             model_type.decode_xml(data)
         self.module._XML_PATTERN_SCHEMAS.clear()
         with mock.patch.dict(sys.modules, {'lxml': None}):
-            with self.assertRaisesRegex(RuntimeError, 'lxml'):
-                self.module.ScalarsP8.decode_xml(document('p8', {'value': 'abc'}))
+            self.assertEqual(self.module.ScalarsP8.decode_xml(document('p8', {'value': 'abc'})).value, 'abc')
 
     def test_exact_pattern_limits_and_callback_failures(self):
         """Check byte/state/work equality, reject one-less admission and preserve callback exceptions."""
@@ -379,6 +379,7 @@ def main():
         source.write_text(native + '}', encoding='utf-8')
         schema.write_text(xsd + '</xs:schema>', encoding='utf-8')
         oracle = provider.XMLSchema(provider.parse(str(schema)))
+        pattern_oracle = unicode_patterns.Oracle(schema.read_text(encoding='utf-8'))
         output = directory / 'scalars.py'
         subprocess.run([str(args.compiler.resolve()), '--language', 'python', '--input', str(source),
                         '--python.output', str(output)], check=True)
@@ -388,6 +389,7 @@ def main():
         spec.loader.exec_module(module)
         python_xml_scalar_test.module, python_xml_scalar_test.provider = module, provider
         python_xml_scalar_test.oracle = oracle
+        python_xml_scalar_test.pattern_oracle = pattern_oracle
         result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(python_xml_scalar_test))
         if not result.wasSuccessful():
             raise SystemExit(1)

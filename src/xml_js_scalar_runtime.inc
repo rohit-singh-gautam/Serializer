@@ -147,8 +147,8 @@ function srlXmlScalarRule(rule) {
   let compiled=srlXmlScalarCache.get(rule);
   if(compiled) return compiled;
   const parse=text=>srlXmlScalarValue(srlXmlScalarWhitespace(text,rule),rule);
-  compiled={enumeration:rule.qnames.length ? rule.qnames : rule.qnameLists.length ? rule.qnameLists : rule.enumeration.map(parse),
-    fixed:rule.fixedName!==null ? rule.fixedName : rule.fixedNames!==null ? rule.fixedNames : rule.fixed===null ? null : parse(rule.fixed),bounds:[]};
+  compiled={enumeration:rule.unionValues&&rule.unionValues.length ? [] : rule.qnames.length ? rule.qnames : rule.qnameLists.length ? rule.qnameLists : rule.enumeration.map(parse),
+    fixed:rule.fixedUnion ? null : rule.fixedName!==null ? rule.fixedName : rule.fixedNames!==null ? rule.fixedNames : rule.fixed===null ? null : parse(rule.fixed),bounds:[]};
   for(const [name,minimum,inclusive] of [['minInclusive',true,true],['maxInclusive',false,true],['minExclusive',true,false],['maxExclusive',false,false]]) {
     if(rule[name]!==null) compiled.bounds.push([parse(rule[name]),minimum,inclusive]);
   }
@@ -160,9 +160,10 @@ function srlXmlLexicalTokens(text) {const trimmed=srlXmlTrim(text);return trimme
 
 // Cache one immutable item contract so list facets apply to the list rather than to each item.
 function srlXmlListRule(rule) {
+  if(rule.itemRule)return rule.itemRule;
   let item=srlXmlListRules.get(rule);
   if(!item){item=Object.freeze({...rule,kind:rule.listItem,listItem:'',length:null,minLength:null,maxLength:null,
-    enumeration:Object.freeze([]),qnames:Object.freeze([]),qnameLists:Object.freeze([]),fixed:null,fixedName:null,fixedNames:null,patterns:Object.freeze([]),prefixList:false});
+    enumeration:Object.freeze([]),qnames:Object.freeze([]),qnameLists:Object.freeze([]),union:Object.freeze([]),unionValues:Object.freeze([]),fixedUnion:null,itemRule:null,fixed:null,fixedName:null,fixedNames:null,patterns:Object.freeze([]),prefixList:false});
     srlXmlListRules.set(rule,item);}
   return item;
 }
@@ -212,19 +213,27 @@ function srlXmlPortablePattern(text,program,limits) {
 
 // Validate complete normalized scalar restrictions before native conversion or returning any encoded XML bytes.
 function srlXmlCheckedText(text,rule,limits,scope=null,bindings=null) {
-  text=srlXmlScalarWhitespace(text,rule);
+  const original=text;
+  if(!rule.union.length)text=srlXmlScalarWhitespace(text,rule);
   const track=bindings!==null && bindings.srlXmlTrackSelection;
+  let unionSelection=null;
   if(rule.union.length){
     let matched=false;
     for(const alternative of rule.union){
       const selected=new Map();
-      selected.srlXmlTrackSelection=track;
-      try{srlXmlCheckedText(text,alternative,limits,scope,selected);if(bindings){srlXmlMergeBindings(bindings,selected);if(track)bindings.srlXmlSelection=selected.srlXmlSelection;}matched=true;break;}
+      selected.srlXmlTrackSelection=true;
+      try{srlXmlCheckedText(text,alternative,limits,scope,selected);unionSelection=selected.srlXmlSelection;text=unionSelection.text;if(bindings){srlXmlMergeBindings(bindings,selected);if(track)bindings.srlXmlSelection=unionSelection;}matched=true;break;}
       catch(error){if(!(error instanceof SrlXmlLexicalError))throw error;}
     }
     if(!matched)throw new SrlXmlLexicalError('XML value matches no union member');
   }
-  const value=srlXmlScalarValue(text,rule,scope,bindings),compiled=srlXmlScalarRule(rule);
+  let value=srlXmlScalarValue(text,rule,scope,bindings);const compiled=srlXmlScalarRule(rule);
+  let listItems=null;
+  if(rule.listItem&&(rule.itemRule||track)){
+    const tokens=srlXmlLexicalTokens(text);if(limits.operation)limits.operation("allocation",tokens.length*128,limits.operationField||"");
+    listItems=[];for(const token of tokens){const selected=new Map();selected.srlXmlTrackSelection=true;srlXmlCheckedText(token,srlXmlListRule(rule),limits,scope,selected);if(bindings)srlXmlMergeBindings(bindings,selected);listItems.push(selected.srlXmlSelection);}
+    value=listItems.map(item=>item.value);
+  }
   const prefixValues=track && rule.prefixList ? [] : null;
   if(rule.prefixList)for(const prefix of srlXmlLexicalTokens(text)){
     const name=srlXmlScalarQName(prefix+':item',scope,bindings);if(prefixValues)prefixValues.push(name);
@@ -241,8 +250,14 @@ function srlXmlCheckedText(text,rule,limits,scope=null,bindings=null) {
       throw new SrlXmlLexicalError('XML scalar numeric bound');
     }
   }
-  if(compiled.enumeration.length && !compiled.enumeration.some(item=>srlXmlScalarEqual(value,item)))throw new SrlXmlLexicalError('XML scalar enumeration');
-  if(rule.fixed!==null && !srlXmlScalarEqual(value,compiled.fixed))throw new SrlXmlLexicalError('XML fixed scalar value');
+  if(rule.union.length||rule.itemRule){
+    const actual=unionSelection||{rule,value,items:listItems,text};
+    if(rule.enumeration.length && !(rule.unionValues && rule.unionValues.length ? rule.unionValues.some(item=>srlXmlUnionConstantEqual(actual,item)) : rule.enumeration.some(item=>srlXmlUnionEqual(actual,item,rule,limits,scope))))throw new SrlXmlLexicalError('XML scalar enumeration');
+    if(rule.fixed!==null && !(rule.fixedUnion ? srlXmlUnionConstantEqual(actual,rule.fixedUnion) : srlXmlUnionEqual(actual,rule.fixed,rule,limits,scope)))throw new SrlXmlLexicalError('XML fixed scalar value');
+  }else{
+    if(compiled.enumeration.length && !compiled.enumeration.some(item=>srlXmlScalarEqual(value,item)))throw new SrlXmlLexicalError('XML scalar enumeration');
+    if(rule.fixed!==null && !srlXmlScalarEqual(value,compiled.fixed))throw new SrlXmlLexicalError('XML fixed scalar value');
+  }
   if(rule.length!==null || rule.minLength!==null || rule.maxLength!==null){
     let length=rule.listItem ? srlXmlLexicalTokens(text).length : 0;if(!rule.listItem)for(const character of text)++length;
     if(rule.length!==null && length!==rule.length || rule.minLength!==null && length<rule.minLength ||
@@ -251,7 +266,39 @@ function srlXmlCheckedText(text,rule,limits,scope=null,bindings=null) {
   for(const group of rule.patterns){
     if(!group.some(program=>srlXmlPortablePattern(text,program,limits)))throw new SrlXmlLexicalError('XML scalar portable pattern');
   }
-  if(track && !rule.union.length)bindings.srlXmlSelection={rule,value:prefixValues || value};
-  return text;
+  if(track && !rule.union.length)bindings.srlXmlSelection={rule,value:prefixValues || value,items:listItems,text};
+  return rule.union.length ? original : text;
+}
+
+// Keep primitive family identity separate from lexical aliases and authored member names.
+function srlXmlUnionFamily(rule){
+  if(rule.listItem)return 'list:'+srlXmlUnionFamily(srlXmlListRule(rule));
+  if(srlXmlIntegerKinds.has(rule.kind) || rule.kind==='decimal')return 'decimal';
+  return ['boolean','float','double','anyURI','QName'].includes(rule.kind) ? rule.kind : 'string';
+}
+
+// Prepare selected schema identities without retaining provider scopes or reparsing literal aliases.
+function srlXmlSchemaIdentity(kind,listItem,text,names,items=[]){
+  const rule=Object.freeze({kind,listItem});
+  return Object.freeze({rule,value:listItem&&(items.length||!text) ? items.map(item=>item.value) : kind==='QName' ? names[0] : listItem==='QName' ? names : srlXmlScalarValue(text,rule),items});
+}
+
+// Keep primitive families distinct even when lexical strings or numeric representations coincide.
+function srlXmlUnionConstantEqual(actual,expected){
+  if(Boolean(actual.rule.listItem)!==Boolean(expected.rule.listItem))return false;
+  if(actual.rule.listItem&&actual.items&&expected.items)return actual.items.length===expected.items.length&&actual.items.every((item,index)=>srlXmlUnionConstantEqual(item,expected.items[index]));
+  return srlXmlUnionFamily(actual.rule)===srlXmlUnionFamily(expected.rule) && srlXmlScalarEqual(actual.value,expected.value);
+}
+
+// Select schema literals through the same ordered independent members as instance values.
+function srlXmlUnionEqual(actual,allowed,rule,limits,scope){
+  for(const member of rule.union){
+    const bindings=new Map();bindings.srlXmlTrackSelection=true;
+    try{srlXmlCheckedText(allowed,member,limits,scope,bindings);}
+    catch(error){if(error instanceof SrlXmlLexicalError)continue;throw error;}
+    const expected=bindings.srlXmlSelection;
+    return srlXmlUnionFamily(actual.rule)===srlXmlUnionFamily(expected.rule) && srlXmlScalarEqual(actual.value,expected.value);
+  }
+  return false;
 }
 )jsscalar"

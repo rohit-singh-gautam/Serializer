@@ -14,6 +14,8 @@
 #include "xml_native_identity_writer.hpp"
 #include "xml_native_extension_writer.hpp"
 #include "xml_native_extension_frames.hpp"
+#include "xml_rust_package_document_writer.hpp"
+#include "xml_native_declaration_writer.hpp"
 
 #include <algorithm>
 #include <functional>
@@ -296,6 +298,8 @@ impl<'a,'input:'a> SrlXmlFields<'a,'input> {
 #include "xml_rust_scalar_runtime.inc"
 #include "xml_rust_identity_runtime.inc"
 #include "xml_rust_extension_runtime.inc"
+#include "xml_rust_extension_operation_runtime.inc"
+#include "xml_rust_declaration_runtime.inc"
 ;
   constexpr std::string_view marker{"@xml_operation@"};
   for (std::size_t position{}; (position = result.find(marker, position)) != std::string::npos;) {
@@ -385,15 +389,16 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
   std::size_t index{};
   const auto line = [&result](const std::string& text) { result += text + "\n"; };
   const auto quote = [](std::string_view value) { return native::quote(value); };
-  const auto identity_graph = xml_codegen::native_identity_graph(owner, contract, xml_binding::schema{options});
+  const auto* selected_owner = owner.reference && owner.reference->value_type.type == object_type::class_type
+      ? static_cast<const class_node*>(owner.reference->value_type.resolved_node) : nullptr;
+  const auto identity_graph = selected_owner ? xml_codegen::native_identity_graph(*selected_owner,
+      xml_binding::schema{options}.bind(*selected_owner), xml_binding::schema{options}) :
+      xml_codegen::native_identity_graph(owner, contract, xml_binding::schema{options});
   const bool identity_enabled = std::any_of(identity_graph.begin(), identity_graph.end(),
       [](const auto& node) { return node.scope.has_value(); });
   const xml_binding::schema extension_bindings{options};
   const bool extension_graph = xml_codegen::native_extension_graph(owner, extension_bindings);
   if (extension_graph) { xml_codegen::validate_native_extension_graph(owner, extension_bindings, "rust"); }
-  if ((extension_graph || contract.extensions) && (output_only || xml_codegen::native_xml_export_graph(owner))) {
-    throw std::invalid_argument{"Native XML extension companions require an owning graph; export/reference extension adapters are not implemented for rust"};
-  }
   // Getter adapters lend existing target-shaped fields without constructing or copying a target record.
   const auto output_reference = [&](const member& field) {
     return projected_reference ? projected_reference(field) : "(&self." + field_name(field) + ")";
@@ -555,13 +560,20 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
     if (value.wrapper) { line("output.close(" + quote(value.wrapper->local) + ")?;"); }
   };
   if (extension_graph) {
+    if (selected_owner) {
+      line("/// Reuse the selected owning payload's companion contract while its handle pins the source.");
+      line("fn srl_xml_extension_model()->&'static SrlXmlExtensionModel {" +
+          associated_type(owner.reference->value_type) + "::srl_xml_extension_model()}\n");
+    } else {
     line(xml_codegen::native_extension_metadata(contract, owner.get_full_name(), {},
         [&](const class_node& child) {
           if (!xml_codegen::native_extension_graph(child, extension_bindings)) { return std::string{}; }
           type_name selected{std::string{child.name}, child.parent_namespace};
           selected.type = object_type::class_type; selected.resolved_node = &child;
           return associated_type(selected) + "::srl_xml_extension_model";
-        }, quote, true));
+        }, quote, true, {}, {}, 0U, xml_codegen::validates_declarations(contract) ?
+            xml_codegen::native_declaration_dispatch_name(owner) : ""));
+    }
   }
   line("/// Check original or final XML with bounded owner-local token indexes before publication.");
   if (identity_enabled) {
@@ -821,7 +833,7 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
     line("/// Reject nested input before accessing source storage.");
     line("fn srl_xml_read_tokens(_input:&mut SrlXmlInput<'_,'_>,_uri:&str,_local:&str)->Result<Self,Error> {Err(Error(\"Export-only XML projection\"))}");
   }
-  if (extension_graph) { line(xml_codegen::rust_extension_frames(options)); }
+  if (extension_graph) { line(xml_codegen::rust_extension_frames(options, output_only || xml_codegen::native_xml_export_graph(owner))); }
   if (custom_output) { line(custom_output()); return result; }
   line("/// Emit a nested owning value under its caller-selected static expanded element name.");
   line("fn srl_xml_write(&self,output:&mut SrlXmlWriter,local:&str,uri:&str) -> Result<(),Error> { output.select(" + quote(owner.get_full_name()) + "); output.open(local,uri)?;");
@@ -936,16 +948,18 @@ inline std::string rust_operation_impl(const class_node& owner, const record& co
     line("use " + api + "::{SrlXmlIdentityDiagnosticNode,SrlXmlIdentityDiagnosticConstraint,SrlXmlIdentityDiagnosticScalar};");
     line("const GRAPH:&[SrlXmlIdentityNode]=" + xml_codegen::rust_identity_graph(graph, quote) + ";");
     line("const DIAGNOSTICS:&[SrlXmlIdentityDiagnosticNode]=" + xml_codegen::rust_identity_diagnostics(graph, quote) + ";");
-    line("let state=" + api + "::State::new(operation,GRAPH,DIAGNOSTICS)?;");
+    line("let state=" + api + "::State::new(operation,GRAPH,DIAGNOSTICS)?;state.configure(&options);");
   };
   line("/// Encode through the ordinary generated traversal and the exact borrowed operation.");
   line("fn encode_xml_with_operation(&self,options:" + api + "::Options<'_>,operation:&mut dyn " + api + "::Operation)->" + api + "::Result<String> {");
+  line("let package_contract=operation.package_contract();let _=package_contract;");
   prepare();
   line("let result=(||{state.poll()?;");
   if (extensions) {
     line("let _=options;Err(Error(\"XML extension document companion required\"))");
   } else {
     line("let mut output=SrlXmlWriter::new_with_operation(options.limits,Some(state.clone()));output.map_limits=options.map_limits;output.mixed_limits=options.mixed_limits;output.digest_limits=options.digest_limits;");
+    line("if let Some(contract)=package_contract{if contract.requires_type{output.pending_type=contract.expected_type;}}");
     line("self.srl_xml_write(&mut output," + quote(contract.root.local) + "," + quote(contract.root.namespace_uri) + ")?;");
     line("srl_xml_identity_validate_with_operation(&output.text,options.limits,options.identity_limits,GRAPH,Some(state.secondary()),DIAGNOSTICS)?;");
     if (!options.runtime_xsd) {
@@ -960,6 +974,7 @@ inline std::string rust_operation_impl(const class_node& owner, const record& co
   line("fn decode_xml_with_operation(text:&str,options:" + api + "::Options<'_>,operation:&mut dyn " + api + "::Operation)->" + api + "::Result<Self> { <Self as " + api + "::Codec>::decode_package_with_operation(text,options,None,operation) }");
   line("/// Consume only a preselected package root type, validating its expanded identity before mapping.");
   line("fn decode_package_with_operation(text:&str,options:" + api + "::Options<'_>,expected_type:Option<(&str,&str)>,operation:&mut dyn " + api + "::Operation)->" + api + "::Result<Self> {");
+  line("let package_contract=operation.package_contract();let _=package_contract;");
   prepare();
   line("let result=(||{state.poll()?;");
   if (extensions || xml_codegen::native_xml_export_graph(owner)) {
@@ -972,9 +987,13 @@ inline std::string rust_operation_impl(const class_node& owner, const record& co
       line("if let Some(validator)=options.validator{state.poll()?;validator.validate(text)?;state.poll()?;}");
     }
     line("let mut input=SrlXmlInput::new_with_operation(text,options.limits,Some(state.clone()))?;input.permitted_root_type=expected_type;input.map_limits=options.map_limits;input.mixed_limits=options.mixed_limits;input.digest_limits=options.digest_limits;");
+    line("input.package_contract=package_contract;");
     line("let value=Self::srl_xml_read_tokens(&mut input," + quote(contract.root.namespace_uri) + "," + quote(contract.root.local) + ")?;input.finish_document()?;state.poll()?;Ok(value)");
   }
   line("})();state.finish(result) }\n}");
+  if (extensions && !xml_codegen::native_xml_export_graph(owner)) {
+    result += rust_document_operation_impl(owner, contract, name, module, options, lifetime);
+  }
   return result;
 }
 } // namespace rohit::serializer::writer::xml_binding

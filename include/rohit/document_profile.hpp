@@ -18,6 +18,7 @@ namespace rohit::serializer::document {
 enum class payload_format { xml, json, binary_none, opaque_bytes };
 enum class container_format { none, zip, opc };
 enum class profile_policy { fixed, defaults };
+enum class relationship_target_mode { internal, external, both };
 
 // Portable complete-object envelope options; this metadata neither opens providers nor owns models.
 struct profile {
@@ -62,6 +63,7 @@ struct part_profile {
   std::string source{"/"};
   std::size_t min_occurs{1U};
   std::optional<std::size_t> max_occurs{1U};
+  relationship_target_mode target_mode{relationship_target_mode::internal};
 };
 
 // Reject duplicate model/root/type dispatch keys, invalid roots and duplicate vocabulary declarations.

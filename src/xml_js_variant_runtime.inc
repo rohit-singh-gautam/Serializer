@@ -58,7 +58,7 @@ class SrlXmlVariantFrame {
 
 // Open a payload with a QName marker; an empty type namespace requires an empty default binding.
 function srlXmlVariantStart(output,local,uri,type=null,bindings=null) {
-  const defaultUri=bindings && bindings.has('') ? bindings.get('') : null;
+  const defaultUri=bindings ? bindings.get('') || '' : null;
   if(type!==null && type.typeUri==='' && defaultUri)throw new Error('QName default conflicts with empty xsi:type namespace');
   output.open(local,uri,type!==null && type.typeUri==='',defaultUri,bindings);
   if(bindings)for(const [prefix,namespace] of bindings)if(prefix && prefix!=='xml')output.namespace(prefix,namespace);

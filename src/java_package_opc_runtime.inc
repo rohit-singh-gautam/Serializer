@@ -37,6 +37,13 @@ R"packagejava(
     public Extensions(java.util.List<BinaryPart> parts,java.util.List<Relationship> relationships){this.parts=java.util.List.copyOf(parts);this.relationships=java.util.List.copyOf(relationships);}
     /** Construct empty retained extension state. */
     public Extensions(){this(java.util.List.of(),java.util.List.of());}
+    /** Retain original dynamic identities when applications replace or reorder named model occurrences. */
+    public Extensions withRenames(java.util.Map<String,String> names) {
+      var remaining=new java.util.HashSet<>(names.keySet());var selected=new java.util.HashMap<String,java.util.List<String>>();
+      for(var entry:origins.entrySet()){var record=entry.getValue();if(record.size()==3&&names.containsKey(record.get(0))){remaining.remove(record.get(0));record=java.util.List.of(record.get(0),names.get(record.get(0)),record.get(2));}selected.put(entry.getKey(),record);}
+      if(!remaining.isEmpty())throw new IllegalArgumentException("Rename origin is not a discovered dynamic role: "+remaining.iterator().next());
+      var result=new Extensions(parts,relationships);result.origins=java.util.Map.copyOf(selected);return result;
+    }
   }
   public enum Unknown { REJECT, SKIP, PRESERVE }
   /** Required capabilities reject regardless of optional skip/preserve selection. */

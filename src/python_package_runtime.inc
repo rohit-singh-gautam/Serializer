@@ -14,6 +14,8 @@ _PKG_CT = 'http://schemas.openxmlformats.org/package/2006/content-types'
 _PKG_RELS = 'http://schemas.openxmlformats.org/package/2006/relationships'
 _PKG_RELS_MIME = 'application/vnd.openxmlformats-package.relationships+xml'
 _PKG_CHUNK = 65536
+_PKG_NATIVE_RECORD_BYTES = 64
+_PKG_NATIVE_SLOT_BYTES = 8
 _PKG_U32 = 0xffffffff
 _PKG_ASCII_FOLD = str.maketrans('ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')
 _PKG_MIME_TOKEN = r"[!#$%&'*+.^_`|~0-9A-Za-z-]+"
@@ -62,12 +64,27 @@ class PackageBudget:
             if field.name.startswith('max_') and (type(value) is not int or value < 0):
                 raise PackageError('resource_limit', 'Invalid package limit')
         self.used = dict.fromkeys(self._resources, 0)
+        self._first_caller_failure = None
+        self._failed_caller_predicate = None
         if self.limits.is_cancelled is not None and not callable(self.limits.is_cancelled):
             raise PackageError('invalid_state', 'Package cancellation predicate must be callable')
         self.check()
     def check(self):
         """Check monotonic deadline and cancellation at each bounded processing boundary."""
-        if self.limits.is_cancelled is not None and self.limits.is_cancelled():
+        predicate = self.limits.is_cancelled
+        if self._first_caller_failure is not None:
+            if predicate is self._failed_caller_predicate:
+                raise self._first_caller_failure
+            # Explicitly replacing the callback keeps cumulative charges but selects a new caller.
+            self._first_caller_failure = None
+            self._failed_caller_predicate = None
+        try:
+            cancelled = predicate is not None and predicate()
+        except BaseException as failure:
+            self._first_caller_failure = failure
+            self._failed_caller_predicate = predicate
+            raise
+        if cancelled:
             raise self._failure('cancelled', 'Package operation cancelled')
         if self.limits.deadline is not None and _pkg_time.monotonic() >= self.limits.deadline:
             raise self._failure('deadline_exceeded', 'Package operation deadline exceeded')
@@ -131,6 +148,21 @@ class PreservedExtensions:
     parts: tuple = ()
     relationships: tuple = ()
     relocations: tuple = ()
+    dynamic_relocations: tuple = ()
+
+    def with_renames(self, names):
+        """Bind discovered dynamic identities to edited names without depending on collection order."""
+        requested = dict(names)
+        remaining = set(requested)
+        result = []
+        for role, original, destination in self.dynamic_relocations:
+            if original in requested:
+                destination = requested[original]
+                remaining.discard(original)
+            result.append((role, original, destination))
+        if remaining:
+            raise PackageError('invalid_options', 'Rename origin is not a discovered dynamic role', next(iter(remaining)))
+        return _pkg_dataclasses.replace(self, dynamic_relocations=tuple(result))
 
 @_pkg_dataclasses.dataclass(frozen=True)
 class ExtensionPolicy:
@@ -155,7 +187,7 @@ R"packagepython(class _PackagePartContext:
         self.limits = shared.limits
     def consume(self, resource, amount, part=''):
         """Charge before work and preserve package diagnostics through generated XML callbacks."""
-        self._xml_consume_at(resource, amount, None, part)
+        self._xml_consume_at(resource, amount, getattr(self, '_native_field', None), part)
     def check_buffer(self, amount, part=''):
         """Retain the source URI when a nested writer exhausts its byte workspace."""
         self._xml_buffer_at(amount, None, part)
@@ -964,10 +996,19 @@ def _pkg_occurs(count, role):
     if count < role['minimum'] or role['maximum'] is not None and count > role['maximum']:
         raise PackageError('semantic', 'Package role occurrence constraint failed', field_path=role['field'])
 
-def _pkg_relocated_links(extensions, budget):
+def _pkg_relocated_links(extensions, budget, sources=None):
     """Resolve old link scopes before applying simultaneous fixed-role relocations; retain inert external URIs."""
     destinations = {}
-    for original, canonical in extensions.relocations:
+    absent = set()
+    dynamic = []
+    for role, original, canonical in extensions.dynamic_relocations:
+        budget.consume('work_units', len(original) + len(canonical), original)
+        _pkg_name(original)
+        _pkg_name(canonical)
+        if sources is not None and canonical not in sources.get(role, ()):
+            absent.add(original.lower())
+        dynamic.append((original, canonical))
+    for original, canonical in tuple(extensions.relocations) + tuple(dynamic):
         budget.consume('work_units', len(original) + len(canonical))
         _pkg_name(original)
         _pkg_name(canonical)
@@ -977,6 +1018,8 @@ def _pkg_relocated_links(extensions, budget):
             raise PackageError('invalid_relationship', 'Conflicting typed part relocations', original)
         destinations[key] = canonical
     for link in extensions.relationships:
+        if link.source.lower() in absent:
+            raise PackageError('missing_part', 'Preserved relationship source role was removed', link.source, link.id)
         budget.check()
         if not destinations:
             yield link
@@ -986,6 +1029,8 @@ def _pkg_relocated_links(extensions, budget):
         target = link.target
         if link.mode == 'internal':
             original_target = _pkg_target(link.source, link.target)
+            if original_target.lower() in absent:
+                raise PackageError('missing_part', 'Preserved relationship target role was removed', link.source, link.id)
             destination = destinations.get(original_target.lower(), original_target)
             if source != link.source or destination != original_target:
                 selector = min((index for index in (target.find('?'), target.find('#')) if index >= 0), default=len(target))
@@ -993,16 +1038,23 @@ def _pkg_relocated_links(extensions, budget):
         yield PackageRelationship(source, link.id, link.type, target, link.mode)
 
 def _pkg_select_profiles(roles, overrides=None):
-    """Resolve declared storage defaults transactionally; identities and codec choices are immutable."""
+    """Resolve supported native/XML and ZIP envelopes while model and relationship identities remain bound."""
     overrides = {} if overrides is None else overrides
     if not isinstance(overrides, dict) or any(key not in {role['role'] for role in roles} for key in overrides):
         raise PackageError('invalid_state', 'Unknown package profile override')
     selected = []
     for role in roles:
-        storage = overrides.get(role['role'], role['compression'])
-        if storage not in ('stored', 'deflate') or role.get('policy') == 'fixed' and storage != role['compression']:
+        override = overrides.get(role['role'], role['compression'])
+        if isinstance(override, dict):
+            if any(key not in ('codec', 'compression') for key in override):
+                raise PackageError('invalid_state', 'Unknown package envelope override', field_path=role['field'])
+            storage = override.get('compression', role['compression'])
+            codec = override.get('codec', role.get('codec', 'xml' if role['model'] is not None else 'bytes'))
+        else:
+            storage, codec = override, role.get('codec', 'xml' if role['model'] is not None else 'bytes')
+        if storage not in ('stored', 'deflate') or codec not in (('xml', 'json', 'binary_none') if role['model'] is not None else ('bytes',)) or role.get('binary_only') and codec == 'json' or role.get('policy') == 'fixed' and (storage != role['compression'] or codec != role.get('codec', 'xml' if role['model'] is not None else 'bytes')):
             raise PackageError('invalid_state', 'Package profile override conflicts with declared policy', field_path=role['field'])
-        selected.append(dict(role, compression=storage))
+        selected.append(dict(role, compression=storage, codec=codec))
     return tuple(selected)
 
 
@@ -1073,6 +1125,8 @@ def _pkg_dispatch(data, role, budget, part, relationship_id):
         if expanded(name) != role['root']:
             raise PackageError('codec', 'Package expected XML root mismatch', part, relationship_id)
         declared = attributes.get('http://www.w3.org/2001/XMLSchema-instance\x1ftype')
+        if role.get('requires_type') and declared is None:
+            raise PackageError('codec', 'Required package XML type is missing', part, relationship_id)
         if declared is not None:
             pieces = declared.strip(' \t\r\n').split(':')
             if len(pieces) > 2 or not pieces[-1] or len(pieces) == 2 and pieces[0] not in scope:
@@ -1080,6 +1134,14 @@ def _pkg_dispatch(data, role, budget, part, relationship_id):
             uri = scope.get(pieces[0] if len(pieces) == 2 else '', '')
             if _xml_name(uri, pieces[-1]) != role['type']:
                 raise PackageError('codec', 'Package expected XML type mismatch', part, relationship_id)
+        context._xml_package_vocabularies = role.get('vocabularies', ())
+        normalized = {_xml_name(*key.split('\x1f')) if '\x1f' in key else key: value for key, value in attributes.items()}
+        try:
+            _xml_package_root(normalized, scope, context)
+        except PackageError:
+            raise
+        except _XmlPackageCapabilityError as failure:
+            raise PackageError('unsupported_feature', 'Package vocabulary capability is not understood', part, relationship_id) from failure
         raise RootFound()
     def forbidden(*_args):
         """Forbid declarations and external entities without performing resource resolution."""
@@ -1094,6 +1156,129 @@ def _pkg_dispatch(data, role, budget, part, relationship_id):
     except RootFound:
         return
     raise PackageError('codec', 'Package XML root is missing', part, relationship_id)
+
+
+class _PackageNativeBuffer(bytearray):
+    """Admit every encoded native byte before extending privately staged package output."""
+    def __init__(self, budget, context):
+        """Borrow one operation context and retain the original per-part byte ceiling."""
+        super().__init__()
+        self.budget, self.context = budget, context
+    def _admit(self, count):
+        """Keep local part bounds and cumulative codec allocations separate."""
+        if count > self.budget.limits.max_part_bytes - len(self):
+            failure = PackageError('resource_limit', 'Native package output exceeds part limit', self.context.part, self.context.relationship_id)
+            failure.field_path = getattr(self.context, '_native_field', ('',))[0]
+            raise failure
+        self.context.consume('decoder_allocation_bytes', count)
+        self.context.consume('work_units', count + 1)
+    def append(self, value):
+        """Admit one framing byte before mutating the private buffer."""
+        self._admit(1)
+        super().append(value)
+    def extend(self, values):
+        """Admit a complete bounded native scalar before appending its byte representation."""
+        self._admit(len(values))
+        super().extend(values)
+
+
+class _PackageNativeReader(_Reader):
+    """Preserve the native reader while sharing package work, collection and string admission."""
+    def __init__(self, data, protocol, limits, context):
+        """Borrow payload storage only for this unpublished native decode operation."""
+        super().__init__(data, protocol, limits)
+        self.context, self.in_text = context, False
+    def require(self, count):
+        """Admit scalar/scan work and retained string bytes before inspecting or copying input."""
+        self.context.consume('work_units', count + 1)
+        super().require(count)
+        if self.in_text:
+            self.context.consume('decoder_allocation_bytes', count * 2)
+    def text(self):
+        """Charge existing native string traversal without duplicating or altering its parser."""
+        self.in_text = True
+        try:
+            return super().text()
+        finally:
+            self.in_text = False
+    def fields(self, positional):
+        """Admit a logical owning record before constructing its persistent field storage."""
+        self.context.consume('decoder_allocation_bytes', _PKG_NATIVE_RECORD_BYTES)
+        self.context.consume('work_units', 1)
+        yield from super().fields(positional)
+    def entries(self, expected=None):
+        """Admit each native collection slot before its model decoder appends a value."""
+        for index in super().entries(expected):
+            self.context.consume('decoder_allocation_bytes', _PKG_NATIVE_SLOT_BYTES)
+            self.context.consume('work_units', 1)
+            yield index
+
+
+class _PackageNativeWriter(_Writer):
+    """Charge source traversal even when a positional empty record emits no payload bytes."""
+    def __init__(self, protocol, budget, context):
+        """Bind borrowed native values to bounded privately staged bytes."""
+        super().__init__(protocol)
+        self.context = context
+        self.data = _PackageNativeBuffer(budget, context)
+    def text(self, value):
+        """Admit bounded Unicode and JSON scalar temporaries before the native string encoder allocates."""
+        if isinstance(value, str):
+            self.context.consume('work_units', len(value) + 1)
+            self.context.consume('decoder_allocation_bytes', len(value) * (16 if self.protocol == Protocol.JSON else 4))
+        super().text(value)
+    def begin_object(self):
+        """Poll and admit every native aggregate before descending into its fields."""
+        self.context.consume('work_units', 1)
+        super().begin_object()
+    def begin_array(self, count):
+        """Admit collection traversal before inspecting caller-owned elements."""
+        self.context.consume('work_units', count + 1)
+        super().begin_array(count)
+    def field(self, number, key, first):
+        """Bound field traversal independently of native framing size."""
+        self.context.consume('work_units', 1)
+        super().field(number, key, first)
+
+
+def _pkg_native_encode(model, codec, budget, context):
+    """Run an existing native writer through a bounded package-owned output admission adapter."""
+    writer = _PackageNativeWriter(Protocol.JSON if codec == 'json' else Protocol.BINARY_NONE, budget, context)
+    model._write(writer)
+    context.consume('decoder_allocation_bytes', len(writer.data))
+    return bytes(writer.data)
+
+
+def _pkg_xml_encode(model, role, budget, context):
+    """Retain the direct XML path unless a declared mandatory type needs an owning root attribute."""
+    context._xml_package_vocabularies = role.get('vocabularies', ())
+    data = model.encode_xml(limits=budget.xml_limits(), context=context)
+    if not role.get('requires_type'):
+        return data
+    node = _xml_parse(data, budget.xml_limits(), context)
+    expanded = role['type']
+    uri, local = expanded[1:].split('}', 1) if expanded.startswith('{') else ('', expanded)
+    lexical = _xml_qualify_qname((uri, local), node[4], _xml_reserved_qname_prefixes(node, context),
+                                lambda prefix, selected: context.consume('decoder_allocation_bytes', len(prefix) + len(selected)))
+    node[1]['{http://www.w3.org/2001/XMLSchema-instance}type'] = lexical
+    return _xml_write(node, budget.xml_limits(), context)
+
+
+def _pkg_native_decode(model, data, codec, budget, context):
+    """Publish a fresh native value only after exact payload closure under the shared package ledger."""
+    context.consume('work_units', len(data))
+    reader = _PackageNativeReader(data, Protocol.JSON if codec == 'json' else Protocol.BINARY_NONE,
+                                  budget.xml_limits(), context)
+    try:
+        result = model._read(reader)
+        reader.finish()
+        return result
+    except ValueError as failure:
+        if budget._first_caller_failure is not None:
+            raise budget._first_caller_failure
+        if str(failure) in ('Message byte limit', 'String limit', 'Element limit', 'Depth limit'):
+            raise PackageError('resource_limit', 'Native package decode limit exceeded', context.part, context.relationship_id) from failure
+        raise
 
 
 def _pkg_profile_encode(value, roles, budget):
@@ -1114,18 +1299,31 @@ def _pkg_profile_encode(value, roles, budget):
             parents = ('/',) if role['source'] == '/' else sources[role['source']]
             if type(parent) is not int or parent < 0 or parent >= len(parents):
                 raise PackageError('invalid_relationship', 'Package source occurrence is missing', name)
+            relationship_id = role['id'] or 'srl_' + role['role'] + '_' + str(index)
+            mode = role.get('target_mode', 'internal')
+            external = mode == 'external' or mode == 'both' and content_type == ''
+            if external:
+                if role['model'] is not None or content_type != '' or not isinstance(item.data, (bytes, bytearray, memoryview)) or len(item.data):
+                    raise PackageError('invalid_relationship', 'External package role requires empty media type and payload', name, relationship_id)
+                _pkg_uri(name)
+                links.append(PackageRelationship(parents[parent], relationship_id, role['relationship'], name, 'external'))
+                continue
             _pkg_name(name)
             _pkg_mime(content_type)
-            relationship_id = role['id'] or 'srl_' + role['role'] + '_' + str(index)
             if role['model'] is not None:
                 model = item if role['singleton'] else item.value
                 if not isinstance(model, role['model']):
                     raise PackageError('codec', 'Package typed resource is unbound or has the wrong type', name)
                 try:
-                    data = model.encode_xml(limits=budget.xml_limits(), context=_PackagePartContext(budget, name, relationship_id))
+                    context = _PackagePartContext(budget, name, relationship_id)
+                    if role.get('codec', 'xml') != 'xml':
+                        context._native_field = (role['field'], None)
+                    data = _pkg_xml_encode(model, role, budget, context) if role.get('codec', 'xml') == 'xml' else _pkg_native_encode(model, role['codec'], budget, context)
                 except PackageError:
                     raise
                 except (ValueError, OverflowError) as error:
+                    if budget._first_caller_failure is not None:
+                        raise budget._first_caller_failure
                     raise PackageError('codec', 'Package model failed generated XML validation', name) from error
                 budget.consume('decoder_allocation_bytes', len(data), name)
             else:
@@ -1138,12 +1336,13 @@ def _pkg_profile_encode(value, roles, budget):
         sources[role['field']] = discovered
     extensions = value.extensions or PreservedExtensions()
     parts.extend(extensions.parts)
-    links.extend(_pkg_relocated_links(extensions, budget))
+    links.extend(_pkg_relocated_links(extensions, budget, sources))
     return _pkg_opc_write(parts, links, budget)
 
 )packagepython"
-R"packagepython(def _pkg_profile_load(source, roles, value_type, budget, policy=None, validate=None):
+R"packagepython(def _pkg_profile_load(source, roles, value_type, budget, policy=None, validate=None, profiles=None):
     """Decode an unpublished aggregate, validate every entry, then return its complete result atomically."""
+    roles = _pkg_select_profiles(roles, profiles)
     policy = policy or ExtensionPolicy()
     if policy.parts not in ('reject', 'skip', 'preserve') or policy.relationships not in ('reject', 'skip', 'preserve'):
         raise PackageError('invalid_state', 'Invalid package extension policy')
@@ -1152,8 +1351,13 @@ R"packagepython(def _pkg_profile_load(source, roles, value_type, budget, policy=
         archive = _PackageZip(owned, budget)
         parts, links = _pkg_opc_read(archive, budget)
         candidate, sources, decoded, selected = value_type(), {}, set(), set()
+        if profiles is not None:
+            budget.consume('decoder_allocation_bytes', _PKG_NATIVE_RECORD_BYTES * len(profiles))
+            setattr(candidate, getattr(value_type, '_pkg_profiles_field', 'profiles'),
+                    {role: dict(value) if isinstance(value, dict) else value for role, value in profiles.items()})
         declared_links = {}
         relocations = []
+        dynamic_relocations = []
         for role in roles:
             values, discovered, role_links = [], [], []
             parents = ('/',) if role['source'] == '/' else sources[role['source']]
@@ -1161,8 +1365,17 @@ R"packagepython(def _pkg_profile_load(source, roles, value_type, budget, policy=
                 for link_index, link in enumerate(links):
                     if link.source.lower() != parent.lower() or link.type != role['relationship']:
                         continue
-                    if link.mode != 'internal':
-                        raise PackageError('invalid_relationship', 'Typed package role requires an internal target', parent, link.id)
+                    mode = role.get('target_mode', 'internal')
+                    if link.mode == 'external':
+                        if mode not in ('external', 'both') or role['model'] is not None:
+                            raise PackageError('invalid_relationship', 'Package role requires an internal target', parent, link.id)
+                        budget.consume('decoder_allocation_bytes', _PKG_NATIVE_RECORD_BYTES + len(link.target) * 2, parent)
+                        selected.add(link_index)
+                        values.append(BinaryPart(b'', link.target, '', parent_index, role['compression']))
+                        role_links.append(link.id)
+                        continue
+                    if mode == 'external':
+                        raise PackageError('invalid_relationship', 'Package role requires an external target', parent, link.id)
                     target = _pkg_target(link.source, link.target).lower()
                     metadata = parts[target]
                     if role['mime'] is not None and not _pkg_mime_equal(metadata.content_type, role['mime'], budget):
@@ -1176,10 +1389,17 @@ R"packagepython(def _pkg_profile_load(source, roles, value_type, budget, policy=
                         raise PackageError('invalid_state', 'Fixed package storage mismatch', metadata.name, link.id)
                     try:
                         if role['model'] is not None:
-                            _pkg_dispatch(data, role, budget, metadata.name, link.id)
                             context = _PackagePartContext(budget, metadata.name, link.id)
-                            context._xml_root_type = role['type']
-                            model = role['model'].decode_xml(data, limits=budget.xml_limits(), context=context)
+                            if role.get('codec', 'xml') != 'xml':
+                                context._native_field = (role['field'], None)
+                            if role.get('codec', 'xml') == 'xml':
+                                _pkg_dispatch(data, role, budget, metadata.name, link.id)
+                                context._xml_root_type = role['type']
+                                context._xml_package_vocabularies = role.get('vocabularies', ())
+                                context._xml_package_requires_type = role.get('requires_type', False)
+                                model = role['model'].decode_xml(data, limits=budget.xml_limits(), context=context)
+                            else:
+                                model = _pkg_native_decode(role['model'], data, role['codec'], budget, context)
                             values.append(model if role['singleton'] else ModelPart(model, metadata.name, metadata.content_type, parent_index))
                         else:
                             values.append(BinaryPart(data, metadata.name, metadata.content_type, parent_index,
@@ -1187,6 +1407,8 @@ R"packagepython(def _pkg_profile_load(source, roles, value_type, budget, policy=
                     except PackageError:
                         raise
                     except (ValueError, OverflowError, _xml_expat.ExpatError) as error:
+                        if budget._first_caller_failure is not None:
+                            raise budget._first_caller_failure
                         raise PackageError('codec', 'Package XML part failed generated validation', metadata.name, link.id) from error
                     discovered.append(metadata.name)
                     role_links.append(link.id)
@@ -1194,6 +1416,10 @@ R"packagepython(def _pkg_profile_load(source, roles, value_type, budget, policy=
             setattr(candidate, role['field'], (values[0] if values else None) if role['singleton'] else values)
             sources[role['field']] = discovered
             declared_links[role['field']] = role_links
+            if role['name'] is None:
+                for original in discovered:
+                    budget.consume('metadata_bytes', len(original) * 2 + len(role['field']), original)
+                    dynamic_relocations.append((role['field'], original, original))
             # Preserve authored target spelling unless the actual discovered part name changes.
             if role['singleton'] and discovered and discovered[0] != role['name']:
                 budget.consume('metadata_bytes', len(discovered[0]) + len(role['name']))
@@ -1222,7 +1448,7 @@ R"packagepython(def _pkg_profile_load(source, roles, value_type, budget, policy=
                 budget.consume('preserved_bytes', sum(len(value.encode('utf-8')) for value in (link.source, link.id, link.type, link.target)))
                 preserved_links.append(link)
         budget.check()
-        return PackageResult(candidate, PreservedExtensions(tuple(opaque), tuple(preserved_links), tuple(relocations)))
+        return PackageResult(candidate, PreservedExtensions(tuple(opaque), tuple(preserved_links), tuple(relocations), tuple(dynamic_relocations)))
     finally:
         owned.close()
 

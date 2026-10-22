@@ -19,11 +19,21 @@
 #include <memory>
 #include <map>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace rohit::serializer::writer::xml_binding {
+// Schema literals retain their first selected primitive family independently of source prefixes.
+struct scalar_value_identity {
+  std::string lexical_kind{}, list_item_kind{}, lexical_value{};
+  std::vector<xml::name> names{};
+  // Restricted/list-of-union items retain selected primitive families in exact lexical order.
+  std::vector<scalar_value_identity> items{};
+  bool operator==(const scalar_value_identity&) const = default;
+};
 // Portable scalar restrictions retained from fixed XSD declarations for generated checks.
 struct scalar_facets {
   std::optional<std::string> min_inclusive{}, max_inclusive{}, min_exclusive{}, max_exclusive{};
@@ -36,9 +46,13 @@ struct scalar_facets {
   // Restrictions intersect groups; alternatives within one restriction's group form a union.
   std::vector<std::vector<std::string>> pattern_groups{};
   std::string list_item_kind{};
+  // Zero entries preserve the builtin fast path; one entry owns its complete atomic/union item restriction.
+  std::vector<scalar_facets> list_item_facets{};
   std::vector<xml::name> qname_enumeration{};
   // Each list enumeration owns schema-scope expanded item identities in original order.
   std::vector<std::vector<xml::name>> qname_list_enumeration{};
+  std::vector<scalar_value_identity> union_enumeration{};
+  std::vector<std::map<std::string, std::string>> union_enumeration_scopes{};
   // Union branches are independent complete lexical contracts, never intersected facets.
   std::vector<scalar_facets> union_members{};
   // Compare the static validation contract without inspecting generated model values.
@@ -66,6 +80,8 @@ struct field {
   bool value_projection{};
   std::optional<xml::name> qname_default{}, qname_fixed{};
   std::optional<std::vector<xml::name>> qname_list_default{}, qname_list_fixed{};
+  std::optional<scalar_value_identity> union_default{}, union_fixed{};
+  std::map<std::string, std::string> union_default_scope{}, union_fixed_scope{};
   presence_contract presence{};
   std::optional<map_contract> map_binding{};
   std::optional<variant_contract> variant_binding{};
@@ -103,6 +119,7 @@ struct wildcard {
   std::optional<std::string> target_namespace{};
 };
 // One complete generated XML contract, independent of other format layouts.
+struct declaration_inventory;
 struct record {
   xml::name root{};
   std::vector<field> fields{};
@@ -115,6 +132,36 @@ struct record {
   model_contract model{};
   std::optional<xml::identity_scope> identity{};
   std::optional<particle_contract> particles{};
+  std::shared_ptr<const declaration_inventory> declarations{};
+};
+// One permitted named xsi:type selects its own complete private normal/nil validation graph.
+struct declaration_type_validator {
+  xml::name qualified_name{};
+  std::size_t validator_index{};
+  std::optional<std::size_t> nil_validator_index{};
+  bool abstract_type{};
+};
+// A global scalar/attribute owns its field facets; complex declarations select a private validator record.
+struct global_declaration {
+  xml::name qualified_name{};
+  bool attribute{}, nillable{}, abstract_element{};
+  std::optional<std::string> fixed_value{};
+  std::optional<xml::name> declared_type{};
+  bool abstract_type{};
+  std::vector<declaration_type_validator> type_validators{};
+  std::optional<field> scalar{};
+  std::optional<std::size_t> validator_index{}, nil_validator_index{};
+};
+struct declaration_inventory_storage;
+// Validation-only graphs share immutable declarations without adding generated native payload models.
+struct declaration_inventory {
+  const class_node* owner{};
+  std::vector<global_declaration> globals{};
+  std::vector<record> validators{};
+  std::map<const class_node*, std::size_t> validator_indices{};
+  std::shared_ptr<const declaration_inventory_storage> storage{};
+  // Borrow each imported namespace group for private codec collection without moving its owned AST.
+  [[nodiscard]] const std::vector<std::vector<std::unique_ptr<syntax_node>>>& statements() const;
 };
 // Validate the shared known-child sequence, singleton choices and all-group cardinalities.
 // Wildcard matching remains the generated codec's namespace-policy responsibility.
@@ -140,6 +187,12 @@ struct schema_bundle {
   std::vector<document> documents{};
   std::string identity{};
 };
+// Compile only declarations selected by validating wildcard slots, without reading files or fetching resources.
+// Imported AST is owned by the result; the supplied owner and reachable native class AST remain borrowed.
+[[nodiscard]] std::shared_ptr<const declaration_inventory> compile_declaration_inventory(
+    std::shared_ptr<const schema_bundle> bundle, const std::filesystem::path& entry_path,
+    const class_node& owner, const record& owner_contract, const xml_options& options, bool include_derived = true,
+    std::optional<xml::name> specialized_root = {});
 // Resolve a simple declaration once for both native type selection and generated validation.
 struct scalar_type {
   xml::name primitive{};
@@ -170,11 +223,23 @@ class schema {
   xml_options options_;
   std::shared_ptr<const schema_bundle> bundle_{};
   mutable std::map<std::filesystem::path, std::shared_ptr<const schema_bundle>> inline_bundles_{};
+  using declaration_cache = std::map<std::pair<const schema_bundle*, const class_node*>,
+      std::shared_ptr<const declaration_inventory>>;
+  std::map<const class_node*, std::shared_ptr<const declaration_inventory>> registered_inventories_{};
+  std::shared_ptr<declaration_cache> declaration_cache_{std::make_shared<declaration_cache>()};
+  friend std::shared_ptr<const declaration_inventory> compile_declaration_inventory(
+      std::shared_ptr<const schema_bundle>, const std::filesystem::path&, const class_node&,
+      const record&, const xml_options&, bool, std::optional<xml::name>);
 public:
   // Read a fixed, bounded local XSD bundle; unsupported grammar fails before generation.
   explicit schema(const xml_options& options);
+  // Reuse collector-owned private AST identities across independent emitter binding instances.
+  schema(const xml_options& options, std::span<const std::shared_ptr<const declaration_inventory>> inventories);
+  // Retain the collector's declaration inventory for its authored owner binding.
+  void register_inventory(std::shared_ptr<const declaration_inventory> inventory);
   // Bind all durable fields exactly; XSD placement/types/order take authority over config defaults.
-  [[nodiscard]] record bind(const class_node& source) const;
+  // Internal private validators suppress inventory attachment to avoid shared ownership cycles.
+  [[nodiscard]] record bind(const class_node& source, bool include_declarations = true) const;
   // Return the canonical root and transitive local bundle inputs, ordered by relative path.
   [[nodiscard]] std::vector<std::filesystem::path> dependencies() const;
   // Identify exact sorted relative paths and bytes with SHA-256, independent of checkout location.

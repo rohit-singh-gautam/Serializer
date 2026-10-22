@@ -12,6 +12,7 @@ data class XmlExtensionLimits(val maxSlots: Int = srlXmlExtensionMaxSlots,
 class XmlExtensionOptions(understoodNamespaces: List<String> = emptyList(),
     val requiredPrefixes: String = "", val limits: XmlExtensionLimits = XmlExtensionLimits()) {
     val understoodNamespaces: List<String>
+    internal var declarationValidation=false
     init {
         require(understoodNamespaces.size <= limits.maxItems) { "XML capability item limit" }
         var bytes=srlXmlUtf8Size(requiredPrefixes)
@@ -26,19 +27,67 @@ class XmlExtensionOptions(understoodNamespaces: List<String> = emptyList(),
     }
 }
 internal class SrlXmlExtensionSlot(val id: String, val attribute: Boolean, val position: Int,
-    val namespaces: Array<String>, val policy: Int, val minimum: Int, val maximum: Int?)
+    val namespaces: Array<String>, val policy: Int, val minimum: Int, val maximum: Int?, val match: Int, val process: Int)
 internal class SrlXmlExtensionContract(val core: String, val known: Array<SrlXmlName>,
-    val required: Array<String>, val slots: Array<SrlXmlExtensionSlot>) {
+    val knownAttributes: Array<SrlXmlName>, val required: Array<String>, val slots: Array<SrlXmlExtensionSlot>, val knownPositions: Array<Int>,
+    val declarations: ((SrlXmlName,Boolean)->SrlXmlDeclaredCodec?)? = null) {
     val knownNames=known.groupBy { it.namespace }.mapValues { entry -> entry.value.map { it.local }.toSet() }
+    val knownAttributeNames=knownAttributes.groupBy { it.namespace }.mapValues { entry -> entry.value.map { it.local }.toSet() }
     val attributeSlots=mutableMapOf<String,Int>()
     val childSlots=mutableMapOf<String,MutableMap<Int,Int>>()
     init {
         for ((index,slot) in slots.withIndex()) {
+            if (slot.match == 1 || slot.match == 3 || slot.match == 4) { continue }
             for (uri in slot.namespaces) {
                 if (slot.attribute) { attributeSlots[uri]=index }
                 else { childSlots.getOrPut(uri) { mutableMapOf() }[slot.position]=index }
             }
         }
+    }
+}
+// Borrow the original ledger while keeping package-root capabilities out of nested schema validation.
+internal class SrlXmlDeclaredPolicy(val limits: XmlLimits, val maps: XmlMapLimits, val mixed: XmlMixedLimits,
+    val digests: XmlDigestLimits, val identities: XmlIdentityLimits, val extensions: XmlExtensionOptions) {
+    fun local(): XmlLimits = limits.copy().also { it.srlPackageContext=limits.srlPackageContext }
+    // Discarded DTOs validate nested declarations without acquiring opaque preservation state.
+    fun privateExtensions(): XmlExtensionOptions {
+        limits.srlPackageContext?.charge("allocation",64L+extensions.understoodNamespaces.size*32L)
+        return XmlExtensionOptions(extensions.understoodNamespaces,extensions.requiredPrefixes,extensions.limits).also { it.declarationValidation=true }
+    }
+}
+// A compiled pinned declaration selects private normal/nil DTO readers without exposing payload fields.
+internal class SrlXmlDeclaredCodec(val root: SrlXmlName, val nillable: Boolean, val abstractElement: Boolean,
+    val fixed: Boolean, val declaredType: SrlXmlName?, val abstractType: Boolean,
+    val admittedTypes: Array<SrlXmlName>, val read: (ByteArray,SrlXmlDeclaredPolicy,Boolean,SrlXmlName?)->Unit) {
+    fun validate(value: SrlXmlForeignNode, policy: SrlXmlDeclaredPolicy) {
+        require(!abstractElement) { "Abstract XML wildcard declaration" }
+        val typeName=SrlXmlName("type","http://www.w3.org/2001/XMLSchema-instance")
+        val type=value.attributes.firstOrNull { it.name == typeName }
+        var selectedType: SrlXmlName?=null
+        if(type != null) {
+            val lexical=type.value.trim(); val parts=lexical.split(':')
+            require(parts.size in 1..2 && parts.all { srlXmlNcName(it) }) { "Invalid XML declared type" }
+            val uri=if(parts.size == 1) value.scope[""] ?: "" else value.scope[parts[0]] ?: throw IllegalArgumentException("Unbound XML declared type")
+            selectedType=SrlXmlName(parts.last(),uri)
+            require(selectedType == declaredType || admittedTypes.contains(selectedType)) { "Unsupported XML declared type" }
+        }
+        require(!abstractType || selectedType != null && selectedType != declaredType) { "Abstract XML declared type" }
+        val marker=value.attributes.firstOrNull { it.name == srlXmlNilName }
+        val nil=when(marker?.value?.trim()) { null,"false","0" -> false; "true","1" -> true; else -> throw IllegalArgumentException("Invalid XML nil value") }
+        if(marker != null) { require(nillable) { "XML declaration is not nillable" } }
+        if(nil) { require(!fixed && value.content.isEmpty()) { "Nilled XML declaration has fixed value or content" } }
+        val output=SrlXmlOutput(policy.local(),policy.maps,policy.mixed,policy.digests,policy.identities,policy.extensions)
+        fun emit(node: SrlXmlForeignNode, first: Boolean) {
+            output.open(node.name,node.scope)
+            for(attribute in node.attributes) { if(!first || (attribute.name != srlXmlNilName && attribute.name != typeName)) output.attribute(attribute) }
+            for(content in node.content) when(content) {
+                is String -> output.text(content)
+                is SrlXmlForeignNode -> emit(content,false)
+                else -> throw IllegalArgumentException("Invalid XML declaration content")
+            }
+            output.close()
+        }
+        emit(value,true); read(output.finish(),policy,nil,selectedType)
     }
 }
 internal class SrlXmlForeignNode(val name: SrlXmlName, val attributes: List<SrlXmlAttribute>,
@@ -62,7 +111,7 @@ internal fun srlXmlExtensionBindings(scope: Map<String,String>, operation: SrlXm
 
 // Keep exact slot counts and only explicitly preserved foreign content for one owning record.
 internal class SrlXmlExtensions private constructor(val meta: SrlXmlExtensionContract,
-    val scope: Map<String,String>, private val options: XmlExtensionOptions, existing: SrlXmlPreserved?, private val operation: SrlXmlBudget.Operation?) {
+    val scope: Map<String,String>, private val options: XmlExtensionOptions, existing: SrlXmlPreserved?, private val operation: SrlXmlBudget.Operation?, private val validation: SrlXmlDeclaredPolicy?) {
     private val bounds=options.limits
     private var counts=IntArray(0)
     private var items=0
@@ -71,7 +120,7 @@ internal class SrlXmlExtensions private constructor(val meta: SrlXmlExtensionCon
     var state: SrlXmlPreserved? = existing
         private set
     init {
-        if (!(meta.slots.size <= bounds.maxSlots && meta.known.size <= bounds.maxItems &&
+        if (!(meta.slots.size <= bounds.maxSlots && meta.known.size <= bounds.maxItems && meta.knownAttributes.size <= bounds.maxItems &&
             meta.required.size <= bounds.maxItems)) SrlXmlBudget.limit("XML extension slot limit",operation)
         operation?.charge("allocation",64L+meta.slots.size*4L+options.understoodNamespaces.size*32L+options.requiredPrefixes.length*4L)
         operation?.charge("work",options.requiredPrefixes.length+1L)
@@ -88,22 +137,29 @@ internal class SrlXmlExtensions private constructor(val meta: SrlXmlExtensionCon
         if (existing != null) { charge(addSize(ownerOverheadBytes,scopeBytes(scope))) }
     }
     // Admit semantic bytes before allocating corresponding owning extension storage.
-    fun charge(amount: Long) { operation?.charge("work",amount); operation?.charge("allocation",amount); bytes=addSize(bytes,amount) }
+    fun charge(amount: Long) { val total=addSize(bytes,amount); operation?.charge("work",amount); operation?.charge("allocation",amount); operation?.charge("preserved",amount); bytes=total }
     // Check the selected limit before arithmetic, including caller-selected maximum native bounds.
     private fun addSize(current: Long, amount: Long): Long {
         if (!(current >= 0 && amount >= 0 && current <= bounds.maxPreservedBytes && amount <= bounds.maxPreservedBytes-current)) SrlXmlBudget.limit("XML extension preserved-byte limit",operation)
         return current+amount
     }
     // Count complete retained prefix context, including bindings used only by unknown lexical values.
-    private fun scopeBytes(bindings: Map<String,String>): Long {
+    private fun scopeBytes(bindings: Map<String,String>, retained: Boolean = true): Long {
         srlXmlExtensionBindings(bindings,operation); var size=0L
-        for ((prefix,uri) in bindings) { size=addSize(size,scopeEntryOverheadBytes+srlXmlUtf8Size(prefix)+srlXmlUtf8Size(uri)) }
+        for ((prefix,uri) in bindings) { size=if(retained) addSize(size,scopeEntryOverheadBytes+srlXmlUtf8Size(prefix)+srlXmlUtf8Size(uri)) else size+scopeEntryOverheadBytes+srlXmlUtf8Size(prefix)+srlXmlUtf8Size(uri) }
         return size
     }
     // Keep every explicit core or statically known name closed even when its URI matches a wildcard slot.
     fun slot(name: SrlXmlName, attribute: Boolean, position: Int): Int {
-        if (name.namespace.isEmpty() || name.namespace == meta.core || name.namespace == srlXmlModelNamespace || meta.knownNames[name.namespace]?.contains(name.local) == true) { return -1 }
-        return (if (attribute) meta.attributeSlots[name.namespace] else meta.childSlots[name.namespace]?.get(position)) ?: -1
+        if (name.namespace == srlXmlModelNamespace || attribute && meta.knownAttributeNames[name.namespace]?.contains(name.local) == true) { return -1 }
+        fun knownAllowed(index: Int): Boolean {
+            if(attribute || meta.knownNames[name.namespace]?.contains(name.local) != true) { return true }
+            val slot=meta.slots[index]; val known=meta.known.indexOf(name)
+            return slot.match != 0 && slot.match != 4 && (known in meta.knownPositions.indices && meta.knownPositions[known] >= 0 && meta.knownPositions[known] < position || counts[index] < slot.minimum)
+        }
+        val direct=if (attribute) meta.attributeSlots[name.namespace] else meta.childSlots[name.namespace]?.get(position)
+        if (direct != null && knownAllowed(direct)) { return direct }
+        return meta.slots.indices.firstOrNull { index -> val slot=meta.slots[index]; slot.attribute == attribute && (attribute || slot.position < 0 || slot.position == position) && (slot.match == 1 || (slot.match == 3 || slot.match == 4) && !slot.namespaces.contains(name.namespace)) && knownAllowed(index) } ?: -1
     }
     // Enforce policy and occurrence admission before capturing or skipping one unknown owner item.
     private fun admit(name: SrlXmlName, attribute: Boolean, position: Int): Boolean {
@@ -113,18 +169,37 @@ internal class SrlXmlExtensions private constructor(val meta: SrlXmlExtensionCon
         require(selected.policy != 0) { "XML extension slot rejects foreign vocabulary" }
         if (items >= bounds.maxItems) SrlXmlBudget.limit("XML extension item/occurrence limit",operation)
         require(selected.maximum == null || counts[index] < selected.maximum) { "XML extension item/occurrence limit" }
-        ++items; ++counts[index]; return selected.policy == 2
+        ++items; ++counts[index]; return selected.policy == 2 && !options.declarationValidation
+    }
+    // Resolve strict/lax declarations independently of the decision to retain opaque data.
+    private fun declaration(name: SrlXmlName, attribute: Boolean, position: Int): SrlXmlDeclaredCodec? {
+        val selected=meta.slots[slot(name,attribute,position)]
+        if(selected.process == 0) return null
+        operation?.charge("work",1)
+        val declared=meta.declarations?.invoke(name,attribute)
+        require(selected.process != 2 || declared != null) { "Strict XML wildcard declaration missing" }
+        return declared
+    }
+    // Temporary validation replay is bounded by XML policies and charged to the original operation.
+    fun temporary(amount: Long) { operation?.charge("work",amount); operation?.charge("allocation",amount) }
+    // Revalidate a known global attribute through its private schema-bound text DTO.
+    private fun validateAttribute(value: SrlXmlAttribute) {
+        val codec=declaration(value.name,true,0) ?: return
+        val policy=validation ?: throw IllegalArgumentException("Missing XML declaration policy")
+        temporary(64L+srlXmlUtf8Size(value.value))
+        codec.validate(SrlXmlForeignNode(codec.root,listOf(value),scope),policy)
     }
     // Create a sidecar lazily; skip-only traversals allocate no retained foreign state.
     private fun storage(): SrlXmlPreserved {
         state?.let { return it }
         charge(addSize(ownerOverheadBytes,scopeBytes(scope))); return SrlXmlPreserved(scope.toMap()).also { state=it }
-    }
+    })xmlextension"
+R"xmlextension(
     // Preserve exact expanded attributes only after their explicit attribute slot admits them.
     fun attribute(value: SrlXmlAttribute) {
-        if (admit(value.name,true,0)) {
-            charge(attributeBytes(value)); storage().attributes.add(value)
-        }
+        val preserve=admit(value.name,true,0)
+        validateAttribute(value)
+        if (preserve) { charge(attributeBytes(value)); storage().attributes.add(value) }
     }
     // Validate an edited retained name before it can reach the token writer's trusted-name path.
     private fun name(value: SrlXmlName) {
@@ -137,20 +212,25 @@ internal class SrlXmlExtensions private constructor(val meta: SrlXmlExtensionCon
         return attributeOverheadBytes+srlXmlUtf8Size(value.name.local)+srlXmlUtf8Size(value.name.namespace)+srlXmlUtf8Size(value.value)
     }
     // Measure one foreign node before creating copies of its provider attributes and namespace context.
-    fun measure(value: SrlXmlName, attributes: List<SrlXmlAttribute>, bindings: Map<String,String>) {
-        name(value); var size=addSize(nodeOverheadBytes+srlXmlUtf8Size(value.local)+srlXmlUtf8Size(value.namespace),scopeBytes(bindings))
-        for (attribute in attributes) { size=addSize(size,attributeBytes(attribute)) }; charge(size)
+    fun measure(value: SrlXmlName, attributes: List<SrlXmlAttribute>, bindings: Map<String,String>, retained: Boolean = true) {
+        name(value); val base=nodeOverheadBytes+srlXmlUtf8Size(value.local)+srlXmlUtf8Size(value.namespace); val scopeSize=scopeBytes(bindings,retained)
+        var size=if(retained) addSize(base,scopeSize) else base+scopeSize
+        for (attribute in attributes) { size=if(retained) addSize(size,attributeBytes(attribute)) else size+attributeBytes(attribute) }; if(retained) charge(size) else temporary(size)
     }
     // Attach a completely captured foreign root at its original field and repeated-item boundary.
     private fun child(position: Int, item: Int, value: SrlXmlForeignNode?) {
         if (value != null) { charge(contentEntryOverheadBytes); storage().children.add(SrlXmlForeignChild(position,item,value)) }
     }
     // Drain only foreign items permitted at the current boundary; future slots remain for later fields.
-    fun readAt(input: SrlXmlInput, position: Int, item: Int) {
-        input.skipSpace()
+    fun readAt(input: SrlXmlInput, position: Int, item: Int, skipWhitespace: Boolean = true) {
+        if (skipWhitespace) { input.skipSpace() }
         while (input.kind == 's' && slot(input.name(),false,position) >= 0) {
+            if (item > 0 && meta.slots[slot(input.name(),false,position)].match != 0 && meta.slots[slot(input.name(),false,position)].match != 4) { break }
             val preserve=admit(input.name(),false,position)
-            child(position,item,input.foreign(this,preserve)); input.skipSpace()
+            val codec=declaration(input.name(),false,position)
+            val captured=input.foreign(this,preserve || codec != null,preserve)
+            if(codec != null) codec.validate(captured!!,validation ?: throw IllegalArgumentException("Missing XML declaration policy"))
+            child(position,item,if(preserve) captured else null); if (skipWhitespace) { input.skipSpace() }
         }
     }
     // Require every explicit slot minimum before publishing a complete model or encoded byte array.
@@ -164,6 +244,7 @@ R"xmlextension(
         val selected=state ?: return
         for (value in selected.attributes) {
             require(admit(value.name,true,0)) { "Retained XML attribute no longer has a preserve slot" }
+            validateAttribute(value)
             charge(attributeBytes(value)); output.attribute(value)
         }
     }
@@ -189,6 +270,7 @@ R"xmlextension(
             require(value.position > position || value.position == position && value.item >= item) { "Preserved XML extension no longer fits edited field position" }
             if (value.position != position || value.item != item) { return }
             require(admit(value.node.name,false,position)) { "Retained XML child no longer has a preserve slot" }
+            declaration(value.node.name,false,position)?.validate(value.node,validation ?: throw IllegalArgumentException("Missing XML declaration policy"))
             charge(contentEntryOverheadBytes); emitNode(output,value.node); ++cursor
         }
     }
@@ -208,28 +290,28 @@ R"xmlextension(
         private const val scopeEntryOverheadBytes=64L
         private const val attributeOverheadBytes=48L
         // Validate input capabilities in its original complete namespace scope before consuming known fields.
-        fun input(meta: SrlXmlExtensionContract, scope: Map<String,String>, options: XmlExtensionOptions, operation: SrlXmlBudget.Operation? = null): SrlXmlExtensions =
-            SrlXmlExtensions(meta,scope,options,null,operation)
+        fun input(meta: SrlXmlExtensionContract, scope: Map<String,String>, options: XmlExtensionOptions, operation: SrlXmlBudget.Operation? = null, validation: SrlXmlDeclaredPolicy? = null): SrlXmlExtensions =
+            SrlXmlExtensions(meta,scope,options,null,operation,validation)
         // Borrow retained state during output and validate the same original vocabulary requirements.
-        fun output(meta: SrlXmlExtensionContract, state: SrlXmlPreserved?, options: XmlExtensionOptions, operation: SrlXmlBudget.Operation? = null): SrlXmlExtensions =
-            SrlXmlExtensions(meta,state?.scope ?: mapOf("xml" to "http://www.w3.org/XML/1998/namespace"),options,state,operation)
+        fun output(meta: SrlXmlExtensionContract, state: SrlXmlPreserved?, options: XmlExtensionOptions, operation: SrlXmlBudget.Operation? = null, validation: SrlXmlDeclaredPolicy? = null): SrlXmlExtensions =
+            SrlXmlExtensions(meta,state?.scope ?: mapOf("xml" to "http://www.w3.org/XML/1998/namespace"),options,state,operation,validation)
     }
 }
 )xmlextension"
 R"xmlextension(
 // Capture only an explicitly preserved foreign subtree; skip retains no attribute, scope or text payload.
-internal fun SrlXmlInput.foreign(tracker: SrlXmlExtensions, preserve: Boolean): SrlXmlForeignNode? {
+internal fun SrlXmlInput.foreign(tracker: SrlXmlExtensions, preserve: Boolean, retained: Boolean = true): SrlXmlForeignNode? {
     require(kind == 's') { "Missing XML extension root" }
     val selected=name()
     val result=if (preserve) {
         val attributes=extensionAttributes(); val scope=namespaceScope()
-        tracker.measure(selected,attributes,scope); SrlXmlForeignNode(selected,attributes,scope)
+        tracker.measure(selected,attributes,scope,retained); SrlXmlForeignNode(selected,attributes,scope)
     } else null
     val pending=if (preserve) StringBuilder() else null
     // Coalesce text through provider chunk boundaries, comments and CDATA without changing mixed order.
     fun flush() {
         if (pending != null && pending.isNotEmpty()) {
-            tracker.charge(SrlXmlExtensions.contentEntryOverheadBytes)
+            if(retained) tracker.charge(SrlXmlExtensions.contentEntryOverheadBytes) else tracker.temporary(SrlXmlExtensions.contentEntryOverheadBytes)
             result!!.content.add(pending.toString()); pending.setLength(0)
         }
     }
@@ -237,13 +319,13 @@ internal fun SrlXmlInput.foreign(tracker: SrlXmlExtensions, preserve: Boolean): 
     while (kind != 'e') {
         when(kind) {
             't' -> {
-                if (preserve) { val text=extensionText(); tracker.charge(srlXmlUtf8Size(text)); pending!!.append(text) }
+                if (preserve) { val text=extensionText(); if(retained) tracker.charge(srlXmlUtf8Size(text)) else tracker.temporary(srlXmlUtf8Size(text)); pending!!.append(text) }
                 advance()
             }
             's' -> {
                 flush()
-                if (preserve) { tracker.charge(SrlXmlExtensions.contentEntryOverheadBytes) }
-                val child=foreign(tracker,preserve)
+                if (preserve) { if(retained) tracker.charge(SrlXmlExtensions.contentEntryOverheadBytes) else tracker.temporary(SrlXmlExtensions.contentEntryOverheadBytes) }
+                val child=foreign(tracker,preserve,retained)
                 if (child != null) { result!!.content.add(child) }
             }
             else -> throw IllegalArgumentException("Incomplete XML extension subtree")

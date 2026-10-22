@@ -19,6 +19,8 @@
 
 namespace {
 namespace binding = rohit::serializer::writer::xml_binding;
+constexpr std::string_view owning_xml_backends[]{
+    "cpp", "c", "rust", "python", "js", "typescript", "java", "csharp", "go", "kotlin", "swift"};
 // Retain only this test's exclusively reserved files beneath the operating system temporary root.
 class import_directory {
   std::filesystem::path root_;
@@ -161,7 +163,7 @@ TEST(xsd_import, adding_an_earlier_field_does_not_renumber_existing_native_ident
   EXPECT_NE(second.find(first.substr(begin, end - begin)), std::string::npos);
 }
 
-TEST(xsd_import, backend_guards_allow_existing_primitives_but_reject_new_semantics) {
+TEST(xsd_import, backend_guards_allow_implemented_primitive_and_wildcard_contracts) {
   binding::record ordinary;
   EXPECT_NO_THROW(binding::validate_backend(ordinary, "python"));
   ordinary.unknown = rohit::serializer::xml_unknown_policy::preserve;
@@ -169,7 +171,7 @@ TEST(xsd_import, backend_guards_allow_existing_primitives_but_reject_new_semanti
   EXPECT_NO_THROW(binding::validate_backend(ordinary, "cpp"));
   ordinary.unknown.reset();
   ordinary.wildcards.emplace_back();
-  EXPECT_THROW(binding::validate_backend(ordinary, "java"), std::invalid_argument);
+  EXPECT_NO_THROW(binding::validate_backend(ordinary, "java"));
 }
 
 TEST(xsd_import, union_members_and_inherited_pattern_groups_remain_independent) {
@@ -442,7 +444,7 @@ TEST(xsd_import, inherited_and_grouped_wildcards_keep_their_defining_target_name
   EXPECT_EQ(contract.wildcards[1].target_namespace, "urn:base");
 }
 
-// Python retains selected primitive identities; other backends keep explicit capability gates.
+// Every owning backend retains the first selected primitive identity for outer constraints.
 TEST(xsd_import, outer_union_value_constraints_require_selected_member_identity) {
   import_directory files;
   for (const auto members : {"xs:int xs:string", "xs:string xs:int", "xs:QName xs:int", "xs:int xs:QName"}) {
@@ -465,20 +467,28 @@ TEST(xsd_import, outer_union_value_constraints_require_selected_member_identity)
     const auto plain = binding::import_xsd(plain_path, {"models", {}, "plain.xsd"});
     const auto plain_parsed = rohit::serializer::parser::parse_file(files.write("plain.serializer", plain.schema_text));
     const auto plain_options = binding::effective_options(plain_parsed.statements, {});
-    for (const auto language : {"cpp", "python"}) {
-      if (std::string_view{language} == "python" && std::string_view{members}.find("QName") == std::string_view::npos) {
-        EXPECT_NO_THROW(binding::validate_backend(enumeration_contract, language)) << members;
-        EXPECT_NO_THROW(binding::validate_backend(fixed_contract, language)) << members;
-      } else {
-        EXPECT_THROW(binding::validate_backend(enumeration_contract, language), std::invalid_argument) << members;
-        EXPECT_THROW(binding::validate_backend(fixed_contract, language), std::invalid_argument) << members;
-      }
+    const auto& enumeration_facets = enumeration_contract.fields.front().facets;
+    ASSERT_EQ(enumeration_facets.union_enumeration.size(), 1U);
+    const bool string_first = std::string_view{members}.starts_with("xs:string");
+    EXPECT_EQ(enumeration_facets.union_enumeration.front().lexical_kind, string_first ? "string" : "int");
+    ASSERT_TRUE(fixed_contract.fields.front().union_fixed);
+    EXPECT_EQ(fixed_contract.fields.front().union_fixed->lexical_kind, string_first ? "string" : "int");
+    const auto compiled = binding::compile_scalar_contract(enumeration_facets);
+    EXPECT_NO_THROW(compiled.validate("01"));
+    if (string_first) {
+      EXPECT_THROW(compiled.validate("1"), std::invalid_argument);
+    } else {
+      EXPECT_NO_THROW(compiled.validate("1"));
+    }
+    for (const auto language : owning_xml_backends) {
+      EXPECT_NO_THROW(binding::validate_backend(enumeration_contract, language)) << members << ' ' << language;
+      EXPECT_NO_THROW(binding::validate_backend(fixed_contract, language)) << members << ' ' << language;
       EXPECT_NO_THROW(binding::validate_options(plain_parsed.statements, plain_options, language)) << members;
     }
   }
 }
 
-// C++ and Python retain schema-scope list identities inside independent union members.
+// Every owning backend retains schema-scope list identities inside independent union members.
 TEST(xsd_import, nested_qname_list_enumeration_selects_supported_backend_contracts) {
   import_directory files;
   const auto path = files.write("model.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:q="urn:allowed"><xs:simpleType name="Names"><xs:list itemType="xs:QName"/></xs:simpleType><xs:simpleType name="Allowed"><xs:restriction base="Names"><xs:enumeration value="q:item"/></xs:restriction></xs:simpleType><xs:simpleType name="Value"><xs:union memberTypes="Allowed xs:int"/></xs:simpleType><xs:element name="model"><xs:complexType><xs:attribute name="value" type="Value"/></xs:complexType></xs:element></xs:schema>)");
@@ -486,8 +496,9 @@ TEST(xsd_import, nested_qname_list_enumeration_selects_supported_backend_contrac
   const auto parsed = rohit::serializer::parser::parse_file(files.write("model.serializer", imported.schema_text));
   const auto options = binding::effective_options(parsed.statements, {});
   const auto contract = binding::schema{options}.bind(*model_classes(parsed).front());
-  EXPECT_NO_THROW(binding::validate_backend(contract, "python"));
-  EXPECT_NO_THROW(binding::validate_backend(contract, "cpp"));
+  for (const auto language : owning_xml_backends) {
+    EXPECT_NO_THROW(binding::validate_backend(contract, language)) << language;
+  }
   const auto& allowed = contract.fields.front().facets.union_members.front();
   ASSERT_EQ(allowed.qname_list_enumeration.size(), 1U);
   ASSERT_EQ(allowed.qname_list_enumeration.front().size(), 1U);
@@ -515,7 +526,7 @@ TEST(xsd_import, portable_qname_enumerations_retain_expanded_schema_identities) 
   const auto parsed = rohit::serializer::parser::parse_file(files.write("model.serializer", imported.schema_text));
   const auto options = binding::effective_options(parsed.statements, {});
   const auto contract = binding::schema{options}.bind(*model_classes(parsed).front());
-  for (const auto language : {"go", "java", "csharp", "kotlin", "swift"}) {
+  for (const auto language : owning_xml_backends) {
     EXPECT_NO_THROW(binding::validate_backend(contract, language));
   }
   ASSERT_EQ(contract.fields.size(), 2u);
@@ -523,9 +534,6 @@ TEST(xsd_import, portable_qname_enumerations_retain_expanded_schema_identities) 
       (rohit::serializer::xml::name{"item", "urn:allowed"}));
   EXPECT_EQ(contract.fields[1].facets.qname_list_enumeration.front(),
       (std::vector<rohit::serializer::xml::name>{{"one", "urn:allowed"}, {"two", "urn:allowed"}}));
-  for (const auto language : {"c", "rust"}) {
-    EXPECT_THROW(binding::validate_backend(contract, language), std::invalid_argument) << language;
-  }
 }
 
 // Empty QName-list defaults need no schema namespace identities and retain their existing export path.
@@ -566,8 +574,8 @@ TEST(xsd_import, cpp_union_qname_children_generate_with_legacy_qname_support) {
   EXPECT_NO_THROW(binding::validate_options(parsed.statements, options, "cpp"));
 }
 
-// Union defaults require selected schema-scope QName identities; ordinary QName defaults retain them.
-TEST(xsd_import, qname_union_defaults_reject_without_affecting_ordinary_qname_defaults) {
+// Direct and selected-union defaults own the schema's expanded QName independently of instance aliases.
+TEST(xsd_import, qname_union_and_ordinary_defaults_retain_schema_identities) {
   import_directory files;
   for (const auto type : {"Value", "xs:QName"}) {
     const auto source = std::string{
@@ -581,14 +589,15 @@ TEST(xsd_import, qname_union_defaults_reject_without_affecting_ordinary_qname_de
     ASSERT_EQ(contract.fields.size(), 1U);
     if (std::string_view{type} == "xs:QName") {
       ASSERT_TRUE(contract.fields.front().qname_default);
-      EXPECT_EQ(contract.fields.front().qname_default->namespace_uri, "urn:allowed");
-      for (const auto language : {"cpp", "python"}) {
-        EXPECT_NO_THROW(binding::validate_backend(contract, language));
-      }
+      EXPECT_EQ(*contract.fields.front().qname_default, (rohit::serializer::xml::name{"item", "urn:allowed"}));
     } else {
-      for (const auto language : {"cpp", "python"}) {
-        EXPECT_THROW(binding::validate_backend(contract, language), std::invalid_argument);
-      }
+      ASSERT_TRUE(contract.fields.front().union_default);
+      EXPECT_EQ(contract.fields.front().union_default->lexical_kind, "QName");
+      EXPECT_EQ(contract.fields.front().union_default->names,
+          (std::vector<rohit::serializer::xml::name>{{"item", "urn:allowed"}}));
+    }
+    for (const auto language : owning_xml_backends) {
+      EXPECT_NO_THROW(binding::validate_backend(contract, language)) << type << ' ' << language;
     }
   }
 }

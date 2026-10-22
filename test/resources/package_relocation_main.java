@@ -64,8 +64,12 @@ public final class RelocationMain {
     check(!expected.equals("LOAD_ERROR"),"invalid load published");check(loaded.value.extensions==loaded.extensions,"owning result extension identity");
     check(loaded.value.first.id==11&&loaded.value.first.label.equals("first"),"first typed payload");
     check(loaded.value.second.id==22&&loaded.value.second.label.equals("second"),"second typed payload");
-    check(loaded.value.children.size()==1&&loaded.value.children.get(0).value.id==33&&loaded.value.children.get(0).sourceIndex==0,"dynamic child routing");
+    check(loaded.value.children.size()>=1&&loaded.value.children.get(0).value.id==33&&loaded.value.children.get(0).sourceIndex==0,"dynamic child routing");
     var input=new Archive.Input();input.first=loaded.value.first;input.second=action.equals("remove_second")?null:loaded.value.second;input.children=loaded.value.children;input.extensions=loaded.extensions;
+    if(name.startsWith("dynamic-")){
+      String original="/children/child.xml";var names=new java.util.HashMap<String,String>();if(action.equals("swap_children")){names.put(original,"/children/other.xml");names.put("/children/other.xml",original);}else if(!action.equals("remove_unreferenced_child")){names.put(original,action.equals("collision_child")?"/assets/blob.bin":"/renamed/child.xml");}
+      input.extensions=loaded.extensions.withRenames(names);var children=new java.util.ArrayList<SerializerPackage.ModelPart<generated.Generated.Relocation.Payload>>();for(var item:loaded.value.children)children.add(new SerializerPackage.ModelPart<>(item.value,names.getOrDefault(item.name,item.name),item.contentType,item.sourceIndex));if(action.equals("remove_child")||action.equals("remove_unreferenced_child"))children.remove(0);if(action.equals("swap_children"))java.util.Collections.reverse(children);input.children=children;
+    }
     String before=snapshot(input.extensions);String childName=input.children.get(0).name;
     Path saved=directory.resolve(name+"-saved.opc");Files.write(saved,PREVIOUS);
     if(expected.equals("REJECT")) {

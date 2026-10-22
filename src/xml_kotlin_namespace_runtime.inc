@@ -6,11 +6,23 @@ R"xmlnamespace(
 internal class SrlXmlNamespaceState {
     var owner: Map<String,String> = emptyMap()
     val fields = mutableMapOf<String,MutableList<Map<String,String>>>()
+    // Borrow scalar provenance from a scoped source; only namespace metadata is retained.
+    fun project(key: String, source: SrlXmlNamespaceState, sourceKey: String) {
+        val merged=owner.toMutableMap()
+        for ((prefix,uri) in source.owner) {
+            require(merged[prefix] == null || merged[prefix] == uri) { "Conflicting projected XML namespace scopes" }
+            merged[prefix]=uri
+        }
+        owner=merged
+        source.fields[sourceKey]?.let { fields[key]=it }
+    }
     // Retain a bounded source snapshot in field occurrence order before its provider scope closes.
-    fun <T> scalar(input: SrlXmlInput, name: SrlXmlName, key: String, read: (String,Map<String,String>) -> T): T {
+    fun <T> scalar(input: SrlXmlInput, name: SrlXmlName, key: String, rule: SrlXmlRule? = null, read: (String,Map<String,String>) -> T): T {
         require(input.has(name)) { "Unexpected XML element" }
-        val scope=input.namespaceValueScope()
-        val text=read(input.scalar(name),scope)
+        val sourceScope=input.namespaceValueScope()
+        val raw=input.scalar(name)
+        val scope=rule?.inputScope(raw,sourceScope,false) ?: sourceScope
+        val text=read(raw,scope)
         fields.getOrPut(key) { mutableListOf() }.add(scope)
         return text
     }
@@ -30,6 +42,9 @@ internal class SrlXmlNamespaceOutput(private val state: SrlXmlNamespaceState, pr
         }
         owner=merged
     }
+    // Reuse schema default application without introducing a conflicting owner alias declaration.
+    fun schemaDefault(key: String, text: String, rule: SrlXmlRule): Boolean =
+        rule.matchesDefault(text,state.fields[key]?.firstOrNull() ?: owner)
     // Recover one scalar's complete original scope; new values inherit the owner's bound vocabulary.
     fun scope(key: String): Map<String,String> {
         val index=next[key] ?: 0; next[key]=index+1

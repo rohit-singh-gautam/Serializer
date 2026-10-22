@@ -6,6 +6,7 @@
 #include "xml_schema.hpp"
 
 #include <functional>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -42,12 +43,14 @@ inline std::string portable_extension_constants(std::string_view language) {
 // Emit immutable compiler-owned slot metadata once; runtime contracts prepare their lookup indexes once.
 inline std::string portable_extension_metadata(const xml::extension_contract& contract,
     const std::function<std::string(std::string_view)>& quote,
-    const std::function<std::string(const xml::name&)>& name, std::string_view language) {
+    const std::function<std::string(const xml::name&)>& name, std::string_view language, int inventory = -1) {
   const bool go = language == "go", java = language == "java";
   const std::string strings = java ? "new String[]{" : "new string[]{";
   std::string result = go ? "srlXmlExtensionContract{core:" : "new SrlXmlExtensionContract(";
   result += quote(contract.core_namespace) + (go ? ",known:map[srlxml.Name]bool{" : ',' + strings);
   for (const auto& value : contract.known_names) { result += name(value) + (go ? ":true," : ","); }
+  result += go ? "},knownAttributes:map[srlxml.Name]bool{" : "}," + strings;
+  for (const auto& value : contract.distinct_known_kinds ? contract.known_attributes : contract.known_names) { result += name(value) + (go ? ":true," : ","); }
   result += go ? "},required:[]string{" : "}," + strings;
   for (const auto& value : contract.required_namespaces) { result += quote(value) + ','; }
   result += go ? "},slots:[]srlXmlExtensionSlot{" : "},new SrlXmlExtensionSlot[]{";
@@ -55,14 +58,21 @@ inline std::string portable_extension_metadata(const xml::extension_contract& co
     const auto policy = slot.policy == xml::unknown_policy::preserve ? 2 : slot.policy == xml::unknown_policy::skip ? 1 : 0;
     result += go ? "{id:" : "new SrlXmlExtensionSlot(";
     result += quote(slot.id) + (go ? ",attribute:" : ",") + (slot.attribute ? "true" : "false") +
-        (go ? ",position:" : ",") + std::to_string(slot.before_field) +
+        (go ? ",position:" : ",") + (slot.before_field == std::numeric_limits<std::size_t>::max() ? "-1" : std::to_string(slot.before_field)) +
         (go ? ",namespaces:map[string]bool{" : ',' + strings);
     for (const auto& uri : slot.namespaces) { result += quote(uri) + (go ? ":true," : ","); }
     result += (go ? "},policy:" : "},") + std::to_string(policy) + (go ? ",minimum:" : ",") +
         std::to_string(slot.minimum) + (go ? ",maximum:" : ",") +
-        (slot.maximum ? std::to_string(*slot.maximum) : "-1") + (go ? "}," : "),");
+        (slot.maximum ? std::to_string(*slot.maximum) : "-1") + (go ? ",match:" : ",") +
+        std::to_string(static_cast<int>(slot.namespace_match)) + (go ? ",process:" : ",") +
+        std::to_string(static_cast<int>(slot.process_contents)) + (go ? "}," : "),");
   }
-  return result + (go ? "}}.prepared()" : "})");
+  result += go ? "},knownPositions:map[srlxml.Name]int{" : "},new int[]{";
+  for (std::size_t index{}; index < contract.known_positions.size(); ++index) {
+    const auto position = contract.known_positions[index] == std::numeric_limits<std::size_t>::max() ? "-1" : std::to_string(contract.known_positions[index]);
+    result += (go ? name(contract.known_names[index]) + ':' : "") + position + ',';
+  }
+  return result + (go ? "},inventory:" + std::to_string(inventory) + "}.prepared()" : "}," + std::to_string(inventory) + ")");
 }
 
 } // namespace rohit::serializer::writer::xml_codegen

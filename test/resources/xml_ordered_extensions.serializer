@@ -1,0 +1,25 @@
+serializer version 1.21.0;
+
+namespace ordered_extensions {
+  class left {
+    public string value xml(text);
+  }
+  class right {
+    public uint32 id xml(attribute);
+  }
+  class fragment {
+    private variant(left=left,right=right) value;
+  }
+  class root {
+    public array<fragment> items;
+  }
+  class fixed {
+    public array[3] fragment items;
+  }
+  class text_fragment {
+    private variant(string=text,left=left,right=right) value;
+  }
+  class mixed {
+    public array<text_fragment> items;
+  }
+}

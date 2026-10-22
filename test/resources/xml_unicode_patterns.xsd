@@ -1,0 +1,9 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+<xs:simpleType name="base"><xs:restriction base="xs:string">
+<xs:pattern value="A[😀-🙏]{1,2}|B[0-9]+|^$|C[^0-9]{1,2}|D(a?)*|E(\p{L}+)|F(\p{Lu}\p{Ll})|G([\p{L}-[AEIOUaeiou]]+)|H([a-z-[d-f-[e]]]+)|I([^a-z-[0-9]]+)|J(\p{IsGreek}+)|K(\d+)|L(\s+)|M(\w+)|N(\i\c*)|O(\P{L}+)|P([\I\C\D\S\W]+)"/>
+</xs:restriction></xs:simpleType>
+<xs:simpleType name="bounded"><xs:restriction base="base"><xs:pattern value=".{2,8}"/>
+</xs:restriction></xs:simpleType>
+<xs:element name="sample"><xs:complexType><xs:sequence>
+<xs:element name="value" type="bounded"/>
+</xs:sequence></xs:complexType></xs:element></xs:schema>

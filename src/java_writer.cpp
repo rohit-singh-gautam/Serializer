@@ -15,6 +15,7 @@
 #include "xml_native_model_writer.hpp"
 #include "xml_portable_projection_writer.hpp"
 #include "xml_portable_extension_writer.hpp"
+#include "xml_portable_declarations_writer.hpp"
 #include "java_package_writer.hpp"
 #include <rohit/serializer_creator.hpp>
 
@@ -38,6 +39,9 @@ namespace rohit::serializer::writer::java {
 namespace {
 constexpr std::string_view runtime_source =
 #include "java_runtime.inc"
+    ;
+constexpr std::string_view xml_declarations_runtime_source =
+#include "xml_java_declarations_runtime.inc"
     ;
 constexpr std::string_view xml_runtime_source =
 #include "java_xml_runtime.inc"
@@ -228,6 +232,46 @@ class emitter {
   std::map<std::string, const syntax_node*> declarations{};
   xml_binding::schema xml_contract;
   std::set<const class_node*> xml_mixed_storage_only{};
+  std::vector<std::shared_ptr<const xml_binding::declaration_inventory>> xml_inventories{};
+  std::map<const class_node*, std::size_t> xml_inventory_indices{};
+  std::map<std::string, std::string> xml_declaration_aliases{};
+
+  // Rewrite only internal identifiers, preserving quoted wire strings and qualified authored type names.
+  std::string declaration_helpers(std::string_view code) const {
+    std::string result;
+    char quote_character{};
+    for (std::size_t offset = 0; offset < code.size();) {
+      const auto ch = code[offset];
+      if (quote_character != 0) {
+        result += ch; ++offset;
+        if (ch == '\\' && offset < code.size()) { result += code[offset++]; }
+        else if (ch == quote_character) { quote_character = 0; }
+      } else if (ch == '/' && offset + 1U < code.size() && code[offset + 1U] == '/') {
+        const auto end = code.find('\n', offset);
+        result += code.substr(offset, end == std::string_view::npos ? code.size() - offset : end - offset);
+        offset = end == std::string_view::npos ? code.size() : end;
+      } else if (ch == '/' && offset + 1U < code.size() && code[offset + 1U] == '*') {
+        const auto end = code.find("*/", offset + 2U);
+        const auto count = end == std::string_view::npos ? code.size() - offset : end + 2U - offset;
+        result += code.substr(offset, count); offset += count;
+      } else if (ch == '\"' || ch == '\'') {
+        quote_character = ch; result += ch; ++offset;
+      } else if (std::isalpha(static_cast<unsigned char>(ch)) || ch == '_') {
+        const auto begin = offset++;
+        while (offset < code.size() && (std::isalnum(static_cast<unsigned char>(code[offset])) || code[offset] == '_' || code[offset] == '$')) { ++offset; }
+        const auto token = std::string{code.substr(begin, offset - begin)};
+        const auto found = xml_declaration_aliases.find(token);
+        result += found != xml_declaration_aliases.end() && (begin == 0 || code[begin - 1U] != '.') &&
+            (offset == code.size() || code[offset] != '.') ? found->second : token;
+      } else { result += ch; ++offset; }
+    }
+    return result;
+  }
+  // Select the private helper without shadowing a valid authored nested Java declaration.
+  std::string declaration_policy() const {
+    const auto found = xml_declaration_aliases.find("SrlXmlDeclarationPolicy");
+    return outer + '.' + (found == xml_declaration_aliases.end() ? "SrlXmlDeclarationPolicy" : found->second);
+  }
 
   // Select the scalar or record under one supported optional or repeated XML mapping.
   const rohit::serializer::type_name& xml_leaf(const member& value) const {
@@ -387,7 +431,8 @@ class emitter {
     if(contract.extensions){
       for(const auto& source_field:value.member_list)if(field(source_field.name)=="srlXmlPreserved"||field(source_field.name)=="srlXmlExtensionMetadata")throw std::invalid_argument{"Java XML extension state collides with a native field"};
       line("/** Immutable foreign-only permissions and XML-only preservation state. */");
-      line("private static final SrlXmlExtensionContract srlXmlExtensionMetadata="+xml_codegen::portable_extension_metadata(*contract.extensions,quote,expanded,"java")+';');
+      line("private static final SrlXmlExtensionContract srlXmlExtensionMetadata="+xml_codegen::portable_extension_metadata(*contract.extensions,quote,expanded,"java",
+          xml_inventory_indices.contains(&value) ? static_cast<int>(xml_inventory_indices.at(&value)) : -1)+';');
       if(!readonly)line("private SrlXmlPreserved srlXmlPreserved;");
     }
     if (namespace_values) {
@@ -439,7 +484,7 @@ class emitter {
     line("public byte[] encodeXml(Limits limits, XmlSchema schema, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity, XmlDigestLimits digests, XmlExtensionOptions extensions) {"); ++level;
     line("var output = new SrlXmlOutput(limits, maps, mixed, identity, digests, extensions);");
     if (namespace_reservations) { line("xmlWrite(output,0);"); }
-    line("xmlWrite(output, " + expanded(contract.root) + ");");
+    line("xmlWrite(output, " + expanded(contract.root) + ",limits.xmlRequiresType?limits.xmlExpectedType:null);");
     line("byte[] bytes = output.finish();");
     if (!options.xml.runtime_xsd) { line("if (schema != null) throw new IllegalArgumentException(\"Runtime XSD was not enabled during generation\");"); }
     else if (options.xml.validation_scope != "input") {
@@ -482,7 +527,7 @@ class emitter {
       --level; line("}");
     }
     line("try (var input = new SrlXmlInput(bytes, limits, maps, mixed, identity, digests, extensions)) {"); ++level;
-    line("if(limits.xmlExpectedRoot!=null&&!limits.xmlExpectedRoot.equals(input.name()))throw new IllegalArgumentException(\"Unexpected package XML root\");if(limits.xmlExpectedType!=null)input.expectType(limits.xmlExpectedType,false);");
+    line("if(limits.xmlExpectedRoot!=null&&!limits.xmlExpectedRoot.equals(input.name()))throw new IllegalArgumentException(\"Unexpected package XML root\");if(limits.xmlPackageProfile)input.packageCapabilities(limits.xmlVocabularies);if(limits.xmlExpectedType!=null)input.expectType(limits.xmlExpectedType,limits.xmlRequiresType);");
     line("var value = xmlRead(input, " + expanded(contract.root) + ");");
     line("input.finish();"); line("return value;"); --level; line("}");
     }
@@ -514,7 +559,7 @@ class emitter {
       const auto state=readonly?"null":"srlXmlPreserved";
       line(readonly?"var srlScope=java.util.Map.<String,String>of();":"var srlScope=srlXmlPreserved==null?java.util.Map.<String,String>of():srlXmlPreserved.scope;");
       if (owner_union) { line("if(srlOwnerDefault!=null&&!srlOwnerDefault.equals(srlScope.getOrDefault(\"\",\"\")))throw new IllegalArgumentException(\"Conflicting XML union and preserved defaults\");"); }
-      line("var srlExtensions=new SrlXmlExtensions(srlXmlExtensionMetadata,srlScope,output.extensionOptions,"+std::string{state}+");");
+      line("var srlExtensions=new SrlXmlExtensions(srlXmlExtensionMetadata,srlScope,output.extensionOptions,"+std::string{state}+",new "+declaration_policy()+"(output));");
       line("output.open(name,srlScope);");
     } else if (namespace_values || namespace_reservations) {
       line("output.open(name,java.util.Map.of(\"\"," + std::string{owner_union ? "srlOwnerDefault==null?\"\":srlOwnerDefault" : "\"\""} + "));");
@@ -609,7 +654,7 @@ class emitter {
       line(xml_portable::mixed_write(*contract.mixed, "this." + member_paths.at(contract.mixed->source),
           [&](const member& item) { return field(item.name); }, alternative, "java"));
     }
-    if(contract.extensions){line("srlExtensions.emitAt(output,"+std::to_string(contract.fields.size())+",0);");line("srlExtensions.finishOutput();");}
+    if(contract.extensions){line("srlExtensions.emitAt(output,"+std::to_string(contract.fields.size()+(contract.mixed?contract.mixed->children.size():0U))+",0);");line("srlExtensions.finishOutput();");}
     line("output.close();");
     if (contract.identity) { line("output.identityFinish(srlIdentity);"); }
     --level; line("}");
@@ -621,7 +666,7 @@ class emitter {
       --level; line("}"); return;
     }
     if (contract.identity) { line("var srlIdentity=input.identityScope(srlXmlIdentityMetadata);"); }
-    if(contract.extensions)line("var srlExtensions=new SrlXmlExtensions(srlXmlExtensionMetadata,input.namespaceScope(),input.extensionOptions,null);");
+    if(contract.extensions)line("var srlExtensions=new SrlXmlExtensions(srlXmlExtensionMetadata,input.namespaceScope(),input.extensionOptions,null,new "+declaration_policy()+"(input));");
     if (std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& item) {
           return (item.attribute || item.text) && xml_portable::namespace_dependent(item);
         })) { line("var srlNamespaceScope=input.namespaceScope();"); }
@@ -638,8 +683,8 @@ class emitter {
           expanded({"magic", std::string{xml_binding::model_metadata_namespace}}) + ",false))) throw new IllegalArgumentException(\"XML magic mismatch\");");
     }
     for (const bool attributes : {true, false}) {
-      if (all && !attributes) { continue; }
       if(contract.extensions&&!attributes)line("for(var entry:fields.attributes.entrySet())srlExtensions.attribute(entry.getKey(),entry.getValue());fields.attributes.clear();");
+      if (all && !attributes) { continue; }
       for (const auto& item : contract.fields) {
         if (item.attribute != attributes) { continue; }
         line("input.budget.select("+quote(item.source->name)+");");
@@ -650,7 +695,7 @@ class emitter {
           const bool optional = item.source->type_name_list.front().is_optional();
           const auto text = item.attribute ? "fields.attribute(" + expanded(item.qualified_name) + ',' +
               (item.min_occurs == 0U ? "true" : "false") + ')' :
-              item.text ? "fields.text()" : "input.scalar(" + expanded(item.qualified_name) + ')';
+              item.text ? (contract.extensions ? "fields.prefixText()" : "fields.text()") : "input.scalar(" + expanded(item.qualified_name) + ')';
           if (!item.attribute && !item.text && optional) { line("if(input.has(" + expanded(item.qualified_name) + ")) {"); ++level; }
           line(xml_portable::list_read(item, rule_indices.at(item.source), access, text, map_type,
               map_scalar, "java", array_initial(xml_leaf(*item.source), "srlValues.size()")));
@@ -688,7 +733,7 @@ class emitter {
         };
         line("{"); ++level;
         if (item.text) {
-          line(access + " = " + read_value("fields.text()") + ";");
+          line(access + " = " + read_value(contract.extensions ? "fields.prefixText()" : "fields.text()") + ";");
         } else if (item.attribute) {
           line("var text = fields.attribute(" + expanded(item.qualified_name) + ", " + (item.min_occurs == 0U ? "true" : "false") + ");");
           line(access + " = " + (optional ? (item.default_value || item.fixed_value ? "java.util.Optional.of(" + read_value("text") + ")" : "text == null ? java.util.Optional.empty() : java.util.Optional.of(" + read_value("text") + ")") : read_value("text")) + ";");
@@ -699,7 +744,7 @@ class emitter {
           if (optional) { line(access + " = java.util.Optional.empty();"); }
           line("while (input.has(" + expanded(item.qualified_name) + ")) {"); ++level;
           const auto maximum = source_field.fixed_extent ? std::optional<std::size_t>{static_cast<std::size_t>(source_field.fixed_extent)} : item.max_occurs;
-          if (maximum) { line("if (count >= " + std::to_string(*maximum) + ") throw new IllegalArgumentException(\"XML occurrence mismatch\");"); }
+          if (maximum) { line("if (count >= " + std::to_string(*maximum) + ") " + (contract.extensions ? "break;" : "throw new IllegalArgumentException(\"XML occurrence mismatch\");")); }
           const auto decoded = read_value("input.scalar(" + expanded(item.qualified_name) + ")");
           line(item.repeated ? "items.add(" + decoded + ");" : access + " = " + (optional ? "java.util.Optional.of(" + decoded + ")" : decoded) + ";");
           line("++count;");
@@ -726,7 +771,7 @@ class emitter {
           line("result." + member_paths.at(item.source) + " = java.util.Optional.empty();");
         }
       }
-      line("while (true) {"); ++level;
+      line(contract.extensions ? "srlAllChildren: while (true) {" : "while (true) {"); ++level;
       line("input.skipSpace();"); line("if (input.kind != 's') break;");
       line("switch (input.name()) {"); ++level;
       for (std::size_t index{}; index < contract.fields.size(); ++index) {
@@ -758,7 +803,7 @@ class emitter {
         line(seen + " = true;"); line("++allCount;"); line("break;");
         --level; line("}");
       }
-      line("default: throw new IllegalArgumentException(\"Unexpected XML all child\");");
+      line(contract.extensions ? "default: break srlAllChildren;" : "default: throw new IllegalArgumentException(\"Unexpected XML all child\");");
       --level; line("}"); --level; line("}");
       const bool optional_group = contract.all_groups.front().minimum == 0U;
       if (optional_group) { line("if (allCount != 0) {"); ++level; }
@@ -773,10 +818,12 @@ class emitter {
     if (contract.mixed) {
       line(xml_portable::mixed_read(*contract.mixed, "result." + member_paths.at(contract.mixed->source),
           map_type, [&](const member& item) { return field(item.name); }, alternative, "java",
-          array_initial(xml_leaf(*contract.mixed->source), "srlMixedValues.size()")));
+          array_initial(xml_leaf(*contract.mixed->source), "srlMixedValues.size()"),
+          contract.extensions ? std::to_string(contract.fields.size()+contract.mixed->children.size()) : std::string{}));
     }
-    if(contract.extensions){line("srlExtensions.readAt(input,"+std::to_string(contract.fields.size())+",0);");line("srlExtensions.finish();");line("result.srlXmlPreserved=srlExtensions.state;");}
-    line("fields.finish();");
+    const bool scalar_extensions = contract.extensions && std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.text; });
+    if(contract.extensions){line("srlExtensions.readAt(input,"+std::to_string(contract.fields.size()+(contract.mixed?contract.mixed->children.size():0U))+",0"+(scalar_extensions ? ",false" : "")+");");line("srlExtensions.finish();");line("result.srlXmlPreserved=srlExtensions.state;");}
+    line(scalar_extensions ? "fields.finishTextExtensions();" : "fields.finish();");
     if (contract.identity) { line("input.identityFinish(srlIdentity);"); }
     line(xml_portable::choice_check(contract,
         [&](const member& item) { return "result." + member_paths.at(&item); }, "java"));
@@ -2376,7 +2423,7 @@ class emitter {
             [&](std::string_view name) { return name == outer ? std::string{name} + "_2" : std::string{name}; },
             [&](const auto& item) { return type(item); },
             [&](std::string_view name) { return field(name); },
-            [&](std::string_view text) { return quote(text); },options.xml);
+            [&](std::string_view text) { return quote(text); },options.xml, options.protocols == output_protocols::binary_none);
       }
     }
   }
@@ -2440,6 +2487,44 @@ public:
         }
       }
     }
+    if (options.xml.enabled) {
+      std::vector<const class_node*> authored;
+      for (const auto& [node, identifier] : names) {
+        (void)identifier;
+        if (node->type == object_type::class_type) { authored.push_back(static_cast<const class_node*>(node)); }
+      }
+      for (const auto* owner : authored) {
+        if (owner->reference || xml_mixed_storage_only.contains(owner)) { continue; }
+        const auto inventory = xml_contract.bind(*owner).declarations;
+        if (!inventory) { continue; }
+        const auto found = std::find_if(xml_inventories.begin(), xml_inventories.end(),
+            [&](const auto& selected) { return selected->storage == inventory->storage; });
+        const auto index = static_cast<std::size_t>(found - xml_inventories.begin());
+        xml_inventory_indices.emplace(owner, index);
+        if (found != xml_inventories.end()) { continue; }
+        xml_inventories.push_back(inventory); xml_contract.register_inventory(inventory);
+        for (const auto& [validator, selected] : inventory->validator_indices) {
+          (void)selected; xml_inventory_indices.emplace(validator, index);
+        }
+        for (const auto& group : inventory->statements()) {
+          for (const auto& statement : group) {
+            if (statement->type != object_type::namespace_type) { continue; }
+            const auto original = statement->name;
+            for (std::size_t suffix = 1; declarations.contains(outer + '.' + type_name(statement->name)); ++suffix) {
+              statement->name = original + "_private_" + std::to_string(suffix);
+            }
+          }
+          register_nodes(group, outer, reserved);
+        }
+      }
+      for (const auto* helper : {"SrlXmlDeclaration", "SrlXmlDeclarationType", "SrlXmlDeclarations", "SrlXmlDeclarationPolicy"}) {
+        auto chosen = std::string{helper};
+        for (std::size_t suffix = 2; chosen == outer || std::any_of(names.begin(), names.end(), [&](const auto& entry) {
+            return entry.second.substr(entry.second.find_last_of('.') + 1U) == chosen;
+          }); ++suffix) { chosen = std::string{helper} + '_' + std::to_string(suffix); }
+        xml_declaration_aliases.emplace(helper, std::move(chosen));
+      }
+    }
     std::vector<const syntax_node*> helper_nodes;
     for (const auto& [node, name] : names) { static_cast<void>(name); helper_nodes.push_back(node); }
     behavior::require_unique_free_names(helper_nodes, "java", [&](const auto& node) { return names.at(&node); },
@@ -2447,7 +2532,7 @@ public:
     arithmetic_helpers = behavior::select_helpers(helper_nodes,
         [&](const auto& node) { return node.type == object_type::function_type ? field(node.name) : type_name(node.name); },
         [&](const auto name) { return field(name); });
-    source = generated_license_notice(values, "//", true);
+    source = generated_license_notice(values, "//", true, options.xml.enabled);
     if (!options.package_name.empty()) {
       std::size_t start{};
       while (start <= options.package_name.size()) {
@@ -2518,11 +2603,11 @@ public:
       start = end + 1;
     }
     level = 1;
-    if (options.xml.enabled) { source += xml_runtime_source; source += xml_portable::scalar_runtime("java"); source += xml_portable::map_runtime("java"); source += xml_portable::mixed_runtime("java"); source += xml_portable::identity_runtime("java"); source += xml_portable::html_runtime("java"); source += xml_portable::model_runtime("java"); source += xml_portable::extension_runtime("java"); }
+    if (options.xml.enabled) { source += xml_runtime_source; source += xml_portable::scalar_runtime("java"); source += xml_portable::map_runtime("java"); source += xml_portable::mixed_runtime("java"); source += xml_portable::identity_runtime("java"); source += xml_portable::html_runtime("java"); source += xml_portable::model_runtime("java"); source += declaration_helpers(xml_portable::extension_runtime("java")); source += declaration_helpers(xml_declarations_runtime_source); }
     if (package_codegen::contains(values)) {
       std::string package_runtime{package_runtime_source};
       // Java forbids a nested helper repeating any enclosing output-class name.
-      for (const auto* helper : {"Code", "PackageError", "Limits", "Resource", "Budget", "State", "RandomSource", "Entry", "ZipReader", "FileSource", "Bytes", "ZipWriter", "Part", "BinaryPart", "ModelPart", "Relationship", "Extensions", "Unknown", "ExtensionPolicy", "Result", "PartMetadata", "Mime", "Uri", "QName", "Node", "Handler", "Scope", "Compatibility", "Opc", "Role", "References", "Encoder", "Decoder", "Validator", "Composer", "Loader", "Occurrence", "SaveFault", "Format", "Failure", "EncodeOptions", "DecodeOptions"}) {
+      for (const auto* helper : {"Code", "PackageError", "Limits", "Resource", "Budget", "State", "RandomSource", "Entry", "ZipReader", "FileSource", "Bytes", "ZipWriter", "Part", "BinaryPart", "ModelPart", "Relationship", "Extensions", "Unknown", "ExtensionPolicy", "Result", "PartMetadata", "Mime", "Uri", "QName", "Node", "Handler", "Scope", "Compatibility", "Opc", "Role", "PipelineProfile", "References", "Encoder", "Decoder", "Validator", "Composer", "Loader", "Occurrence", "SaveFault", "Format", "Failure", "EncodeOptions", "DecodeOptions"}) {
         if (outer == helper) { package_runtime = std::regex_replace(package_runtime, std::regex{"\\b" + std::string{helper} + "\\b"}, std::string{helper} + "_2"); }
       }
       for (const auto& [placeholder, replacement] : std::array<std::pair<std::string_view, std::string>, 3>{
@@ -2541,7 +2626,16 @@ public:
     for (const auto& value : values) {
       roots.push_back(value.get());
     }
+    for (const auto& inventory : xml_inventories) {
+      for (const auto& group : inventory->statements()) {
+        for (const auto& statement : group) { roots.push_back(statement.get()); }
+      }
+    }
     nodes(roots);
+    if (options.xml.enabled) {
+      source += declaration_helpers(xml_codegen::portable_declaration_dispatch(xml_inventories,
+          [&](const class_node& owner) { return names.at(&owner); }, quote, "java"));
+    }
     source += "}\n";
     if(outer=="XmlOperation"){
       for(const auto& [before,after]:std::vector<std::pair<std::string,std::string>>{{"Limits.XmlOperation","Limits.XmlOperation_2"},{"interface XmlOperation ","interface XmlOperation_2 "},{"final XmlOperation xmlOperation","final XmlOperation_2 xmlOperation"},{"ReadPolicy readPolicy,XmlOperation operation","ReadPolicy readPolicy,XmlOperation_2 operation"}}){

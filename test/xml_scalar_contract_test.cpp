@@ -99,7 +99,12 @@ TEST(xml_scalar_contract, emitted_namespace_aliases_cannot_change_union_selectio
   child.namespace_bindings.emplace("", "");
   child.namespace_contract = &rule;
   root.children.push_back(child);
-  EXPECT_THROW((void)xml::write(root), std::invalid_argument);
+  const auto replay = xml::parse(xml::write(root));
+  ASSERT_EQ(replay.children.size(), 1U);
+  EXPECT_FALSE(replay.children.front().namespace_bindings.contains("srl0"));
+  EXPECT_EQ(replay.children.front().text, "srl0:item");
+  EXPECT_THROW((void)xml::resolve_qname(replay.children.front().text, replay.children.front()), std::invalid_argument);
+  EXPECT_NO_THROW(xml::validate_lexical_contract(replay.children.front().text, rule, replay.children.front()));
   xml::token_writer writer{};
   writer.open(root.qualified_name);
   writer.open(child.qualified_name, child.namespace_bindings);
@@ -299,15 +304,18 @@ TEST(xml_scalar_contract, portable_pattern_group_composition) {
   EXPECT_THROW(contract.validate("a1"), std::invalid_argument);
 }
 
-// Legacy provider patterns remain available without pretending their instructions are portable.
-TEST(xml_scalar_contract, portable_opt_in_and_legacy_provider_are_distinct) {
+// Both prepared paths retain Unicode category semantics and explicit provider selection.
+TEST(xml_scalar_contract, portable_and_legacy_unicode_properties) {
   binding::scalar_facets facets{};
   facets.lexical_kind = "string";
   facets.patterns = {"\\p{L}+"};
-  EXPECT_THROW((void)binding::compile_scalar_contract(facets), std::invalid_argument);
+  const auto portable = binding::compile_scalar_contract(facets);
+  EXPECT_TRUE(portable.patterns_portable());
+  EXPECT_NO_THROW(portable.validate("\xc3\xa9"));
+  EXPECT_THROW(portable.validate("123"), std::invalid_argument);
   if (xml::available()) {
     const auto legacy = binding::compile_scalar_contract(facets, false);
-    EXPECT_FALSE(legacy.patterns_portable());
+    EXPECT_TRUE(legacy.patterns_portable());
     EXPECT_NO_THROW(legacy.validate("\xc3\xa9"));
     EXPECT_THROW(legacy.validate("123"), std::invalid_argument);
   }
@@ -365,15 +373,144 @@ TEST(xml_scalar_contract, union_preserves_caller_failure) {
   EXPECT_THROW(contract.validate("hello", {}, &context), std::invalid_argument);
 }
 
-// The union's mandatory collapse policy applies before branch selection, including unbounded integers.
-TEST(xml_scalar_contract, union_normalizes_before_trying_its_members) {
+// Member-specific whitespace normalization follows raw first-member selection.
+TEST(xml_scalar_contract, union_normalizes_inside_its_selected_member) {
   binding::scalar_facets facets{};
   facets.lexical_kind = "string";
   facets.whitespace = "collapse";
   binding::scalar_facets integer{};
   integer.lexical_kind = "integer";
+  integer.whitespace = "collapse";
   facets.union_members.push_back(integer);
   const auto contract = binding::compile_scalar_contract(facets);
   EXPECT_NO_THROW(contract.validate(" \t9007199254740993\n"));
   EXPECT_THROW(contract.validate("1 2"), std::invalid_argument);
+}
+
+// Outer enumeration distinguishes selected primitive spaces and exact numeric aliases.
+TEST(xml_scalar_contract, outer_union_enumeration_compares_selected_value_identities) {
+  binding::scalar_facets boolean{};
+  boolean.lexical_kind = "boolean";
+  boolean.whitespace = "collapse";
+  binding::scalar_facets integer{};
+  integer.lexical_kind = "unsignedShort";
+  integer.whitespace = "collapse";
+  binding::scalar_facets facets{};
+  facets.lexical_kind = "string";
+  facets.whitespace = "collapse";
+  facets.union_members = {boolean, integer};
+  facets.enumeration = {"1"};
+  const auto boolean_first = binding::compile_scalar_contract(facets);
+  EXPECT_NO_THROW(boolean_first.validate(" true "));
+  EXPECT_THROW(boolean_first.validate("01"), std::invalid_argument);
+  EXPECT_THROW(boolean_first.validate("false"), std::invalid_argument);
+  facets.union_members = {integer, boolean};
+  const auto number_first = binding::compile_scalar_contract(facets);
+  EXPECT_NO_THROW(number_first.validate("+001"));
+  EXPECT_THROW(number_first.validate("true"), std::invalid_argument);
+  binding::scalar_facets preserve{};
+  preserve.lexical_kind = "string";
+  preserve.patterns = {" raw "};
+  binding::scalar_facets token{};
+  token.lexical_kind = "token";
+  token.whitespace = "collapse";
+  facets.union_members = {preserve, token};
+  facets.enumeration = {" raw "};
+  const auto string_first = binding::compile_scalar_contract(facets);
+  EXPECT_NO_THROW(string_first.validate(" raw "));
+  EXPECT_THROW(string_first.validate("raw"), std::invalid_argument);
+}
+
+// The generated static runtime shares primitive identity rules with the compiler's prepared contract.
+TEST(xml_scalar_contract, static_outer_union_enumeration_preserves_raw_member_selection) {
+  std::array<xml::lexical_contract, 2U> members{};
+  members[0].kind = "boolean";
+  members[1].kind = "unsignedShort";
+  for (auto& member : members) { member.constraints.whitespace = xml::whitespace_policy::collapse; }
+  constexpr std::array<std::string_view, 1U> enumeration{{"1"}};
+  xml::lexical_contract rule{};
+  rule.union_members = members;
+  rule.enumeration = enumeration;
+  EXPECT_NO_THROW(xml::validate_lexical_contract("true", rule, {}));
+  EXPECT_THROW(xml::validate_lexical_contract("01", rule, {}), std::invalid_argument);
+  EXPECT_TRUE(xml::lexical_union_equal("true", "1", rule, {}));
+  EXPECT_FALSE(xml::lexical_union_equal("01", "1", rule, {}));
+}
+
+// Outer literals resolve in their schema scope, while instances retain unrelated aliases and shadowing.
+TEST(xml_scalar_contract, prepared_outer_union_names_retain_schema_owned_identities) {
+  binding::scalar_facets qname{};
+  qname.lexical_kind = "QName";
+  qname.whitespace = "collapse";
+  binding::scalar_facets text{};
+  text.lexical_kind = "string";
+  binding::scalar_facets selection{};
+  selection.union_members = {qname, text};
+  xml::element schema{};
+  schema.namespace_bindings.emplace("schema", "urn:allowed");
+  binding::scalar_facets restriction = selection;
+  restriction.enumeration = {"schema:item"};
+  restriction.union_enumeration = {binding::compile_scalar_contract(selection).identify("schema:item", schema)};
+  const auto contract = binding::compile_scalar_contract(restriction);
+  xml::element instance{};
+  instance.namespace_bindings.emplace("p", "urn:allowed");
+  instance.namespace_bindings.emplace("schema", "urn:shadowed");
+  EXPECT_NO_THROW(contract.validate(" p:item ", instance));
+  EXPECT_THROW(contract.validate("schema:item", instance), std::invalid_argument);
+  EXPECT_THROW(contract.validate("missing:item", instance), std::invalid_argument);
+  selection.union_members = {text, qname};
+  restriction = selection;
+  restriction.enumeration = {"schema:item"};
+  restriction.union_enumeration = {binding::compile_scalar_contract(selection).identify("schema:item", schema)};
+  const auto string_first = binding::compile_scalar_contract(restriction);
+  EXPECT_NO_THROW(string_first.validate("schema:item", instance));
+  EXPECT_THROW(string_first.validate("p:item", instance), std::invalid_argument);
+}
+
+// Item restrictions select primitive identities before outer list enumeration and cardinality checks.
+TEST(xml_scalar_contract, restricted_union_list_items_keep_primitive_families) {
+  binding::scalar_facets boolean{};
+  boolean.lexical_kind = "boolean";
+  boolean.whitespace = "collapse";
+  binding::scalar_facets integer{};
+  integer.lexical_kind = "unsignedShort";
+  integer.whitespace = "collapse";
+  integer.max_inclusive = "9";
+  binding::scalar_facets item{};
+  item.union_members = {boolean, integer};
+  binding::scalar_facets list{};
+  list.lexical_kind = "string";
+  list.list_item_kind = "string";
+  list.whitespace = "collapse";
+  list.list_item_facets = {item};
+  list.length = 2U;
+  list.enumeration = {"1 2"};
+  const auto rule = binding::compile_scalar_contract(list);
+  EXPECT_NO_THROW(rule.validate("true 002"));
+  EXPECT_THROW(rule.validate("01 2"), std::invalid_argument);
+  EXPECT_THROW(rule.validate("true 10"), std::invalid_argument);
+  EXPECT_THROW(rule.validate("true 2 2"), std::invalid_argument);
+  const auto identity = rule.identify("true 002");
+  ASSERT_EQ(identity.items.size(), 2U);
+  EXPECT_EQ(identity.items[0].lexical_kind, "boolean");
+  EXPECT_EQ(identity.items[1].lexical_kind, "unsignedShort");
+}
+
+// The public static comparison resolves each selected item rather than comparing owning list strings.
+TEST(xml_scalar_contract, static_restricted_list_comparison_uses_atomic_rules) {
+  std::array<xml::lexical_contract, 2U> branches{};
+  branches[0].kind = "QName";
+  branches[1].kind = "string";
+  xml::lexical_contract item{};
+  item.union_members = branches;
+  xml::lexical_contract list{};
+  list.kind = "string";
+  list.list_item_kind = "string";
+  list.list_item = &item;
+  xml::element scope{};
+  scope.namespace_bindings.emplace("p", "urn:allowed");
+  scope.namespace_bindings.emplace("q", "urn:allowed");
+  EXPECT_TRUE(xml::lexical_union_equal("p:item missing:item", "q:item missing:item", list, scope));
+  EXPECT_FALSE(xml::lexical_union_equal("p:item missing:item", "q:other missing:item", list, scope));
+  EXPECT_FALSE(xml::lexical_union_equal("p:item missing:item", "q:item missing:other", list, scope));
 }

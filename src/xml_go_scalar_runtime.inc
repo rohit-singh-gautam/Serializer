@@ -13,6 +13,7 @@ type srlXmlRule struct {
   finite bool
   patterns [][]srlXmlPattern
   members []srlXmlRule
+  listItem *srlXmlRule
   fixed string
   hasFixed bool
   defaultText string
@@ -22,8 +23,13 @@ type srlXmlRule struct {
   hasFixedNames bool
   defaultNames []srlxml.Name
   defaultAttribute bool
+  defaultContent bool
   keepNamespaceLexical bool
+  unionValues []srlXmlUnionValue
+  unionFixed *srlXmlUnionValue
 }
+// Store the selected primitive and schema-expanded names without retaining provider namespace maps.
+type srlXmlUnionValue struct {kind,listKind,text string;names []srlxml.Name;items []srlXmlUnionValue}
 // Keep resource admission failures distinct from an ordinary rejected union alternative.
 type srlXmlLimitError string
 // Preserve the established public error diagnostics without wrapping operation-local state.
@@ -88,20 +94,20 @@ func (r *srlXmlRule) compare(left,right string)(int,bool,error){
 }
 // Bind one operation-local native collection allowance and cumulative pattern work budget.
 func (r *srlXmlRule) check(text string,maximumItems int,budgets ...*srlXmlBudget)(string,error){
-  work:=srlXmlPatternWork{remaining:srlXmlPatternMaxWorkUnits};if len(budgets)!=0{work.budget=budgets[0]};return r.checkWith(text,maximumItems,&work)
+  work:=srlXmlPatternWork{remaining:srlXmlPatternMaxWorkUnits};if len(budgets)!=0{work.budget=budgets[0]};checked,err:=r.checkWith(text,maximumItems,&work);if len(r.members)!=0{return text,err};return checked,err
 }
 // Preserve branch independence while sharing resource admission through recursive unions.
 func (r *srlXmlRule) checkWith(text string,maximumItems int,work *srlXmlPatternWork)(string,error){
   if err:=work.spend(len(text));err!=nil{return "",err};if !utf8.ValidString(text){return "",fmt.Errorf("Invalid XML UTF-8")}
-  text=srlXmlWhitespace(text,r.whitespace);if err:=r.lexical(text);err!=nil{return "",err}
+  if len(r.members)==0{text=srlXmlWhitespace(text,r.whitespace);if err:=r.lexical(text);err!=nil{return "",err}}
   selected:=r
   if len(r.members)!=0{matched:=false;for index:=range r.members{member,err:=r.members[index].checkWith(text,maximumItems,work);if err==nil{text=member;selected=work.selected;matched=true;break};if _,resource:=err.(srlXmlLimitError);resource{return "",err}};if !matched{return "",fmt.Errorf("XML union has no matching member")}}
   count:=utf8.RuneCountInString(text)
-  if r.listKind!=""{items,err:=srlXmlTokens(text,maximumItems);if err!=nil{return "",err};count=len(items);item:=srlXmlRule{kind:r.listKind};for _,value:=range items{if err=work.spend(len(value));err!=nil{return "",err};if err=item.lexical(value);err!=nil{return "",err}}}
+  if r.listKind!=""{items,err:=srlXmlTokens(text,maximumItems);if err!=nil{return "",err};count=len(items);item:=srlXmlRule{kind:r.listKind};for _,value:=range items{if r.listItem!=nil{if _,err=r.listItem.checkWith(value,maximumItems,work);err!=nil{return "",err}}else{if err=work.spend(len(value));err!=nil{return "",err};if err=item.lexical(value);err!=nil{return "",err}}}}
   if r.length>=0&&count!=r.length||r.minimum>=0&&count<r.minimum||r.maximum>=0&&count>r.maximum{return "",fmt.Errorf("XML length facet failed")}
   for index,bound:=range r.bounds{if bound==""{continue};order,comparable,err:=r.compare(text,bound);if err!=nil{return "",err};if !comparable||index==0&&order<0||index==1&&order>0||index==2&&order<=0||index==3&&order>=0{return "",fmt.Errorf("XML numeric facet failed")}}
-  if len(r.enumeration)!=0&&len(r.qnames)==0&&len(r.qnameLists)==0{matched:=false;for _,allowed:=range r.enumeration{order,comparable,err:=r.compare(text,srlXmlWhitespace(allowed,r.whitespace));if err!=nil{return "",err};if comparable&&order==0{matched=true;break}};if !matched{return "",fmt.Errorf("XML enumeration facet failed")}}
-  if r.hasFixed&&!r.hasFixedNames{order,comparable,err:=r.compare(text,srlXmlWhitespace(r.fixed,r.whitespace));if err!=nil{return "",err};if !comparable||order!=0{return "",fmt.Errorf("XML fixed value differs")}}
+  if len(r.enumeration)!=0&&len(r.qnames)==0&&len(r.qnameLists)==0{matched:=false;for index,allowed:=range r.enumeration{var equal bool;var err error;if len(r.unionValues)!=0{equal,err=r.constantEqual(text,selected,r.unionValues[index],maximumItems,work)}else if len(r.members)!=0{equal,err=r.unionEqual(text,selected,allowed,maximumItems,work)}else{var order int;var comparable bool;order,comparable,err=r.compare(text,srlXmlWhitespace(allowed,r.whitespace));equal=comparable&&order==0};if err!=nil{return "",err};if equal{matched=true;break}};if !matched{return "",fmt.Errorf("XML enumeration facet failed")}}
+  if r.hasFixed&&!r.hasFixedNames{var equal bool;var err error;if r.unionFixed!=nil{equal,err=r.constantEqual(text,selected,*r.unionFixed,maximumItems,work)}else if len(r.members)!=0{equal,err=r.unionEqual(text,selected,r.fixed,maximumItems,work)}else{var order int;var comparable bool;order,comparable,err=r.compare(text,srlXmlWhitespace(r.fixed,r.whitespace));equal=comparable&&order==0};if err!=nil{return "",err};if !equal{return "",fmt.Errorf("XML fixed value differs")}}
   if work.namespace!=nil&&(r.kind=="QName"||r.listKind=="QName"){if err:=r.checkNames(text,maximumItems,work);err!=nil{return "",err}}
   if r.finite{value,err:=srlXmlDouble(text,srlXmlKindBits(r.kind));if err!=nil{return "",err};if math.IsNaN(value)||math.IsInf(value,0){return "",fmt.Errorf("XML finite facet failed")}}
   for _,group:=range r.patterns{matched:=false;for index:=range group{accept,err:=group[index].matches(text,work);if err!=nil{return "",err};if accept{matched=true;break}};if !matched{return "",fmt.Errorf("XML portable pattern facet failed")}}
@@ -110,7 +116,29 @@ func (r *srlXmlRule) checkWith(text string,maximumItems int,work *srlXmlPatternW
 // Select the first complete union member while all alternatives share one bounded evaluator.
 func (r *srlXmlRule) selectNamespace(text string,lookup func(string)(string,bool),maximum int,budget *srlXmlBudget)(string,*srlXmlRule,error){
   work:=srlXmlPatternWork{remaining:srlXmlPatternMaxWorkUnits,budget:budget,namespace:lookup}
-  checked,err:=r.checkWith(text,maximum,&work);return checked,work.selected,err
+  checked,err:=r.checkWith(text,maximum,&work);if len(r.members)!=0{checked=text};return checked,work.selected,err
+}
+// Compare primitive value families independently of authored union member names.
+func (r *srlXmlRule) valueFamily()string{if r.listKind!=""{item:=srlXmlRule{kind:r.listKind};return "list:"+item.valueFamily()};if srlXmlKindBits(r.kind)!=0&&r.kind!="float"&&r.kind!="double"||srlXmlIntegerKind(r.kind)||r.kind=="decimal"{return "decimal"};switch r.kind{case "boolean","float","double","anyURI","QName":return r.kind};return "string"}
+// Compare normalized identities without truncating arbitrary-precision decimal values.
+func (r *srlXmlRule) identityEqual(first string,other *srlXmlRule,second string,maximum int,work *srlXmlPatternWork)(bool,error){
+  if err:=work.spend(len(first)+len(second)+1);err!=nil{return false,err};if r.valueFamily()!=other.valueFamily(){return false,nil}
+  if r.listKind!=""{left,err:=srlXmlTokens(first,maximum);if err!=nil{return false,err};right,err:=srlXmlTokens(second,maximum);if err!=nil{return false,err};if len(left)!=len(right){return false,nil};item,otherItem:=srlXmlRule{kind:r.listKind},srlXmlRule{kind:other.listKind};for index:=range left{equal,err:=item.identityEqual(left[index],&otherItem,right[index],maximum,work);if err!=nil||!equal{return false,err}};return true,nil}
+  if r.valueFamily()=="decimal"{return srlXmlDecimalCompare(first,second)==0,nil};order,comparable,err:=r.compare(first,second);return comparable&&order==0,err
+}
+// Resolve every schema literal through the same first-successful-member rule as the instance.
+func (r *srlXmlRule) unionEqual(text string,selected *srlXmlRule,allowed string,maximum int,work *srlXmlPatternWork)(bool,error){
+  for index:=range r.members{expected,err:=r.members[index].checkWith(allowed,maximum,work);if err!=nil{if _,resource:=err.(srlXmlLimitError);resource{return false,err};continue};return selected.identityEqual(text,work.selected,expected,maximum,work)};return false,nil
+}
+// Compare the selected primitive family before resolving occurrence-local QName/list names.
+func (r *srlXmlRule) constantEqual(text string,selected *srlXmlRule,expected srlXmlUnionValue,maximum int,work *srlXmlPatternWork)(bool,error){
+  other:=srlXmlRule{kind:expected.kind,listKind:expected.listKind};if (selected.listKind=="")!=(expected.listKind==""){return false,nil}
+  if selected.listKind!=""&&(len(expected.items)!=0||expected.text==""){values,err:=srlXmlTokens(text,maximum);if err!=nil{return false,err};if len(values)!=len(expected.items){return false,nil};builtin:=srlXmlRule{kind:selected.listKind,whitespace:"collapse",length:-1,minimum:-1,maximum:-1};item:=selected.listItem;if item==nil{item=&builtin};for index,token:=range values{value,err:=item.checkWith(token,maximum,work);if err!=nil{return false,err};equal,err:=r.constantEqual(value,work.selected,expected.items[index],maximum,work);if err!=nil||!equal{return false,err}};return true,nil}
+  if selected.valueFamily()!=other.valueFamily(){return false,nil}
+  if selected.kind!="QName"&&selected.listKind!="QName"{return selected.identityEqual(text,&other,expected.text,maximum,work)}
+  if work.namespace==nil{return false,fmt.Errorf("Missing XML union namespace scope")};mode:=0;if selected.listKind=="QName"{mode=1};names,err:=srlXmlNamespaceNames(text,mode,maximum,work.namespace);if err!=nil{return false,err};if len(names)!=len(expected.names){return false,nil})serializer"
+R"serializer(
+  for index,name:=range names{if err=work.spend(len(name.Space)+len(name.Local)+1);err!=nil{return false,err};if name!=expected.names[index]{return false,nil}};return true,nil
 }
 // Bind an explicit private scope for ordinary caller values and return normalized lexical text.
 func (r *srlXmlRule) checkScoped(text string,scope map[string]string,maximum int,budget *srlXmlBudget)(string,error){

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "xml_schema.hpp"
+#include "xml_mobile_namespace.hpp"
 
 #include <rohit/xml_pattern.hpp>
 
@@ -51,6 +52,16 @@ inline std::string mobile_scalar_constants(bool swift) {
 inline std::string mobile_scalar_rule(const xml_binding::field& field,
     const std::function<std::string(std::string_view)>& quote, bool swift) {
   const std::string start = swift ? "[" : "arrayOf(", end = swift ? "]" : ")";
+  const auto identity_literal = [&](auto&& self, const xml_binding::scalar_value_identity& identity) -> std::string {
+    std::string result = "SrlXmlRule.UnionValue(" + quote(identity.lexical_kind) + ',' + quote(identity.list_item_kind) + ',' + quote(identity.lexical_value) + ',' + start;
+    for (const auto& item : identity.names) {
+      result += "SrlXmlName(" + std::string{swift ? "local:" : ""} + quote(item.local) + ',' +
+          (swift ? "namespace:" : "") + quote(item.namespace_uri) + "),";
+    }
+    result += end + ',' + start;
+    for (const auto& item : identity.items) { result += self(self, item) + ','; }
+    return result + end + ')';
+  };
   // Reject unrepresentable target lengths before generating any consumer source.
   const auto extent = [&](const std::optional<std::size_t>& count) {
     if (count && *count > static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max())) {
@@ -101,8 +112,33 @@ inline std::string mobile_scalar_rule(const xml_binding::field& field,
       }
       result += end + ')';
     }
+    if (!facets.union_enumeration.empty()) {
+      result += ".unionValues(" + start;
+      for (const auto& identity : facets.union_enumeration) { result += identity_literal(identity_literal, identity) + ','; }
+      result += end + ')';
+    }
+    if (!facets.list_item_facets.empty()) { result += ".listItemRule(" + self(self, facets.list_item_facets.front(), {}) + ')'; }
     return result;
   };
-  return rule(rule, field.facets, field.fixed_value);
+  auto result = rule(rule, field.facets, field.fixed_value);
+  if (field.union_fixed) { result += ".unionFixed(" + identity_literal(identity_literal, *field.union_fixed) + ')'; }
+  else if (field.qname_fixed || field.qname_list_fixed) {
+    xml_binding::scalar_value_identity identity{};
+    identity.lexical_kind = field.facets.lexical_kind;
+    identity.list_item_kind = field.facets.list_item_kind;
+    identity.lexical_value = *field.fixed_value;
+    if (field.qname_fixed) { identity.names.push_back(*field.qname_fixed); }
+    else { identity.names = *field.qname_list_fixed; }
+    result += ".unionFixed(" + identity_literal(identity_literal, identity) + ')';
+  }
+  if (field.union_fixed || field.union_default || mobile_namespace_default(field)) {
+    result += ".namespaceDefault(" + quote(field.fixed_value ? *field.fixed_value : *field.default_value) + ',' +
+        std::string{swift ? "[" : "mapOf("};
+    for (const auto& [prefix, uri] : mobile_default_bindings(field)) {
+      result += swift ? "WireString(" + quote(prefix) + "):" + quote(uri) + ',' : quote(prefix) + " to " + quote(uri) + ',';
+    }
+    result += swift ? "])" : "))";
+  }
+  return result;
 }
 } // namespace rohit::serializer::writer::xml_codegen

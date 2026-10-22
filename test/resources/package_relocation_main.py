@@ -36,7 +36,16 @@ def main():
     source = loaded.value
     value = A.Input(source.first, None if action == 'remove_second' else source.second, source.children, loaded.extensions)
     original_extensions = copy.deepcopy(loaded.extensions)
-    check(value.first.id == 11 and len(value.children) == 1 and value.children[0].source_index == 0, 'typed identity and child occurrence')
+    check(value.first.id == 11 and len(value.children) >= 1 and value.children[0].source_index == 0, 'typed identity and child occurrence')
+    if name.startswith('dynamic-'):
+        original = '/children/child.xml'
+        names = {original: '/children/other.xml', '/children/other.xml': original} if action == 'swap_children' else {} if action == 'remove_unreferenced_child' else {original: '/assets/blob.bin' if action == 'collision_child' else '/renamed/child.xml'}
+        value.extensions = loaded.extensions.with_renames(names)
+        value.children = [replace(item, name=names.get(item.name, item.name)) for item in source.children]
+        if action in ('remove_child', 'remove_unreferenced_child'):
+            value.children = value.children[1:]
+        if action == 'swap_children':
+            value.children.reverse()
     destination = directory / (name + '-saved.opc')
     previous = b'previous destination'
     destination.write_bytes(previous)

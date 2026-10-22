@@ -39,7 +39,7 @@ TEST(document_profile_contract, package_roles_derive_typed_dispatch_and_compress
   ASSERT_TRUE(main.decoder);
   EXPECT_EQ(main.decoder->model_identity, "model");
   EXPECT_EQ(main.decoder->root, (schema::xml::name{"document", "urn:profile"}));
-  EXPECT_EQ(main.decoder->vocabularies, (std::vector<std::string>{"urn:profile"}));
+  EXPECT_EQ(main.decoder->vocabularies, (std::vector<std::string>{"urn:profile", "urn:serializer:native:"}));
   EXPECT_FALSE(contract.parts.back().decoder);
   EXPECT_EQ(contract.parts.back().envelope.format, schema::document::payload_format::opaque_bytes);
   EXPECT_EQ(contract.parts.back().source, "main");
@@ -51,4 +51,63 @@ TEST(document_profile_contract, package_roles_derive_typed_dispatch_and_compress
   EXPECT_NE(generated.find("::rohit::serializer::compression::format::deflate"), std::string::npos);
   EXPECT_NE(generated.find("::rohit::serializer::document::payload_format::opaque_bytes"),
             std::string::npos);
+}
+
+// Package-qualified profiles select envelopes and explicit capabilities without changing native fields.
+TEST(document_profile_contract, explicit_role_profiles_validate_the_complete_selector_inventory) {
+  constexpr std::string_view text =
+      "serializer version 1.21.0; namespace sample { "
+      "class model { xml(namespace(\"urn:profile\")); public uint32 value; } "
+      "package archive { part main : model { name(dynamic); content_type(\"application/xml\"); "
+      "relationship(\"urn:main\"); occurs(0, unbounded); } } }";
+  const auto nodes = schema::parser::parse(rohit::make_constant_stream(text.data(), text.size()));
+  const auto& space = static_cast<const schema::namespace_node&>(*nodes.front());
+  const auto& package = static_cast<const schema::package_node&>(*space.statements.back());
+  writer::xml_options options{};
+  options.enabled = true;
+  options.package_profiles["sample::archive"] = {{"main.compression", "deflate"},
+      {"main.policy", "fixed"}, {"main.requires_type", "true"},
+      {"main.vocabularies", "urn:profile, urn:additional"}};
+  EXPECT_NO_THROW(writer::package_codegen::validate_package_options(nodes, options));
+  const auto contract = writer::package_codegen::compile_package_profile(package, options);
+  ASSERT_EQ(contract.parts.size(), 1U);
+  EXPECT_EQ(contract.parts.front().envelope.compression, schema::compression::format::deflate);
+  EXPECT_EQ(contract.parts.front().envelope.policy, schema::document::profile_policy::fixed);
+  ASSERT_TRUE(contract.parts.front().decoder);
+  EXPECT_TRUE(contract.parts.front().decoder->requires_type);
+  EXPECT_EQ(contract.parts.front().decoder->vocabularies,
+      (std::vector<std::string>{"urn:profile", "urn:serializer:native:sample", "urn:additional"}));
+  auto invalid = options;
+  invalid.package_profiles["sample::archive"]["unknown.codec"] = "json";
+  EXPECT_THROW(writer::package_codegen::validate_package_options(nodes, invalid), std::invalid_argument);
+  invalid = options;
+  invalid.package_profiles["missing"]["main.codec"] = "xml";
+  EXPECT_THROW(writer::package_codegen::validate_package_options(nodes, invalid), std::invalid_argument);
+  invalid = options;
+  invalid.package_profiles["sample::archive"]["main.vocabularies"] = "urn:profile,urn:profile";
+  EXPECT_THROW(writer::package_codegen::validate_package_options(nodes, invalid), std::invalid_argument);
+  invalid = options;
+  invalid.package_profiles["sample::archive"]["main.target_mode"] = "external";
+  EXPECT_THROW(writer::package_codegen::validate_package_options(nodes, invalid), std::invalid_argument);
+  EXPECT_EQ(package.parts.front().compression, "stored");
+  EXPECT_FALSE(package.parts.front().requires_type);
+}
+
+// A package understands namespaces of mapped nested graphs and generated type inventories, without prefix dependence.
+TEST(document_profile_contract, vocabulary_inventory_follows_nested_native_mappings) {
+  constexpr std::string_view text =
+      "serializer version 1.21.0; namespace sample { "
+      "class leaf { xml(namespace(\"urn:leaf\")); public uint32 value; } "
+      "class root { xml(namespace(\"urn:root\")); public leaf child; } "
+      "package archive { part main : root { name(\"/main.xml\"); content_type(\"application/xml\"); "
+      "relationship(\"urn:main\"); } } }";
+  const auto nodes = schema::parser::parse(rohit::make_constant_stream(text.data(), text.size()));
+  const auto& space = static_cast<const schema::namespace_node&>(*nodes.front());
+  const auto& package = static_cast<const schema::package_node&>(*space.statements.back());
+  writer::xml_options options{};
+  options.enabled = true;
+  const auto profile = writer::package_codegen::compile_package_profile(package, options);
+  ASSERT_TRUE(profile.parts.front().decoder);
+  EXPECT_EQ(profile.parts.front().decoder->vocabularies,
+      (std::vector<std::string>{"urn:root", "urn:leaf", "urn:serializer:native:sample"}));
 }

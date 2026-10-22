@@ -4,10 +4,12 @@
 R"packagego(
 // srlPackageRole retains checked immutable schema constants; maximum -1 denotes unbounded.
 type srlPackageRole struct {
-  field,role,name,contentType,source,relationship,id,compression,policy,expectedRoot,expectedType string
+  field,role,name,contentType,source,relationship,id,compression,policy,expectedRoot,expectedType,codec,targetMode string
   minimum,maximum int64
+  vocabularies []string
+  requiresType bool
 }
-type srlPackageOccurrence struct { metadata SerializerPackagePartMetadata; parent int; id string }
+type srlPackageOccurrence struct { metadata SerializerPackagePartMetadata; parent int; id string; external bool }
 type srlPackageModelOccurrence struct { value any; name,contentType string; parent int }
 type srlPackageLoader struct {
   state srlPackageState
@@ -65,7 +67,11 @@ func (loader *srlPackageLoader) discover(role srlPackageRole) ([]srlPackageOccur
     for index,link:=range loader.opc.relationships {
       if err:=loader.state.consume(SerializerPackageWorkUnits,1,source);err!=nil { return nil,err }
       if srlPackageFold(link.Source)!=srlPackageFold(source)||link.Type!=role.relationship { continue }
-      if link.Mode!="internal" { return nil,&SerializerPackageError{Code:SerializerPackageInvalidRelationship,Message:"Declared role requires an internal target",Part:source,FieldPath:role.field,RelationshipID:link.ID} }
+      if link.Mode=="external" {
+        if role.targetMode!="external"&&role.targetMode!="both"{return nil,&SerializerPackageError{Code:SerializerPackageInvalidRelationship,Message:"Declared role requires an internal target",Part:source,FieldPath:role.field,RelationshipID:link.ID}}
+        if err:=loader.state.consume(SerializerPackageDecoderAllocationBytes,256+int64(len(link.Target)),source);err!=nil{return nil,err};if err:=loader.hold(256+int64(len(link.Target)),source);err!=nil{return nil,err};loader.selected[index]=true;values=append(values,srlPackageOccurrence{metadata:SerializerPackagePartMetadata{Name:link.Target},parent:parent,id:link.ID,external:true});continue
+      }
+      if role.targetMode=="external" {return nil,&SerializerPackageError{Code:SerializerPackageInvalidRelationship,Message:"Declared role requires an external target",Part:source,FieldPath:role.field,RelationshipID:link.ID}}
       if role.policy=="fixed"&&metadataMethodMismatch(loader.opc,source,link,role){return nil,srlPackageFailure(SerializerPackageInvalidOptions,"Fixed package compression mismatch",source)}
       target,err:=srlPackageTarget(source,link.Target);if err!=nil { return nil,err };key:=srlPackageFold(target);metadata:=loader.opc.parts[key]
       if role.contentType!="" {
@@ -104,6 +110,7 @@ func (loader *srlPackageLoader) binaries(role srlPackageRole) (result []Serializ
   if err=loader.begin();err!=nil { return nil,err };complete:=false;defer func(){loader.leave(&err,complete)}()
   occurrences,err:=loader.discover(role);if err!=nil { return nil,err };values:=[]SerializerPackageBinaryPart{}
   for _,item:=range occurrences {
+    if item.external{values=append(values,SerializerPackageBinaryPart{Data:[]byte{},Name:item.metadata.Name,SourceIndex:item.parent,Compression:role.compression});continue}
     data,failure:=loader.archive.Read(item.metadata.entry.Name);if failure!=nil { return nil,failure }
     if err=loader.state.poll();err!=nil { return nil,err };if err=loader.hold(int64(len(data)),item.metadata.Name);err!=nil { return nil,err }
     compression:="stored";if item.metadata.entry.Method==8 { compression="deflate" };values=append(values,SerializerPackageBinaryPart{Data:data,Name:item.metadata.Name,ContentType:item.metadata.ContentType,SourceIndex:item.parent,Compression:compression})

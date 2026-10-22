@@ -10,6 +10,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -81,6 +82,82 @@ std::vector<const class_node*> imported_classes(const rohit::serializer::parser:
   return result;
 }
 } // namespace
+
+// Ordered variant storage exports its actual choice grammar without exposing fragment helpers.
+TEST(xml_xsd_contract, ordered_choice_export_preserves_interleaving_and_fixed_cardinality) {
+  const auto model = parse("serializer version 1.21.0; "
+      "class left { public string value xml(text); } "
+      "class right { public uint32 id xml(attribute); } "
+      "class fragment { private variant(left=left,right=right) value; } "
+      "class root { public array<fragment> items; } "
+      "class fixed { public array[3] fragment items; }");
+  xml_options options;
+  options.enabled = true;
+  options.classes["root"].contracts["ordered"] = "items";
+  options.classes["fixed"].contracts["ordered"] = "items";
+  const binding::schema schema{options};
+  const auto exported = schema.export_xsd({&owner(model), &owner(model, 1U),
+      &owner(model, 2U), &owner(model, 3U), &owner(model, 4U)});
+  const xml::prepared_schema oracle{exported};
+  const auto contract = schema.bind(owner(model, 3U));
+  EXPECT_NO_THROW(binding::validate_content_model(contract, xml::parse("<root><left>A</left></root>")));
+  EXPECT_THROW(binding::validate_content_model(contract, xml::parse("<root>bad<left>A</left></root>")), std::invalid_argument);
+  EXPECT_TRUE(binding::compare_contracts(contract, contract).empty());
+  auto fixed_contract = contract;
+  fixed_contract.mixed = schema.bind(owner(model, 4U)).mixed;
+  EXPECT_FALSE(binding::compare_contracts(contract, fixed_contract).empty());
+  for (const auto document : {"<root/>", "<root><left>A</left><right id='7'/><left>B</left></root>",
+      "<fixed><left>A</left><right id='7'/><left>B</left></fixed>"}) {
+    EXPECT_NO_THROW(oracle.validate(document)) << document;
+  }
+  for (const auto document : {"<root>text</root>", "<root><missing/></root>",
+      "<root><right id='-1'/></root>", "<fixed/>", "<fixed><left>A</left></fixed>",
+      "<fixed><left>A</left><right id='7'/><left>B</left><left>C</left></fixed>"}) {
+    EXPECT_THROW(oracle.validate(document), std::invalid_argument) << document;
+  }
+  EXPECT_EQ(exported.find("name=\"fragment\""), std::string::npos);
+}
+
+// Nullable branches, unbounded groups and finite limits share one compiler-owned automaton contract.
+TEST(xml_xsd_contract, ordered_automata_match_nullable_repeated_particle_languages_with_bounded_compilation) {
+  binding::content_particle left;
+  left.kind = binding::particle_kind::element;
+  left.name = {"left", ""};
+  left.minimum = 0U;
+  left.maximum = 2U;
+  binding::content_particle right;
+  right.kind = binding::particle_kind::element;
+  right.name = {"right", ""};
+  binding::particle_contract contract;
+  contract.root.children = {left, right};
+  contract.root.minimum = 2U;
+  contract.root.maximum.reset();
+  const std::vector<xml::name> symbols{left.name, right.name};
+  const auto compiled = binding::compile_ordered_automaton(contract, symbols);
+  for (std::size_t length{}; length <= 9U; ++length) {
+    for (std::size_t bits{}; bits < (std::size_t{1U} << length); ++bits) {
+      std::vector<xml::name> trace;
+      std::size_t state{1U};
+      for (std::size_t index{}; index < length; ++index) {
+        const auto symbol = (bits >> index) & 1U;
+        trace.push_back(symbols[symbol]);
+        state = compiled.transitions[state][symbol];
+      }
+      bool expected{true};
+      try { binding::validate_particle_trace(contract, trace); }
+      catch (const std::invalid_argument&) { expected = false; }
+      EXPECT_EQ(compiled.accepting[state], expected) << length << ':' << bits;
+    }
+  }
+  binding::particle_limits limits;
+  limits.max_states = 1U;
+  EXPECT_THROW((void)binding::compile_ordered_automaton(contract, symbols, limits), std::length_error);
+  limits = {};
+  limits.max_work_units = 1U;
+  EXPECT_THROW((void)binding::compile_ordered_automaton(contract, symbols, limits), std::length_error);
+  contract.root.minimum = std::numeric_limits<std::size_t>::max();
+  EXPECT_THROW((void)binding::compile_ordered_automaton(contract, symbols), std::length_error);
+}
 
 TEST(xml_xsd_contract, simple_content_derives_text_and_authoritative_attributes) {
   xsd_directory files;
@@ -486,4 +563,176 @@ TEST(xml_xsd_contract, bounded_array_of_records_is_not_inferred_as_its_records_i
   EXPECT_TRUE(contract.fields.front().repeated);
   EXPECT_EQ(contract.fields.front().qualified_name.local, "item");
   EXPECT_EQ(contract.fields.front().max_occurs, 1U);
+}
+
+// Export every restriction step independently so inherited OR-pattern groups remain conjunctive.
+TEST(xml_xsd_contract, exported_inherited_patterns_preserve_restriction_intersections) {
+  xsd_directory files;
+  const auto path = files.write("root.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:simpleType name="Base"><xs:restriction base="xs:string"><xs:pattern value="AB"/><xs:pattern value="CD"/></xs:restriction></xs:simpleType><xs:simpleType name="Derived"><xs:restriction base="Base"><xs:pattern value="A."/></xs:restriction></xs:simpleType><xs:element name="order"><xs:complexType><xs:sequence><xs:element name="value" type="Derived"/></xs:sequence></xs:complexType></xs:element></xs:schema>)");
+  const auto model = parse("serializer version 1.21.0; class order { public string value; }");
+  const binding::schema schema{fixed(path)};
+  const auto exported = schema.export_xsd({&owner(model)});
+  const xml::prepared_schema original{R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:simpleType name="Base"><xs:restriction base="xs:string"><xs:pattern value="AB"/><xs:pattern value="CD"/></xs:restriction></xs:simpleType><xs:simpleType name="Derived"><xs:restriction base="Base"><xs:pattern value="A."/></xs:restriction></xs:simpleType><xs:element name="order"><xs:complexType><xs:sequence><xs:element name="value" type="Derived"/></xs:sequence></xs:complexType></xs:element></xs:schema>)"};
+  const xml::prepared_schema oracle{exported};
+  EXPECT_NO_THROW(original.validate("<order><value>AB</value></order>"));
+  EXPECT_NO_THROW(oracle.validate("<order><value>AB</value></order>"));
+  for (const auto* text : {"<order><value>CD</value></order>", "<order><value>AX</value></order>"}) {
+    EXPECT_THROW(original.validate(text), std::invalid_argument);
+    EXPECT_THROW(oracle.validate(text), std::invalid_argument);
+  }
+  const auto rebound = binding::schema{fixed(files.write("exported.xsd", exported))}.bind(owner(model));
+  EXPECT_TRUE(binding::compare_contracts(schema.bind(owner(model)), rebound).empty());
+}
+
+// A QName-valued root default and an unqualified type reference have distinct namespace scopes.
+TEST(xml_xsd_contract, exported_root_union_default_keeps_unqualified_component_identity) {
+  xsd_directory files;
+  const auto path = files.write("root.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:simpleType name="Value"><xs:union memberTypes="xs:QName xs:string"/></xs:simpleType><xs:element name="order" xmlns="urn:allowed" default="item"><xs:complexType><xs:simpleContent><xs:extension xmlns="" base="Value"/></xs:simpleContent></xs:complexType></xs:element></xs:schema>)");
+  const auto model = parse("serializer version 1.21.0; class order { public string value; }");
+  const binding::schema schema{fixed(path)};
+  const auto bound = schema.bind(owner(model));
+  ASSERT_TRUE(bound.fields.front().union_default);
+  EXPECT_EQ(bound.fields.front().union_default->names, (std::vector<xml::name>{{"item", "urn:allowed"}}));
+  const auto exported = schema.export_xsd({&owner(model)});
+  const xml::prepared_schema oracle{exported};
+  EXPECT_NO_THROW(oracle.validate("<order/>"));
+  EXPECT_NO_THROW(oracle.validate("<order xmlns:p='urn:allowed'>p:item</order>"));
+  const auto rebound = binding::schema{fixed(files.write("exported.xsd", exported))}.bind(owner(model));
+  ASSERT_TRUE(rebound.fields.front().union_default);
+  EXPECT_EQ(rebound.fields.front().union_default, bound.fields.front().union_default);
+  EXPECT_TRUE(binding::compare_contracts(bound, rebound).empty());
+}
+
+// Validating wildcard declarations retain pinned scalar constraints and private imported AST after files disappear.
+TEST(xml_xsd_contract, validating_wildcard_inventory_owns_pinned_declarations) {
+  xsd_directory files;
+  const auto foreign = files.write("foreign.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:f="urn:foreign" targetNamespace="urn:foreign" elementFormDefault="qualified"><xs:simpleType name="Count"><xs:restriction base="xs:unsignedShort"><xs:minInclusive value="2"/><xs:maxInclusive value="9"/></xs:restriction></xs:simpleType><xs:element name="count" type="f:Count" fixed="3"/><xs:element name="label" type="xs:QName" default="f:item"/><xs:attribute name="tag" type="xs:token" fixed="ok"/><xs:element name="detail"><xs:complexType><xs:sequence><xs:element name="count" type="f:Count"/></xs:sequence><xs:anyAttribute namespace="##other" processContents="skip"/></xs:complexType></xs:element></xs:schema>)");
+  const auto path = files.write("root.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:import namespace="urn:foreign" schemaLocation="foreign.xsd"/><xs:element name="order"><xs:complexType><xs:sequence><xs:element name="value" type="xs:unsignedShort"/><xs:any namespace="##other" processContents="lax" minOccurs="0" maxOccurs="unbounded"/></xs:sequence><xs:anyAttribute namespace="urn:foreign" processContents="strict"/></xs:complexType></xs:element></xs:schema>)");
+  const auto model = parse("serializer version 1.20.0; class order { public uint16 value; }");
+  const auto options = fixed(path);
+  const binding::schema schema{options};
+  const auto first = schema.bind(owner(model));
+  ASSERT_TRUE(first.declarations);
+  EXPECT_EQ(schema.bind(owner(model)).declarations, first.declarations);
+  const auto bundle = binding::read_schema_bundle(path);
+  ASSERT_NE(bundle->documents.front().path, path);
+  ASSERT_TRUE(std::filesystem::remove(foreign));
+  ASSERT_TRUE(std::filesystem::remove(path));
+  const auto inventory = binding::compile_declaration_inventory(
+      bundle, path, owner(model), schema.bind(owner(model), false), options);
+  ASSERT_EQ(inventory->globals.size(), 4U);
+  ASSERT_EQ(inventory->validators.size(), 4U);
+  ASSERT_EQ(inventory->statements().size(), 4U);
+  for (const auto& [source, index] : inventory->validator_indices) {
+    EXPECT_EQ(source->source_path, owner(model).source_path);
+    ASSERT_TRUE(source->prepared_xml_validation);
+    EXPECT_EQ(schema.bind(*source).root, inventory->validators[index].root);
+    EXPECT_FALSE(inventory->validators[index].fields.front().source->name.empty());
+  }
+  for (const auto& declaration : inventory->globals) {
+    if (declaration.qualified_name.local == "label") {
+      ASSERT_TRUE(declaration.scalar);
+      EXPECT_EQ(declaration.scalar->qname_default, (xml::name{"item", "urn:foreign"}));
+    } else if (declaration.qualified_name.local == "count") {
+      ASSERT_TRUE(declaration.scalar);
+      EXPECT_EQ(declaration.scalar->fixed_value, "3");
+      EXPECT_THROW(declaration.scalar->compiled_facets->validate("1"), std::invalid_argument);
+      EXPECT_NO_THROW(declaration.scalar->compiled_facets->validate("3"));
+    } else if (declaration.qualified_name.local == "tag") {
+      EXPECT_TRUE(declaration.attribute);
+      ASSERT_TRUE(declaration.scalar);
+      EXPECT_EQ(declaration.scalar->fixed_value, "ok");
+    }
+  }
+  EXPECT_EQ(schema.bind(owner(model)).declarations, first.declarations);
+}
+
+// Inline using-schema wrappers share the original owner's inventory cache and self-root records avoid cycles.
+TEST(xml_xsd_contract, inline_validating_inventory_cache_reuses_self_root) {
+  xsd_directory files;
+  const auto path = files.write("root.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="order"><xs:complexType><xs:sequence><xs:element name="value" type="xs:unsignedShort"/><xs:any namespace="##any" processContents="lax" minOccurs="0" maxOccurs="unbounded"/></xs:sequence></xs:complexType></xs:element></xs:schema>)");
+  const auto model = parse("serializer version 1.20.0; namespace models { using schema \"" +
+      path.generic_string() + "\"; class order { public uint16 value; } }");
+  const auto& source = static_cast<const class_node&>(*static_cast<const rohit::serializer::namespace_node&>(*model.front()).statements.front());
+  const binding::schema schema{binding::effective_options(model, {})};
+  const auto first = schema.bind(source);
+  const auto second = schema.bind(source);
+  ASSERT_TRUE(first.declarations);
+  EXPECT_EQ(first.declarations, second.declarations);
+  ASSERT_EQ(first.declarations->globals.size(), 1U);
+  EXPECT_EQ(first.declarations->globals.front().validator_index, 0U);
+  ASSERT_EQ(first.declarations->validators.size(), 1U);
+  EXPECT_FALSE(first.declarations->validators.front().declarations);
+  EXPECT_TRUE(first.declarations->statements().empty());
+}
+
+// Nested validating wildcards expand the shared inventory and nil DTOs still enforce original attributes.
+TEST(xml_xsd_contract, validating_inventory_expands_nested_slots_and_retains_nil_attributes) {
+  xsd_directory files;
+  files.write("foreign.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:f="urn:foreign" targetNamespace="urn:foreign" elementFormDefault="qualified"><xs:complexType name="Detail"><xs:sequence><xs:element name="count" type="xs:unsignedShort"/><xs:any namespace="##local" processContents="strict" minOccurs="0" maxOccurs="unbounded"/></xs:sequence><xs:attribute name="tag" type="xs:token" use="required" fixed="ok"/></xs:complexType><xs:element name="detail" type="f:Detail" nillable="true"/></xs:schema>)");
+  const auto path = files.write("root.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:import namespace="urn:foreign" schemaLocation="foreign.xsd"/><xs:element name="extra" type="xs:integer" fixed="3"/><xs:element name="order"><xs:complexType><xs:sequence><xs:element name="value" type="xs:unsignedShort"/><xs:any namespace="urn:foreign" processContents="strict" minOccurs="0" maxOccurs="unbounded"/></xs:sequence></xs:complexType></xs:element></xs:schema>)");
+  const auto model = parse("serializer version 1.20.0; class order { public uint16 value; }");
+  const auto options = fixed(path);
+  const binding::schema initial{options};
+  const auto inventory = initial.bind(owner(model)).declarations;
+  ASSERT_TRUE(inventory);
+  const binding::schema reused{options, std::span{&inventory, 1U}};
+  EXPECT_EQ(reused.bind(owner(model)).declarations, inventory);
+  const auto detail = std::find_if(inventory->globals.begin(), inventory->globals.end(), [](const auto& global) {
+    return global.qualified_name.local == "detail";
+  });
+  ASSERT_NE(detail, inventory->globals.end());
+  EXPECT_EQ(detail->declared_type, (xml::name{"Detail", "urn:foreign"}));
+  ASSERT_TRUE(detail->nil_validator_index);
+  const auto& nil = inventory->validators.at(*detail->nil_validator_index);
+  ASSERT_EQ(nil.fields.size(), 1U);
+  EXPECT_TRUE(nil.fields.front().attribute);
+  EXPECT_EQ(nil.fields.front().min_occurs, 1U);
+  EXPECT_EQ(nil.fields.front().fixed_value, "ok");
+  EXPECT_TRUE(nil.wildcards.empty());
+  EXPECT_FALSE(nil.particles);
+  const auto extra = std::find_if(inventory->globals.begin(), inventory->globals.end(), [](const auto& global) {
+    return global.qualified_name == xml::name{"extra", ""};
+  });
+  ASSERT_NE(extra, inventory->globals.end());
+  EXPECT_EQ(extra->fixed_value, "3");
+  EXPECT_EQ(extra->declared_type, (xml::name{"integer", "http://www.w3.org/2001/XMLSchema"}));
+  ASSERT_TRUE(extra->validator_index);
+  EXPECT_TRUE(inventory->validators.at(*extra->validator_index).fields.front().text);
+}
+
+// Root xsi:type alternatives use pinned derivation chains while block rules retain their authority.
+TEST(xml_xsd_contract, validating_inventory_compiles_derived_types_and_element_blocks) {
+  xsd_directory files;
+  files.write("extra.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:new"><xs:element name="marker" type="xs:boolean"/></xs:schema>)");
+  files.write("foreign.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:f="urn:foreign" targetNamespace="urn:foreign" elementFormDefault="qualified"><xs:import namespace="urn:new" schemaLocation="extra.xsd"/><xs:complexType name="Base" abstract="true"><xs:attribute name="tag" type="xs:token" use="required"/></xs:complexType><xs:complexType name="Derived"><xs:complexContent><xs:extension base="f:Base"><xs:sequence><xs:element name="count" type="xs:unsignedShort"/><xs:any namespace="urn:new" processContents="strict" minOccurs="0" maxOccurs="1"/></xs:sequence></xs:extension></xs:complexContent></xs:complexType><xs:element name="head" type="f:Base" nillable="true"/><xs:element name="closed" type="f:Base" block="extension"/></xs:schema>)");
+  const auto path = files.write("root.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:import namespace="urn:foreign" schemaLocation="foreign.xsd"/><xs:element name="order"><xs:complexType><xs:sequence><xs:element name="value" type="xs:unsignedShort"/><xs:any namespace="urn:foreign" processContents="lax" minOccurs="0" maxOccurs="unbounded"/></xs:sequence></xs:complexType></xs:element></xs:schema>)");
+  const auto model = parse("serializer version 1.20.0; class order { public uint16 value; }");
+  const binding::schema schema{fixed(path)};
+  const auto inventory = schema.bind(owner(model)).declarations;
+  ASSERT_TRUE(inventory);
+  const auto head = std::find_if(inventory->globals.begin(), inventory->globals.end(), [](const auto& global) {
+    return global.qualified_name.local == "head";
+  });
+  ASSERT_NE(head, inventory->globals.end());
+  EXPECT_TRUE(head->abstract_type);
+  ASSERT_EQ(head->type_validators.size(), 1U);
+  const auto& derived = head->type_validators.front();
+  EXPECT_EQ(derived.qualified_name, (xml::name{"Derived", "urn:foreign"}));
+  EXPECT_FALSE(derived.abstract_type);
+  ASSERT_TRUE(derived.nil_validator_index);
+  const auto& ordinary = inventory->validators.at(derived.validator_index);
+  ASSERT_EQ(ordinary.fields.size(), 2U);
+  EXPECT_EQ(std::count_if(ordinary.fields.begin(), ordinary.fields.end(), [](const auto& value) { return value.attribute; }), 1);
+  const auto& nil = inventory->validators.at(*derived.nil_validator_index);
+  ASSERT_EQ(nil.fields.size(), 1U);
+  EXPECT_TRUE(nil.fields.front().attribute);
+  const auto closed = std::find_if(inventory->globals.begin(), inventory->globals.end(), [](const auto& global) {
+    return global.qualified_name.local == "closed";
+  });
+  ASSERT_NE(closed, inventory->globals.end());
+  EXPECT_TRUE(closed->type_validators.empty());
+  EXPECT_NE(std::find_if(inventory->globals.begin(), inventory->globals.end(), [](const auto& global) {
+    return global.qualified_name == xml::name{"marker", "urn:new"};
+  }), inventory->globals.end());
 }

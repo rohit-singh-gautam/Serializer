@@ -16,6 +16,24 @@ ROOT=Path(__file__).resolve().parent.parent
 
 class javascript_xml_projection_test(unittest.TestCase):
     """Use actual owning models, scoped getters, native wire controls and independent XML namespace checks."""
+    def test_scoped_qname_namespace_and_byte_failure_recovery(self):
+        """Keep view-only namespace presentation outside borrowed strings and every native wire format."""
+        output=json.loads(self.run_node('''
+        const source=new Model.XmlProjectionQualifiedSource();source.current.value='p:borrowed';
+        const native=Object.values(Model.Protocol).map(protocol=>source.current.encode(protocol));
+        const output=source.withProject(view=>{
+          assert.equal(view.getValue(),source.current.value);assert.throws(()=>view.encodeXml());
+          view.xmlBindNamespace('p','urn:borrowed');const output=view.encodeXml(),length=new TextEncoder().encode(output).length;
+          assert.equal(view.encodeXml(new Model.XmlLimits({maxBytes:length})),output);
+          let published='previous output';assert.throws(()=>{published=view.encodeXml(new Model.XmlLimits({maxBytes:length-1}));});
+          assert.equal(published,'previous output');assert.equal(view.encodeXml(),output);
+          for(const [index,protocol] of Object.values(Model.Protocol).entries())assert.deepEqual(view.encode(protocol),native[index]);
+          return output;
+        });console.log(JSON.stringify(output));
+        '''))
+        root=self.provider.fromstring(output.encode());prefix,local=root.text.split(':')
+        self.assertEqual((root.nsmap[prefix],local),('urn:borrowed','borrowed'))
+
     def run_node(self,body):
         """Execute generated modules with the retained DOM reader disabled and explicit GC for weak-owner checks."""
         script=self.directory/'probe.mjs'
@@ -93,6 +111,8 @@ class javascript_xml_projection_test(unittest.TestCase):
         try{
           output=owner.withProject(view=>exportView(view));const length=new TextEncoder().encode(output).length;
           assert.equal(owner.withProject(view=>exportView(view,new Guarded.XmlLimits({maxBytes:length}))),output);
+          assert.equal(owner.withProject(view=>exportView(view,new Guarded.XmlLimits({maxDepth:3}))),output);
+          assert.throws(()=>owner.withProject(view=>exportView(view,new Guarded.XmlLimits({maxDepth:2}))));
           let published='previous output';assert.throws(()=>{published=owner.withProject(view=>exportView(view,new Guarded.XmlLimits({maxBytes:length-1})));});
           assert.equal(published,'previous output');assert.equal(owner.withProject(view=>exportView(view)),output);
         }finally{globalThis.srlProjectionForbidTargetConstruction=false;}
@@ -146,11 +166,13 @@ class javascript_xml_projection_test(unittest.TestCase):
     def test_actual_typescript_scoped_view_exports(self):
         """Compile a strict consumer with unchanged native getter/array/reference types and the XML view API."""
         source=self.directory/'typed.mts'
-        source.write_text("import {XmlProjectionSource,XmlProjectionEnvelope,XmlProjectionPayload,XmlLimits} from './model.mjs';\n"
+        source.write_text("import {XmlProjectionSource,XmlProjectionQualifiedSource,XmlProjectionEnvelope,XmlProjectionPayload,XmlLimits} from './model.mjs';\n"
                           "const source=new XmlProjectionSource();source.current.number=7;source.current.label='typed';\n"
                           "const output:string=source.withProject(view=>{const value:number=view.getNumber();return view.xmlBindNamespace('p','urn:typed').encodeXml(new XmlLimits());});\n"
                           "const owner=new XmlProjectionEnvelope();owner.value.bind(source);owner.label.bind(source);const selected:XmlProjectionPayload=owner.value.readValue();\n"
                           "if(selected.number!==7||XmlProjectionPayload.decodeXml(output).number!==7)throw new Error('typed projection');\n"
+                          "const qualified=new XmlProjectionQualifiedSource();qualified.current.value='p:borrowed';\n"
+                          "const names:string=qualified.withProject(view=>{const borrowed:string=view.getValue();if(borrowed!==qualified.current.value)throw new Error('typed QName getter');return view.xmlBindNamespace('p','urn:borrowed').encodeXml();});if(!names.includes('urn:borrowed'))throw new Error('typed QName namespace');\n"
                           "let canceled=false;let failed=false;const marker=new Error('typed late projection cancellation');\n"
                           "try{source.withProject(view=>view.encodeXml(new XmlLimits({operation(){if(canceled)throw marker;}}),{validate(){canceled=true;}}));}\n"
                           "catch(error){if(error!==marker)throw error;failed=true;}if(!canceled||!failed)throw new Error('typed projection escaped cancellation');\n",encoding='utf-8')

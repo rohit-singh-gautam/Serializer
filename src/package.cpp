@@ -415,13 +415,24 @@ std::uint64_t budget::available_buffer_bytes() const noexcept {
 
 // Let original callback exceptions escape before constructing any runtime interruption error.
 std::optional<error_code> budget::interruption() const {
-  if (limits_.is_cancelled && limits_.is_cancelled()) {
-    return error_code::cancelled;
+  callback_failure_ = {};
+  if (limits_.is_cancelled) {
+    try {
+      if (limits_.is_cancelled()) { return error_code::cancelled; }
+    } catch (...) {
+      callback_failure_ = std::current_exception();
+      throw;
+    }
   }
   if (limits_.deadline && std::chrono::steady_clock::now() >= *limits_.deadline) {
     return error_code::deadline_exceeded;
   }
   return {};
+}
+
+// A package codec must not translate exceptions originating in caller policy code.
+void budget::rethrow_callback_failure() const {
+  if (callback_failure_) { std::rethrow_exception(callback_failure_); }
 }
 
 // Poll cancellation without introducing implicit global policy.

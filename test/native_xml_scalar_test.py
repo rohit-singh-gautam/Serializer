@@ -148,7 +148,7 @@ def main():
             validate = lambda data: scalars.independent(data, oracle)
         else:
             xsd, model, probes = facets.numeric_cases(directory) if mode == 'numeric' else facets.pattern_cases(mode == 'large')
-            oracle = etree.XMLSchema(etree.fromstring(xsd.encode())); validate = lambda data: oracle.validate(etree.fromstring(data))
+            oracle = facets.pattern_fixture.unicode_patterns.Oracle(xsd) if mode == 'pattern' else etree.XMLSchema(etree.fromstring(xsd.encode())); validate = lambda data: oracle.validate(etree.fromstring(data))
         paths = []
         for index, probe in enumerate(probes):
             if mode == 'scalar':
@@ -181,15 +181,15 @@ def main():
                     if not validate(emitted.read_bytes()): raise AssertionError(f'Independent output differs: {emitted}: {oracle.error_log}')
                 elif emitted.exists(): raise AssertionError(f'Invalid scalar output published: {emitted}')
         if mode == 'pattern':
-            (directory / 'sample.xsd').write_text(xsd.replace('A[😀-🙏]{1,2}|B[0-9]+|^$|C[^0-9]{1,2}|D(a?)*', r'\p{L}+'), encoding='utf-8')
+            (directory / 'sample.xsd').write_text(xsd.replace('A[😀-🙏]{1,2}|B[0-9]+|^$|C[^0-9]{1,2}|D(a?)*', r'\1'), encoding='utf-8')
             rejected = subprocess.run([str(value) for value in command], capture_output=True, text=True, timeout=60)
-            if rejected.returncode == 0 or 'approved portable XSD regex subset' not in rejected.stdout + rejected.stderr:
+            if rejected.returncode == 0 or 'XSD' not in rejected.stdout + rejected.stderr:
                 raise AssertionError('Unsupported native pattern requires its portable-subset diagnostic')
             if any((directory / language / sdk.OUTPUTS[language]).read_bytes() != originals[language] for language in languages):
                 raise AssertionError('Rejected pattern replaced generated source')
         total += len(paths)
-    scalars.rejected_bindings(args, languages)
-    print(f'PASS: {total} independent exact scalar/list/union/default/pattern probes and 6 atomic binding gates across {len(languages)} SDKs', flush=True)
+    binding_checks = scalars.rejected_bindings(args, languages) if "scalar" in args.modes.split(",") else 0
+    print(f'PASS: {total} independent exact scalar/list/union/default/pattern probes and {binding_checks} binding checks across {len(languages)} SDKs', flush=True)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.27.0 LANGUAGES CXX)
+project(serializer VERSION 2.28.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.21.0)
@@ -10,6 +10,9 @@ list(GET serializer_schema_language_version_components 0 serializer_schema_langu
 list(GET serializer_schema_language_version_components 1 serializer_schema_language_version_minor)
 list(GET serializer_schema_language_version_components 2 serializer_schema_language_version_patch)
 configure_file(cmake/version.hpp.in generated/include/rohit/version.hpp @ONLY)
+# Keep the required third-party notice with emitted XML character-range data.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE-UNICODE" serializer_unicode_license)
+configure_file(cmake/unicode_license.hpp.in generated/private/unicode_license.hpp @ONLY)
 
 # Require at least C++20 while preserving a caller's newer language mode.
 if(NOT DEFINED CMAKE_CXX_STANDARD OR CMAKE_CXX_STANDARD LESS 20)
@@ -74,6 +77,7 @@ add_library(serializer_runtime
   src/xml_event_reader.cpp
   include/rohit/xml_event_reader.hpp
   src/xml_extensions.cpp
+  src/xml_extension_occurrence.hpp
   include/rohit/xml_extensions.hpp
   src/xml_pattern.cpp
   include/rohit/xml_pattern.hpp
@@ -161,8 +165,13 @@ add_library(serializer_lib
   src/xml_native_choice_writer.hpp
   src/xml_native_model_writer.hpp
   src/xml_native_extension_writer.hpp
+  src/xml_native_declaration_writer.hpp
+  src/xml_rust_declaration_writer.hpp
   src/xml_c_extension_runtime.inc
+  src/c_xml_extension_operation_runtime.inc
   src/xml_rust_extension_runtime.inc
+  src/xml_rust_extension_operation_runtime.inc
+  src/xml_rust_declaration_runtime.inc
   src/xml_native_identity_writer.hpp
   src/xml_native_extension_frames.hpp
   src/xml_c_identity_runtime.inc
@@ -176,8 +185,12 @@ add_library(serializer_lib
   src/xml_mobile_extension_writer.hpp
   src/xml_portable_extension_writer.hpp
   src/xml_java_extension_runtime.inc
+  src/xml_java_declarations_runtime.inc
   src/xml_csharp_extension_runtime.inc
+  src/xml_csharp_declarations_runtime.inc
   src/xml_go_extension_runtime.inc
+  src/xml_go_declarations_runtime.inc
+  src/xml_portable_declarations_writer.hpp
   src/xml_native_writer.hpp
   src/xml_js_writer.hpp
   src/xml_js_token_runtime.inc
@@ -415,6 +428,7 @@ target_include_directories(serializer_runtime PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated/include>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
 )
+target_include_directories(serializer_lib PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/private")
 target_compile_features(serializer_runtime PUBLIC cxx_std_20)
 target_compile_definitions(serializer_runtime PRIVATE
   SERIALIZER_ENABLE_SIMD=$<BOOL:${SERIALIZER_ENABLE_SIMD}>
@@ -581,7 +595,7 @@ if(SERIALIZER_INSTALL)
       cmake/serializer_compression.cmake
       DESTINATION "${package_directory}")
   endforeach()
-  install(FILES LICENSE LICENSE-RUNTIME LICENSE-GENERATED
+  install(FILES LICENSE LICENSE-RUNTIME LICENSE-GENERATED LICENSE-UNICODE
     DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/Serializer")
 endif()
 

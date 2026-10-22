@@ -83,7 +83,12 @@ func (composer *srlPackageComposer) binaries(role srlPackageRole,values []Serial
   if err=composer.begin();err!=nil { return err };complete:=false;defer func(){composer.leave(&err,complete)}()
   if err=srlPackageOccurs(role,len(values));err!=nil { return err };discovered:=[]string{}
   for index,item:=range values {
-    if err=composer.state.poll();err!=nil { return err };name,media,source,failure:=composer.metadata(role,item.Name,item.ContentType,item.SourceIndex);if failure!=nil { return failure }
+    if err=composer.state.poll();err!=nil { return err }
+    if item.ContentType==""&&(role.targetMode=="external"||role.targetMode=="both"){
+      if len(item.Data)!=0{return srlPackageFailure(SerializerPackageInvalidOptions,"External role cannot carry payload bytes",item.Name)};if _,failure:=srlPackageParseURI(item.Name,false);failure!=nil{return failure};source,failure:=composer.parent(role,item.SourceIndex,item.Name);if failure!=nil{return failure};if err=composer.state.consume(SerializerPackageWorkUnits,int64(len(item.Name))+1,source);err!=nil{return err};if err=composer.reserve(256+int64(len(item.Name)),source);err!=nil{return err};id:=role.id;if id==""{id="srl_"+role.field+"_"+srlPackageStrconv.Itoa(index)};composer.links=append(composer.links,SerializerPackageRelationship{Source:source,ID:id,Type:role.relationship,Target:item.Name,Mode:"external"});continue
+    }
+    if role.targetMode=="external"{return srlPackageFailure(SerializerPackageInvalidOptions,"External role requires an inert URI and empty content type",item.Name)}
+    name,media,source,failure:=composer.metadata(role,item.Name,item.ContentType,item.SourceIndex);if failure!=nil { return failure }
     if int64(len(item.Data))>composer.state.budget.limits.MaxPartBytes { return srlPackageFailure(SerializerPackageResourceLimit,"Binary role exceeds part limit",name) }
     if err=composer.reserve(int64(len(item.Data)),name);err!=nil { return err };data:=append([]byte(nil),item.Data...)
     if err=composer.add(role,data,name,media,source,item.SourceIndex,index);err!=nil { return err };discovered=append(discovered,name)
@@ -91,13 +96,24 @@ func (composer *srlPackageComposer) binaries(role srlPackageRole,values []Serial
   composer.sources[role.field]=discovered;if err=composer.state.poll();err!=nil { return err };complete=true;return nil
 }
 // finish snapshots independently retained extensions and validates their edited graph before canonical publication.
-func (composer *srlPackageComposer) finish(extensions SerializerPackageExtensions) (data []byte,err error) {
+func (composer *srlPackageComposer) finish(extensions SerializerPackageExtensions,renames ...[]SerializerPackagePartRename) (data []byte,err error) {
   if err=composer.begin();err!=nil { return nil,err };complete:=false;defer func(){composer.leave(&err,complete)}()
   for _,part:=range extensions.Parts {
     if err=composer.state.poll();err!=nil { return nil,err };if int64(len(part.Data))>composer.state.budget.limits.MaxPartBytes { return nil,srlPackageFailure(SerializerPackageResourceLimit,"Preserved part exceeds limit",part.Name) }
     if err=composer.reserve(256+int64(len(part.Data)),part.Name);err!=nil { return nil,err };part.Data=append([]byte(nil),part.Data...);composer.parts=append(composer.parts,part)
   }
-  for _,link:=range extensions.Relationships { if err=composer.reserve(256,link.Source);err!=nil { return nil,err };composer.links=append(composer.links,link) }
+  moves:=map[string]string{};absent:=map[string]bool{};destinations:=map[string]string{}
+  if len(renames)>1{return nil,srlPackageFailure(SerializerPackageInvalidOptions,"Too many dynamic rename plans","")}
+  if len(renames)==1{for _,move:=range renames[0]{
+    if _,err=srlPackagePartName(move.Original,false);err!=nil{return nil,err};if _,err=srlPackagePartName(move.Destination,false);err!=nil{return nil,err}
+    if err=composer.reserve(128+int64(len(move.Original)+len(move.Destination)),move.Original);err!=nil{return nil,err};if err=composer.state.consume(SerializerPackageWorkUnits,int64(len(move.Original)+len(move.Destination)),move.Original);err!=nil{return nil,err}
+    key,destination:=srlPackageFold(move.Original),srlPackageFold(move.Destination);if previous,found:=moves[key];found&&previous!=move.Destination{return nil,srlPackageFailure(SerializerPackageInvalidRelationship,"Conflicting dynamic rename origins",move.Original)};if owner,found:=destinations[destination];found&&owner!=key{return nil,srlPackageFailure(SerializerPackageInvalidRelationship,"Conflicting dynamic rename destinations",move.Destination)}
+    moves[key]=move.Destination;destinations[destination]=key;present:=false;for _,name:=range composer.sources[move.Role]{if srlPackageFold(name)==destination{present=true;break}};absent[key]=!present
+  }}
+  destination:=func(name string)(string,error){key:=srlPackageFold(name);if absent[key]{return "",srlPackageFailure(SerializerPackageMissingPart,"Preserved relationship refers to removed dynamic occurrence",name)};if moved,found:=moves[key];found{return moved,nil};return name,nil}
+  for _,original:=range extensions.Relationships {link:=original;if err=composer.reserve(256,link.Source);err!=nil { return nil,err }
+    if len(moves)>0{if err=composer.state.consume(SerializerPackageWorkUnits,int64(len(link.Source)+len(link.Target)),link.Source);err!=nil{return nil,err};link.Source,err=destination(original.Source);if err!=nil{return nil,err};if link.Mode=="internal"{resolved,failure:=srlPackageTarget(original.Source,original.Target);if failure!=nil{return nil,failure};moved,failure:=destination(resolved);if failure!=nil{return nil,failure};if link.Source!=original.Source||moved!=resolved{suffix:=srlPackageStrings.IndexAny(original.Target,"?#");if suffix<0{suffix=len(original.Target)};if err=composer.reserve(int64(len(moved)+len(original.Target)-suffix),original.Source);err!=nil{return nil,err};link.Target=moved+original.Target[suffix:]}}}
+    composer.links=append(composer.links,link) }
   data,err=srlPackageWriteOPC(composer.parts,composer.links,&composer.state);if err!=nil { return nil,err }
   if err=composer.state.poll();err!=nil { return nil,err };composer.finished=true;complete=true;return data,nil
 }

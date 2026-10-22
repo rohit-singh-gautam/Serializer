@@ -9,6 +9,7 @@ fileprivate final class SrlXmlScalarWork {
     var remaining = srlXmlMaxPatternWork
     let maximumItems: Int
     var namespace: ((String) -> String?)? = nil
+    var selected: SrlXmlRule? = nil
     private let operation: ((String,Int) throws -> Void)?
     // Bind the operation's native list admission bound without changing document limits.
     init(_ maximumItems: Int, _ operation: ((String,Int) throws -> Void)? = nil) { self.maximumItems = maximumItems; self.operation=operation }
@@ -17,6 +18,10 @@ fileprivate final class SrlXmlScalarWork {
         // Union probes must preserve the original caller error rather than treat it as a nonmatching arm.
         do { try operation?("work",count) } catch { throw SrlXmlScalarLimit(message:"",original:error) }
         guard count >= 0 && count <= remaining else { throw SrlXmlScalarLimit(message:"Portable XML regex work limit exceeded") }; remaining -= count
+    }
+    // Admit temporary expanded names before materializing namespace-dependent identities.
+    func allocate(_ count: Int) throws {
+        do { try operation?("allocation",count) } catch { throw SrlXmlScalarLimit(message:"",original:error) }
     }
 }
 // Apply immutable compiler-owned scalar metadata before input conversion or output publication.
@@ -27,6 +32,43 @@ fileprivate final class SrlXmlRule {
     let groups: [[Pattern]], members: [SrlXmlRule]
     let fixed: String?
     private var qnames: [SrlXmlName] = [], qnameLists: [[SrlXmlName]] = []
+    private var unionConstants: [UnionValue] = []
+    private var fixedUnion: UnionValue? = nil
+    private var listItem: SrlXmlRule? = nil
+    // Store immutable prepared atomic/union item rules only for restricted lists.
+    func listItemRule(_ item: SrlXmlRule) -> SrlXmlRule { listItem=item; return self }
+    private var schemaScope: [WireString:String]? = nil
+    private var schemaDefault: String? = nil
+    // Publish trusted static schema aliases without sharing an instance's provider scope.
+    func namespaceDefault(_ text: String, _ scope: [WireString:String]) -> SrlXmlRule { schemaDefault=text; schemaScope=scope; return self }
+    // Substitute schema scope only when an absent attribute or empty element uses its declaration's literal.
+    func inputScope(_ text: String?, _ scope: [WireString:String], _ attribute: Bool) -> [WireString:String] {
+        text == nil || !attribute && text!.isEmpty ? (schemaScope ?? scope) : scope
+    }
+    // Owner defaults may remain absent/empty when their raw spelling and schema vocabulary agree.
+    func matchesDefault(_ text: String, _ scope: [WireString:String]) -> Bool {
+        guard let expected=schemaDefault, let bindings=schemaScope, WireString(text)==WireString(expected) else { return false }
+        return bindings.allSatisfy { prefix,uri in WireString(scope[prefix] ?? "")==WireString(uri) }
+    }
+    // Prevent a native empty lexical string from changing value after default application on replay.
+    func outputScoped(_ raw: String, _ namespace: @escaping (String)->String?, _ maximumItems: Int,
+        _ quota: ((String)->any Swift.Error)?, _ operation: ((String,Int)throws->Void)?) throws -> String {
+        guard !raw.isEmpty || (schemaDefault ?? "").isEmpty else { throw SerializerError.invalid("Empty XML union would activate a different schema default") }
+        return try checkScoped(raw,namespace,maximumItems,quota,operation)
+    }
+    // Retain only selected primitive metadata and expanded names from the original schema scope.
+    struct UnionValue {
+        let rule: SrlXmlRule, text: String, names: [SrlXmlName]
+        let items: [UnionValue]
+        // Complete static preparation without retaining any XML provider or mutable namespace map.
+        init(_ kind: String, _ listKind: String, _ text: String, _ names: [SrlXmlName], _ items: [UnionValue] = []) {
+            rule=SrlXmlRule(kind,"preserve",["","","",""],-1,-1,-1,[],false,[],listKind,[],nil);self.text=text;self.names=names;self.items=items
+        }
+    }
+    // Publish prepared outer enumeration identities together with their complete owning rule.
+    func unionValues(_ values: [UnionValue]) -> SrlXmlRule { unionConstants=values; return self }
+    // Preserve fixed values independently of unrelated instance namespace aliases.
+    func unionFixed(_ value: UnionValue) -> SrlXmlRule { fixedUnion=value; return self }
     // Bind schema-expanded identities during preparation; checks keep operation-local state.
     func namespaceValues(_ names: [SrlXmlName], _ lists: [[SrlXmlName]]) -> SrlXmlRule {
         qnames=names; qnameLists=lists; return self
@@ -165,7 +207,7 @@ R"xmlscalar(            if !space && !item { guard count < maximum else { if let
     }
     // Apply all restrictions using the operation's finite list policy and fresh work allowance.
     func check(_ raw: String, _ maximumItems: Int = srlXmlMaxListItems, _ quota: ((String) -> any Swift.Error)? = nil, _ operation: ((String,Int) throws -> Void)? = nil) throws -> String {
-        do { return try check(raw,SrlXmlScalarWork(maximumItems,operation)) }
+        do { let checked=try check(raw,SrlXmlScalarWork(maximumItems,operation)); return members.isEmpty ? checked : raw }
         catch let error as SrlXmlScalarLimit { if let original=error.original { throw original }; throw srlXmlLimitFailure(quota,error.message) }
     }
     // Resolve QName restrictions against one exact provider or pending output scope.
@@ -173,7 +215,7 @@ R"xmlscalar(            if !space && !item { guard count < maximum else { if let
         _ quota: ((String) -> any Swift.Error)?, _ operation: ((String,Int) throws -> Void)?) throws -> String {
         try operation?("allocation",128+raw.utf8.count*4)
         let work=SrlXmlScalarWork(maximumItems,operation); work.namespace=namespace
-        do { return try check(raw,work) }
+        do { let checked=try check(raw,work); return members.isEmpty ? checked : raw }
         catch let error as SrlXmlScalarLimit { if let original=error.original { throw original }; throw srlXmlLimitFailure(quota,error.message) }
     }
     // Borrow a captured dictionary with copy-on-write storage instead of rebuilding its bindings.
@@ -183,19 +225,19 @@ R"xmlscalar(            if !space && !item { guard count < maximum else { if let
     }
     // Preserve work exhaustion across union probing and inherited restriction groups.
     private func check(_ raw: String, _ work: SrlXmlScalarWork) throws -> String {
-        try work.spend(raw.utf8.count); let text=normalize(raw); try lexical(text)
+        try work.spend(raw.utf8.count); var text=members.isEmpty ? normalize(raw) : raw; if members.isEmpty { try lexical(text) }; var selected=self
         if !members.isEmpty {
             var matched=false
-            for member in members { do { _=try member.check(text,work); matched=true; break } catch let error as SrlXmlScalarLimit { throw error } catch { } }
+            for member in members { do { text=try member.check(text,work); selected=work.selected!; matched=true; break } catch let error as SrlXmlScalarLimit { throw error } catch { } }
             guard matched else { throw SerializerError.invalid("XML union has no matching member") }
         }
         var count=text.unicodeScalars.count
-        if !listKind.isEmpty { let items=try Self.tokens(text,work.maximumItems); count=items.count; let rule=Self.itemRule(listKind); for item in items { _=try rule.check(item,work) } }
+        if !listKind.isEmpty { let items=try Self.tokens(text,work.maximumItems); count=items.count; let rule=listItem ?? Self.itemRule(listKind); for item in items { _=try rule.check(item,work) } }
         guard (length < 0 || count == length) && (minimum < 0 || count >= minimum) && (maximum < 0 || count <= maximum) else { throw SerializerError.invalid("XML length facet failed") }
         for index in bounds.indices where !bounds[index].isEmpty {
             guard let order=try compare(text,bounds[index]), index == 0 ? order >= 0 : index == 1 ? order <= 0 : index == 2 ? order > 0 : order < 0 else { throw SerializerError.invalid("XML numeric facet failed") }
         }
-        if !enumeration.isEmpty && qnames.isEmpty && qnameLists.isEmpty { var matched=false; for value in enumeration { if try compare(text,normalize(value)) == 0 { matched=true; break } }; guard matched else { throw SerializerError.invalid("XML enumeration facet failed") } }
+        if !enumeration.isEmpty && qnames.isEmpty && qnameLists.isEmpty { var matched=false; for (index,value) in enumeration.enumerated() { if try !unionConstants.isEmpty ? constantEqual(text,selected,unionConstants[index],work) : members.isEmpty ? compare(text,normalize(value)) == 0 : unionEqual(text,selected,value,work) { matched=true; break } }; guard matched else { throw SerializerError.invalid("XML enumeration facet failed") } }
         if let namespace=work.namespace, kind == "QName" || listKind == "QName" {
             let items=listKind == "QName" ? try Self.tokens(text,work.maximumItems) : [text]
             let names=try items.map { item -> SrlXmlName in
@@ -218,10 +260,42 @@ R"xmlscalar(            if !space && !item { guard count < maximum else { if let
                 guard matched else { throw SerializerError.invalid("XML QName-list enumeration facet failed") }
             }
         }
-        if let fixed=fixed { guard try compare(text,normalize(fixed)) == 0 else { throw SerializerError.invalid("XML fixed value differs") } }
+        if let fixed=fixed { guard try fixedUnion != nil ? constantEqual(text,selected,fixedUnion!,work) : members.isEmpty ? compare(text,normalize(fixed)) == 0 : unionEqual(text,selected,fixed,work) else { throw SerializerError.invalid("XML fixed value differs") } }
         if finite { let value=kind == "float" ? Double(try srlXmlFloat32(text)) : try srlXmlFloat(text); guard value.isFinite else { throw SerializerError.invalid("XML finite facet failed") } }
         for group in groups { var matched=false; for pattern in group { if try pattern.matches(text,work) { matched=true; break } }; guard matched else { throw SerializerError.invalid("XML portable pattern facet failed") } }
-        return text
+        work.selected=selected; return text
+    }
+    // Distinguish XSD primitive spaces independently of the authored union alternative.
+    private func valueFamily() -> String {
+        if !listKind.isEmpty { return "list:"+Self.itemRule(listKind).valueFamily() }
+        if integerKind() || kind == "decimal" { return "decimal" }
+        return ["boolean","float","double","anyURI","QName"].contains(kind) ? kind : "string"
+    }
+    // Compare exact normalized scalar/list identities without numeric rounding.
+    private func identityEqual(_ first: String, _ other: SrlXmlRule, _ second: String, _ work: SrlXmlScalarWork) throws -> Bool {
+        try work.spend(first.utf8.count+second.utf8.count+1); guard valueFamily()==other.valueFamily() else { return false }
+        if !listKind.isEmpty { let left=try Self.tokens(first,work.maximumItems), right=try Self.tokens(second,work.maximumItems);guard left.count==right.count else {return false};let item=Self.itemRule(listKind),otherItem=Self.itemRule(other.listKind);for index in left.indices {if try !item.identityEqual(left[index],otherItem,right[index],work) {return false}};return true }
+        return valueFamily()=="decimal" ? decimalOrder(first,second)==0 : try compare(first,second)==0
+    }
+    // Resolve schema literals through the same ordered member contracts as the instance.
+    private func unionEqual(_ text: String, _ selected: SrlXmlRule, _ allowed: String, _ work: SrlXmlScalarWork) throws -> Bool {
+        for member in members { let expected: String;do {expected=try member.check(allowed,work)} catch let error as SrlXmlScalarLimit {throw error} catch {continue};return try selected.identityEqual(text,work.selected!,expected,work) };return false
+    }
+    // Preserve selected primitive shape while comparing schema-expanded ordered QName identities.
+    private func constantEqual(_ text: String, _ selected: SrlXmlRule, _ expected: UnionValue, _ work: SrlXmlScalarWork) throws -> Bool {
+        if selected.listKind.isEmpty != expected.rule.listKind.isEmpty { return false }
+        if !selected.listKind.isEmpty && (!expected.items.isEmpty || expected.text.isEmpty) {
+            let values=try Self.tokens(text,work.maximumItems);guard values.count==expected.items.count else {return false}
+            let item=selected.listItem ?? Self.itemRule(selected.listKind)
+            for index in values.indices {let value=try item.check(values[index],work);if try !constantEqual(value,work.selected!,expected.items[index],work) {return false}};return true
+        }
+        guard selected.valueFamily()==expected.rule.valueFamily() else {return false}
+        if selected.kind != "QName" && selected.listKind != "QName" {return try selected.identityEqual(text,expected.rule,expected.text,work)}
+        guard let namespace=work.namespace else {throw SerializerError.invalid("Missing XML union namespace scope")}
+        let items=selected.listKind=="QName" ? try Self.tokens(text,work.maximumItems) : [text]
+        try work.allocate(items.count*64+text.utf8.count*4);guard items.count==expected.names.count else {return false}
+        for index in items.indices {guard let name=srlXmlTypeQName(items[index],namespace) else {throw SerializerError.invalid("Invalid XML union QName")};try work.spend(name.local.utf8.count+name.namespace.utf8.count+1);if name != expected.names[index] {return false}}
+        return true
     }
     // Avoid activating a nonempty default while preserving normalized empty authored values.
     func output(_ raw: String, _ fallback: String, _ maximumItems: Int = srlXmlMaxListItems, _ quota: ((String) -> any Swift.Error)? = nil, _ operation: ((String,Int) throws -> Void)? = nil) throws -> String {

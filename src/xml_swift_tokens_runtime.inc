@@ -22,6 +22,7 @@ fileprivate final class SrlXmlTokenFrame {
     let name: SrlXmlName
     var identity: SrlXmlIdentity?
     var knownChildren: [SrlXmlName] = []
+    var knownChildAvailable: ((SrlXmlName) -> Bool)?
     var foreignChild: ((SrlXmlName, [SrlXmlAttribute], () -> [WireString:String]) throws -> SrlXmlTokenFrame)?
     var scopeStart: (([WireString:String]) throws -> Void)?
     var namespaceValue = false
@@ -87,6 +88,7 @@ fileprivate func srlXmlScalarFrame(_ name: SrlXmlName, _ attributes: [SrlXmlAttr
 R"serializer(
 // Feed generated owning frames directly from Foundation's non-resolving SAX provider.
 fileprivate final class SrlXmlTokenParser: NSObject, XMLParserDelegate {
+    private let limits: XmlLimits
     private let budget: SrlXmlBudget
     private let lexical: SrlXmlLexicalAttributes
     private let rootFactory: (SrlXmlName, [SrlXmlAttribute]) throws -> SrlXmlTokenFrame
@@ -98,7 +100,7 @@ fileprivate final class SrlXmlTokenParser: NSObject, XMLParserDelegate {
     private(set) var complete = false
     // Bind one provider operation; all state remains local to synchronous parsing.
     init(_ bytes: [UInt8], _ limits: XmlLimits, _ factory: @escaping (SrlXmlName, [SrlXmlAttribute]) throws -> SrlXmlTokenFrame) {
-        budget = SrlXmlBudget(limits); lexical = SrlXmlLexicalAttributes(bytes); rootFactory = factory
+        budget = SrlXmlBudget(limits); self.limits = limits; lexical = SrlXmlLexicalAttributes(bytes); rootFactory = factory
     }
     // Stop owning work after the first failure without reentering FoundationXML.abortParsing:
     // Swift 6.4 Windows can invalidate its input cursor when aborted inside escaped-text callbacks.
@@ -153,12 +155,30 @@ fileprivate final class SrlXmlTokenParser: NSObject, XMLParserDelegate {
             }
             let frame: SrlXmlTokenFrame
             if let parent = stack.last {
-                if let foreign = parent.foreignChild, !parent.knownChildren.contains(name) {
+                if let foreign = parent.foreignChild, !parent.knownChildren.contains(name) || parent.knownChildAvailable?(name) == false {
                     frame = try foreign(name, attributes, { self.prefixes.compactMapValues { $0.last } })
                 } else { frame = try parent.child(name, attributes) }
             }
             else {
                 guard !rootSeen else { throw SerializerError.invalid("Multiple XML roots") }
+                if let understood = limits.srlPackageVocabularies {
+                    let typeName=SrlXmlName(local:"type",namespace:"http://www.w3.org/2001/XMLSchema-instance")
+                    guard !limits.srlPackageRequiresType || attributes.contains(where:{$0.name == typeName}) else { throw SerializerError.invalid("Required package XML type is missing") }
+                    let marker=SrlXmlName(local:"MustUnderstand",namespace:"http://schemas.openxmlformats.org/markup-compatibility/2006")
+                    if let selected=attributes.first(where:{$0.name == marker}) {
+                        var count=0
+                        for token in selected.value.split(whereSeparator:{$0 == " " || $0 == "\t" || $0 == "\r" || $0 == "\n"}) {
+                            try limits.srlPackageConsume?("allocation",token.utf8.count)
+                            let prefix=String(token); try limits.srlPackageConsume?("work",prefix.utf8.count+1)
+                            guard srlXmlNcName(prefix), let uri=self.prefixes[WireString(prefix)]?.last, !uri.isEmpty else { throw SerializerError.invalid("Invalid or unbound package capability prefix") }
+                            var found=false
+                            for candidate in understood { try limits.srlPackageConsume?("work",uri.utf8.count+candidate.utf8.count+1); if WireString(uri) == WireString(candidate) { found=true; break } }
+                            guard found else { throw SerializerError.invalid("Required package vocabulary is not understood") }; count += 1
+                        }
+                        guard count > 0 else { throw SerializerError.invalid("Empty package capability declaration") }
+                        attributes.removeAll(where:{$0.name == marker})
+                    }
+                }
                 rootSeen = true; frame = try rootFactory(name, attributes)
             }
             if let start = frame.scopeStart {
@@ -252,6 +272,8 @@ fileprivate func srlXmlDecodeTokens<T>(_ bytes: [UInt8], _ limits: XmlLimits, _ 
     var digestLimits=digestLimits;digestLimits.srlPackageLimit=limits.srlPackageLimit
     var identityLimits=identityLimits;identityLimits.srlPackageLimit=limits.srlPackageLimit;identityLimits.srlPackageConsume=limits.srlPackageConsume
     var extensionOptions=extensionOptions;extensionOptions.srlPackageLimit=limits.srlPackageLimit;extensionOptions.srlPackageConsume=limits.srlPackageConsume
+    extensionOptions.srlDeclarationPolicy=SrlXmlDeclarationPolicy(limits,mapLimits,mixedLimits,digestLimits,identityLimits)
+    extensionOptions.srlDeclarationTemporary=limits.srlDeclarationTemporary
     try mapLimits.validate()
     try mixedLimits.validate()
     try digestLimits.validate()

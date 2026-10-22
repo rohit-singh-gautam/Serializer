@@ -3,6 +3,7 @@
 #pragma once
 
 #include <rohit/serializer.hpp>
+#include <rohit/xml_name.hpp>
 
 #include <algorithm>
 #include <array>
@@ -75,6 +76,8 @@ enum class unknown_policy { reject, skip, preserve };
 enum class input_encoding_policy { utf8_only, utf8_or_utf16 };
 struct identity_limits;
 struct extension_limits;
+struct extension_contract;
+struct limits;
 
 // Borrow static generated member names through one synchronous nested codec traversal.
 // Callbacks must not retain node pointers or copies of active paths beyond that traversal.
@@ -124,8 +127,28 @@ struct operation_context {
   const name* permitted_root_type{};
   // Classify native/provider-local bounds before unwinding the currently selected field.
   std::function<void(std::size_t, std::size_t, std::string_view, const diagnostic_field*)> limit_location{};
+  // Private declaration DTOs validate foreign content without retaining a second preservation store.
+  bool declaration_validation{false};
+  // Borrow selected complete-document limits through synchronous legacy tree declaration replay.
+  const limits* document_bounds{};
   // Preserve ordinary length_error behavior unless a package bridge supplies a typed failure.
   [[noreturn]] void reject_limit(std::size_t requested, std::size_t available, std::string_view message) const;
+};
+
+// Restore the enclosing document policy after a synchronous nested codec or caller exception.
+class document_bounds_scope {
+  operation_context* context_{};
+  const limits* previous_{};
+public:
+  // A null ordinary context remains null; generated policy owners provide their own stack context.
+  document_bounds_scope(operation_context* context, const limits& bounds) noexcept
+      : context_{context}, previous_{context ? context->document_bounds : nullptr} {
+    if (context_) { context_->document_bounds = &bounds; }
+  }
+  document_bounds_scope(const document_bounds_scope&) = delete;
+  document_bounds_scope& operator=(const document_bounds_scope&) = delete;
+  // The borrowed limits and original context both outlive this scope.
+  ~document_bounds_scope() { if (context_) { context_->document_bounds = previous_; } }
 };
 
 // Copy a linked field path only for location-aware operations, admitting metadata before retention.
@@ -199,6 +222,14 @@ struct extension_store {
 struct extension_store::wrapper_slot {
   name qualified_name{};
   extension_store extensions{};
+};
+
+// Borrow one wildcard payload at its precise native field and known-child boundary.
+struct extension_item_view {
+  const xml::attribute* attribute{};
+  const element* child{};
+  std::size_t before_field{};
+  std::size_t before_child{};
 };
 
 // Empty preserving records retain one pointer; opaque storage is allocated only when data exists.
@@ -291,6 +322,35 @@ void validate_scalar_constraints(std::string_view text, const scalar_constraints
 // Generate a prefix list and its declarations; URI identities survive arbitrary source prefixes.
 [[nodiscard]] std::string qualify_prefix_list(std::span<const std::string> namespaces,
     element& scope);
+
+// Admit root package capability declarations by original prefix scope; preservation never grants understanding.
+inline void validate_package_capabilities(std::string_view lexical,
+    const std::map<std::string, std::string>& bindings,
+    std::span<const std::string> understood, operation_context* context) {
+  std::size_t offset{}, count{};
+  while (offset < lexical.size()) {
+    const auto first = lexical.find_first_not_of(" \t\r\n", offset);
+    if (first == std::string_view::npos) { break; }
+    const auto last = lexical.find_first_of(" \t\r\n", first);
+    const auto prefix = lexical.substr(first, last == std::string_view::npos ? last : last - first);
+    if (context) { context->consume(operation_resource::work_units, prefix.size() + 1U); }
+    if (!is_ncname(prefix)) { throw std::invalid_argument{"Invalid package capability prefix"}; }
+    const auto binding = std::find_if(bindings.begin(), bindings.end(), [&](const auto& item) {
+      if (context) { context->consume(operation_resource::work_units, item.first.size() + prefix.size()); }
+      return item.first == prefix;
+    });
+    if (binding == bindings.end() || binding->second.empty()) { throw std::invalid_argument{"Unbound package capability prefix"}; }
+    const auto selected = std::find_if(understood.begin(), understood.end(), [&](const auto& uri) {
+      if (context) { context->consume(operation_resource::work_units, uri.size() + binding->second.size()); }
+      return uri == binding->second;
+    });
+    if (selected == understood.end()) { throw std::invalid_argument{"Required package vocabulary is not understood"}; }
+    ++count;
+    if (last == std::string_view::npos) { break; }
+    offset = last;
+  }
+  if (count == 0U) { throw std::invalid_argument{"Empty package capability declaration"}; }
+}
 // Validate a built-in XSD lexical type or each item of a built-in scalar list.
 void validate_lexical_value(std::string_view text, std::string_view kind, const element& scope,
     operation_context* context = nullptr);
@@ -340,6 +400,12 @@ inline constexpr std::size_t default_token_chunk_bytes{4096U};
 [[nodiscard]] std::string write(const element& document, limits bounds = {});
 // Emit under an opt-in shared operation context without changing ordinary XML callers.
 [[nodiscard]] std::string write(const element& document, limits bounds, operation_context* context);
+// Replay a borrowed declaration while omitting one already validated root transport attribute.
+[[nodiscard]] std::string write_without_root_attribute(const element& document, const name& excluded,
+    limits bounds, operation_context* context = nullptr);
+// Omit checked nil/type markers during bounded private declaration replay without cloning the tree.
+[[nodiscard]] std::string write_without_root_attributes(const element& document,
+    std::span<const name> excluded, limits bounds, operation_context* context = nullptr);
 
 // A prepared XML Schema regular expression. Matching uses independent provider execution state.
 class prepared_pattern {
@@ -807,6 +873,12 @@ class field_reader {
   std::span<const extension_rule> extension_rules_{};
   mutable std::vector<std::size_t> extension_counts_{};
   mutable bool finished_{};
+  const extension_contract* declaration_contract_{};
+  mutable std::vector<extension_item_view> declaration_items_{};
+  // Translate legacy child-field ordinals into the native field positions used by shared slots.
+  [[nodiscard]] std::size_t declaration_position() const;
+  // Admit a borrowed wildcard view before retaining its temporary traversal metadata.
+  void record_declaration(const attribute* item, const element* child) const;
   // Keep registered core/known declarations strict even when a foreign namespace is permitted.
   [[nodiscard]] bool accepts_extension(const name& value, bool child) const;
   // Charge and enforce the first matching fixed wildcard's occurrence bound.
@@ -822,6 +894,8 @@ class field_reader {
   // Advance exactly one known child while tracking its extension insertion position.
   const element& take_child() { ++known_children_read_; return node_.children[next_child_++]; }
 public:
+  // Validate legacy tree wildcards with the same pinned metadata and operation as direct codecs.
+  void bind_extension_contract(const extension_contract& contract);
   // Copy traversal state while borrowing the same immutable element and optional operation storage.
   field_reader(const field_reader&) = default;
   // Readers cannot rebind their immutable parent element after construction.
@@ -870,10 +944,10 @@ public:
   }
   // Decode explicit empty simpleContent through a trusted schema default without changing ordinary text reads.
   template <typename T> void text_value_or(T& value, std::string_view empty_default,
-      lexical_validator validator = nullptr) {
+      lexical_validator validator = nullptr, const element* default_scope = nullptr) {
     if (!node_.text.empty()) { text_value(value, validator); return; }
     if (!node_.children.empty()) { throw std::invalid_argument{"XML simple content contains children"}; }
-    if (validator) { validator(empty_default, node_, context_); }
+    if (validator) { validator(empty_default, default_scope ? *default_scope : node_, context_); }
     if constexpr (std::same_as<T, std::string>) {
       if (context_) { context_->consume(operation_resource::allocation_bytes, empty_default.size()); }
     }
@@ -884,6 +958,14 @@ public:
     if (!node_.children.empty()) { throw std::invalid_argument{"XML list text contains children"}; }
     if (validator) { validator(node_.text, node_, context_); }
     value = parse_list<T>(node_.text, context_);
+  }
+  // Apply a schema-owned list default only to empty simple content, retaining its original scope.
+  template <typename T> void list_text_value_or(T& value, std::string_view empty_default,
+      lexical_validator validator = nullptr, const element* default_scope = nullptr) {
+    if (!node_.text.empty()) { list_text_value(value, validator); return; }
+    if (!node_.children.empty()) { throw std::invalid_argument{"XML list text contains children"}; }
+    if (validator) { validator(empty_default, default_scope ? *default_scope : node_, context_); }
+    value = parse_list<T>(empty_default, context_);
   }
   // Decode an exact typed list from one required attribute.
   template <typename T> void list_attribute_value(const name& field_name, T& value,
@@ -901,7 +983,8 @@ public:
   }
   // Decode one required/optional attribute; duplicate attributes are rejected by the parser/writer.
   template <typename T> void attribute_value(const name& field_name, T& value,
-      std::optional<std::string_view> absent_default = {}, lexical_validator validator = nullptr) {
+      std::optional<std::string_view> absent_default = {}, lexical_validator validator = nullptr,
+      const element* default_scope = nullptr) {
     for (std::size_t index{}; index < node_.attributes.size(); ++index) {
       if (context_) { context_->consume(operation_resource::work_units, 1U); }
       if (node_.attributes[index].qualified_name != field_name) { continue; }
@@ -924,7 +1007,7 @@ public:
         context_->consume(operation_resource::work_units, absent_default->size());
         context_->consume(operation_resource::allocation_bytes, absent_default->size());
       }
-      if (validator) { validator(*absent_default, node_, context_); }
+      if (validator) { validator(*absent_default, default_scope ? *default_scope : node_, context_); }
       if constexpr (detail::optional_traits<T>::value) {
         typename detail::optional_traits<T>::type candidate{};
         detail::read_scalar(*absent_default, candidate); value = std::move(candidate);
@@ -936,7 +1019,8 @@ public:
   }
   // Decode one scalar/record, optional, or repeated array in declared sequence order.
   template <typename T> void child_value(const name& field_name, T& value,
-      std::optional<std::string_view> empty_default = {}, lexical_validator validator = nullptr) {
+      std::optional<std::string_view> empty_default = {}, lexical_validator validator = nullptr,
+      const element* default_scope = nullptr) {
     active_field_ = next_field_++;
     const auto present = [&] {
       skip_extensions(&field_name);
@@ -947,7 +1031,7 @@ public:
     const auto read_child = [&](const element& child, auto& destination) {
       if (validator) {
         validator(child.text.empty() && empty_default ? *empty_default : std::string_view{child.text},
-            child, context_);
+            child.text.empty() && empty_default && default_scope ? *default_scope : child, context_);
       }
       get_value(child, destination, context_, empty_default);
     };
@@ -1031,6 +1115,10 @@ template <typename T> [[nodiscard]] std::string serialize(
   if constexpr (requires { T::xml_operation_context(context); }) {
     selected_context.emplace(T::xml_operation_context(context)); context = &*selected_context;
   }
+  if constexpr (requires { T::xml_tokens_supported; }) {
+    if (!T::xml_tokens_supported && !context) { selected_context.emplace(); context = &*selected_context; }
+  }
+  document_bounds_scope document_policy{context, bounds};
   auto bytes = [&] {
     if constexpr (detail::requires_complete_tokens<T>) { return serialize_tokens(value, bounds, context); }
     else {
@@ -1058,6 +1146,10 @@ template <typename T> [[nodiscard]] T deserialize(
   if constexpr (requires { T::xml_operation_context(context); }) {
     selected_context.emplace(T::xml_operation_context(context)); context = &*selected_context;
   }
+  if constexpr (requires { T::xml_tokens_supported; }) {
+    if (!T::xml_tokens_supported && !context) { selected_context.emplace(); context = &*selected_context; }
+  }
+  document_bounds_scope document_policy{context, bounds};
   if (schema) {
     if constexpr (T::xml_runtime_xsd) {
       if constexpr (T::xml_validate_input) { schema->validate(bytes, bounds, context); }
@@ -1079,6 +1171,13 @@ template <typename T> [[nodiscard]] T deserialize(
         }
         return true;
       });
+      if (context->understood_namespaces) {
+        std::erase_if(document.attributes, [&](const auto& attribute) {
+          if (attribute.qualified_name != name{"MustUnderstand", "http://schemas.openxmlformats.org/markup-compatibility/2006"}) { return false; }
+          validate_package_capabilities(attribute.value, document.namespace_bindings, *context->understood_namespaces, context);
+          return true;
+        });
+      }
     }
     if (context) { context->consume(operation_resource::allocation_bytes, sizeof(T)); }
     T candidate{};

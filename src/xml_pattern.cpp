@@ -11,6 +11,7 @@
 
 namespace rohit::serializer::xml {
 namespace {
+#include "xml_pattern_unicode.inc"
 constexpr std::uint32_t continuation_mask{0x3fU};
 constexpr std::uint32_t maximum_scalar{0x10ffffU};
 
@@ -67,7 +68,7 @@ struct expression_node {
   bool inverted{}, dot{};
 };
 
-// Parse only the documented subset rather than guessing translations into host dialects.
+// Lower XSD character sets into bounded immutable scalar ranges, independent of host dialects.
 class pattern_parser {
   std::string_view text_{};
   std::size_t offset_{};
@@ -87,7 +88,7 @@ class pattern_parser {
     nodes_.push_back(std::move(value));
     return nodes_.size() - 1U;
   }
-  // Read an escaped singleton; multi-character and Unicode-category escapes are not portable here.
+  // Read an escaped singleton; set escapes are handled separately before this path.
   std::uint32_t character(bool in_class) {
     if (offset_ >= text_.size()) { fail("missing character"); }
     if (text_[offset_] != '\\') { return next_scalar(text_, offset_); }
@@ -98,32 +99,160 @@ class pattern_parser {
     if (value == 'r') { return '\r'; }
     if (value == 't') { return '\t'; }
     const auto escapes = in_class ? std::string_view{"\\|.-^?*+{}()[]"} : std::string_view{"\\|.-^?*+{}()[]"};
-    if (escapes.find(value) == std::string_view::npos) { fail("only singleton punctuation and n/r/t escapes are supported"); }
+    if (escapes.find(value) == std::string_view::npos) { fail("unknown character escape"); }
     return static_cast<unsigned char>(value);
   }
-  // Parse a range class without subtraction, nested classes or locale-dependent categories.
-  std::size_t character_class() {
+  // Admit retained ranges before allocation; all set operations retain sorted disjoint intervals.
+  void range(std::vector<pattern_range>& output, std::uint32_t first, std::uint32_t last) {
+    budget_.consume();
+    budget_.allocate(sizeof(pattern_range));
+    output.push_back({first, last});
+  }
+  // Canonicalize a union before subsequent subtraction, charging sorting before execution.
+  void normalize(std::vector<pattern_range>& ranges) {
+    for (auto width = ranges.size(); width > 1U; width /= 2U) { budget_.consume(ranges.size()); }
+    std::sort(ranges.begin(), ranges.end(), [](const auto& left, const auto& right) {
+      return left.first < right.first || (left.first == right.first && left.last < right.last);
+    });
+    std::size_t size{};
+    for (const auto& selected : ranges) {
+      budget_.consume();
+      if (size && selected.first <= ranges[size - 1U].last + 1U) {
+        ranges[size - 1U].last = std::max(ranges[size - 1U].last, selected.last);
+      } else { ranges[size++] = selected; }
+    }
+    ranges.resize(size);
+  }
+  // Subtract sorted disjoint intervals without enumerating Unicode characters.
+  std::vector<pattern_range> subtract(const std::vector<pattern_range>& base,
+      const std::vector<pattern_range>& removed) {
+    std::vector<pattern_range> output{};
+    std::size_t index{};
+    for (const auto& selected : base) {
+      auto first = selected.first;
+      while (index < removed.size() && removed[index].last < first) { budget_.consume(); ++index; }
+      auto cursor = index;
+      while (cursor < removed.size() && removed[cursor].first <= selected.last) {
+        budget_.consume();
+        if (removed[cursor].first > first) { range(output, first, removed[cursor].first - 1U); }
+        first = std::max(first, removed[cursor].last + 1U);
+        if (first > selected.last) { break; }
+        ++cursor;
+      }
+      if (first <= selected.last) { range(output, first, selected.last); }
+    }
+    return output;
+  }
+  // Complements use the complete scalar domain; input XML character validation remains mandatory.
+  std::vector<pattern_range> complement(const std::vector<pattern_range>& ranges) {
+    return subtract({{0U, maximum_scalar}}, ranges);
+  }
+  // Distinguish actual XSD category/name/shorthand escapes from escaped singleton punctuation.
+  bool set_escape() const {
+    return offset_ + 1U < text_.size() && text_[offset_] == '\\' &&
+        std::string_view{"pPsSiIcCdDwW"}.find(text_[offset_ + 1U]) != std::string_view::npos;
+  }
+  // Expand frozen official Unicode properties and XML 1.0 fifth-edition name character sets.
+  std::vector<pattern_range> escaped_set() {
+    offset_ += 2U;
+    const auto escape = text_[offset_ - 1U];
+    std::vector<pattern_range> ranges{};
+    if (escape == 'p' || escape == 'P') {
+      if (offset_ == text_.size() || text_[offset_++] != '{') { fail("missing Unicode property delimiter"); }
+      const auto start = offset_;
+      while (offset_ < text_.size() && text_[offset_] != '}') { budget_.consume(); ++offset_; }
+      if (offset_ == text_.size()) { fail("unclosed Unicode property"); }
+      const auto property = text_.substr(start, offset_++ - start);
+      if (property.starts_with("Is")) {
+        bool found{};
+        for (const auto& block : unicode_block_ranges) {
+          budget_.consume();
+          if (block.name == property.substr(2U)) { range(ranges, block.first, block.last); found = true; break; }
+        }
+        if (!found) { fail("unknown Unicode block"); }
+      } else {
+        constexpr std::string_view categories{"Lu Ll Lt Lm Lo Mn Mc Me Nd Nl No Pc Pd Ps Pe Pi Pf Po Zs Zl Zp Sm Sc Sk So Cc Cf Cs Co Cn"};
+        const bool major = property.size() == 1U && std::string_view{"LMNPZSC"}.find(property.front()) != std::string_view::npos;
+        const auto location = categories.find(property);
+        const bool minor = property.size() == 2U && location != std::string_view::npos && location % 3U == 0U;
+        if (!major && !minor) { fail("unknown Unicode general category"); }
+        for (const auto& selected : unicode_category_ranges) {
+          budget_.consume();
+          if ((major && selected.category.front() == property.front()) || selected.category == property) {
+            range(ranges, selected.first, selected.last);
+          }
+        }
+      }
+    } else if (escape == 's' || escape == 'S') {
+      range(ranges, '\t', '\n'); range(ranges, '\r', '\r'); range(ranges, ' ', ' ');
+    } else if (escape == 'i' || escape == 'I' || escape == 'c' || escape == 'C') {
+      for (const auto selected : {pattern_range{':', ':'}, {'A', 'Z'}, {'_', '_'}, {'a', 'z'},
+          {0xc0U, 0xd6U}, {0xd8U, 0xf6U}, {0xf8U, 0x2ffU}, {0x370U, 0x37dU}, {0x37fU, 0x1fffU},
+          {0x200cU, 0x200dU}, {0x2070U, 0x218fU}, {0x2c00U, 0x2fefU}, {0x3001U, 0xd7ffU},
+          {0xf900U, 0xfdcfU}, {0xfdf0U, 0xfffdU}, {0x10000U, 0xeffffU}}) {
+        range(ranges, selected.first, selected.last);
+      }
+      if (escape == 'c' || escape == 'C') {
+        range(ranges, '-', '.'); range(ranges, '0', '9'); range(ranges, 0xb7U, 0xb7U);
+        range(ranges, 0x300U, 0x36fU); range(ranges, 0x203fU, 0x2040U);
+      }
+    } else {
+      for (const auto& selected : unicode_category_ranges) {
+        budget_.consume();
+        const bool chosen = escape == 'd' || escape == 'D' ? selected.category == "Nd" :
+            std::string_view{"PZC"}.find(selected.category.front()) == std::string_view::npos;
+        if (chosen) { range(ranges, selected.first, selected.last); }
+      }
+    }
+    normalize(ranges);
+    if (std::string_view{"PSICDW"}.find(escape) != std::string_view::npos) { return complement(ranges); }
+    return ranges;
+  }
+  // Parse union, negation and recursively nested XSD class subtraction with the same depth bound.
+  std::vector<pattern_range> class_ranges(std::size_t depth) {
+    if (depth > limits_.max_nesting_depth) { throw std::length_error{"Portable XML regex nesting limit exceeded"}; }
     ++offset_;
-    expression_node value{};
-    value.kind = expression_kind::character;
-    if (offset_ < text_.size() && text_[offset_] == '^') { value.inverted = true; ++offset_; }
+    std::vector<pattern_range> ranges{};
+    bool inverted{}, any{};
+    if (offset_ < text_.size() && text_[offset_] == '^') { inverted = true; ++offset_; }
     while (offset_ < text_.size() && text_[offset_] != ']') {
-      if (text_[offset_] == '[') { fail("class subtraction and nested classes are unsupported"); }
+      if (text_[offset_] == '-' && offset_ + 1U < text_.size() && text_[offset_ + 1U] == '[') {
+        if (!any) { fail("class subtraction requires a base"); }
+        normalize(ranges);
+        if (inverted) { ranges = complement(ranges); }
+        ++offset_;
+        const auto removed = class_ranges(depth + 1U);
+        if (offset_ == text_.size() || text_[offset_] != ']') { fail("class subtraction must be last"); }
+        ++offset_;
+        return subtract(ranges, removed);
+      }
+      if (text_[offset_] == '[') { fail("nested classes require subtraction"); }
+      if (set_escape()) {
+        const auto selected = escaped_set();
+        for (const auto& item : selected) { range(ranges, item.first, item.last); }
+        if (offset_ + 1U < text_.size() && text_[offset_] == '-' &&
+            text_[offset_ + 1U] != '[' && text_[offset_ + 1U] != ']') {
+          fail("range endpoints must be singleton characters");
+        }
+        any = true;
+        continue;
+      }
       const auto first = character(true);
       auto last = first;
-      if (offset_ < text_.size() && text_[offset_] == '-' && offset_ + 1U < text_.size() && text_[offset_ + 1U] != ']') {
+      if (offset_ < text_.size() && text_[offset_] == '-' && offset_ + 1U < text_.size() &&
+          text_[offset_ + 1U] != ']' && text_[offset_ + 1U] != '[') {
         ++offset_;
-        if (text_[offset_] == '[') { fail("class subtraction is unsupported"); }
+        if (set_escape()) { fail("range endpoints must be singleton characters"); }
         last = character(true);
         if (last < first) { fail("descending character range"); }
       }
-      budget_.consume();
-      budget_.allocate(sizeof(pattern_range));
-      value.ranges.push_back({first, last});
+      range(ranges, first, last);
+      any = true;
     }
-    if (offset_ == text_.size() || value.ranges.empty()) { fail("unterminated or empty character class"); }
+    if (offset_ == text_.size() || !any) { fail("unterminated or empty character class"); }
     ++offset_;
-    return append(std::move(value));
+    normalize(ranges);
+    return inverted ? complement(ranges) : std::move(ranges);
   }
   // Parse one atom and its optional bounded or unbounded repetition.
   std::size_t piece(std::size_t depth) {
@@ -134,11 +263,16 @@ class pattern_parser {
       selected = expression(depth + 1U);
       if (offset_ == text_.size() || text_[offset_] != ')') { fail("unclosed group"); }
       ++offset_;
-    } else if (text_[offset_] == '[') { selected = character_class(); }
+    } else if (text_[offset_] == '[') {
+      expression_node value{}; value.kind = expression_kind::character;
+      value.ranges = class_ranges(depth);
+      selected = append(std::move(value));
+    }
     else {
       expression_node value{};
       value.kind = expression_kind::character;
       if (text_[offset_] == '.') { value.dot = true; ++offset_; }
+      else if (set_escape()) { value.ranges = escaped_set(); }
       else {
         if (std::string_view{"?*+{}]"}.find(text_[offset_]) != std::string_view::npos) { fail("quantifier or delimiter without atom"); }
         const auto scalar = character(false);
