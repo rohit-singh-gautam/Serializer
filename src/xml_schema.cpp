@@ -2112,8 +2112,8 @@ std::string schema::bundle_identity() const {
 
 // Reject unsupported value-space contracts before selecting a backend's implemented XML subset.
 void validate_backend(const record& contract, std::string_view language) {
-  if (contract.mixed && contract.mixed->element_only && language != "cpp") {
-    throw std::invalid_argument{"XML ordered element-only content is currently implemented only for cpp"};
+  if (contract.mixed && contract.mixed->element_only && language == "xsd") {
+    throw std::invalid_argument{"XML ordered element-only XSD export is not implemented"};
   }
   if (contract.particles && contract.particles->advanced) {
     throw std::invalid_argument{"Grouped or repeated heterogeneous XSD particles are compiled; ordered storage generation is not implemented for " +

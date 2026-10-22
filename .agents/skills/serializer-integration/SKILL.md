@@ -52,7 +52,7 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-The current compiler/runtime release is **2.26.0**, with schema language
+The current compiler/runtime release is **2.27.0**, with schema language
 **1.21.0**. For external C++ documents, let the application choose an owned full
 main for temporary sources or attach native differences to a durable original.
 Use bounded `journal_options::origin` and `journal_origin()` for native opaque
@@ -62,12 +62,17 @@ publication and explicit restart reconciliation. Never perform host effects in
 fault hooks. See [origin and confirmed Save](../../../docs/managed/document_origin.md)
 for evidence, exact retries, unresolved mutation barriers and supported scope.
 Require `find_package(Serializer 2.26 CONFIG REQUIRED)` for these additions.
-For new C++ element-only ordered models, select
+For new element-only ordered models in any of the eleven owning outputs, select
 [`ordered=member`](../../../docs/serialization/ordered_xml.md) explicitly in the
 owner's XML configuration. Use an array of owning record variants; retain native
-vector edits as the source of order, without a text branch or hidden sidecar.
+collection edits as the source of order, without a text branch or hidden sidecar.
 Do not migrate existing separate arrays implicitly. Fixed-XSD grouped bindings,
-XSD export and other backends remain gated; this is a slice of OPC-R04.
+and XSD export remain gated; this is a slice of OPC-R04. Regenerate with 2.27.0
+for non-C++ outputs. Fixed arrays require exact cardinality on both input and
+output; formatting XML whitespace consumes no fragment or mixed-text allowance.
+Keep normal scalar limits for text inside typed child records. Follow the
+[portable verification record](../../../docs/verification/verification-ordered-xml-2026-10-22.md)
+for actual SDK checks and remaining parent requirements.
 Use [C++ core-property adapters](../../../docs/serialization/core_properties.md)
 for application-supplied OPC metadata, following the selected fifth-edition
 property/date/keyword contract. Use the [managed authorization boundary](../../../docs/managed/authorization.md)

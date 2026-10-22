@@ -257,7 +257,8 @@ default until required or explicitly forced. These additions do not change inner
 native codecs, payload revisions, managed history or journal formats. See
 [the XML/package contract](xml_packages.md) and [XSD bundle tools](xsd_tooling.md).
 
-Compiler/runtime **2.25.0** adds [C++ ordered element-only XML](ordered_xml.md)
+Compiler/runtime **2.27.0** extends [ordered element-only XML](ordered_xml.md)
+from C++ (2.25.0) to all eleven owning outputs,
 without changing native bytes, stored model fields or native variant tags.
 Only an explicit owner mapping activates it. Migrating an existing pair of
 arrays to a variant array changes the schema's native shape and requires an

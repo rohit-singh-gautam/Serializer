@@ -3,16 +3,18 @@
 [Documentation index](../README.md) · [XML/package design](xml_support.md) ·
 [Implemented APIs](../serialization/xml_packages.md) · [Pending work](../pending.md)
 
-Status: implemented subsets and remaining requirements, **21 October 2026**.
-The source release is compiler/runtime **2.26.0**, schema language **1.21.0**.
+Status: implemented subsets and remaining requirements, **22 October 2026**.
+The source release is compiler/runtime **2.27.0**, schema language **1.21.0**.
 The C++ OPC builder and declarative package facades in all eleven outputs exist;
 complete 3MF support and broader profile/provider qualification remain pending. Current source qualification
 is separate from the historically checked manual example.
 
-The [opt-in C++ ordered element mapping](../serialization/ordered_xml.md) stores
+The [opt-in ordered element mapping](../serialization/ordered_xml.md) stores
 heterogeneous children in one native variant array. It preserves existing field
 and mixed-content behavior and adds no implicit storage migration. It is a
-non-XSD slice of OPC-R04; complete repeated/grouped XSD binding remains pending.
+non-XSD slice of OPC-R04 in all eleven owning outputs; complete repeated/grouped
+XSD binding remains pending. The [portable SDK checks](../verification/verification-ordered-xml-2026-10-22.md)
+retain the parent requirement's remaining boundaries.
 
 The name of the standard is **Open Packaging Conventions (OPC)**. OPC provides
 package infrastructure; the application defines its payload vocabulary. A

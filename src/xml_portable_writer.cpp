@@ -534,10 +534,12 @@ std::string encode_mixed(const xml_binding::mixed_contract& mixed, const std::st
   if (mixed.source->fixed_extent != 0U) {
     out += "if len(" + access + ")!=" + std::to_string(mixed.source->fixed_extent) + "{return fmt.Errorf(\"XML mixed fixed extent mismatch\")}\n";
   }
-  out += "for _,srlFragment:=range " + access + "{\nif srlFragment==nil{return fmt.Errorf(\"Nil XML mixed fragment\")}\nif err:=srlMixed.fragment();err!=nil{return err}\nswitch srlFragment." + storage + "Index{\ncase " +
-      std::to_string(mixed.text_alternative) + ":\n";
-  const auto text = "srlFragment." + storage + alternative(mixed.text_branch);
-  out += "if err:=srlMixed.text(" + text + ");err!=nil{return err}\nif err:=output.text(" + text + ");err!=nil{return err}\n";
+  out += "for _,srlFragment:=range " + access + "{\nif srlFragment==nil{return fmt.Errorf(\"Nil XML mixed fragment\")}\nif err:=srlMixed.fragment();err!=nil{return err}\nswitch srlFragment." + storage + "Index{\n";
+  if (!mixed.element_only) {
+    out += "case " + std::to_string(mixed.text_alternative) + ":\n";
+    const auto text = "srlFragment." + storage + alternative(mixed.text_branch);
+    out += "if err:=srlMixed.text(" + text + ");err!=nil{return err}\nif err:=output.text(" + text + ");err!=nil{return err}\n";
+  }
   for (const auto& child : mixed.children) {
     const auto selected = "srlFragment." + storage + alternative(child.branch);
     out += "case " + std::to_string(child.alternative) + ":\nif " + selected + "==nil{return fmt.Errorf(\"Nil XML mixed child\")}\nif err:=" +
@@ -552,10 +554,14 @@ std::string decode_mixed(const xml_binding::mixed_contract& mixed, const std::st
   const auto fragment = type(leaf(*mixed.source));
   const auto create = "New" + record_name(fragment) + "()";
   const auto storage = field(*mixed.variant);
-  std::string out{"{\nif fields.used!=len(fields.attrs){return nil,fmt.Errorf(\"Unexpected XML mixed attribute\")}\nsrlMixed:=srlXmlMixedBudget{limits:input.mixedLimits}\nsrlMixedValues:=make([]" +
-      fragment + ",0)\nfor{\nsrlEvent,srlErr:=input.mixedEvent();if srlErr!=nil{return nil,srlErr}\nif srlEvent.kind=='t'{\nsrlText,srlErr:=input.mixedText(&srlMixed);if srlErr!=nil{return nil,srlErr};if srlText==\"\"{continue}\nsrlFragment:=" + create +
-      "\nsrlFragment." + storage + "Index=" + std::to_string(mixed.text_alternative) + "\nsrlFragment." + storage + alternative(mixed.text_branch) +
-      "=srlText\nsrlMixedValues=append(srlMixedValues,srlFragment)\ncontinue\n}\nif srlEvent.kind!='s'{break}\nswitch srlEvent.name{\n"};
+  std::string out{"{\nif fields.used!=len(fields.attrs){return nil,fmt.Errorf(\"Unexpected XML mixed attribute\")}\nsrlMixed:=srlXmlMixedBudget{limits:input.mixedLimits}\nsrlMixedValues:=make([]" + fragment + ",0)\nfor{\n"};
+  out += std::string{"srlEvent,srlErr:=input."} + (mixed.element_only ? "peek" : "mixedEvent") + "();if srlErr!=nil{return nil,srlErr}\n";
+  if (!mixed.element_only) {
+    out += "if srlEvent.kind=='t'{\nsrlText,srlErr:=input.mixedText(&srlMixed);if srlErr!=nil{return nil,srlErr};if srlText==\"\"{continue}\nsrlFragment:=" + create +
+        "\nsrlFragment." + storage + "Index=" + std::to_string(mixed.text_alternative) + "\nsrlFragment." + storage + alternative(mixed.text_branch) +
+        "=srlText\nsrlMixedValues=append(srlMixedValues,srlFragment)\ncontinue\n}\n";
+  }
+  out += "if srlEvent.kind!='s'{break}\nswitch srlEvent.name{\n";
   for (const auto& child : mixed.children) {
     out += "case " + qualified(child.qualified_name) + ":\nif srlErr=srlMixed.fragment();srlErr!=nil{return nil,srlErr}\nsrlChild,srlErr:=srlXmlDecode" +
         record_name(type(*child.value_type)) + "(input," + qualified(child.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\nsrlFragment:=" + create +
@@ -1111,9 +1117,11 @@ std::string mixed_write(const xml_binding::mixed_contract& mixed, const std::str
       "var srlMixed=new SrlXmlMixedBudget(output.MixedLimits,output.Operation);\nforeach(var srlFragment in " + access + "){\n";
   out += "if(srlFragment" + std::string{java ? "==null" : " is null"} + ")throw new " + error + "(\"Null XML mixed fragment\");\nsrlMixed." +
       (java ? "fragment();\n" : "Fragment();\n") + "switch(srlFragment." + storage + "Index){\n";
-  const auto text = "srlFragment." + storage + alternative(mixed.text_branch);
-  out += "case " + std::to_string(mixed.text_alternative) + ":\nsrlMixed." + (java ? "text(" : "Text(") + text + ");\n" +
-      (java ? "output.text(" : "output.Text(") + text + ");break;\n";
+  if (!mixed.element_only) {
+    const auto text = "srlFragment." + storage + alternative(mixed.text_branch);
+    out += "case " + std::to_string(mixed.text_alternative) + ":\nsrlMixed." + (java ? "text(" : "Text(") + text + ");\n" +
+        (java ? "output.text(" : "output.Text(") + text + ");break;\n";
+  }
   for (const auto& child : mixed.children) {
     const auto selected = "srlFragment." + storage + alternative(child.branch);
     out += "case " + std::to_string(child.alternative) + ":\nif(" + selected + (java ? "==null" : " is null") +
@@ -1135,11 +1143,17 @@ std::string mixed_read(const xml_binding::mixed_contract& mixed, const std::stri
   out += java ? "if(!fields.attributes.isEmpty())throw new IllegalArgumentException(\"Unexpected XML mixed attribute\");\nvar srlMixed=new SrlXmlMixedBudget(input.mixedLimits);\nvar srlMixedValues=new java.util.ArrayList<" + fragment + ">();\n" :
       "if(fields.Attributes.Count!=0)throw new System.FormatException(\"Unexpected XML mixed attribute\");\nvar srlMixed=new SrlXmlMixedBudget(input.MixedLimits,input.Operation);\nvar srlMixedValues=new System.Collections.Generic.List<" + fragment + ">();\n";
   const auto kind = java ? "input.kind" : "input.Kind";
-  out += "while(true){\nif(" + std::string{kind} + "=='t'){\nvar srlText=input." + (java ? "mixedText(srlMixed)" : "MixedText(srlMixed)") + ";\n";
-  out += java ? "if(srlText.isEmpty())continue;\n" : "if(srlText.Length==0)continue;\n";
-  out += "var srlFragment=new " + fragment + "();\nsrlFragment." + storage + "Index=" + std::to_string(mixed.text_alternative) +
-      ";\nsrlFragment." + storage + alternative(mixed.text_branch) + "=srlText;\n" +
-      (java ? "srlMixedValues.add(srlFragment);\n" : "srlMixedValues.Add(srlFragment);\n") + "continue;\n}\nif(" + kind + "!='s')break;\n";
+  out += "while(true){\n";
+  if (mixed.element_only) {
+    out += java ? "input.skipSpace();\n" : "input.SkipSpace();\n";
+  } else {
+    out += "if(" + std::string{kind} + "=='t'){\nvar srlText=input." + (java ? "mixedText(srlMixed)" : "MixedText(srlMixed)") + ";\n";
+    out += java ? "if(srlText.isEmpty())continue;\n" : "if(srlText.Length==0)continue;\n";
+    out += "var srlFragment=new " + fragment + "();\nsrlFragment." + storage + "Index=" + std::to_string(mixed.text_alternative) +
+        ";\nsrlFragment." + storage + alternative(mixed.text_branch) + "=srlText;\n" +
+        (java ? "srlMixedValues.add(srlFragment);\n" : "srlMixedValues.Add(srlFragment);\n") + "continue;\n}\n";
+  }
+  out += "if(" + std::string{kind} + "!='s')break;\n";
   out += java ? "switch(input.name()){\n" : "switch(input.Name){\n";
   for (const auto& child : mixed.children) {
     out += "case " + expanded(child.qualified_name) + ":{\nsrlMixed." + (java ? "fragment();\n" : "Fragment();\n") +

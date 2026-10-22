@@ -1725,7 +1725,15 @@ if(SERIALIZER_WITH_XML)
     add_test(NAME python_package_test
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_package_test.py"
         --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_package")
+    add_test(NAME python_xml_ordered_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_ordered_portable_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_ordered"
+        --language python)
     if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
+      add_test(NAME portable_xml_ordered_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_ordered_portable_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_ordered"
+          --language javascript,typescript,java,csharp,go,kotlin,swift,rust,c)
       add_test(NAME python_xml_choice_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_xml_choice_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_choice")

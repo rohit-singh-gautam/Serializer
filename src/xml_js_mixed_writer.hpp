@@ -42,6 +42,8 @@ inline std::string js_mixed_metadata(const class_node& owner, const mixed_contra
   const auto& fragment_type = source_type.is_sequence() ? source_type.arguments.front() : source_type;
   std::string result = "Object.freeze({get:" + access.get + ",set:" + access.set + ",fragment:()=>" +
       type_identifier(fragment_type) + "._srlXmlMixed,textIndex:" + std::to_string(mixed.text_alternative) +
+      ",elementOnly:" + (mixed.element_only ? "true" : "false") +
+      ",extent:" + std::to_string(mixed.source->fixed_extent) +
       ",children:Object.freeze([";
   for (const auto& child : mixed.children) {
     result += "Object.freeze({alternative:" + std::to_string(child.alternative) + ",payload:" +

@@ -239,7 +239,10 @@ class SrlXmlTokenFrame {
           this.item.extent && this.values.length!==this.item.extent) throw new Error('XML wrapped field cardinality');
       return this.values;
     }
-    if(this.mixed)srlXmlMixedFlush(this);
+    if(this.mixed){
+      srlXmlMixedFlush(this);
+      if(this.mixed.elementOnly&&this.mixed.extent&&this.mixed.get(this.value).length!==this.mixed.extent)throw new Error('XML ordered fixed extent mismatch');
+    }
     for (let index=0;index<this.fields.length;++index) {
       const field=this.fields[index];
       if(!this.active[index])continue;

@@ -2223,7 +2223,8 @@ std::string generator::generate() {
       if (node->type != object_type::class_type) { continue; }
       const auto& owner = static_cast<const class_node&>(*node);
       const auto configured = options_.classes.find(owner.get_full_name());
-      if (configured == options_.classes.end() || !configured->second.contracts.contains("mixed")) { continue; }
+      if (configured == options_.classes.end() || (!configured->second.contracts.contains("mixed") &&
+          !configured->second.contracts.contains("ordered"))) { continue; }
       const auto contract = bindings_.bind(owner);
       if (contract.mixed && !options_.classes.contains(contract.mixed->fragment->get_full_name())) {
         mixed_storage_only.insert(contract.mixed->fragment);

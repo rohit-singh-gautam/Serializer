@@ -3089,7 +3089,8 @@ public:
           } else if (node->type == object_type::class_type) {
             const auto& owner = static_cast<const class_node&>(*node);
             const auto configured = options.xml.classes.find(owner.get_full_name());
-            if (configured == options.xml.classes.end() || !configured->second.contracts.contains("mixed")) { continue; }
+            if (configured == options.xml.classes.end() || (!configured->second.contracts.contains("mixed") &&
+                !configured->second.contracts.contains("ordered"))) { continue; }
             const auto binding = xml_schema_.bind(owner);
             if (binding.mixed) {
               xml_mixed_variants_.emplace(binding.mixed->fragment, binding.mixed->variant);

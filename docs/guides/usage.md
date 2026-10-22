@@ -10,11 +10,17 @@ Applications choose whether to own a complete recovery main or attach difference
 to a durable original. Provenance stays in bounded native metadata; prepared Save
 retains an explicit unresolved decision until host publication is confirmed.
 
-Compiler/runtime **2.25.0** adds [opt-in C++ ordered XML](../serialization/ordered_xml.md):
+Compiler/runtime **2.27.0** supports [opt-in ordered XML](../serialization/ordered_xml.md)
+in all eleven owning outputs (C++ support began in 2.25.0):
 an owning variant array records element order without text slots or auxiliary
 metadata. Existing mappings and native bytes retain their behavior. The guide
 includes the schema, INI selection, generated typed editing API and limits;
-fixed-XSD grouped bindings and other backends remain gated.
+fixed-XSD grouped bindings and XSD export remain gated. Regenerate non-C++
+models with 2.27.0. Use the backend's existing mixed-fragment policy to bound
+typed occurrences; zero mixed-text bytes still permits formatting whitespace
+and ordinary bounded text inside typed child records. The
+[actual SDK checks](../verification/verification-ordered-xml-2026-10-22.md)
+cover malformed content, private variants, fixed arrays and native wire parity.
 
 Compiler/runtime **2.24.0** adds [collaborative retained-branch merging](../managed/branch_merging.md#collaboration).
 Enable it explicitly on a tree authority, check its advertised capability and

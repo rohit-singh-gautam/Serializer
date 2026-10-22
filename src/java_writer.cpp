@@ -2432,7 +2432,8 @@ public:
         if (node->type != object_type::class_type) { continue; }
         const auto& owner = static_cast<const class_node&>(*node);
         const auto configured = options.xml.classes.find(owner.get_full_name());
-        if (configured == options.xml.classes.end() || !configured->second.contracts.contains("mixed")) { continue; }
+        if (configured == options.xml.classes.end() || (!configured->second.contracts.contains("mixed") &&
+            !configured->second.contracts.contains("ordered"))) { continue; }
         const auto contract = xml_contract.bind(owner);
         if (contract.mixed && !options.xml.classes.contains(contract.mixed->fragment->get_full_name())) {
           xml_mixed_storage_only.insert(contract.mixed->fragment);

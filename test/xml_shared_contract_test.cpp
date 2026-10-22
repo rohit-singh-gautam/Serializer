@@ -174,7 +174,7 @@ TEST(xml_shared_contract, ordered_mixed_configuration) {
   EXPECT_NO_THROW(binding::validate_backend(contract, "cpp"));
 }
 
-// The additive C++ mapping has no text payload or metadata and keeps other backends explicitly gated.
+// Every owning backend shares the element-only contract without adding a text branch.
 TEST(xml_shared_contract, ordered_element_only_configuration) {
   const auto model = parse("serializer version 1.21.0; class first { public uint32 id; } "
       "class second { public uint32 id; } "
@@ -189,9 +189,10 @@ TEST(xml_shared_contract, ordered_element_only_configuration) {
   EXPECT_EQ(contract.mixed->children.size(), 2U);
   EXPECT_EQ(contract.mixed->children.front().qualified_name, (rohit::serializer::xml::name{"item", "urn:child"}));
   EXPECT_NO_THROW((void)writer::cpp::generate(model, options.cpp));
-  for (const auto language : {"python", "js", "typescript", "go", "java", "csharp", "kotlin", "swift", "c", "rust", "xsd"}) {
-    EXPECT_THROW(binding::validate_backend(contract, language), std::invalid_argument) << language;
+  for (const auto language : {"python", "js", "typescript", "go", "java", "csharp", "kotlin", "swift", "c", "rust"}) {
+    EXPECT_NO_THROW(binding::validate_backend(contract, language)) << language;
   }
+  EXPECT_THROW(binding::validate_backend(contract, "xsd"), std::invalid_argument);
 }
 
 // Explicit selection never changes legacy mixed semantics or accepts a partially configured mapping.

@@ -24,6 +24,10 @@ function srlXmlMixedFlush(frame) {
 
 // Charge UTF-8 text before retaining it; empty parser notifications never create authored fragments.
 function srlXmlMixedCharacters(frame,value) {
+  if(frame.mixed.elementOnly){
+    if(!/^[ \t\r\n]*$/.test(value))throw new Error('Text in element-only XML content');
+    return;
+  }
   const size=srlXmlUtf8Length(value);
   if(size>frame.limits.mixed.maxTextBytes-frame.mixedTextBytes)throw srlXmlQuotaError('XML mixed text limit');
   frame.mixedTextBytes+=size;frame.mixedText+=value;
@@ -34,9 +38,10 @@ function srlXmlMixedWrite(owner,meta,output) {
   const fragments=meta.get(owner),bounds=output.limits.mixed,factory=meta.fragment();let textBytes=0;
   if(!Array.isArray(fragments))throw new Error('XML mixed fragment limit');
   if(fragments.length>bounds.maxFragments)throw srlXmlQuotaError('XML mixed fragment limit');
+  if(meta.elementOnly&&meta.extent&&fragments.length!==meta.extent)throw new Error('XML ordered fixed extent mismatch');
   for(const fragment of fragments){
     const selected=factory.get(fragment),index=selected[0],value=selected[1];
-    if(index===meta.textIndex){
+    if(!meta.elementOnly&&index===meta.textIndex){
       const text=srlXmlScalar(value,'string',true),size=srlXmlUtf8Length(text);
       if(size>bounds.maxTextBytes-textBytes)throw srlXmlQuotaError('XML mixed text limit');
       textBytes+=size;output.escaped(text,false);

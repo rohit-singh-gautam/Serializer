@@ -1765,7 +1765,8 @@ public:
         if (node->type != object_type::class_type) { continue; }
         const auto& owner = static_cast<const class_node&>(*node);
         const auto configured = model.xml.classes.find(owner.get_full_name());
-        if (configured == model.xml.classes.end() || !configured->second.contracts.contains("mixed")) { continue; }
+        if (configured == model.xml.classes.end() || (!configured->second.contracts.contains("mixed") &&
+            !configured->second.contracts.contains("ordered"))) { continue; }
         const auto contract = bindings.bind(owner);
         if (contract.mixed) { xml_mixed_fragments_.insert(contract.mixed->fragment); }
       }

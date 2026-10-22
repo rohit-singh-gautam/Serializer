@@ -372,7 +372,9 @@ class python_emitter {
       mixed_binding = "{'member': " + quote(xml_member_path(value, *selected.source)) +
           ", 'fragment': lambda: " + model.names.at(selected.fragment) +
           ", 'index': " + quote(variant + "_index") + ", 'text_index': " + std::to_string(selected.text_alternative) +
-          ", 'text_member': " + quote(variant + "_" + snake(selected.text_branch)) + ", 'children': (";
+          ", 'text_member': " + quote(variant + "_" + snake(selected.text_branch)) +
+          ", 'element_only': " + (selected.element_only ? "True" : "False") +
+          ", 'extent': " + std::to_string(selected.source->fixed_extent) + ", 'children': (";
       for (const auto& child : selected.children) {
         auto payload = xml_token_value(*child.value_type, child.qualified_name, false);
         payload.pop_back();
@@ -1675,7 +1677,8 @@ public:
       for (const auto* node : model.nodes) {
         if (node->type != object_type::class_type) { continue; }
         const auto configured = model.xml.classes.find(node->get_full_name());
-        if (configured == model.xml.classes.end() || !configured->second.contracts.contains("mixed")) { continue; }
+        if (configured == model.xml.classes.end() || (!configured->second.contracts.contains("mixed") &&
+            !configured->second.contracts.contains("ordered"))) { continue; }
         const auto binding = xml_contract.bind(static_cast<const class_node&>(*node));
         if (binding.mixed && !model.xml.classes.contains(binding.mixed->fragment->get_full_name())) {
           mixed_fragments.insert(binding.mixed->fragment);

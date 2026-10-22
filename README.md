@@ -44,6 +44,13 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Release **2.27.0** extends [element-only ordered XML](docs/serialization/ordered_xml.md)
+to all eleven owning outputs. Regenerate models using `ordered=member` to retain
+heterogeneous child order in native variant arrays, including exact fixed-array
+cardinality and whitespace-only gaps with a zero mixed-text budget. Native wire
+formats and schema language remain unchanged. Fixed-XSD grouped bindings and the
+other open OPC/3MF requirements remain in [the backlog](docs/pending.md).
+
 Release **2.26.0** adds [C++ native origin metadata and prepared/confirmed Save](docs/managed/document_origin.md).
 The application chooses an owned full recovery main or a durable original with
 differences-only sidecars. Opaque provenance stays outside authored content;
@@ -54,7 +61,7 @@ Existing flat journals retain their layout and recovery support.
 Release **2.25.0** adds opt-in [C++ ordered element-only XML](docs/serialization/ordered_xml.md).
 An array of typed variants preserves child order directly, without a text
 alternative or hidden order metadata. Existing models, mixed content and native
-bytes retain their behavior. Fixed-XSD grouped bindings and other backends remain
+bytes retain their behavior. Fixed-XSD grouped bindings and XSD export remain
 explicitly gated; OPC-R04 remains open.
 
 Release **2.24.0** adds opt-in [collaborative retained-branch merging](docs/managed/branch_merging.md#collaboration).
@@ -117,7 +124,7 @@ Regenerate Python package facades for cancellation checks after Save hooks:
 pre-publication cancellation preserves the old file; a failure after replacement
 reports `publication_uncertain` with the complete new archive retained.
 
-The current compiler and runtime release is **2.26.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.27.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.21.0**;

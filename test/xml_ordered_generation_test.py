@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 # SPDX-License-Identifier: 0BSD
-"""Require complete preflight rejection of unsupported ordered XML output requests."""
+"""Qualify ordered XML generation and atomic rejection of unsupported requests."""
 import argparse
 from pathlib import Path
 import subprocess
@@ -20,6 +20,11 @@ def main():
               '--config', str(resources / 'xml_ordered.ini')]
     with tempfile.TemporaryDirectory(prefix='ordered-', dir=args.build) as temporary:
         directory = Path(temporary)
+        portable = directory / 'portable.serializer'
+        portable.write_text((resources / 'xml_ordered.serializer').read_text(encoding='utf-8').replace('move', 'motion'), encoding='utf-8')
+        config = directory / 'portable.ini'
+        config.write_text((resources / 'xml_ordered.ini').read_text(encoding='utf-8').replace('move', 'motion'), encoding='utf-8')
+        portable_prefix = [compiler, '--input', str(portable), '--config', str(config)]
         for language, extension in [('python', '.py'), ('js', '.mjs'), ('typescript', '.d.mts'),
                                     ('java', '.java'), ('csharp', '.cs'), ('go', '.go'),
                                     ('kotlin', '.kt'), ('swift', '.swift'), ('c', '.h'), ('rust', '.rs')]:
@@ -27,15 +32,15 @@ def main():
             destination.write_bytes(b'previous generated output\n')
             cpp = directory / 'control.hpp'
             cpp.write_bytes(b'previous C++ output\n')
-            result = subprocess.run(prefix + ['--language', 'cpp,' + language,
+            result = subprocess.run(portable_prefix + ['--language', 'cpp,' + language,
                 '--cpp.output', str(cpp), '--' + language + '.output', str(destination)],
                 capture_output=True, text=True, encoding='utf-8')
-            assert result.returncode != 0, (language, result.stdout, result.stderr)
-            assert 'only for cpp' in result.stderr, (language, result.stdout, result.stderr)
-            assert destination.read_bytes() == b'previous generated output\n', language
-            assert cpp.read_bytes() == b'previous C++ output\n', language
+            assert result.returncode == 0, (language, result.stdout, result.stderr)
+            assert destination.read_bytes() != b'previous generated output\n', language
+            assert cpp.read_bytes() != b'previous C++ output\n', language
 
         model = directory / 'invalid.serializer'
+        cpp.write_bytes(b'previous C++ output\n')
         model.write_text('serializer version 1.21.0; class child { public uint32 x; } '
             'class step { public variant(string=text,child=child) value; } '
             'class root { public array<step> items; }', encoding='utf-8')
@@ -61,7 +66,7 @@ def main():
         assert result.returncode != 0, result.stdout
         assert cpp.read_bytes() == b'previous C++ output\n'
         assert exported.read_bytes() == b'previous schema output\n'
-    print('Thirteen atomic rejection cases pass: ten other backends, text storage, fixed XSD and schema export.')
+    print('Ten combined backend generations and three atomic rejections pass: text storage, fixed XSD and schema export.')
 
 
 if __name__ == '__main__':

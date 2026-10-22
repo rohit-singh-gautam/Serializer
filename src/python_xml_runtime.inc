@@ -707,12 +707,14 @@ R"xmlpython(def _xml_token_encode(model, name, limits=None, context=None):
         bounds = writer.budget.limits.xml_mixed or XmlMixedLimits()
         if len(fragments) > bounds.max_fragments:
             _xml_limit(writer.budget.context, 'XML mixed fragment limit exceeded')
+        if meta['element_only'] and meta['extent'] and len(fragments) != meta['extent']:
+            raise ValueError('XML ordered fixed extent mismatch')
         text_bytes = 0
         for fragment in fragments:
             index = _xml_token_get(fragment, meta['index'])
             if type(index) is not int:
                 raise ValueError('Invalid XML mixed alternative')
-            if index == meta['text_index']:
+            if not meta['element_only'] and index == meta['text_index']:
                 text = _xml_check_text(_xml_token_get(fragment, meta['text_member']))
                 size = len(text.encode('utf-8'))
                 if size > bounds.max_text_bytes - text_bytes:
@@ -912,6 +914,10 @@ R"xmlpython(class _XmlTokenFrame:
         values.append(fragment)
     def mixed_text(self, value):
         """Buffer only one bounded text run so arbitrary UTF-8/token splits have the same meaning."""
+        if self.mixed['element_only']:
+            if value.strip(' \t\r\n'):
+                raise ValueError('Text in element-only XML content')
+            return
         if not value:
             return
         if not self.mixed_pending and len(_xml_token_get(self.model, self.mixed['member'])) >= self.mixed_bounds.max_fragments:
@@ -1017,6 +1023,8 @@ R"xmlpython(class _XmlTokenFrame:
         text_field = False
         if self.mixed is not None:
             self.mixed_flush()
+            if self.mixed['element_only'] and self.mixed['extent'] and len(_xml_token_get(self.model, self.mixed['member'])) != self.mixed['extent']:
+                raise ValueError('XML ordered fixed extent mismatch')
         for index, item in enumerate(self.fields):
             if not self.active[index]:
                 continue
