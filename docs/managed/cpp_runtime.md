@@ -248,6 +248,10 @@ Fixed managed arrays expose `edit(id)` without append/erase; cardinality is part
 of the schema. Variable arrays retain their existing membership operations.
 Named managed generic instantiations have concrete editors and schema bindings;
 see [generics](../schema/generics.md#managed-specializations).
+Language 1.23 also binds their copied direct self-token fields to the named record,
+including supported container wrappers. The instantiate declaration selects that
+contract; shared nested/base records keep their restrictions. See
+[named self references](../schema/named_managed_references.md).
 
 The runnable [document features](../../example/managed/document_features/README.md)
 cover private fields, independent bases, ordinary base scopes, alternatives,

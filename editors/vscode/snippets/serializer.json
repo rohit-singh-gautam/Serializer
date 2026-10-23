@@ -1,4 +1,16 @@
 {
+  "Named managed generic self reference": {
+    "prefix": "managedgeneric",
+    "body": [
+      "class ${1:node}<${2:T}> stable_ids managed {",
+      "  public $2 ${3:value} (1);",
+      "  public optional<managed_ref<$1<$2>>> ${4:next} (2);",
+      "}",
+      "instantiate ${5:number_node} = $1<${6:uint32}>;",
+      "$0"
+    ],
+    "description": "Declare a named C++ managed generic with its own self-token target; requires schema language 1.23.0 and compiler/runtime 2.31.0"
+  },
   "Generic class": {
     "prefix": "generic",
     "body": [
@@ -17,7 +29,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1.21.0;",
+      "serializer version 1.23.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",

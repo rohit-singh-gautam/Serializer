@@ -361,6 +361,11 @@ documented generated module/outer-class layout.
 
 ## Managed specializations
 
+Language 1.23 adds [named managed generic self references](named_managed_references.md).
+Direct copied token fields and supported container wrappers bind to the named
+record; shared nested/base records and older instantiate contracts retain their
+existing restrictions. Distinct names keep distinct target identities.
+
 ```text
 serializer version 1.6.0;
 class annotation<T = string> stable_ids managed {

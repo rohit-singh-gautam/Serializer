@@ -1216,6 +1216,29 @@ class generic_lowering {
     }
   }
 
+  // Bind only a named record's copied token fields to itself; shared nested records retain their own contract.
+  void bind_named_managed_self(type_name& type, const class_node& owner) {
+    if (!owner.named_managed_self_binding || owner.named_generic_source.empty() || !owner.supports_managed()) {
+      return;
+    }
+    if (type.is_managed_reference()) {
+      auto& target = type.arguments.front();
+      if (!target.resolved_node || target.type != object_type::class_type) { return; }
+      const auto& concrete = static_cast<const class_node&>(*target.resolved_node);
+      if (concrete.generic_name == owner.named_generic_source &&
+          concrete.generic_arguments.size() == owner.named_generic_arguments.size() &&
+          std::equal(concrete.generic_arguments.begin(), concrete.generic_arguments.end(),
+              owner.named_generic_arguments.begin(), [&](const auto& left, const auto& right) {
+                return identity(left) == identity(right);
+              })) {
+        bind(target, &owner);
+      }
+      return;
+    }
+    // These type nodes belong to this copied field. Never mutate a shared resolved class body.
+    for (auto& argument : type.arguments) { bind_named_managed_self(argument, owner); }
+  }
+
   // Resolve phantom entity edges only after finite ownership and all declarations are known.
   void resolve_managed_references(syntax_node& node) {
     if (node.type == object_type::namespace_type) {
@@ -1283,6 +1306,7 @@ class generic_lowering {
               "managed_ref fields require ordinary unpacked owning storage and no schema value default"};
         }
         bind_tokens(bind_tokens, type, owner.generic_parameters);
+        bind_named_managed_self(type, owner);
       }
       if (field.key_type) { bind_tokens(bind_tokens, *field.key_type, owner.generic_parameters); }
     }

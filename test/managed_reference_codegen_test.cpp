@@ -61,6 +61,24 @@ TEST(managed_reference_codegen, named_recursive_generic_self_targets_reject_expl
   EXPECT_NO_THROW((void)generate("serializer version 1.20.0; class target managed {} class holder<T> managed { public optional<managed_ref<T>> next; } instantiate named = holder<target>;"));
 }
 
+// The versioned named binding emits its own exact token target while keeping named class identities distinct.
+TEST(managed_reference_codegen, named_recursive_generic_self_targets_bind_to_each_named_record) {
+  const auto source = generate("serializer version 1.23.0; class item<T> managed { "
+      "public optional<managed_ref<item<T>>> next; } "
+      "instantiate first = item<uint32>; instantiate second = item<uint32>;");
+  EXPECT_NE(source.find("managed_ref<::first, ::std::uint32_t>"), std::string::npos);
+  EXPECT_NE(source.find("managed_ref<::second, ::std::uint32_t>"), std::string::npos);
+  EXPECT_NE(class_tag(source, "::first"), class_tag(source, "::second"));
+}
+
+// A shared nested record has one binding and cannot be silently retargeted for each named owner.
+TEST(managed_reference_codegen, named_recursive_generic_shared_nested_targets_stay_rejected) {
+  EXPECT_THROW((void)generate("serializer version 1.23.0; "
+      "class wrapper { public optional<managed_ref<item<uint32>>> next; } "
+      "class item<T> managed { public wrapper value; } instantiate named = item<uint32>;"),
+      std::invalid_argument);
+}
+
 // A post-validation runtime reset must never create a default-invalid required edge for publication.
 TEST(managed_reference_codegen, required_transient_and_omitted_references_reject) {
   for (const auto field : {"public transient managed_ref<target> edge;",

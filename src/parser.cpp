@@ -3021,6 +3021,7 @@ parse_statement_list(const rohit::type_check::schema_input_buffer auto& in_strea
       skip_whitespace_and_comment(in_stream);
       auto node = std::make_unique<class_node>(object_type::class_type, std::move(name),
           parent_namespace, class_attributes::none, std::vector<parent>{});
+      node->named_managed_self_binding = active_language_version >= language_version{1u, 23u, 0u};
       node->instance_of.push_back(parse_type_expression(in_stream, parent_namespace));
       check_and_increase(in_stream, ';');
       register_declaration(in_stream, *node, declarations);

@@ -1,0 +1,14 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.23.0;
+
+namespace named_reference_models {
+  class node<T> stable_ids managed {
+    public T value (1);
+    public optional<managed_ref<node<T>>> next (2);
+  }
+  instantiate number_node = node<uint32>;
+  class document stable_ids managed {
+    public managed array number_node nodes (1);
+  }
+}

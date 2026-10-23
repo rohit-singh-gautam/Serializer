@@ -19,7 +19,7 @@ implementation or qualification record is complete.
 
 | State | ID | Estimate | Remaining requirement and acceptance gate | Dependencies |
 | --- | --- | --- | --- | --- |
-| [ ] | MR03 | — | Define and qualify managed token codecs for other generated outputs; keep these distinct from full native managed engines. Resolve currently rejected recursive generic/reference combinations only under an explicit supported contract. | — |
+| [ ] | MR03 | — | Define and qualify managed token codecs for other generated outputs; keep these distinct from full native managed engines. Language 1.23 implements direct named generic self binding with [qualification in progress](verification/verification-named-managed-references-2026-10-24.md); shared nested/base and mutual named-generic selection remain restricted until their explicit contracts are implemented. | — |
 | [ ] | MIG03 | — | **Deferred subsystem — [GitHub #5](https://github.com/rohit-singh-gautam/Serializer/issues/5), native portion.** Define native journal/storage/schema migration and rebaseline separately from managed-save/raw-model conversion; preserve the old recoverable generation through interrupted publication. Third-party sink conversion is excluded. | DB02 for native database profiles |
 
 ## Managed state and storage

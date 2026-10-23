@@ -789,6 +789,7 @@ struct class_node : public syntax_node {
   // Named concrete records retain their generic source for output-only behavior selection.
   std::string named_generic_source{};
   std::vector<type_name> named_generic_arguments{}; // Concrete identity without changing template emission.
+  bool named_managed_self_binding{false}; // The instantiate declaration selects the language 1.23 contract.
   xml_authoring_options xml{};
   // Private imported validators retain their prepared binding independently of writer-local schema instances.
   std::shared_ptr<const writer::xml_binding::record> prepared_xml_validation{};
@@ -820,7 +821,8 @@ struct class_node : public syntax_node {
         reserved_variables{std::move(rhs.reserved_variables)},
         reserved_names{std::move(rhs.reserved_names)},
         named_generic_source{std::move(rhs.named_generic_source)},
-        named_generic_arguments{std::move(rhs.named_generic_arguments)}, xml{std::move(rhs.xml)},
+        named_generic_arguments{std::move(rhs.named_generic_arguments)},
+        named_managed_self_binding{rhs.named_managed_self_binding}, xml{std::move(rhs.xml)},
         prepared_xml_validation{std::move(rhs.prepared_xml_validation)},
         explicit_class_id{rhs.explicit_class_id} {}
   // Return the sole version discriminator, or null for an unchanged unversioned contract.

@@ -1,3 +1,8 @@
+# 2.0.15
+
+- Support the language 1.23 named managed generic self-reference contract in compiler/runtime 2.31.0, retaining older schema contracts and unsupported nested/base restrictions.
+- Extend fresh generated navigation checks and update the schema snippet, current prerequisites and both matching package versions.
+
 # 2.0.14
 
 - Index generated C tags directly instead of tokenizing bundled runtime implementation bodies, preserving declaration/member offsets and the native interpreter resource limits.

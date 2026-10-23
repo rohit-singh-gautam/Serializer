@@ -7,6 +7,13 @@ list. [Pending work](../pending.md) contains only **33 unfinished requirements**
 closed [ownership decisions](application_responsibilities.md#disposed-requirements)
 are recorded separately. Original records retain their dated qualification scope.
 
+Compiler/runtime **2.31.0**, schema language **1.23.0**, implements versioned
+[named managed generic self binding](../schema/named_managed_references.md) for
+copied C++ token fields and supported container wrappers. Older declarations keep
+their contract; shared nested/base records remain restricted. Windows/Linux native
+profiles pass; [release qualification](../verification/verification-named-managed-references-2026-10-24.md)
+is in progress and MR03 remains open for the broader reference contracts.
+
 Compiler/runtime **2.30.1** requires a C++23 compiler and matching standard library
 for the compiler, runtime and generated/managed C++ consumers. CMake and public
 headers check the new minimum; schema language **1.22.0**, APIs and wire formats

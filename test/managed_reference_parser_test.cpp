@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -145,6 +146,75 @@ TEST(managed_reference_parser, recursive_generic_and_dimension_targets) {
   const auto* target = holder->member_list.front().type_name_list.front().arguments.front().resolved_node;
   ASSERT_NE(target, nullptr);
   EXPECT_EQ(static_cast<const serializer::class_node&>(*target).member_list.front().fixed_extent, 3U);
+}
+
+// A new named copy binds only its own token fields; equal generic arguments never merge named types.
+TEST(managed_reference_parser, named_self_binding_uses_its_declaring_language_contract) {
+  const auto nodes = parse_references(R"(serializer version 1.23.0;
+    class node<T, uint64 N = 2> managed {
+      public T value;
+      public optional<managed_ref<node<T, N>>> next;
+      public array managed_ref<node<T, N>> links;
+      public map(uint32) managed_ref<node<T, N>> lookup;
+    }
+    instantiate first = node<int32>;
+    instantiate second = node<int32, 2>;)");
+  const auto* first = find_record(nodes, "first");
+  const auto* second = find_record(nodes, "second");
+  ASSERT_NE(first, nullptr);
+  ASSERT_NE(second, nullptr);
+  for (const auto* record : {first, second}) {
+    EXPECT_TRUE(record->named_managed_self_binding);
+    for (std::size_t index = 1; index < record->member_list.size(); ++index) {
+      auto* type = &record->member_list[index].type_name_list.front();
+      if (type->is_optional()) { type = &type->arguments.front(); }
+      ASSERT_TRUE(type->is_managed_reference());
+      EXPECT_EQ(type->arguments.front().resolved_node, record);
+    }
+  }
+}
+
+// A different type or dimension remains a pooled concrete target rather than becoming a named self edge.
+TEST(managed_reference_parser, named_self_binding_preserves_other_specializations) {
+  const auto nodes = parse_references(R"(serializer version 1.23.0;
+    class node<T, uint64 N = 2> managed {
+      public optional<managed_ref<node<T, N>>> next;
+      public optional<managed_ref<node<uint64, N>>> other_type;
+      public optional<managed_ref<node<T, 3>>> other_extent;
+    }
+    instantiate named = node<uint32>;)");
+  const auto* named = find_record(nodes, "named");
+  ASSERT_NE(named, nullptr);
+  const auto* other_type = named->member_list[1].type_name_list.front().arguments.front().arguments.front().resolved_node;
+  const auto* other_extent = named->member_list[2].type_name_list.front().arguments.front().arguments.front().resolved_node;
+  ASSERT_NE(other_type, nullptr);
+  ASSERT_NE(other_extent, nullptr);
+  EXPECT_NE(other_type, named);
+  EXPECT_NE(other_extent, named);
+  EXPECT_EQ(static_cast<const serializer::class_node&>(*other_type).generic_arguments[0].name, "uint64");
+  EXPECT_EQ(static_cast<const serializer::class_node&>(*other_extent).generic_arguments[1].dimension, 3u);
+}
+
+// Includes retain the instantiate declaration's contract rather than inheriting the entry header's version.
+TEST(managed_reference_parser, named_self_binding_preserves_included_older_instantiations) {
+  const reference_directory directory;
+  directory.write("older.serializer", R"(serializer version 1.22.0;
+    class node<T> managed { public optional<managed_ref<node<T>>> next; }
+    instantiate older = node<uint32>;)");
+  const auto path = directory.write("root.serializer", R"(serializer version 1.23.0;
+    include older;
+    instantiate current = node<uint32>;)");
+  const auto nodes = serializer::parser::parse_file(path);
+  const auto* older = find_record(nodes.statements, "older");
+  const auto* current = find_record(nodes.statements, "current");
+  ASSERT_NE(older, nullptr);
+  ASSERT_NE(current, nullptr);
+  EXPECT_FALSE(older->named_managed_self_binding);
+  EXPECT_TRUE(current->named_managed_self_binding);
+  const auto& old_target = older->member_list.front().type_name_list.front().arguments.front().arguments.front();
+  const auto& new_target = current->member_list.front().type_name_list.front().arguments.front().arguments.front();
+  EXPECT_NE(old_target.resolved_node, older);
+  EXPECT_EQ(new_target.resolved_node, current);
 }
 
 // Phantom target deferral does not relax existing source-order rules for owned values.

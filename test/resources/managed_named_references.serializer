@@ -1,0 +1,20 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.23.0;
+
+namespace named_reference_example {
+  class node<T, uint64 N = 2> stable_ids managed {
+    public T value (1);
+    public optional<managed_ref<node<T, N>>> next (2);
+    public array managed_ref<node<T, N>> links (3);
+    public map(uint32) managed_ref<node<T, N>> lookup (4);
+  }
+
+  instantiate number_node = node<uint32>;
+  instantiate sibling_node = node<uint32, 2>;
+
+  class document stable_ids managed {
+    public managed array number_node nodes (1);
+    public managed array sibling_node siblings (2);
+  }
+}

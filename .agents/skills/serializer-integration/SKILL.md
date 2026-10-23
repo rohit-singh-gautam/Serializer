@@ -97,13 +97,16 @@ remain unavailable for that storage representation. Use a supported explicit
 ordered mapping when direct token traversal is required. Follow the
 [legacy tree checks](../../../docs/verification/verification-legacy-cpp-wildcards-2026-10-22.md).
 
-The current compiler/runtime release is **2.30.1**, with schema language
-**1.22.0**. Release 2.30.1 requires a C++23 compiler and matching standard library
+The current compiler/runtime release is **2.31.0**, with schema language
+**1.23.0**. Release 2.31.0 requires a C++23 compiler and matching standard library
 with `std::byteswap` and `std::span`. Source builds reject an explicit standard
 below 23; public CMake targets propagate `cxx_std_23` to generated and managed
 consumers. Direct compiler invocations must select C++23 or later. Regenerate C++ headers
 for the `if consteval` checked-arithmetic helper; retain runtime nonfinite-value errors. Both editor
-packages are 2.0.14; no schema or payload version changes are required.
+packages are 2.0.15. Existing valid schemas retain their headers and payload revisions;
+use language 1.23 for new named managed self bindings. See the
+[named binding contract](../../../docs/schema/named_managed_references.md) and
+[runnable example](../../../example/managed/named_references/README.md).
 Patch 2.28.1 restores strict GNU compilation of XML metadata,
 declaration prefixes and large embedded runtime literals without changing
 generated contracts or application integration.
@@ -1154,7 +1157,12 @@ The C++ implementation supplies these distinct operations:
 | Isolated editing preview | Use `store.preview()`, edit `proposal.working()`, then `cancel()` or `accept_preview(proposal)`. Keep the source store alive and every operation on its owner thread. New IDs are reserved through the source allocator before exposure; cancellation burns them, and acceptance retains them exactly while checking the captured base. |
 | Collaborative creation | Preserve identical document/object IDs across participants. Custom transports forward `reserve_ids`; standalone replicas initialize their native lease before creation. Configure the authority journal for crash-durable range issuance. |
 
-Required transient/omitted edges and named recursive generic self targets reject;
+Required transient/omitted edges reject. Language 1.23 binds copied direct self-token
+fields and supported container wrappers to each named managed instantiation. Its
+instantiate declaration retains the declaring file's version, including includes;
+older declarations and shared nested/base recursive targets retain their restrictions.
+Callable signatures keep their existing bindings. Follow the
+[named managed reference contract](../../../docs/schema/named_managed_references.md);
 other-language managed token generation is pending. Preview cancellation discards
 value/history edits but can retain allocator reservations and their journal
 records. A preview workspace's owner-thread lifetime is part of its API contract.

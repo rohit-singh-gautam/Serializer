@@ -394,6 +394,12 @@ namespace Names_ { class Value_Type {} }
     checks += await verify(path.join(repository, 'test/resources/managed_generated.serializer'),
       path.join(directory, `managed-separated-${profile}`),
       ['--cpp.coding_standard', profile, '--managed.separate_values', 'true'], { cpp: outputs.cpp });
+    for (const separate of [false, true]) {
+      checks += await verify(path.join(repository, 'test/resources/managed_named_references.serializer'),
+        path.join(directory, `named-self-${profile}-${separate ? 'separate' : 'direct'}`),
+        ['--cpp.coding_standard', profile, '--managed.separate_values', String(separate)],
+        { cpp: outputs.cpp }, true, true);
+    }
   }
   for (const profile of ['serializer', 'google', 'oracle']) {
     checks += await verify(input, path.join(directory, `java-${profile}`),

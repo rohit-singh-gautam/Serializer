@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **2.23.0**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **2.31.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -13,6 +13,7 @@ version; requests for newer releases or a different major version are rejected.
 Use `EXACT` to require a specific release.
 
 For the current package, request `find_package(Serializer 2.0 CONFIG REQUIRED)`;
+require `2.31` for [named managed generic self binding](../schema/named_managed_references.md);
 require `2.23` for generic `serialize_as` results, native branch merging and generated
 C++ Protobuf fixed arrays;
 require `2.17` for [package policies and application references](../serialization/package_application_contracts.md);
@@ -29,7 +30,7 @@ require `2.6` for transparent value references and record translators;
 require `2.5` when using field references or scoped translators, or `2.3` for
 the XML/package APIs.
 The `SameMajorVersion` discovery policy rejects 1.x requests even without
-`EXACT`. The compiler still supports schema language 1.21.0 and older compatible
+`EXACT`. The compiler supports schema language 1.23.0 and older compatible
 1.x headers, including the original `version 1;` alias. Release 2.0.0 adds the
 default separate C++ header bundle without changing supported schema meanings,
 model names, runtime APIs or wire contracts. See [migration](../../migration.md#compilerruntime-200)
@@ -58,7 +59,7 @@ class account stable_ids {
 The statement must precede every declaration. Whitespace and `//` or `/* ... */`
 comments may precede it or separate its keywords. The version has exactly three
 unsigned decimal components separated by dots, without whitespace or comments
-inside the version. The supported language is **1.21.0**, accepting older contracts
+inside the version. The supported language is **1.23.0**, accepting older contracts
 in the same major version. The original
 `serializer version 1;` is an exact alias for `serializer version 1.0.0;`, exclusive
 to version 1; future integer majors such as `2;` are not aliases for `2.0.0;`.
@@ -99,8 +100,16 @@ the complete parsed result. See [licensing and notice rules](../project/licensin
 The repository's [schema language versioning policy](../../AGENTS.md#schema-language-versioning)
 uses `major.minor.patch` for language releases, independently of the compiler
 release. `serializer_schema_language_version` in the root CMake file defines the
-language release separately from `project(... VERSION ...)`. Compiler **2.17.0**
-currently supports language **1.21.0**; `serializer --version` reports both.
+language release separately from `project(... VERSION ...)`. Compiler **2.31.0**
+currently supports language **1.23.0**; `serializer --version` reports both.
+
+Language `1.23.0` binds copied direct self-token fields in a named managed generic
+to that named record. The instantiate declaration's own file selects the contract;
+older included instantiations retain their earlier behavior. See
+[supported wrappers and limits](../schema/named_managed_references.md).
+
+Language `1.22.0` adds owning C++ `cache` fields with optional priority metadata;
+see [cache behavior](../design/cache_attributes.md).
 
 Language `1.21.0` adds package-role `policy(fixed|defaults)`, `key("scope", field)`
 and `reference("scope", field, target_role)`. Each declaring file, including

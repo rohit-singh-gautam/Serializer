@@ -11,6 +11,7 @@ indexes below link to the full reference and recorded verification.
 | Find unfinished or completed requirements | [Pending work](pending.md) | [Implemented feature catalog](project/completed_requirements.md), stable IDs and original verification records |
 | Evolve stored data | [Payload versioning](schema/versioning.md) | [Schema compatibility](schema/schema_evolution.md), [wire contract](serialization/wire_format.md) |
 | Edit application state with undo and recovery | [Managed-state quick start](managed/getting_started.md) | [C++ runtime](managed/cpp_runtime.md), [journaling](managed/journal.md), [local collaboration](managed/local_collaboration.md) |
+| Link named managed generic entities | [Named self-reference contract](schema/named_managed_references.md) | [Runnable cycle example](../example/managed/named_references/README.md), [typed references](design/managed_entity_references.md) |
 | Retain rebuildable derived data | [C++ cache usage](guides/usage.md#rebuildable-c-cache-fields) | [Cache validity, providers, priority and lifecycle](design/cache_attributes.md) |
 | Review local/database storage and indexing design | [Combined storage/index specification](design/database_storage_requirements.md) | [Existing registry APIs](managed/state_registry.md), [paged-index proposal](design/paged_indexing.md) |
 | Set up schema editing and navigation | [Editor extensions](editors/editor_extension.md) | [Navigation coverage](editors/editor_navigation.md), [generated-header IntelliSense](editors/intellisense.md) |

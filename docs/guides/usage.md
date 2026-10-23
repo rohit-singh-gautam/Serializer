@@ -2788,6 +2788,39 @@ helper and offline-cache inputs. A missing SDK fails qualification; it cannot
 silently remove a backend. This selected small-document proof leaves broader
 malformed/resource, vocabulary, platform and performance gates separate.
 
+## Named managed generic self references
+
+Compiler/runtime 2.31.0 and schema language 1.23.0 support copied self-token
+fields in a named C++ managed generic:
+
+```text
+serializer version 1.23.0;
+class node<T> stable_ids managed {
+  public T value (1);
+  public optional<managed_ref<node<T>>> next (2);
+}
+instantiate number_node = node<uint32>;
+class document stable_ids managed {
+  public managed array number_node nodes (1);
+}
+```
+
+After the store assigns occurrence IDs, use the transaction's checked registry:
+
+```cpp
+store.execute_transaction([&](auto& transaction) {
+  transaction.root().nodes().edit(first_id).set_next(
+      transaction.registry().template reference<number_node>(second_id));
+}).throw_if_failed();
+```
+
+The named copy's token targets `number_node`, including supported array/map
+wrappers. Other named copies remain distinct types. The instantiate file's header
+selects the rule; older included declarations are not upgraded. Shared nested/base
+records and callable signatures keep their existing binding restrictions. Follow
+the [complete contract](../schema/named_managed_references.md) and
+[runnable example](../../example/managed/named_references/README.md).
+
 ## Rebuildable C++ cache fields
 
 Compiler/runtime 2.30.0 and schema language 1.22.0 support inspectable owning C++

@@ -982,6 +982,7 @@ if(SERIALIZER_BUILD_MANAGED)
       target_compile_options(managed_merge_${registry_profile}_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME managed_merge_${registry_profile}_test COMMAND managed_merge_${registry_profile}_test)
+
     set(registry_config CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/managed_registry_${registry_profile}.ini")
     add_executable(managed_registry_${registry_profile}_test managed_registry_test.cpp)
     serializer_generate(TARGET managed_registry_${registry_profile}_test
@@ -997,6 +998,20 @@ if(SERIALIZER_BUILD_MANAGED)
       target_compile_options(managed_registry_${registry_profile}_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME managed_registry_${registry_profile}_test COMMAND managed_registry_${registry_profile}_test)
+  endforeach()
+  foreach(reference_profile IN ITEMS direct32 separate32 direct64 separate64 fixed32 fixed64 fixed_separate32 fixed_separate64)
+    add_executable(managed_named_references_${reference_profile}_test managed_named_references_test.cpp)
+    serializer_generate(TARGET managed_named_references_${reference_profile}_test
+      SCHEMAS resources/managed_named_references.serializer resources/managed_named_required_references.serializer
+      CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/managed_entity_references_${reference_profile}.ini"
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_named_references_${reference_profile}")
+    target_link_libraries(managed_named_references_${reference_profile}_test PRIVATE Serializer::managed GTest::gtest_main)
+    if(MSVC)
+      target_compile_options(managed_named_references_${reference_profile}_test PRIVATE /W4 /WX)
+    else()
+      target_compile_options(managed_named_references_${reference_profile}_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME managed_named_references_${reference_profile}_test COMMAND managed_named_references_${reference_profile}_test)
   endforeach()
   add_executable(managed_reuse_test managed_reuse_test.cpp)
   serializer_generate(TARGET managed_reuse_test

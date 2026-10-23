@@ -245,6 +245,7 @@ class managed_writer {
     target.native_blocks = source.native_blocks;
     target.named_generic_source = source.named_generic_source;
     target.named_generic_arguments = source.named_generic_arguments;
+    target.named_managed_self_binding = source.named_managed_self_binding;
     target.body_order = source.body_order;
     target.magic_bytes = source.magic_bytes;
     target.magic_field = source.magic_field;
@@ -437,8 +438,8 @@ class managed_writer {
             existing->second->get_full_name() + " and " + source->get_full_name()};
       }
     }
-    // Named managed instantiations are distinct C++ records, while recursive phantom edges
-    // currently retain the internal pooled specialization. Reject that unusable self binding.
+    // Named managed instantiations are distinct records. Only copied direct token fields
+    // have the language 1.23 self binding; shared nested/base records still cannot select it.
     for (const auto* source : classes) {
       if (!source->supports_managed() || source->named_generic_source.empty()) { continue; }
       class_node specialization{object_type::class_type, std::string{}, nullptr,

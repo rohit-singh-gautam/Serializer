@@ -1,5 +1,15 @@
 # Wire format and decoding contract
 
+## Named managed self binding in 2.31
+
+Language 1.23 binds copied direct self-token fields of a named managed generic
+to that named record, including supported container wrappers. It selects the
+token's existing exact class identity; it introduces no new token envelope,
+payload field, codec revision or identity translation. Older instantiate
+declarations keep their original binding and generation restrictions. See the
+[language contract](../schema/named_managed_references.md) and
+[qualification status](../verification/verification-named-managed-references-2026-10-24.md).
+
 ## XML wildcard declarations in 2.28
 
 Generated XML wildcard slots retain their namespace predicate, attribute/element

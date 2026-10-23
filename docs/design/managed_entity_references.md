@@ -100,8 +100,10 @@ exist. Other-language managed-reference generation currently rejects explicitly.
 Required references cannot be transient or omitted from a codec when resetting
 that field would leave a required token invalid. Use optional presence for an
 absent/reset edge. The C++ generator rejects these unsupported combinations.
-Named recursive generic self targets also require explicit concrete target
-classes; concrete self and mutual references are supported.
+Language 1.23 adds [named managed generic self binding](../schema/named_managed_references.md)
+for copied direct token fields and supported container wrappers. Older named
+instantiations and recursive edges inside shared nested/base records still require
+explicit concrete target classes; concrete self and mutual references remain supported.
 
 The generated `persistent_id` and token `object_id` use `compact_varint` by
 default in all three native binary protocols. `[managed] id_encoding = fixed`

@@ -1,8 +1,10 @@
 # Schema revisions and compatibility
 
 Every schema begins with a supported schema-language header. Use
-`serializer version 1.6.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, and `1.5.0`
-headers remain supported. The original `serializer version 1;` is an exact alias
+`serializer version 1.23.0;` for new schemas; older compatible 1.x
+headers remain supported. Language 1.23 adds the versioned
+[named managed self-binding contract](named_managed_references.md).
+The original `serializer version 1;` is an exact alias
 for `1.0.0`, not the latest language version. See the
 [schema-language policy](../guides/command_line.md#schema-language-version-policy).
 A class member declared with `version` is a separate **payload revision**,

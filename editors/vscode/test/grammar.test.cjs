@@ -5,6 +5,23 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
+test('language 1.23 named managed generic self references retain nested type and field scopes', async () => {
+  const grammar = await loadGrammar();
+  const lines = ['serializer version 1.23.0;', 'class node<T> stable_ids managed {',
+    'public optional<managed_ref<node<T>>> next (2);', '}', 'instantiate number_node = node<uint32>;'];
+  let state = INITIAL;
+  const tokens = lines.map(line => { const result = grammar.tokenizeLine(line, state); state = result.ruleStack; return result.tokens; });
+  const scope = (line, word) => tokens[line].find(token => token.startIndex <= lines[line].indexOf(word) && token.endIndex > lines[line].indexOf(word)).scopes.at(-1);
+  assert.equal(scope(2, 'managed_ref'), 'support.type.serializer');
+  assert.equal(scope(2, 'node'), 'entity.name.type.serializer');
+  assert.equal(scope(2, 'next'), 'source.serializer');
+  assert.equal(scope(4, 'number_node'), 'entity.name.type.serializer');
+  assert.equal(state.depth, 1);
+  const snippets = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../snippets/serializer.json'), 'utf8'));
+  assert.ok(snippets.Schema.body.includes('serializer version 1.23.0;'));
+  assert.match(snippets['Named managed generic self reference'].body.join('\n'), /optional<managed_ref</);
+});
+
 test('language 1.22 cache declarations scope optional priorities without hiding owning types', async () => {
   const grammar = await loadGrammar();
   const lines = ['serializer version 1.22.0; class model {',
@@ -98,7 +115,7 @@ test('language 1.21 package policies and scalar selectors retain metadata and st
   assert.match(snippets['OPC package envelope policy'].body, /policy\(/);
   assert.match(snippets['OPC package key'].body, /key\(/);
   assert.match(snippets['OPC package reference'].body, /reference\(/);
-  assert.ok(Object.values(snippets).some(snippet => Array.isArray(snippet.body) && snippet.body.includes('serializer version 1.21.0;')));
+  assert.ok(Object.values(snippets).some(snippet => Array.isArray(snippet.body) && snippet.body.includes('serializer version 1.23.0;')));
 });
 
 test('language 1.17 array and callable metadata retain type and body boundaries', async () => {
@@ -139,7 +156,7 @@ test('language 1.17 array and callable metadata retain type and body boundaries'
   assert.equal(scope(7, 'const_ref'), 'storage.modifier.serializer');
   assert.equal(scope(8, 'value'), 'entity.name.type.serializer');
   const snippets = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.21.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.23.0;');
   assert.match(snippets['Borrowed C++ function input'].body, /input\} const_ref/);
   assert.match(snippets['Matrix array facade'].body, /dimensions\(/);
 });
@@ -244,7 +261,7 @@ test('language 1.15 fresh record defaults preserve constructor and factory bound
   assert.ok(scopes(3, 'fresh record').some(scope => /^comment\./.test(scope)));
   assert.equal(state.depth, 1, 'empty and nested defaults close before the next class declaration');
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.21.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.23.0;');
 });
 
 test('language 1.14 exposure, operator mappings and callable additions preserve schema boundaries', async () => {
@@ -453,7 +470,7 @@ test('optional and nested container generics highlight types without consuming f
   }
   assert.equal(result.ruleStack.depth, 1);
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.21.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.23.0;');
   assert.equal(snippets['Optional field'].prefix, 'optional');
   assert.match(snippets['Optional field'].body, /optional</);
 });

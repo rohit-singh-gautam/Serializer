@@ -11,6 +11,7 @@ identify unsupported combinations in their respective contracts.
 | [Small schema examples](schema_examples.md) | Complete introductory declarations for classes, collections, enums, identities, and defaults. |
 | [Schema reference](schema_reference.md) | Declaration syntax, field IDs, representations, annotations, and protocol choices. |
 | [Generic classes and dimensions](generics.md) | Native C++ templates, concrete specializations, fixed dimensions, and type constraints. |
+| [Named managed self references](named_managed_references.md) | Versioned self-token fields in distinct named C++ generic records, supported wrappers and limits. |
 | [Optional values](optional.md) | Presence, defaults, target representations, decoding failures, and managed occurrences. |
 | [Unions and owning variants](unions_and_variants.md) | Choice declarations, owning storage, discriminator contracts, and backend limits. |
 | [Behavior and native source](behavior.md) | Portable functions, native fragments, checked expressions, and transient members. |

@@ -1,5 +1,25 @@
 # Migrating to the snake_case Serializer API
 
+## Named managed generic self binding in 2.31.0
+
+Compiler/runtime 2.31.0 supports schema language 1.23.0. An `instantiate` declared
+under 1.23 binds copied direct `managed_ref<family<arguments>>` self fields to that
+named record, including supported optional/array/map value wrappers. Distinct named
+copies retain distinct static class identities. Earlier instantiate declarations,
+including included files, keep their selected contract and generation restrictions.
+
+Use the newer header only for the new binding. Existing valid schemas, generated
+APIs, class-ID derivation, payload revisions and token envelopes retain their
+meaning. Regenerate the affected C++ headers with a matching compiler/runtime;
+the C++23 minimum remains in force. Shared nested/base records and callable
+signatures are not retargeted; use explicit concrete targets for unsupported
+recursive graphs. Other-language token codecs remain unavailable.
+
+Both editor packages are 2.0.15. See the
+[language contract](docs/schema/named_managed_references.md),
+[runnable example](example/managed/named_references/README.md) and
+[qualification status](docs/verification/verification-named-managed-references-2026-10-24.md).
+
 ## C++23 minimum in 2.30.1
 
 Compiler/runtime 2.30.1 requires C++23 for standalone and embedded builds,

@@ -12,6 +12,7 @@ endif()
 add_subdirectory(ledger)
 add_subdirectory(journal)
 add_subdirectory(external_document)
+add_subdirectory(named_references)
 add_subdirectory(collaboration)
 
 # Build the point lessons independently, or all together through this target.

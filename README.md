@@ -46,12 +46,21 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Compiler/runtime **2.31.0**, schema language **1.23.0**, adds
+[named managed generic self references](docs/schema/named_managed_references.md)
+for C++. A named instantiation binds its copied self-token fields to that named
+record, including supported optional/array/map wrappers. Other named copies keep
+independent identities. Older declarations retain their prior contract; shared
+nested/base records still require explicit concrete targets. See the
+[example](example/managed/named_references/README.md) and
+[qualification status](docs/verification/verification-named-managed-references-2026-10-24.md).
+
 Compiler/runtime **2.30.1** requires **C++23** and a matching standard library
 with `std::byteswap` and `std::span` for the compiler, runtime, generated C++ and
 managed consumers. Regenerate C++ headers for the `if consteval` arithmetic helper.
 Public CMake targets propagate the minimum; direct C++20 use
 rejects explicitly. Schemas, public APIs and serialized formats are unchanged.
-Both editor packages are **2.0.14**. See the [migration steps](migration.md#c23-minimum-in-2301)
+Both editor packages are **2.0.15**. See the [migration steps](migration.md#c23-minimum-in-2301)
 and [qualification record](docs/verification/verification-cpp23-2026-10-23.md).
 
 Editor **2.0.14** uses a direct generated C declaration index to keep native
@@ -211,10 +220,10 @@ Regenerate Python package facades for cancellation checks after Save hooks:
 pre-publication cancellation preserves the old file; a failure after replacement
 reports `publication_uncertain` with the complete new archive retained.
 
-The current compiler and runtime release is **2.30.1**. Bug fixes and minor updates
+The current compiler and runtime release is **2.31.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
-compatibility across major releases. The schema language version is **1.22.0**;
+compatibility across major releases. The schema language version is **1.23.0**;
 see [release and schema versions](docs/guides/command_line.md).
 
 Release **2.21.0** adds [C++ OPC core-property adapters](docs/serialization/core_properties.md),
@@ -290,7 +299,8 @@ Release **2.17.0** adds [generated package policies and application references](
 Generated [C](docs/languages/c_packages.md), [Rust](docs/languages/rust_packages.md)
 and [Swift](docs/languages/swift_packages.md) outputs now provide bounded owning
 ZIP/OPC facades, typed loading, preservation and staged Save. Both editor packages
-are **2.0.12** and recognize language **1.22.0** cache fields and earlier package declarations.
+are **2.0.15** and recognize language **1.23.0** named self-reference contracts,
+**1.22.0** cache fields and earlier package declarations.
 Version 2.28 composes C/Rust XML document companions with typed package roles.
 Language 1.21 declarations select fixed/default ZIP storage and scoped typed keys
 and references. Runtime storage overrides retain declared XML/model identities;
@@ -694,8 +704,8 @@ regenerate through their build rules. Supported 1.x schema headers, generated
 model names, runtime APIs and wire contracts retain their existing behavior;
 see [2.0 migration](migration.md#compilerruntime-200).
 
-Use `serializer version 1.22.0;` for new schemas. Older 1.x schemas through
-`1.20.0` remain supported. The original
+Use `serializer version 1.23.0;` for new schemas. Older compatible 1.x schemas
+remain supported. The original
 `serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
 version 1. Future versions require all three components; see the
 [schema language policy](docs/guides/command_line.md#schema-language-version-policy).

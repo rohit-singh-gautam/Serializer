@@ -16,6 +16,12 @@ internal static class NavigationTest {
       var text = File.ReadAllText(model).Replace("serializer version 1;", "serializer version 1.0.0;");
       var live = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [model] = text };
       var checks = 0;
+      if (args.Length > 2 && args[2] == "--named-self-only") {
+        CheckNamedSelfNavigation(repository, generated, ref checks);
+        Console.WriteLine("Visual Studio named managed self navigation passed: " + checks +
+          " checks, original 256 MiB interpreter limit.");
+        return 0;
+      }
       if (args.Length > 2 && args[2] == "--cache-only") {
         CheckCacheNavigation(repository, live, ref checks);
         Console.WriteLine("Visual Studio native cache navigation passed: " + checks + " checks.");
@@ -845,6 +851,44 @@ internal static class NavigationTest {
       false, directory, live, CancellationToken.None);
     Require(legacy.Length == 1 && legacy[0].file == common, "ordinary types named cache preserve legacy navigation");
     ++checks;
+  }
+
+  /// <summary>Check fresh named managed types and their copied field provenance at both selection boundaries.</summary>
+  private static void CheckNamedSelfNavigation(string repository, string directory, ref int checks) {
+    var schema = Path.GetFullPath(Path.Combine(repository, "test/resources/managed_named_references.serializer"));
+    var source = File.ReadAllText(schema);
+    var live = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [schema] = source };
+    foreach (var name in new[] { "number_node", "sibling_node" }) {
+      var start = source.IndexOf("instantiate " + name, StringComparison.Ordinal) + "instantiate ".Length;
+      foreach (var cursor in new[] { start, start + name.Length }) {
+        var targets = NavigationRunner.Resolve(schema, cursor, true, directory, live, CancellationToken.None);
+        Require(targets.Length == 1, "a named managed instantiation resolves its own generated type");
+        ++checks;
+        foreach (var target in targets) {
+          foreach (var endpoint in new[] { target.start, target.end }) {
+            var back = NavigationRunner.Resolve(target.file, endpoint, false, directory, live, CancellationToken.None);
+            Require(back.Length == 1 && back[0].file == schema && back[0].start == start,
+              "independent named targets keep their exact instantiate declaration");
+            ++checks;
+          }
+        }
+      }
+    }
+    Console.WriteLine("Visual Studio named type boundaries passed: " + checks + " checks.");
+    var field = source.IndexOf(" next (2)", StringComparison.Ordinal) + 1;
+    foreach (var cursor in new[] { field, field + "next".Length }) {
+      var targets = NavigationRunner.Resolve(schema, cursor, true, directory, live, CancellationToken.None);
+      Require(targets.Length > 0, "the generic self field has available generated destinations");
+      ++checks;
+      foreach (var target in targets) {
+        foreach (var endpoint in new[] { target.start, target.end }) {
+          var back = NavigationRunner.Resolve(target.file, endpoint, false, directory, live, CancellationToken.None);
+          Require(back.Length == 1 && back[0].file == schema && back[0].start == field,
+            "copied self fields retain their generic declaration provenance");
+          ++checks;
+        }
+      }
+    }
   }
 
   /// <summary>Fail the executable on any observable navigation mismatch.</summary>

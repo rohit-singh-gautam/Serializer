@@ -21,7 +21,10 @@ TEST(schema_version, preserves_declarations) {
     "serializer version 1.17.0; class account stable_ids { public uint32 id (7); }",
     "serializer version 1.19.0; class account stable_ids { public uint32 id (7); }",
     "serializer version 1.20.0; class account stable_ids { public uint32 id (7); }",
-    "serializer version 1.21.0; class account stable_ids { public uint32 id (7); }"};
+    "serializer version 1.21.0; class account stable_ids { public uint32 id (7); }",
+    "serializer version 1.22.0; class account stable_ids { public uint32 id (7); }",
+    "serializer version 1.22.1; class account stable_ids { public uint32 id (7); }",
+    "serializer version 1.23.0; class account stable_ids { public uint32 id (7); }"};
   for (const auto source : sources) {
     SCOPED_TRACE(source);
     const auto input = rohit::make_constant_stream(source.data(), source.size());
@@ -34,9 +37,9 @@ TEST(schema_version, preserves_declarations) {
     EXPECT_EQ(record->member_list.front().id, 7u);
   }
   EXPECT_EQ(rohit::serializer::schema_language_version, 1u);
-  EXPECT_EQ(rohit::serializer::schema_language_version_text, "1.22.0");
+  EXPECT_EQ(rohit::serializer::schema_language_version_text, "1.23.0");
   EXPECT_EQ(rohit::serializer::schema_language_version_major, 1u);
-  EXPECT_EQ(rohit::serializer::schema_language_version_minor, 22u);
+  EXPECT_EQ(rohit::serializer::schema_language_version_minor, 23u);
   EXPECT_EQ(rohit::serializer::schema_language_version_patch, 0u);
 }
 
@@ -72,8 +75,8 @@ TEST(schema_version, invalid_versions_and_positions) {
                                           "serializer version 1.0.0+build;",
                                           "serializer version 1.0.-1;",
                                           "serializer version 0.0.0;",
-                                          "serializer version 1.22.1;",
-                                          "serializer version 1.23.0;",
+                                          "serializer version 1.23.1;",
+                                          "serializer version 1.24.0;",
                                           "serializer version 2.0.0;",
                                           "serializer version 999999999999999999999999.0.0;",
                                           "serializer version 1.999999999999999999999999.0;",
