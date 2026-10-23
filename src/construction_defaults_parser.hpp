@@ -145,14 +145,31 @@ value_initializer bind_value_initializer(const rohit::type_check::schema_input_b
   return result;
 }
 
+// Recognize the existing unsuffixed decimal/hex contract with constant stack use.
+bool canonical_integer_default(std::string_view text) {
+  if (text.starts_with('-')) { text.remove_prefix(1); }
+  if (text.empty()) { return false; }
+  if (text.starts_with("0x") || text.starts_with("0X")) {
+    text.remove_prefix(2);
+    return !text.empty() && std::all_of(text.begin(), text.end(), [](char value) {
+      return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') ||
+          (value >= 'A' && value <= 'F');
+    });
+  }
+  if (text.front() == '0') { return text.size() == 1; }
+  return text.front() >= '1' && text.front() <= '9' &&
+      std::all_of(text.begin(), text.end(), [](char value) { return value >= '0' && value <= '9'; });
+}
+
 // Reject known integer narrowing while leaving opaque native scalar expressions unchanged.
 void validate_integer_default(const member& field) {
   const auto& type = field.type_name_list.front();
   if (field.modifier != member::modifier_type::none || type.type != object_type::primitive ||
       (!type.name.starts_with("int") && !type.name.starts_with("uint"))) { return; }
   const auto text = schema_version::trim(field.default_value);
-  static const std::regex integer_literal{R"(-?(0|[1-9][0-9]*|0[xX][0-9a-fA-F]+))"};
-  if (!std::regex_match(text, integer_literal)) { return; }
+  // Recursive regex engines can exhaust the process stack on long schema literals.
+  // Classify the complete spelling before conversion so native suffixes remain opaque.
+  if (!canonical_integer_default(text)) { return; }
   const bool negative = text.front() == '-';
   std::string_view magnitude{text};
   if (negative) { magnitude.remove_prefix(1); }

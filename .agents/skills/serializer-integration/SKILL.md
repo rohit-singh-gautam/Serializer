@@ -97,7 +97,7 @@ remain unavailable for that storage representation. Use a supported explicit
 ordered mapping when direct token traversal is required. Follow the
 [legacy tree checks](../../../docs/verification/verification-legacy-cpp-wildcards-2026-10-22.md).
 
-The current compiler/runtime release is **2.31.0**, with schema language
+The current compiler/runtime release is **2.31.1**, with schema language
 **1.23.0**. Release 2.31.0 requires a C++23 compiler and matching standard library
 with `std::byteswap` and `std::span`. Source builds reject an explicit standard
 below 23; public CMake targets propagate `cxx_std_23` to generated and managed
@@ -461,6 +461,10 @@ still require explicit application rebinding. Logical budgets do not measure har
 process peaks. See the [package contract](../../../docs/serialization/xml_packages.md#caller-authored-aggregate-profiles)
 and [executed scope](../../../docs/verification/verification-pending-xml-2026-10-20.md).
 
+Compiler 2.31.1 recognizes integer literals with a linear, constant-stack scan;
+long canonical values do not require recursive regex stack space. Accepted native
+expressions and source spelling remain unchanged. See the
+[resource checks](../../../docs/verification/verification-integer-defaults-2026-10-24.md).
 Explicit language 1.14+ canonical decimal/hex integer literal defaults receive
 member-located overflow diagnostics, including original included/generic source.
 Native expressions, suffixed/octal literals, numeric Boolean defaults and legacy

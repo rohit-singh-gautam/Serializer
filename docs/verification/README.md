@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [Integer-default resource repair](verification-integer-defaults-2026-10-24.md) | SC02c: compiler 2.31.1 constant-stack recognition, Linux crash controls, preserved spelling/positions, atomic outputs and installed consumers. |
 | [Native C++ navigation allocation](verification-native-cpp-navigation-2026-10-24.md) | Editor 2.0.16: bounded generated declaration/field lookup, large direct/separate managed outputs and native interpreter checks under unchanged limits. |
 | [Named managed self references](verification-named-managed-references-2026-10-24.md) | Compiler/runtime 2.31.0 and language 1.23; MR03a versioned direct field binding, eight Windows/Linux native profiles and four installed-toolchain consumers. |
 | [Managed variant merges](verification-managed-variants-2026-10-24.md) | MG09a: all four Windows/Linux identity/storage profiles, conflict retries, atomic replacement identity, full/delta journal recovery and selective Undo/Redo. |

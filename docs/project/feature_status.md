@@ -1,11 +1,16 @@
 # Features and implementation status
 
-The [implemented requirement catalog](completed_requirements.md) records **819
+The [implemented requirement catalog](completed_requirements.md) records **820
 completed capability and qualification IDs**, with their backend/profile limits
 and verification links. Completed sections have moved there from the pending
 list. [Pending work](../pending.md) contains only **33 unfinished requirements**;
 closed [ownership decisions](application_responsibilities.md#disposed-requirements)
 are recorded separately. Original records retain their dated qualification scope.
+
+Compiler/runtime **2.31.1** repairs integer-default recognition using a linear,
+constant-stack scan. Accepted grammar, source diagnostics and language/wire
+contracts remain unchanged; [qualification](../verification/verification-integer-defaults-2026-10-24.md)
+completes SC02c within the recorded parser/resource scope.
 
 Compiler/runtime **2.31.0**, schema language **1.23.0**, implements versioned
 [named managed generic self binding](../schema/named_managed_references.md) for

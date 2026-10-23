@@ -46,6 +46,12 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Compiler/runtime **2.31.1** scans canonical integer defaults with constant stack
+use. Long out-of-range decimal/hex literals now produce member-located diagnostics
+on Linux rather than exhausting a recursive regex engine. Accepted literal/native
+spellings, schema language **1.23.0**, generated APIs and wire formats are unchanged.
+See the [qualification record](docs/verification/verification-integer-defaults-2026-10-24.md).
+
 Compiler/runtime **2.31.0**, schema language **1.23.0**, adds
 [named managed generic self references](docs/schema/named_managed_references.md)
 for C++. A named instantiation binds its copied self-token fields to that named
@@ -223,7 +229,7 @@ Regenerate Python package facades for cancellation checks after Save hooks:
 pre-publication cancellation preserves the old file; a failure after replacement
 reports `publication_uncertain` with the complete new archive retained.
 
-The current compiler and runtime release is **2.31.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.31.1**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.23.0**;

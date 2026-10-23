@@ -1,5 +1,12 @@
 # Portable value construction and transient layout
 
+Compiler 2.31.1 recognizes the existing canonical integer-default grammar with
+constant stack use. Large decimal/hex literals receive member-located range
+errors without recursive regex stack exhaustion; in-range hexadecimal values with
+many leading zeros retain their spelling. Native expressions/suffixes, octal
+spellings and pre-1.14 declarations keep their established contract. See the
+[resource qualification](../verification/verification-integer-defaults-2026-10-24.md).
+
 Language `1.17.0` adds [array and callable APIs](array_and_callable_api.md).
 Use explicit storage/axes, owner field factories and callable-local restrictions
 to preserve supported host contracts. Target limits and completed qualification

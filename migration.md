@@ -1,5 +1,16 @@
 # Migrating to the snake_case Serializer API
 
+## Integer-default resource repair in 2.31.1
+
+Compiler/runtime 2.31.1 replaces recursive integer-literal recognition with a
+linear scan using constant stack space. Under the existing language 1.14+ rule,
+large canonical decimal/hex defaults receive the same range diagnostic and
+original member position instead of a Linux stack failure. Long in-range hex
+spellings remain accepted; suffixes, native expressions, octal spellings and
+older headers retain their existing handling. No schema or payload migration,
+regeneration or editor package update is required for this compiler-only fix.
+See the [executed qualification](docs/verification/verification-integer-defaults-2026-10-24.md).
+
 ## Named managed generic self binding in 2.31.0
 
 Compiler/runtime 2.31.0 supports schema language 1.23.0. An `instantiate` declared

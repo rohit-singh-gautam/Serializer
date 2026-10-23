@@ -1,5 +1,9 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.31.1** changes only integer-default recognition resource use.
+It preserves schema language 1.23.0, default spellings and all generated/wire
+identities; see [construction/default behavior](../schema/construction.md).
+
 ## Named managed self binding in 2.31
 
 Language 1.23 binds copied direct self-token fields of a named managed generic

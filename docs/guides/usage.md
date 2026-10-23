@@ -1,5 +1,10 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.31.1** repairs long integer-default parsing without a schema
+change. Existing language 1.14+ decimal/hex range checks use constant stack space;
+large invalid values retain member-located diagnostics. See
+[construction/default behavior](../schema/construction.md).
+
 Read the [application responsibility contract](../project/application_responsibilities.md)
 when assigning authentication, policy administration, external effects and custom
 migrations. These are explicit host responsibilities, not missing runtime engines.

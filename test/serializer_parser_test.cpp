@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 #include <rohit/serializer_creator.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <string>
@@ -301,6 +302,50 @@ TEST(serialize_parser, portable_scalar_default_failures_locate_the_member) {
       EXPECT_NE(message.find("Numeric default exceeds the declared " + type + " range"),
           std::string::npos) << message;
     }
+  }
+}
+
+// Large canonical integer defaults diagnose without recursive recognizer stack growth.
+TEST(serialize_parser, large_integer_default_failures_keep_source_positions) {
+  constexpr std::size_t literal_digits = 262144;
+  for (const auto& literal : {std::string(literal_digits, '9'),
+           "0x" + std::string(literal_digits, 'F'), "-" + std::string(literal_digits, '9')}) {
+    const auto source = "serializer version 1.14.0;\nclass record {\n"
+        "  public uint64 value { " + literal + " };\n}\n";
+    const auto input = rohit::make_constant_stream(source.data(), source.size());
+    try {
+      static_cast<void>(rohit::serializer::parser::parse(input, true));
+      FAIL() << "Oversized integer default was accepted";
+    } catch (const rohit::serializer::exception::bad_member_spec& error) {
+      const std::string message{error.what()};
+      EXPECT_NE(message.find("<schema>:3:3: member value:"), std::string::npos);
+      EXPECT_NE(message.find("Numeric default exceeds the declared uint64 range"), std::string::npos);
+    }
+  }
+}
+
+// Long in-range hexadecimal values, native expressions and legacy defaults keep their spelling.
+TEST(serialize_parser, linear_integer_validation_preserves_existing_spellings) {
+  constexpr std::size_t literal_digits = 65536;
+  const auto zeros = std::string(literal_digits, '0');
+  const auto nines = std::string(literal_digits, '9');
+  for (const auto& [header, type, literal] :
+       std::vector<std::tuple<std::string, std::string, std::string>>{
+           {"1.14.0", "uint8", "0x" + zeros + "ff"},
+           {"1.14.0", "int8", "-0X" + zeros + "80"},
+           {"1.14.0", "uint64", "-0x" + zeros},
+           {"1.14.0", "uint64", nines + "U"},
+           {"1.14.0", "uint64", nines + "+native_value()"},
+           {"1.14.0", "uint8", zeros + "7"},
+           {"1.13.0", "uint64", nines},
+           {"1", "uint64", nines}}) {
+    const auto source = "serializer version " + header + "; class record { public " + type +
+        " value { " + literal + " }; }";
+    const auto input = rohit::make_constant_stream(source.data(), source.size());
+    const auto statements = rohit::serializer::parser::parse(input, true);
+    const auto& record = static_cast<const rohit::serializer::class_node&>(*statements.back());
+    EXPECT_EQ(record.member_list.front().default_value, literal);
+    EXPECT_FALSE(record.member_list.front().initializer);
   }
 }
 

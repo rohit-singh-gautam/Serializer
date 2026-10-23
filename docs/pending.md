@@ -3,7 +3,7 @@
 This list contains **33 unfinished requirements: 29 active and four deferred**.
 Completed items and fully completed sections have moved to the
 [implemented feature catalog](project/completed_requirements.md), with all
-**819 IDs and verification records** retained. The [feature list](project/feature_status.md)
+**820 IDs and verification records** retained. The [feature list](project/feature_status.md)
 summarizes supported capabilities. The three closed ownership decisions live in
 [application responsibilities](project/application_responsibilities.md#disposed-requirements),
 not in this unfinished-work inventory.
@@ -50,7 +50,7 @@ qualification does not close the broader SC02 requirement below.
 
 | State | ID | Estimate | Remaining requirement and acceptance gate | Dependencies |
 | --- | --- | --- | --- | --- |
-| [ ] | SC02 | — | Broaden default-value validation, preserve useful input/member positions in diagnostics and define bit-field support with wire/compatibility tests; [Feature roadmap](project/feature_status.md#other-roadmap-items). | — |
+| [ ] | SC02 | — | Broaden default-value validation and define bit-field support; SC02c qualifies constant-stack integer-default recognition and preserved member positions in [the recorded parser/resource scope](verification/verification-integer-defaults-2026-10-24.md) with wire/compatibility tests; [Feature roadmap](project/feature_status.md#other-roadmap-items). | — |
 | [ ] | SC03 | — | The 2.23.0 worktree adds generated C++ fixed-array Protobuf mapping, exact packed/unpacked/text cardinality and format-specific default retention; [mapping boundary](serialization/protobuf.md#mapping-contract). Complete generic-function calls/defaults and final SDK qualification; [Generics](schema/generics.md). | — |
 | [ ] | BE01 | — | Implement native-backend separate-file layout where currently unavailable; preserve naming, dependency includes/modules and editor navigation; [Native languages](languages/native_languages.md). | — |
 | [ ] | BE02 | — | Define and implement Java packed output and the proposed stream/channel, native-acceleration and output-buffer-reuse APIs, with ownership/resource tests; [Java output](languages/java.md#defaults-and-unsupported-schema-features). | — |

@@ -27,7 +27,8 @@ def execute(compiler, directory):
     sentinel = b'previous generated artifact\n'
     failures = [('float', '1e39'), ('float', '-3.4028236e38'), ('double', '1e400'),
                 ('double', '9e999999999999999999999999999'), ('kind', 'kind::missing'),
-                ('kind', '::kind::missing')]
+                ('kind', '::kind::missing'), ('uint64', '9' * 65536),
+                ('uint64', '0x' + 'F' * 65536), ('int64', '-' + '9' * 65536)]
     for kind, literal in failures:
         source.write_text('serializer version 1.14.0;\nenum kind { first, second }\n'
                           'class sample {\n  public '+kind+' value { '+literal+' };\n}\n', encoding='utf-8')
@@ -37,7 +38,10 @@ def execute(compiler, directory):
         diagnostic = result.stdout + result.stderr
         if result.returncode == 0 or 'model.serializer:4:3: member value:' not in diagnostic:
             raise AssertionError('Missing declaring-member diagnostic: '+diagnostic)
-        if ('Unknown enumerator in default' if kind == 'kind' else 'Floating default exceeds the declared '+kind+' range') not in diagnostic:
+        expected = ('Unknown enumerator in default' if kind == 'kind' else
+                    ('Numeric' if kind.startswith(('int', 'uint')) else 'Floating') +
+                    ' default exceeds the declared ' + kind + ' range')
+        if expected not in diagnostic:
             raise AssertionError('Missing precise typed-default diagnostic: '+diagnostic)
         if cpp.read_bytes() != sentinel or python.read_bytes() != sentinel:
             raise AssertionError('Rejected scalar default replaced generated output')
