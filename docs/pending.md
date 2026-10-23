@@ -3,7 +3,7 @@
 This list contains **33 unfinished requirements: 29 active and four deferred**.
 Completed items and fully completed sections have moved to the
 [implemented feature catalog](project/completed_requirements.md), with all
-**817 IDs and verification records** retained. The [feature list](project/feature_status.md)
+**818 IDs and verification records** retained. The [feature list](project/feature_status.md)
 summarizes supported capabilities. The three closed ownership decisions live in
 [application responsibilities](project/application_responsibilities.md#disposed-requirements),
 not in this unfinished-work inventory.
@@ -37,7 +37,7 @@ Native indexing can proceed independently of the deferred database paging work.
 | [ ] | MG01 | — | **Deferred subsystem — [GitHub #1](https://github.com/rohit-singh-gautam/Serializer/issues/1).** Implement native managed engines for selected non-C++ backends: ownership, immutable reads, transactions, identity, history, journals and collaboration under native lifetime/error/concurrency contracts; [Language bindings](managed/language_bindings.md). | — |
 | [ ] | MG07 | — | Provide allocator-aware payload containers/decoding and hard peak-allocation hooks; distinguish admission estimates from measured process peaks; [Ownership/allocation](managed/history.md#ownership-and-custom-allocation), [state enhancements](managed/state_enhancements.md). | — |
 | [ ] | MG08 | — | Define supported managed packed/view/recursive/Protobuf and broader inheritance/editor contracts, preserving explicit rejection until real code and qualification exist; [C++ runtime](managed/cpp_runtime.md), [generics](schema/generics.md), [state enhancements](managed/state_enhancements.md). | — |
-| [ ] | MG09 | — | The 2.23.0 worktree adds field-level merging and selective collaboration Undo/Redo within an unchanged managed variant tag/identity. Complete qualification, virtual/abstract/override edit dispatch and portable owned/borrowed method or typed-error contracts; [State enhancements](managed/state_enhancements.md#remaining-work). | — |
+| [ ] | MG09 | — | Complete virtual/abstract/override edit dispatch and portable owned/borrowed method or typed-error contracts. Existing same-tag/identity variant field merging and selective collaboration Undo/Redo have [Windows/Linux qualification](verification/verification-managed-variants-2026-10-24.md), cataloged as MG09a; this does not close the broader method contract. See [State enhancements](managed/state_enhancements.md#remaining-work). | — |
 | [ ] | MG10 | — | Extend projection/dependency notification policies and compact nested identity/history records where proposed; measure retained/deleted-entity costs and edit latency; [Identity/history](managed/history.md), [data structures](managed/data_structures.md). | — |
 | [ ] | PG01 | — | **Deferred subsystem — [GitHub #2](https://github.com/rohit-singh-gautam/Serializer/issues/2).** Implement the proposed page store/cache, persistent index keys, dirty-page writeback/recovery, bounded construction and corruption handling before claiming a mostly-disk index; [Paged indexing](design/paged_indexing.md). | — |
 | [ ] | PG02 | — | **Deferred subsystem — [GitHub #3](https://github.com/rohit-singh-gautam/Serializer/issues/3).** Add lazy value/storage loading and the proposed paged capability selectors only after index/page lifetime and recovery contracts are implemented and measured; [Paged indexing](design/paged_indexing.md). | PG01 |

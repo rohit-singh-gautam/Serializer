@@ -33,6 +33,9 @@ identified child fields. A managed variant with the same active tag and identity
 in all three states merges that child's fields. Switching tags or replacing its
 identity remains atomic. Ordinary value containers and nested map wrappers retain
 atomic field semantics. Ordering/move policies and text algorithms are separate work.
+The [managed variant qualification](../verification/verification-managed-variants-2026-10-24.md)
+covers child-field conflicts, same-tag identity replacement, journal recovery and
+selective author Undo/Redo in all four Windows/Linux storage/ID profiles.
 
 Unresolved conflicts throw `merge_conflict_error` through the outcome. Its owned
 diagnostic contains the entity, complete ordinary-base scopes, field, conflict

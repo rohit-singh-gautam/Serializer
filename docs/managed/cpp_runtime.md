@@ -239,9 +239,10 @@ records. `edit_content<0>()` selects a checked active alternative;
 History restores the tag and previous identities. Switching any alternative
 conservatively invalidates every existing alternative editor in that transaction;
 switching back never revives an old handle. A valueless variant is rejected.
-Managed variant contributions merge per field in the 2.23.0 worktree when the
+Managed variant contributions merge per field when the
 active tag and entity identity survive in all compared states. Tag/identity
-replacements retain atomic whole-value semantics; final qualification is pending.
+replacements retain atomic whole-value semantics. All four Windows/Linux
+identity/storage profiles have [executed merge and selective-history qualification](../verification/verification-managed-variants-2026-10-24.md).
 
 Fixed managed arrays expose `edit(id)` without append/erase; cardinality is part
 of the schema. Variable arrays retain their existing membership operations.

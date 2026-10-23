@@ -288,10 +288,11 @@ their qualification scope are in the
 Generated codecs and standalone patch APIs do not prove those broader engines
 or adapters.
 
-The 2.23.0 worktree merges managed variant fields when all compared states retain
+C++ managed variant fields merge when all compared states retain
 the same active tag and entity identity, including selective collaboration
-Undo/Redo. Tag/identity replacements remain atomic. Final qualification follows
-the compilation commit.
+Undo/Redo. Tag/identity replacements remain atomic. All four Windows/Linux
+identity/storage profiles pass the [variant qualification](../verification/verification-managed-variants-2026-10-24.md),
+including conflict retries, journal recovery and later-author protection.
 Alternative handles are conservatively invalidated by a whole-value replacement.
 Managed edit methods support ordinary dispatch; virtual/abstract/override edit
 contracts are rejected. Ordinary behavior interfaces remain available. Method parameters/results use

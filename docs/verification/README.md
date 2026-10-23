@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [Managed variant merges](verification-managed-variants-2026-10-24.md) | MG09a: all four Windows/Linux identity/storage profiles, conflict retries, atomic replacement identity, full/delta journal recovery and selective Undo/Redo. |
 | [Native C navigation allocation](verification-native-c-navigation-2026-10-24.md) | Direct generated C declaration indexing, unchanged native interpreter limits, shared tests and real .NET adapter checks; interactive hosts remain separate. |
 
 ## 23 October 2026

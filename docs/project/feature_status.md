@@ -1,6 +1,6 @@
 # Features and implementation status
 
-The [implemented requirement catalog](completed_requirements.md) records **817
+The [implemented requirement catalog](completed_requirements.md) records **818
 completed capability and qualification IDs**, with their backend/profile limits
 and verification links. Completed sections have moved there from the pending
 list. [Pending work](../pending.md) contains only **33 unfinished requirements**;
@@ -14,6 +14,12 @@ are unchanged. [Platform qualification](../verification/verification-cpp23-2026-
 passes Windows MSVC/clang-cl and Linux GCC/Clang builds and installed consumers;
 `CPP01` is complete within that recorded platform scope. Explicit GCC/Clang C++26
 configuration and installed consumers also pass.
+
+The existing C++ same-tag/identity variant merge and selective-history contract
+passes **88 merge cases per host** across all four Windows/Linux identity/storage
+profiles. [MG09a qualification](../verification/verification-managed-variants-2026-10-24.md)
+covers conflicts, replacement identity, journal recovery and later-author protection;
+the broader MG09 virtual-edit and portable method contracts remain open.
 
 Compiler/runtime **2.30.0**, language **1.22.0**, adds
 [owning C++ cache fields and provider services](../design/cache_attributes.md),

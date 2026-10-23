@@ -209,7 +209,11 @@ For selective collaboration Undo/Redo, unchanged managed variant tag/identity
 contributions now merge their child fields independently; tag/identity replacement
 remains atomic. Complete publication, reference and contribution-version checks
 remain mandatory; the [Windows/Linux merge qualification](../../../docs/verification/verification-collaboration-merging-2026-10-21.md)
-records the actual native storage/ID profiles and fault boundaries.
+records the actual native storage/ID profiles and fault boundaries. The
+[managed variant qualification](../../../docs/verification/verification-managed-variants-2026-10-24.md)
+adds child-field conflict/retry, atomic same-tag identity replacement, full/delta
+journal recovery and later-author Undo protection across all four Windows/Linux profiles.
+This does not enable virtual edit dispatch or new portable ownership/error contracts.
 New non-C++ managed engines, paged/lazy storage and native journal/storage
 migration remain deferred in linked issues. Native storage/index support is
 [DB02 / #6](https://github.com/rohit-singh-gautam/Serializer/issues/6), not a completed

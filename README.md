@@ -171,6 +171,9 @@ and native journal recovery. The 2.24 qualification adds opt-in collaboration
 requests and verifies all four native storage/ID profiles on Windows and Linux.
 Unchanged managed variant identities also merge per field during native merging
 and selective collaboration Undo/Redo; tag/identity replacements remain atomic.
+The [variant qualification](docs/verification/verification-managed-variants-2026-10-24.md)
+passes all four Windows/Linux identity/storage profiles, including conflicts,
+journal recovery and later-author protection.
 Use `rohit::serializer::serialize_as(object)` for
 [one-expression compact JSON](docs/guides/usage.md#string-backed-output-buffers)
 in a default owning `std::string`. Select another owning result/protocol explicitly;

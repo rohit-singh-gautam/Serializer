@@ -3,7 +3,7 @@
 [Feature list](feature_status.md) · [Pending work](../pending.md) ·
 [Ownership decisions](application_responsibilities.md#disposed-requirements)
 
-This feature catalog contains **817 implemented requirement records**, including
+This feature catalog contains **818 implemented requirement records**, including
 the 816 records moved out of the pending backlog on 2026-10-23. Each stable ID retains its capability scope,
 dependencies and original verification links. Completion applies to the stated
 backend, profile and dated checks; it does not close a broader parent requirement
@@ -105,6 +105,7 @@ are recorded separately from implemented scalar validation.
 | <a id="mg03"></a>MG03 | Inherited entity/field authorization, editable/read-only exceptions and separate content/structure/policy checks are implemented, with native edit/import/history/publication enforcement and the same candidate helper at authority acceptance. Authentication, policy storage/administration and principal binding are host responsibilities, will not fix in Serializer. [Contract and ownership](application_responsibilities.md#security-and-authorization), [executed checks](../verification/verification-managed-authorization-2026-10-21.md). | — |
 | <a id="mg04"></a>MG04 | Native C++ retained-revision three-way merging, typed conflicts, two-parent ancestry, opt-in authority negotiation and exact-target/cursor requests use complete-candidate policy/locks and accepted field/dependency deltas. Selective Undo/Redo, exact retries and both journal fault/recovery layouts pass in all four Windows/Linux storage/ID profiles; [contract](../managed/branch_merging.md), [executed evidence and exclusions](../verification/verification-collaboration-merging-2026-10-21.md). Client-authored branch graph import and automatic stale-edit merging are distinct contracts. | — |
 | <a id="mg05"></a>MG05 | Native session records exercise uint32/uint64/string keys, failed submission/polling, lost acknowledgement, checkpoint reload and epoch changes; 384 presence/cache cycles preserve strict identity and authority ownership. [Windows/Linux qualification](../verification/verification-managed-capabilities-2026-10-21.md); network deployment/authentication and presence UI are application responsibilities. | — |
+| <a id="mg09a"></a>MG09a | Existing C++ managed-variant field merging and selective collaboration Undo/Redo are qualified in all four Windows/Linux direct/separate uint32/uint64 profiles: child-field conflicts/retries, same-tag identity replacement, appended/sidecar full/delta recovery, ancestry and later-author protection. Each host passes 88 complete merge cases; [executed scope](../verification/verification-managed-variants-2026-10-24.md). Virtual-edit dispatch and portable ownership/error contracts remain open under MG09. | MG04 |
 
 ## Cached-origin document bridge
 

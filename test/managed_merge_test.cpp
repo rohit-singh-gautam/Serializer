@@ -15,6 +15,7 @@
 #include <string>
 #include <system_error>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -249,6 +250,123 @@ TEST(managed_merge, variant_fields_merge_without_replacing_surviving_identity) {
   EXPECT_EQ(store.save(), before);
 }
 
+// Divergent edits report the surviving child's field and resolve without replacing its identity.
+TEST(managed_merge, variant_field_conflicts_preserve_identity_and_retry_atomically) {
+  store_type store{initial()};
+  const auto child_id = std::get<0>(payload(store).content).persistent_id;
+  const auto source = branches(store,
+      [](auto& tx) { tx.root().template edit_content<0>().set_memo("source"); },
+      [](auto& tx) { tx.root().template edit_content<0>().set_memo("target"); });
+  const auto before = store.save();
+  const auto high_water = store.allocated_id();
+  const auto failed = store.merge_revision(source);
+  ASSERT_EQ(failed.status, status::failed);
+  try {
+    failed.throw_if_failed();
+    FAIL();
+  } catch (const managed::merge_conflict_error& error) {
+    EXPECT_EQ(error.conflict.entity, child_id);
+    EXPECT_EQ(error.conflict.field, 1u);
+    EXPECT_EQ(error.conflict.kind, managed::merge_conflict_kind::value);
+    EXPECT_EQ(error.conflict.base, field_bytes(std::string{}));
+    EXPECT_EQ(error.conflict.target, field_bytes(std::string{"target"}));
+    EXPECT_EQ(error.conflict.source, field_bytes(std::string{"source"}));
+  }
+  EXPECT_EQ(store.save(), before);
+  managed::merge_options options;
+  unsigned calls{};
+  options.resolve = [&](const auto& conflict) {
+    ++calls;
+    EXPECT_EQ(conflict.entity, child_id);
+    EXPECT_EQ(conflict.field, 1u);
+    return managed::merge_resolution::source;
+  };
+  store.merge_revision(source, options).throw_if_failed();
+  EXPECT_EQ(calls, 1u);
+  const auto& child = std::get<0>(payload(store).content);
+  EXPECT_EQ(child.persistent_id, child_id);
+  EXPECT_EQ(entry_traits::payload(child).memo, "source");
+  EXPECT_EQ(store.allocated_id(), high_water);
+}
+
+// A new entity in the same variant tag is an atomic replacement, even when its fields could merge.
+TEST(managed_merge, variant_same_tag_replacement_never_merges_distinct_entities) {
+  store_type store{initial()};
+  const auto original = store.read();
+  const auto old_id = std::get<0>(traits::payload(*original).content).persistent_id;
+  const auto source = branches(store,
+      [](auto& tx) { tx.root().template emplace_content<0>(ledger_example::entry{"replacement", 700}); },
+      [](auto& tx) { tx.root().template edit_content<0>().set_amount_minor_units(400); });
+  const auto before = store.save();
+  EXPECT_EQ(store.merge_revision(source).status, status::failed);
+  EXPECT_EQ(store.save(), before);
+  const auto high_water = store.allocated_id();
+  managed::merge_options options;
+  unsigned calls{};
+  options.resolve = [&](const auto& conflict) {
+    ++calls;
+    EXPECT_EQ(conflict.entity, original->persistent_id);
+    EXPECT_EQ(conflict.field, 5u);
+    EXPECT_EQ(conflict.kind, managed::merge_conflict_kind::value);
+    return managed::merge_resolution::source;
+  };
+  store.merge_revision(source, options).throw_if_failed();
+  EXPECT_EQ(calls, 1u);
+  const auto& child = std::get<0>(payload(store).content);
+  EXPECT_NE(child.persistent_id, old_id);
+  EXPECT_EQ(entry_traits::payload(child).memo, "replacement");
+  EXPECT_EQ(entry_traits::payload(child).amount_minor_units, 700);
+  EXPECT_EQ(std::get<0>(traits::payload(*original).content).persistent_id, old_id);
+  EXPECT_EQ(store.allocated_id(), high_water);
+}
+
+// Accepted field merges retain their variant identity and both parents through every journal profile.
+TEST(managed_merge, variant_field_merge_journal_recovery_preserves_identity_and_ancestry) {
+  for (const auto mode : {managed::journal_storage_mode::appended, managed::journal_storage_mode::sidecar}) {
+    for (const bool delta : {false, true}) {
+      const journal_directory directory;
+      const auto path = directory.path / "document";
+      managed::store_options options;
+      options.delta_journal = delta;
+      std::vector<std::uint8_t> saved;
+      std::uint64_t child_id{}, source{}, target{}, merged{};
+      {
+        store_type store{initial(), managed::make_document_id(), options};
+        store.create_journal(path, mode);
+        child_id = std::get<0>(payload(store).content).persistent_id;
+        source = branches(store,
+            [](auto& tx) { tx.root().template edit_content<0>().set_memo("source"); },
+            [](auto& tx) { tx.root().template edit_content<0>().set_amount_minor_units(400); });
+        target = store.current_revision();
+        const auto result = store.merge_revision(source);
+        result.throw_if_failed();
+        merged = result.revision;
+        saved = store.save();
+      }
+      {
+        store_type restored{initial(), managed::make_document_id(), options};
+        restored.recover_journal(path);
+        EXPECT_EQ(restored.save(), saved);
+        EXPECT_EQ(restored.revision_parents(merged), (std::vector<std::uint64_t>{target, source}));
+        const auto& child = std::get<0>(payload(restored).content);
+        EXPECT_EQ(child.persistent_id, child_id);
+        EXPECT_EQ(entry_traits::payload(child).memo, "source");
+        EXPECT_EQ(entry_traits::payload(child).amount_minor_units, 400);
+        restored.undo();
+        EXPECT_EQ(restored.current_revision(), target);
+        EXPECT_EQ(std::get<0>(payload(restored).content).persistent_id, child_id);
+        EXPECT_TRUE(entry_traits::payload(std::get<0>(payload(restored).content)).memo.empty());
+        restored.redo(merged);
+        restored.save_journal();
+      }
+      store_type compacted{initial(), managed::make_document_id(), options};
+      compacted.recover_journal(path);
+      EXPECT_EQ(compacted.save(), saved);
+      EXPECT_EQ(std::get<0>(payload(compacted).content).persistent_id, child_id);
+    }
+  }
+}
+
 // Selective collaboration Undo/Redo retains another author's independent field in the same alternative.
 TEST(managed_merge, collaboration_variant_undo_preserves_other_field_contributions) {
   managed::collaboration_authority<root> authority{initial(), 1};
@@ -281,6 +399,46 @@ TEST(managed_merge, collaboration_variant_undo_preserves_other_field_contributio
   const auto& restored = entry_traits::payload(std::get<0>(traits::payload(*authority.read()).content));
   EXPECT_EQ(restored.memo, "first author");
   EXPECT_EQ(restored.amount_minor_units, 400);
+}
+
+// Selective Undo cannot erase a later same-field contribution; ordered author Undo/Redo remains valid.
+TEST(managed_merge, collaboration_variant_undo_conflict_preserves_later_author_and_retries) {
+  managed::collaboration_authority<root> authority{initial(), 1};
+  managed::collaboration_replica<root> replica;
+  authority.open_session(10);
+  authority.open_session(20);
+  replica.synchronize(authority.snapshot(), authority.context());
+  const auto child_id = std::get<0>(traits::payload(*authority.read()).content).persistent_id;
+  // Authenticate each proposal and refresh the client's exact accepted base after every decision.
+  const auto submit = [&](const auto& proposal) {
+    auto result = authority.submit_change(proposal, proposal.session, 0);
+    replica.synchronize(authority.snapshot(), authority.context());
+    return result;
+  };
+  replica.initialize_identity_lease(10, authority.reserve_ids(10));
+  ASSERT_EQ(submit(replica.propose(10, 1, [](auto& tx) {
+    tx.root().template edit_content<0>().set_memo("first author");
+  }))->status, managed::collaboration_status::accepted);
+  replica.initialize_identity_lease(20, authority.reserve_ids(20));
+  ASSERT_EQ(submit(replica.propose(20, 1, [](auto& tx) {
+    tx.root().template edit_content<0>().set_memo("second author");
+  }))->status, managed::collaboration_status::accepted);
+  const auto sequence = authority.sequence();
+  const auto request = replica.undo(10, 2, 1);
+  const auto rejected = submit(request);
+  ASSERT_EQ(rejected->status, managed::collaboration_status::conflict);
+  EXPECT_EQ(authority.sequence(), sequence);
+  EXPECT_EQ(submit(request), rejected);
+  EXPECT_EQ(entry_traits::payload(std::get<0>(payload(authority).content)).memo, "second author");
+  ASSERT_EQ(submit(replica.undo(20, 2, 1))->status, managed::collaboration_status::accepted);
+  EXPECT_EQ(entry_traits::payload(std::get<0>(payload(authority).content)).memo, "first author");
+  ASSERT_EQ(submit(replica.undo(10, 3, 1))->status, managed::collaboration_status::accepted);
+  EXPECT_TRUE(entry_traits::payload(std::get<0>(payload(authority).content)).memo.empty());
+  ASSERT_EQ(submit(replica.redo(10, 4, 3))->status, managed::collaboration_status::accepted);
+  EXPECT_EQ(entry_traits::payload(std::get<0>(payload(authority).content)).memo, "first author");
+  ASSERT_EQ(submit(replica.redo(20, 3, 2))->status, managed::collaboration_status::accepted);
+  EXPECT_EQ(entry_traits::payload(std::get<0>(payload(authority).content)).memo, "second author");
+  EXPECT_EQ(std::get<0>(payload(authority).content).persistent_id, child_id);
 }
 
 // Labels are independent from the additive ancestry wrapper and remain first-parent action labels.
