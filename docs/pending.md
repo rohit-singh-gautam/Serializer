@@ -205,6 +205,14 @@ are recorded separately from implemented scalar validation.
 
 ## Managed state and storage
 
+The [cache attribute discussion](design/cache_attributes.md) separately proposes
+rebuildable persisted fields, priority eviction, application-controlled placement,
+a shared `.serializer/` companion directory and cache retention after graceful-close
+journal retirement. It is exploratory
+design, not an accepted implementation batch or an implemented API; it adds no
+counted requirement rows and does not change PG01/PG02/DB01 deferrals. Promote
+agreed scope and acceptance gates into this inventory before implementation.
+
 The proposed [durable database integration requirements](design/database_storage_requirements.md)
 refine PG01, PG02, DB01 and MIG03 with publication, operation identity,
 incremental validation, retention and integration acceptance contracts. They do
