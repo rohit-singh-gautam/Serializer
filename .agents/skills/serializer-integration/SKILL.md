@@ -79,10 +79,22 @@ remain unavailable for that storage representation. Use a supported explicit
 ordered mapping when direct token traversal is required. Follow the
 [legacy tree checks](../../../docs/verification/verification-legacy-cpp-wildcards-2026-10-22.md).
 
-The current compiler/runtime release is **2.28.1**, with schema language
+The current compiler/runtime release is **2.28.2**, with schema language
 **1.21.0**. Patch 2.28.1 restores strict GNU compilation of XML metadata,
 declaration prefixes and large embedded runtime literals without changing
 generated contracts or application integration.
+Patch 2.28.2 prepares extended-length Windows file/journal I/O through transient
+native path arguments, including drive/UNC paths, stable locks, companion metadata
+and atomic publication. Keep logical path identity and opaque origin metadata;
+do not prefix authored/source-origin bytes or require a machine registry change.
+Ordinary short absolute arguments remain borrowed and stream read/write paths are
+unchanged. Six selected Windows x64 MSVC 19.51 Release binary/JSON checks passed,
+including exact 249/259/260/271/320-character Unicode I/O, intermediate literal
+component identity, lock/publication failure controls and managed recovery/history.
+The moved owning build used short per-project MSBuild tracking paths; generic
+native build paths remain a separate concern. XML-ON, live UNC shares, power-loss
+and consumer adoption are not qualified by those checks. A lexical UNC conversion
+is not network durability proof.
 For external C++ documents, let the application choose an owned full
 main for temporary sources or attach native differences to a durable original.
 Use bounded `journal_options::origin` and `journal_origin()` for native opaque

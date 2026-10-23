@@ -44,6 +44,18 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Compiler/runtime **2.28.2** prepares Windows extended-length native file and
+journal I/O without a registry change. Ordinary logical paths and opaque journal
+origin bytes stay unchanged; transient native drive/UNC spellings cover opening,
+writer locks, companion metadata and atomic publication. Explicit device syntax
+keeps its existing semantics. Six focused native boundary/journal checks passed
+on Windows x64 MSVC 19.51 Release with XML OFF and unchanged machine policy,
+including Unicode paths through 320 characters, native lock exclusion, replacement
+refusal/retry and exact managed recovery/history pins. A short per-project MSBuild
+tracking location was required for the moved owning build; this does not qualify
+all native build paths. UNC spelling checks are lexical, with no live-share or
+power-loss qualification. The schema language and serialized formats are unchanged.
+
 Compiler/runtime **2.28.1** fixes strict GNU builds by explicitly initializing
 temporary XML field descriptors and declaration prefixes, and uses the
 compiler-known length of the large embedded C runtime literal. Public
@@ -157,7 +169,7 @@ Regenerate Python package facades for cancellation checks after Save hooks:
 pre-publication cancellation preserves the old file; a failure after replacement
 reports `publication_uncertain` with the complete new archive retained.
 
-The current compiler and runtime release is **2.28.1**. Bug fixes and minor updates
+The current compiler and runtime release is **2.28.2**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.21.0**;

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: 0BSD
 // See LICENSE-RUNTIME for permission to use this runtime in proprietary applications.
 #include <rohit/file_stream.hpp>
+#include "native_file_path.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -66,7 +67,8 @@ public:
     const DWORD sharing = access == file_open_mode::lock ? 0 :
         FILE_SHARE_READ | FILE_SHARE_DELETE |
             (access == file_open_mode::read_shared ? FILE_SHARE_WRITE : 0);
-    handle_ = CreateFileW(path.c_str(), rights, sharing, nullptr, disposition,
+    const detail::native_file_path native{path};
+    handle_ = CreateFileW(native.c_str(), rights, sharing, nullptr, disposition,
                           FILE_ATTRIBUTE_NORMAL, nullptr);
     if (handle_ == INVALID_HANDLE_VALUE) {
       io_error("Open file stream");
@@ -378,7 +380,8 @@ void publish_file(const std::filesystem::path& source, const std::filesystem::pa
                   bool replace) {
 #ifdef _WIN32
   const auto flags = MOVEFILE_WRITE_THROUGH | (replace ? MOVEFILE_REPLACE_EXISTING : 0);
-  if (!MoveFileExW(source.c_str(), target.c_str(), flags)) {
+  const detail::native_file_path native_source{source}, native_target{target};
+  if (!MoveFileExW(native_source.c_str(), native_target.c_str(), flags)) {
     io_error("Publish file stream generation");
   }
 #else

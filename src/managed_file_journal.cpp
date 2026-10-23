@@ -9,6 +9,7 @@
 #include <rohit/managed_journal_stream.hpp>
 #include "managed_journal_delta.hpp"
 #include "managed_journal_document.hpp"
+#include "native_file_path.hpp"
 
 #include <array>
 #include <algorithm>
@@ -78,17 +79,39 @@ std::filesystem::path journal_directory(const std::filesystem::path& path) {
   return path.parent_path() / name;
 }
 
+// Inspect physical companion state through the transient native boundary, not a new identity.
+bool native_exists(const std::filesystem::path& path) {
+  const rohit::detail::native_file_path native{path};
+  return std::filesystem::exists(native.get());
+}
+// Remove only the existing journal-selected name with the same throwing error contract.
+bool native_remove(const std::filesystem::path& path) {
+  const rohit::detail::native_file_path native{path};
+  return std::filesystem::remove(native.get());
+}
+// Keep best-effort cleanup's existing error-code behavior even if path normalization fails.
+bool native_remove(const std::filesystem::path& path, std::error_code& error) {
+  try {
+    const rohit::detail::native_file_path native{path};
+    return std::filesystem::remove(native.get(), error);
+  } catch (const std::system_error& failure) {
+    error = failure.code();
+    return false;
+  }
+}
+
 // Make the new dot-prefixed directory hidden in Explorer as well as Unix directory listings.
 void prepare_journal_directory(const std::filesystem::path& path) {
-  std::filesystem::create_directory(path);
-  if (std::filesystem::symlink_status(path).type() != std::filesystem::file_type::directory) {
+  const rohit::detail::native_file_path native{path};
+  std::filesystem::create_directory(native.get());
+  if (std::filesystem::symlink_status(native.get()).type() != std::filesystem::file_type::directory) {
     throw std::invalid_argument{"Managed journal auxiliary path must be an ordinary directory"};
   }
 #ifdef _WIN32
-  const auto attributes = GetFileAttributesW(path.c_str());
+  const auto attributes = GetFileAttributesW(native.c_str());
   if (attributes == INVALID_FILE_ATTRIBUTES ||
       (!(attributes & FILE_ATTRIBUTE_HIDDEN) &&
-       !SetFileAttributesW(path.c_str(), attributes | FILE_ATTRIBUTE_HIDDEN))) {
+       !SetFileAttributesW(native.c_str(), attributes | FILE_ATTRIBUTE_HIDDEN))) {
     throw std::system_error{static_cast<int>(GetLastError()), std::system_category(),
         "Hide managed journal directory"};
   }
@@ -449,7 +472,7 @@ struct file_journal::implementation {
       event(journal_io_event::before_cleanup);
       if (!old_sidecar.empty()) {
         std::error_code ignored;
-        std::filesystem::remove(old_sidecar, ignored);
+        native_remove(old_sidecar, ignored);
       }
     } catch (...) {
     }
@@ -494,7 +517,7 @@ void file_journal::implementation::replace_document(
   if (advance_sequence && sequence == std::numeric_limits<std::uint64_t>::max()) {
     throw std::overflow_error{"Managed journal sequence exhausted"};
   }
-  const bool attach_existing = !existing && std::filesystem::exists(path);
+  const bool attach_existing = !existing && native_exists(path);
   const bool preserve_document = attach_existing || advance_sequence;
   auto document_bytes = preserve_document ? read_file(path, options) : codec.encode(document);
   if (document_bytes.size() > options.max_file_bytes) {
@@ -605,7 +628,7 @@ void file_journal::implementation::publish_document(journal_document_manifest ne
     sync_parent_directory(manifest_path(true));
     if (confirmed) { event(journal_io_event::after_confirm_decision); }
     if (!preserve_document) {
-      publish_file(staging, path, std::filesystem::exists(path));
+      publish_file(staging, path, native_exists(path));
       sync_publication(staging, path);
     }
     event(journal_io_event::after_replace);
@@ -630,10 +653,10 @@ void file_journal::implementation::publish_document(journal_document_manifest ne
     event(journal_io_event::before_cleanup);
     if (!old_sidecar.empty()) {
       std::error_code ignored;
-      std::filesystem::remove(old_sidecar, ignored);
+      native_remove(old_sidecar, ignored);
     }
     if (confirmed) {
-      std::filesystem::remove(prepared_path());
+      native_remove(prepared_path());
       sync_parent_directory(prepared_path());
     }
   } catch (...) {
@@ -650,7 +673,7 @@ file_journal::file_journal(const std::filesystem::path& path, journal_options op
       (!options.document_codec && !options.origin.empty())) {
     throw std::invalid_argument{"Invalid managed journal path or limits"};
   }
-  state_->path = std::filesystem::weakly_canonical(std::filesystem::absolute(path));
+  state_->path = rohit::detail::canonical_file_path(path);
   state_->options = std::move(options);
   auto lock_path = state_->path;
   lock_path += ".lock";
@@ -659,16 +682,16 @@ file_journal::file_journal(const std::filesystem::path& path, journal_options op
   auto legacy_pending = legacy_manifest;
   legacy_pending += ".pending";
   const auto directory = journal_directory(state_->path);
-  const bool directory_exists = std::filesystem::exists(directory);
-  const bool legacy_metadata = std::filesystem::exists(lock_path) ||
-      std::filesystem::exists(legacy_manifest) || std::filesystem::exists(legacy_pending);
+  const bool directory_exists = native_exists(directory);
+  const bool legacy_metadata = native_exists(lock_path) ||
+      native_exists(legacy_manifest) || native_exists(legacy_pending);
   if (directory_exists && legacy_metadata) {
     throw std::invalid_argument{"Conflicting directory and legacy flat journal layouts"};
   }
   // Old native containers may have been copied without their lock. Keep their existing
   // flat generation contract; data-only documents are recognized by their manifests.
   const bool legacy_native = !directory_exists && !state_->options.document_codec &&
-      std::filesystem::exists(state_->path);
+      native_exists(state_->path);
   if (!legacy_metadata && !legacy_native) {
     prepare_journal_directory(directory);
     state_->auxiliary_directory = directory;
@@ -686,10 +709,10 @@ std::unique_ptr<file_journal> file_journal::create(const std::filesystem::path& 
                                                    journal_options options, bool& indeterminate,
                                                    std::span<const std::uint8_t> document) {
   auto result = std::unique_ptr<file_journal>{new file_journal{path, std::move(options)}};
-  if ((!result->state_->options.document_codec && std::filesystem::exists(result->state_->path)) ||
+  if ((!result->state_->options.document_codec && native_exists(result->state_->path)) ||
       (result->state_->options.document_codec &&
-       (std::filesystem::exists(result->state_->manifest_path()) ||
-        std::filesystem::exists(result->state_->manifest_path(true))))) {
+       (native_exists(result->state_->manifest_path()) ||
+        native_exists(result->state_->manifest_path(true))))) {
     throw std::invalid_argument{"Managed journal document already exists"};
   }
   try {
@@ -720,10 +743,10 @@ file_journal::recover(const std::filesystem::path& path, journal_options options
     }
     std::optional<journal_document_manifest> saved;
     std::optional<journal_document_manifest> pending;
-    if (std::filesystem::exists(state.manifest_path())) {
+    if (native_exists(state.manifest_path())) {
       saved = read_manifest(state.manifest_path(), state.options);
     }
-    if (std::filesystem::exists(state.manifest_path(true))) {
+    if (native_exists(state.manifest_path(true))) {
       pending = read_manifest(state.manifest_path(true), state.options);
     }
     if (pending && document_matches(*pending, input)) {
@@ -827,7 +850,7 @@ file_journal::recover(const std::filesystem::path& path, journal_options options
       consume(false, frame->payload);
     }
   }
-  if (external && std::filesystem::exists(state.prepared_path())) {
+  if (external && native_exists(state.prepared_path())) {
     auto prepared = read_manifest(state.prepared_path(), state.options);
     validate_save_token(prepared.confirmation);
     if (!same_bytes(prepared.confirmation, state.manifest.confirmation)) {
@@ -862,15 +885,15 @@ void file_journal::finish_recovery() {
     if (state.options.document_codec) {
       if (state.pending_manifest) {
         publish_file(state.manifest_path(true), state.manifest_path(),
-                       std::filesystem::exists(state.manifest_path()));
+                       native_exists(state.manifest_path()));
         sync_parent_directory(state.manifest_path());
-      } else if (std::filesystem::exists(state.manifest_path(true))) {
-        std::filesystem::remove(state.manifest_path(true));
+      } else if (native_exists(state.manifest_path(true))) {
+        native_remove(state.manifest_path(true));
         sync_parent_directory(state.manifest_path(true));
       }
       state.pending_manifest = false;
-      if (!state.preparation && std::filesystem::exists(state.prepared_path())) {
-        std::filesystem::remove(state.prepared_path());
+      if (!state.preparation && native_exists(state.prepared_path())) {
+        native_remove(state.prepared_path());
         sync_parent_directory(state.prepared_path());
       }
     }
@@ -1074,7 +1097,7 @@ bool file_journal::confirm_document_save(std::span<const std::uint8_t> token,
   staging += ".manifest";
   // This scratch file may survive a failed confirmation before the durable decision.
   {
-    file_stream output{staging, std::filesystem::exists(staging) ? file_open_mode::update
+    file_stream output{staging, native_exists(staging) ? file_open_mode::update
                                                               : file_open_mode::create};
     output.truncate(0);
     write_stream_bytes(output, manifest_bytes);

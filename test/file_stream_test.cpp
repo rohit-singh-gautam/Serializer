@@ -1,4 +1,5 @@
 #include "stream_test_support.hpp"
+#include "../src/native_file_path.hpp"
 
 #include <gtest/gtest.h>
 #include <person.hpp>
@@ -14,6 +15,7 @@
 #include <sstream>
 #include <streambuf>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -41,7 +43,8 @@ protected:
   // Release only this fixture's directory after all local stream owners are destroyed.
   void TearDown() override {
     std::error_code ignored;
-    std::filesystem::remove_all(directory_, ignored);
+    const rohit::detail::native_file_path native{directory_, true};
+    std::filesystem::remove_all(native.get(), ignored);
   }
   // Name one fixture file under the owned directory.
   std::filesystem::path path(const char* name = "data") const {
@@ -354,3 +357,105 @@ TEST(journal_stream, stream_errors_are_not_incomplete_records) {
                std::ios_base::failure);
 }
 } // namespace
+
+#ifdef _WIN32
+// Prefix conversion preserves UTF-16/UNC and explicit namespace semantics without network I/O.
+TEST(native_file_path, windows_spelling_and_logical_identity_are_separate) {
+  const auto short_path = std::filesystem::absolute("native-path-short");
+  const rohit::detail::native_file_path borrowed{short_path};
+  EXPECT_EQ(&borrowed.get(), &short_path);
+  EXPECT_FALSE(borrowed.prefix_added());
+  const auto absolute = short_path.parent_path() / L"unicode-\u03a9-\u4e2d" /
+      std::wstring(140, L'x') / std::wstring(140, L'y');
+  const rohit::detail::native_file_path extended{absolute};
+  EXPECT_TRUE(extended.get().native().starts_with(LR"(\\?\)"));
+  EXPECT_EQ(extended.get().native().substr(4), absolute.native());
+  const auto unc = std::filesystem::path{LR"(\\server\share\)"} /
+      std::wstring(140, L'x') / (std::wstring(140, L'y') + L"-\u03a9");
+  const rohit::detail::native_file_path unc_native{unc};
+  EXPECT_EQ(unc_native.get().native(), std::wstring{LR"(\\?\UNC\)"} + unc.native().substr(2));
+  const auto explicit_path = std::filesystem::path{LR"(\\?\C:\literal. )"};
+  const rohit::detail::native_file_path explicit_native{explicit_path};
+  EXPECT_EQ(&explicit_native.get(), &explicit_path);
+  EXPECT_FALSE(explicit_native.prefix_added());
+}
+
+// Real native files cross MAX_PATH with Unicode, stable lock exclusion and atomic retry semantics.
+TEST_F(file_stream_test, extended_length_native_io_lock_and_publication) {
+  auto base = directory_ / L"native-\u03a9-\u4e2d";
+  while (base.native().size() < 210) { base /= "level-0123456789"; }
+  ASSERT_LT(base.native().size() + 1, 249u);
+  const rohit::detail::native_file_path native_directory{base, true};
+  ASSERT_TRUE(std::filesystem::create_directories(native_directory.get()));
+  constexpr std::array lengths{249u, 259u, 260u, 271u, 320u};
+  const auto read_native = [](const std::filesystem::path& path) {
+    rohit::file_stream input{path, rohit::file_open_mode::read};
+    std::string value(static_cast<std::size_t>(input.size()), '\0');
+    input.read(value.data(), static_cast<std::streamsize>(value.size()));
+    EXPECT_EQ(input.gcount(), static_cast<std::streamsize>(value.size()));
+    return value;
+  };
+  // Intermediate spaces/dots can be literal Win32 directory names. Keep distinct
+  // native owners so indiscriminate component trimming cannot silently alias them.
+  constexpr std::array components{L"component", L"component ", L"component. ", L"component..."};
+  constexpr auto intermediate_path_characters = std::size_t{271};
+  for (std::size_t index = 0; index < components.size(); ++index) {
+    const auto component = std::wstring_view{components[index]};
+    const auto literal_directory = native_directory.get() / component;
+    ASSERT_TRUE(std::filesystem::create_directory(literal_directory));
+    const auto logical_directory = base / component;
+    ASSERT_LT(logical_directory.native().size() + 1, intermediate_path_characters);
+    const auto filename = std::wstring(intermediate_path_characters - logical_directory.native().size() - 1, L'p');
+    const auto literal_file = literal_directory / filename;
+    const auto logical_file = logical_directory / filename;
+    const auto value = "component-" + std::to_string(index);
+    {
+      rohit::file_stream output{literal_file, rohit::file_open_mode::create};
+      output.write(value.data(), static_cast<std::streamsize>(value.size())); output.sync();
+    }
+    EXPECT_EQ(logical_file.native().size(), intermediate_path_characters);
+    EXPECT_EQ(read_native(logical_file), value);
+    if (index == 0) {
+      const auto dotted_directory = base / L"component." / filename;
+      EXPECT_EQ(read_native(dotted_directory), value);
+    }
+  }
+  for (const auto length : lengths) {
+    SCOPED_TRACE(length);
+    const auto file = base / std::wstring(length - base.native().size() - 1, L'n');
+    EXPECT_EQ(file.native().size(), length);
+    {
+      rohit::file_stream output{file, rohit::file_open_mode::create};
+      output.write("before", 6); output.sync();
+    }
+    EXPECT_EQ(read_native(file), "before");
+    auto dotted = file; dotted += L".";
+    auto spaced = file; spaced += L" ";
+    EXPECT_EQ(read_native(dotted), "before");
+    EXPECT_EQ(read_native(spaced), "before");
+    auto lock_path = file; lock_path += L".lock";
+    rohit::file_stream lock{lock_path, rohit::file_open_mode::lock};
+    const rohit::detail::native_file_path lock_native{lock_path, true};
+    EXPECT_THROW((rohit::file_stream{lock_native.get(), rohit::file_open_mode::lock}), std::system_error);
+    auto staged = file; staged += L".new";
+    {
+      rohit::file_stream output{staged, rohit::file_open_mode::create};
+      output.write("after", 5); output.sync();
+    }
+    if (length == 271) {
+      const rohit::detail::native_file_path destination{file};
+      const auto held = CreateFileW(destination.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+          nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+      ASSERT_NE(held, INVALID_HANDLE_VALUE);
+      EXPECT_THROW(rohit::publish_file(staged, file, true), std::system_error);
+      EXPECT_EQ(read_native(file), "before");
+      EXPECT_NE(CloseHandle(held), 0);
+    }
+    rohit::publish_file(staged, file, true);
+    EXPECT_EQ(read_native(file), "after");
+    const rohit::detail::native_file_path source{staged};
+    EXPECT_FALSE(std::filesystem::exists(source.get()));
+    EXPECT_THROW((rohit::file_stream{lock_path, rohit::file_open_mode::lock}), std::system_error);
+  }
+}
+#endif

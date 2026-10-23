@@ -1,7 +1,9 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include <rohit/file_stream.hpp>
 #include <rohit/managed_journal_document.hpp>
 #include "managed_journal_paths.hpp"
+#include "../src/native_file_path.hpp"
 
 #include <ledger.hpp>
 #include <rohit/managed.hpp>
@@ -40,7 +42,8 @@ managed::journal_publication_evidence publication_evidence(std::span<const std::
 
 // Read exact document or companion bytes while retaining any insignificant external whitespace.
 bytes read_document_bytes(const std::filesystem::path& path) {
-  std::ifstream input{path, std::ios::binary};
+  const rohit::detail::native_file_path native{path};
+  std::ifstream input{native.get(), std::ios::binary};
   if (!input) {
     throw std::runtime_error{"Cannot read external journal fixture"};
   }
@@ -49,7 +52,8 @@ bytes read_document_bytes(const std::filesystem::path& path) {
 
 // Replace only a closed fixture to prepare an external document or simulate interrupted publication.
 void write_document_bytes(const std::filesystem::path& path, const bytes& value) {
-  std::ofstream output{path, std::ios::binary | std::ios::trunc};
+  const rohit::detail::native_file_path native{path};
+  std::ofstream output{native.get(), std::ios::binary | std::ios::trunc};
   output.write(reinterpret_cast<const char*>(value.data()),
                static_cast<std::streamsize>(value.size()));
   if (!output) {
@@ -91,7 +95,8 @@ protected:
   // Remove only the uniquely created fixture directory once all test-local handles have closed.
   void TearDown() override {
     std::error_code error;
-    std::filesystem::remove_all(directory_, error);
+    const rohit::detail::native_file_path native{directory_, true};
+    std::filesystem::remove_all(native.get(), error);
     EXPECT_FALSE(error) << error.message();
   }
 
@@ -1018,3 +1023,59 @@ TEST_F(managed_document_journal, rejects_external_codec_in_appended_mode) {
   EXPECT_FALSE(store.journal_needs_recovery());
 }
 } // namespace
+
+#ifdef _WIN32
+// Deep external documents keep native identity/history and original bytes through recovery/Save.
+TEST_F(managed_document_journal, extended_length_unicode_companions_preserve_native_state) {
+  auto parent = directory_ / L"journal-\u03a9-\u4e2d";
+  while (parent.native().size() < 280) { parent /= "level-0123456789"; }
+  const rohit::detail::native_file_path native_parent{parent, true};
+  ASSERT_TRUE(std::filesystem::create_directories(native_parent.get()));
+  path_ = parent / L"ledger-\u03a9.json";
+  ASSERT_GT(path_.native().size(), 271u);
+  auto options = json_options();
+  options.origin = {0, 7, 0, 255};
+  bytes original, accepted;
+  managed::document_id identity;
+  std::uint32_t child_id{};
+  std::shared_ptr<const ledger> old_pin;
+  {
+    store_type store{ledger{"Base", {{10, {"Entry", 200}}}}};
+    identity = store.document(); old_pin = store.read();
+    child_id = old_pin->entries.at(10).persistent_id;
+    store.create_journal(path_, mode::sidecar, options);
+    original = read_document_bytes(path_);
+    store.execute_transaction([](auto& edit) { edit.root().set_name("Edited"); }).throw_if_failed();
+    EXPECT_EQ(read_document_bytes(path_), original);
+    EXPECT_EQ(old_pin->name, "Base");
+    accepted = store.save();
+    const auto folder = journal_test_paths::directory(path_);
+    EXPECT_THROW((rohit::file_stream{folder / "writer.lock", rohit::file_open_mode::lock}), std::system_error);
+  }
+  {
+    store_type recovered{ledger{}};
+    recovered.recover_journal(path_, options);
+    EXPECT_EQ(recovered.save(), accepted);
+    EXPECT_EQ(recovered.document().high, identity.high);
+    EXPECT_EQ(recovered.document().low, identity.low);
+    EXPECT_EQ(recovered.read()->entries.at(10).persistent_id, child_id);
+    EXPECT_EQ(recovered.journal_origin(), options.origin);
+    recovered.undo(); EXPECT_EQ(recovered.read()->name, "Base");
+    recovered.redo(); EXPECT_EQ(recovered.read()->name, "Edited");
+    recovered.save_journal();
+    EXPECT_FALSE(recovered.journal_dirty());
+    EXPECT_EQ(old_pin->name, "Base");
+    EXPECT_EQ(decode_document<codec::json>(read_document_bytes(path_)).name, "Edited");
+  }
+  store_type reopened{ledger{}};
+  reopened.recover_journal(path_, options);
+  EXPECT_EQ(reopened.save(), accepted);
+  EXPECT_FALSE(reopened.journal_dirty());
+  EXPECT_EQ(reopened.journal_origin(), options.origin);
+  reopened.undo(); EXPECT_EQ(reopened.read()->name, "Base");
+  const rohit::detail::native_file_path native_main{path_};
+  const auto canonical_root = std::filesystem::weakly_canonical(directory_);
+  EXPECT_EQ(rohit::detail::canonical_file_path(path_), canonical_root / path_.lexically_relative(directory_));
+  EXPECT_TRUE(native_main.get().native().starts_with(LR"(\\?\)"));
+}
+#endif
