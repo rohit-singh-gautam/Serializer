@@ -1,4 +1,5 @@
 # Keep these native build commands synchronized with make.ps1.
+# Native builds require a C++23 compiler/library; CMake checks the shared minimum.
 # CMake remains the source of native build rules; Git owns repository cleanup.
 .DEFAULT_GOAL := all
 

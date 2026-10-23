@@ -46,6 +46,16 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Compiler/runtime **2.30.1** requires **C++23** and a matching standard library
+with `std::byteswap` and `std::span` for the compiler, runtime, generated C++ and
+managed consumers. Regenerate C++ headers for the `if consteval` arithmetic helper.
+Public CMake targets propagate the minimum; direct C++20 use
+rejects explicitly. Schemas, public APIs and serialized formats are unchanged.
+Both editor packages are **2.0.13**. See the [migration steps](migration.md#c23-minimum-in-2301)
+and [qualification record](docs/verification/verification-cpp23-2026-10-23.md).
+Installed SDK-only examples use compiler-component discovery; enabling a native
+language later upgrades discovery to the runtime without duplicating the compiler.
+
 Compiler/runtime **2.30.0**, schema language **1.22.0**, adds owning C++ `cache`
 fields, generated descriptors, bounded optional persistence, exact-source guarded
 publication and priority reclamation. New journals use `.<filename>.serializer/`
@@ -194,7 +204,7 @@ Regenerate Python package facades for cancellation checks after Save hooks:
 pre-publication cancellation preserves the old file; a failure after replacement
 reports `publication_uncertain` with the complete new archive retained.
 
-The current compiler and runtime release is **2.30.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.30.1**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.22.0**;
@@ -760,9 +770,9 @@ Mostly-disk indexing is a [separate design proposal](docs/design/paged_indexing.
 The [combined storage and indexing specification](docs/design/database_storage_requirements.md)
 requires C++23 as the minimum and first implementation priority, and defines standalone indexes, database-backed
 data, independent local/database/both index placement, typed `find_by` and
-specialized methods. Its schema/query APIs and C++23 upgrade remain implementation
-requirements. C++20 support does not need to be preserved; current C++20 build
-settings are migration work tracked as [CPP01](docs/pending.md#first-priority-c23-minimum).
+specialized methods. Its schema/query APIs remain proposals. Compiler/runtime
+2.30.1 requires C++23 for standalone and database use; see the
+[C++23 migration](migration.md#c23-minimum-in-2301).
 The [custom-ID examples](example/custom_ids/README.md) demonstrate application-owned
 scoped keys in every language and a C++ managed registry companion.
 See the [enhancement verification record](docs/verification/verification-registry-numeric-2026-10-11.md)
@@ -872,7 +882,7 @@ Language `1.7.0` adds [generic optional values](docs/schema/optional.md):
 `std::optional<T>`. Nested optionals and optional arrays/maps have distinct
 JSON and native binary representations across every output language.
 
-C++20 [constant-evaluation binary output](docs/serialization/constant_evaluation.md) can count a
+C++23 [constant-evaluation binary output](docs/serialization/constant_evaluation.md) can count a
 value's exact positional size, write caller-owned memory, or return an exact-size
 byte array from a deterministic factory. Enable generated models with
 `--cpp.constant_evaluation true`; its default is false. Ordinary runtime codecs
@@ -982,7 +992,7 @@ serializer_generate(TARGET my_app SCHEMAS person.serializer)
 ```
 
 A normal build generates the header and supplies the include directory, runtime
-library, and C++20 requirement. See [CMake integration](docs/guides/cmake_integration.md)
+library, and C++23 requirement. See [CMake integration](docs/guides/cmake_integration.md)
 for complete source-dependency and installed-package setups.
 
 Use [`serializer_generate_variants`](docs/guides/cmake_integration.md#generate-several-configurations-from-one-parse)
@@ -1093,7 +1103,7 @@ manifest acquires them through its default features. Existing caches retain thei
 settings; use `-U SERIALIZER_BUILD_MANAGED -U SERIALIZER_WITH_*` to adopt the new
 defaults, or set each option explicitly.
 
-The default development build needs CMake 4.0+, a C++20 compiler and standard
+The default development build needs CMake 4.0+, a C++23 compiler and standard
 library, clang-format 19+, and GoogleTest 1.18.0 or newer. See the
 [requirements and setup guide](docs/guides/cmake_integration.md#build-this-repository)
 for dependency installation and optional tools.
@@ -1208,7 +1218,7 @@ application must provide.
 | --- | --- |
 | Share declarations across schemas | [Includes](docs/guides/usage.md#share-declarations-with-includes) |
 | Read or update encoded C++ data through borrowed views | [Buffer views](docs/serialization/views.md) |
-| Produce exact positional bytes during C++20 constant evaluation | [Constant binary APIs](docs/guides/usage.md#count-and-emit-constant-positional-bytes) |
+| Produce exact positional bytes during C++23 constant evaluation | [Constant binary APIs](docs/guides/usage.md#count-and-emit-constant-positional-bytes) |
 | Encode directly into an owned `std::string` buffer | [String streams](docs/guides/usage.md#string-backed-output-buffers) |
 | Use standard streams or durable files | [Streams and adapters](docs/guides/usage.md#stream-concepts-and-implicit-adapters), [file streams](docs/guides/usage.md#file-streams-and-journal-records) |
 | Compress complete C++ messages | [Compression](docs/serialization/compression.md) |
@@ -1280,7 +1290,7 @@ for reporting barriers to using the project.
 - [Schema examples](docs/schema/schema_examples.md): small declarations you can adapt.
 - [Migration guide](migration.md): upgrade requirements and compatibility changes.
 - [Feature status and roadmap](docs/project/feature_status.md): implemented behavior and future work.
-- [Constant-evaluation guide](docs/serialization/constant_evaluation.md): implemented C++20 positional
+- [Constant-evaluation guide](docs/serialization/constant_evaluation.md): implemented C++23 positional
   size counting, existing-memory writing and exact-array factories, opt-in generation,
   runtime path preservation, supported values and compiler qualification.
 - [Four-toolchain verification](docs/verification/verification-toolchains-2026-10-07.md): x64 Windows/MSVC and clang-cl, and Ubuntu WSL2/GCC and Clang, with default runtime features enabled.

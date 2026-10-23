@@ -152,7 +152,7 @@ class Runner:
             library = self.args.cpp_library or self.args.compiler.parent / 'serializer_runtime.lib'
             command = self.command(language, 'cl', '/nologo', '/MD', '/O2', '/W4', '/WX', '/utf-8', '/I' + path('.'), '/Fe:' + executable)
             if language == 'cpp':
-                command += ['/std:c++20', '/EHsc', '/I' + self.path(language, ROOT / 'include'), path('main.cpp'), str(library)]
+                command += ['/std:c++latest', '/EHsc', '/I' + self.path(language, ROOT / 'include'), path('main.cpp'), str(library)]
             else:
                 if self.args.sanitize:
                     raise RuntimeError('Use a GCC/Clang C SDK (or --wsl-languages c) for --sanitize')
@@ -160,7 +160,7 @@ class Runner:
             run(command, cwd=directory)
         else:
             compiler = 'cc' if language == 'c' else 'c++'
-            command = self.command(language, compiler, '-std=c11' if language == 'c' else '-std=c++20',
+            command = self.command(language, compiler, '-std=c11' if language == 'c' else '-std=c++23',
                                    '-O2', '-Wall', '-Wextra', '-Wpedantic', '-Werror', path('main.c' if language == 'c' else 'main.cpp'), '-o', executable)
             if language == 'cpp':
                 library = self.args.cpp_library or self.args.compiler.parent / 'libserializer_runtime.a'
@@ -182,7 +182,7 @@ class Runner:
         path = lambda value: self.path(participant, value)
         executable = directory / ('main_' + participant)
         compiler = 's390x-linux-gnu-g++' if language == 'cpp' else 's390x-linux-gnu-gcc'
-        command = self.command(participant, compiler, '-std=c++20' if language == 'cpp' else '-std=c11',
+        command = self.command(participant, compiler, '-std=c++23' if language == 'cpp' else '-std=c11',
                                '-static', '-O2', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
                                '-include', path(ROOT / 'test/big_endian_host.h'),
                                '-I' + path(directory), '-o', path(executable),

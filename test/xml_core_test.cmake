@@ -26,7 +26,7 @@ target_include_directories(xml_core_generated_test PRIVATE "${core_generated_dir
 target_compile_definitions(xml_core_generated_test PRIVATE
   "SERIALIZER_CORE_MODEL_FIXTURE=\"${core_fixture_directory}/minimal.model\"")
 target_link_libraries(xml_core_generated_test PRIVATE Serializer::runtime GTest::gtest_main)
-target_compile_features(xml_core_generated_test PRIVATE cxx_std_20)
+target_compile_features(xml_core_generated_test PRIVATE cxx_std_23)
 if(MSVC)
   target_compile_options(xml_core_generated_test PRIVATE /W4 /WX)
 else()

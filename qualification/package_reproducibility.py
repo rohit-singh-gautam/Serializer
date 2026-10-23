@@ -48,7 +48,7 @@ def build_local(language, compiler, directory, options, run):
             library = Path(options['cpp_provider_library']).resolve(strict=True)
             artifacts[str(library)] = sha(library)
         provider['artifacts'] = artifacts
-        return {'launch': [str(executable)], 'generated': [str(generated)], 'tool': 'CMake-built strict C++20 consumer', 'provider': provider}
+        return {'launch': [str(executable)], 'generated': [str(generated)], 'tool': 'CMake-built strict C++23 consumer', 'provider': provider}
     generated = directory / 'schema.py'
     run([compiler, '--input', ADAPTERS / 'python_profile.serializer', '--language', 'python', '--python.output', generated], 'generation')
     shutil.copyfile(ADAPTERS / 'python_producer.py', directory / 'main.py')

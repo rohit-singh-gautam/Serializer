@@ -97,8 +97,14 @@ remain unavailable for that storage representation. Use a supported explicit
 ordered mapping when direct token traversal is required. Follow the
 [legacy tree checks](../../../docs/verification/verification-legacy-cpp-wildcards-2026-10-22.md).
 
-The current compiler/runtime release is **2.30.0**, with schema language
-**1.22.0**. Patch 2.28.1 restores strict GNU compilation of XML metadata,
+The current compiler/runtime release is **2.30.1**, with schema language
+**1.22.0**. Release 2.30.1 requires a C++23 compiler and matching standard library
+with `std::byteswap` and `std::span`. Source builds reject an explicit standard
+below 23; public CMake targets propagate `cxx_std_23` to generated and managed
+consumers. Direct compiler invocations must select C++23 or later. Regenerate C++ headers
+for the `if consteval` checked-arithmetic helper; retain runtime nonfinite-value errors. Both editor
+packages are 2.0.13; no schema or payload version changes are required.
+Patch 2.28.1 restores strict GNU compilation of XML metadata,
 declaration prefixes and large embedded runtime literals without changing
 generated contracts or application integration.
 Release 2.29.0 adds opt-in external-document journal retirement. Use
@@ -1408,8 +1414,8 @@ The [combined storage/index specification](../../../docs/design/database_storage
 requires C++23 as the minimum and first implementation priority, and covers standalone indexing, database data
 authority, local/database/both index placement, typed queries and specialized
 operator families. `storage(...)`, `index(...)`, `find_by`, placement and adapter
-APIs are proposals. C++20 compatibility is not required; current C++20 build
-settings await the priority [CPP01 migration](../../../docs/pending.md#first-priority-c23-minimum). Use current explicit
+APIs are proposals. Compiler/runtime 2.30.1 requires C++23 for every C++ consumer;
+follow the [migration steps](../../../migration.md#c23-minimum-in-2301). Use current explicit
 registry/index APIs until implemented. Index placement never moves data or makes
 a local cache authoritative for database uniqueness or authorization.
 Treat a paged or customer index as derived state with explicit snapshot/lifetime
@@ -2286,12 +2292,14 @@ Use the consuming project's existing dependency mechanism. When using CMake,
 `Serializer::runtime`, `Serializer::serializer`, and `serializer_generate`.
 Use `serializer_generate(TARGET app SCHEMAS schemas/person.serializer)` after creating the
 consumer. It supplies generation dependencies, the generated include directory,
-runtime linkage, and the C++20 minimum. CMake 4.0+ is required; keep a newer C++
+runtime linkage, and the C++23 minimum. CMake 4.0+ is required; keep a newer C++
 mode if the application already uses one. Source dependencies build the generator
 as needed; installed packages use their installed executable. `SERIALIZER_INSTALL`
 controls installation and defaults off when Serializer is embedded.
 For `LANGUAGES NONE` source-generation projects, select the installed `compiler`
-component in release 2.14 or newer to skip runtime-provider discovery. Normal
+component in release 2.14 or newer to skip runtime-provider discovery. Maintained
+installed SDK-only examples choose it automatically and add runtime discovery if
+their scope later enables a native language. Normal
 discovery and `COMPONENTS runtime` still load all installed targets and enabled
 runtime providers. A later runtime discovery in the same scope can add those
 targets after compiler-only discovery. For a cross build, use a host package with
@@ -2414,12 +2422,14 @@ builds. Regenerate LLVM-profile headers after the storage-donor naming fix; only
 generated local names change, with public APIs and wire data preserved.
 Updated runtime headers support `binary_none` encoder `serialize_out(view)`
 dispatch for mapped views; keyed/JSON protocols remain unsupported for views.
-The [latest four-toolchain verification](../../../docs/verification/verification-toolchains-2026-10-07.md)
+The [historical four-toolchain verification](../../../docs/verification/verification-toolchains-2026-10-07.md)
 records full default C++ builds, CTest suites, and installed consumers on Windows
 x64 (MSVC and clang-cl) and Ubuntu WSL2 x64 (GCC and Clang), using Release with a
 C++20 baseline and managed records, SIMD, and all compression backends enabled.
 All four full CTest suites and installed consumers passed; consult the record for
 exact compiler versions and test counts. Earlier Windows x86 package/consumer checks are separate.
+Current C++23 migration checks and their remaining platform limits are recorded
+in the [2.30.1 qualification](../../../docs/verification/verification-cpp23-2026-10-23.md).
 Native macOS, Android, and ARM Linux verification remains pending.
 
 Schema scanning and runtime codecs enable SIMD by default through `SERIALIZER_ENABLE_SIMD`.

@@ -92,8 +92,11 @@ private:
     // Acquire the store boundary before any transport or persistence callback.
     explicit operation_scope(store_collaboration& value) : owner{value} {
       owner.store_.require_idle();
-      if (owner.store_.journal_state_.sink && owner.store_.journal_state_.sink->has_prepared_save()) {
-        throw std::logic_error{"Reconcile prepared Save before collaboration operations"};
+      // Disabled journal profiles have a compile-time null sink, with no virtual calls.
+      if constexpr (Store::has_journal) {
+        if (owner.store_.journal_state_.sink && owner.store_.journal_state_.sink->has_prepared_save()) {
+          throw std::logic_error{"Reconcile prepared Save before collaboration operations"};
+        }
       }
       if (owner.busy_) {
         throw std::logic_error{"Reentrant collaboration operation"};

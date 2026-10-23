@@ -7,7 +7,7 @@ if(NOT XSD_GENERATED_DIRECTORY OR NOT XSD_EXAMPLE_SOURCE OR
   message(FATAL_ERROR "Run example/xsd/run.py with a built XML-enabled Serializer runtime")
 endif()
 add_executable(serializer_xsd_cpp "${XSD_EXAMPLE_SOURCE}")
-target_compile_features(serializer_xsd_cpp PRIVATE cxx_std_20)
+target_compile_features(serializer_xsd_cpp PRIVATE cxx_std_23)
 target_include_directories(serializer_xsd_cpp PRIVATE
   "${XSD_GENERATED_DIRECTORY}" "${SERIALIZER_INCLUDE_DIRECTORY}")
 target_link_libraries(serializer_xsd_cpp PRIVATE

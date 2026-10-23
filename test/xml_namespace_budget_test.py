@@ -114,7 +114,7 @@ def build_cpp(args, runner, directory, source):
     (directory / 'CMakeLists.txt').write_text(
         'cmake_minimum_required(VERSION 4.0)\nproject(xml_namespace_cpp LANGUAGES CXX)\n'
         'find_package(LibXml2 REQUIRED)\nadd_executable(namespace_cpp main.cpp)\n'
-        'target_compile_features(namespace_cpp PRIVATE cxx_std_20)\n'
+        'target_compile_features(namespace_cpp PRIVATE cxx_std_23)\n'
         'target_include_directories(namespace_cpp PRIVATE ' + cmake_path(ROOT / 'include') + ' ' +
         cmake_path(args.compiler.parent / 'generated/include') + ')\n'
         'target_link_libraries(namespace_cpp PRIVATE ' + cmake_path(library) + ' LibXml2::LibXml2)\n'

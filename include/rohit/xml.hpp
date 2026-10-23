@@ -215,7 +215,13 @@ struct extension_store {
   std::vector<attribute> attributes{};
   std::vector<child_slot> children{};
   std::map<std::string, std::string> namespace_bindings{};
+  // Clang/libstdc++ eagerly checks the constexpr vector initializer before wrapper_slot
+  // is complete. Default initialization has the same empty state and aggregate layout.
+#if defined(__clang__) && defined(__GLIBCXX__)
+  std::vector<wrapper_slot> wrappers;
+#else
   std::vector<wrapper_slot> wrappers{};
+#endif
 };
 
 // Configured collection wrappers keep their own extension placement without copying known children.

@@ -73,7 +73,7 @@ build rules, and distribute the default separate-header bundle or select
 [2.0 migration](../../migration.md#compilerruntime-200).
 
 Serializer ships a `serializer_generate` function with both its source tree and
-its installable CMake package. Use CMake 4.0+, a C++20 compiler and standard
+its installable CMake package. Use CMake 4.0+, a C++23 compiler and standard
 library, and clang-format 19+ for the default output formatting. The integration
 has no editor dependency and requires no `.vscode` files.
 
@@ -168,7 +168,7 @@ configuration, then uses CMake's `--clean-first` before building.
 | CMake 4.0+ | Every source build; CTest is included with CMake. |
 | Zstandard, LZ4, and zlib CMake packages | Default runtime build; the repository vcpkg manifest acquires them automatically. Disable individual backends with `SERIALIZER_WITH_*=OFF`. |
 | libxml2 CMake package | Default XML-enabled build; the vcpkg manifest includes `xml`, or supply `CMAKE_PREFIX_PATH`. Disable with `SERIALIZER_WITH_XML=OFF`. |
-| C++20 compiler and standard library | Library, schema compiler, and C++ consumers; the selected compiler must support the target architecture. |
+| C++23 compiler and standard library | Library, schema compiler, and C++ consumers; the selected compiler must support the target architecture. |
 | Native build tool | GNU Make for `make all`; Ninja for the Linux and Windows presets; MSBuild/Visual Studio C++ tools or another configured generator for the Windows wrapper. |
 | PowerShell | Windows `make.ps1` wrapper. |
 | Windows Node.js 22+, npm and Visual Studio 2022/2026 MSBuild | Both editor packages: Windows `make.ps1 extension`, `all`, and `rebuild`, or WSL `make extension`. Native Linux cannot build the Visual Studio VSIX. |
@@ -227,7 +227,7 @@ configurations actually tested.
 `setup.sh` installs the default Linux build tools and bootstraps vcpkg; it does
 not install optional Java, Protobuf interoperability, or fuzzing dependencies.
 Distribution package names alone do not guarantee the required versions: check
-`cmake --version` and use a C++20-capable compiler/standard library. Set
+`cmake --version` and use a C++23-capable compiler/standard library. Set
 `VCPKG_ROOT` in the shell running Make after setup, as recorded in `~/.bashrc`.
 
 **`clean` and `rebuild` remove every untracked and ignored file and directory
@@ -511,7 +511,7 @@ cmake --build build --config Debug --target my_app
 The build compiles the Serializer generator when needed, produces
 `build/generated/my_app/account.hpp`, then compiles `my_app`. The consumer can
 write `#include <account.hpp>`; the helper supplies its include directory, links
-`Serializer::runtime`, and propagates the C++20 minimum. Existing newer
+`Serializer::runtime`, and propagates the C++23 minimum. Existing newer
 language modes are preserved. Editing the schema, generator, or tracked output
 configuration makes the next build regenerate the header.
 
@@ -581,6 +581,10 @@ under GPL. See [licensing](../project/licensing.md) for schema notices and depen
 
 ### Compiler-only source generation
 
+Installed SDK-only examples select this component automatically. If the same
+example scope later enables C or C++, its dependency helper adds the runtime
+component while retaining the existing compiler target.
+
 For generation without C++ runtime linkage, select the `compiler` component:
 
 ```cmake
@@ -607,7 +611,7 @@ Use `serializer_generate_source` for supported language outputs, or
 when only generated C++ files are needed; arrange their eventual runtime linkage
 in the consuming build. The C++ `serializer_generate` and
 `serializer_generate_variants` helpers require `Serializer::runtime` because they
-attach its linkage and C++20 requirements to consumer targets.
+attach its linkage and C++23 requirements to consumer targets.
 
 Omitting components preserves the full installed package behavior. Explicit
 `COMPONENTS runtime` also loads all installed runtime, managed, compiler-library

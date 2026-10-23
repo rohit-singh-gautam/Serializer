@@ -22,10 +22,10 @@ def main():
             source.write_text('#include <dimensions.hpp>\n'
                               f'dimensions::matrix<{arguments}> value;\n')
             output = directory / 'consumer.obj'
-            command = ([args.compiler, '/nologo', '/std:c++20', '/EHsc', '/c',
+            command = ([args.compiler, '/nologo', '/std:c++latest', '/EHsc', '/c',
                         '/I' + str(root / 'include'), '/I' + str(args.generated.resolve()),
                         '/Fo' + str(output), str(source)] if msvc else
-                       [args.compiler, '-std=c++20', '-c', '-I' + str(root / 'include'),
+                       [args.compiler, '-std=c++23', '-c', '-I' + str(root / 'include'),
                         '-I' + str(args.generated.resolve()), '-o', str(output), str(source)])
             result = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             if (result.returncode == 0) != valid:

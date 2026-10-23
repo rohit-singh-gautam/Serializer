@@ -6,7 +6,7 @@ JavaScript/TypeScript, Go, and C# applications compute hashes through their own
 providers; the generated code adds no cryptographic library dependency.
 
 The `.serializer` parser, schema validation, and every code generator are written
-in **C++20**. The compiler emits standalone owning codecs for C++, Java,
+in **C++23**. The compiler emits standalone owning codecs for C++, Java,
 JavaScript, Go, and C#. Generating JS, Go, or C# requires no target-language SDK,
 native binding, reflection, or third-party runtime. Target-language tools are
 needed only to compile or execute the generated application.

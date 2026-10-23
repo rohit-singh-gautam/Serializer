@@ -256,10 +256,10 @@ def qualify_unused_cpp_definition(runner, args):
     source=runner.path("cpp",directory/"main.cpp");destination=runner.path("cpp",directory/"main.exe")
     library=args.cpp_library or args.compiler.parent/("serializer_runtime.lib" if os.name=="nt" and "cpp" not in runner.wsl else "libserializer_runtime.a")
     if os.name=="nt" and "cpp" not in runner.wsl:
-        command=runner.command("cpp","cl","/nologo","/MD","/O2","/W4","/WX","/std:c++20","/EHsc","/utf-8",
+        command=runner.command("cpp","cl","/nologo","/MD","/O2","/W4","/WX","/std:c++latest","/EHsc","/utf-8",
           "/I"+runner.path("cpp",ROOT/"include"),source,str(library),"/Fe:"+destination)
     else:
-        command=runner.command("cpp","c++","-std=c++20","-O2","-Wall","-Wextra","-Werror","-I",
+        command=runner.command("cpp","c++","-std=c++23","-O2","-Wall","-Wextra","-Werror","-I",
           runner.path("cpp",ROOT/"include"),source,runner.path("cpp",library),"-o",destination)
     result=subprocess.run([str(value) for value in command],cwd=directory,capture_output=True,text=True,
       encoding="utf-8",errors="replace",timeout=120,creationflags=examples.PROCESS_CREATION_FLAGS)

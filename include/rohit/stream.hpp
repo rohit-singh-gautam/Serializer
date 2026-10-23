@@ -3,14 +3,7 @@
 // See LICENSE-RUNTIME for permission to use this runtime in proprietary applications.
 #pragma once
 
-// MSVC reports its selected language mode through _MSVC_LANG unless /Zc:__cplusplus is enabled.
-#if defined(_MSVC_LANG)
-#if _MSVC_LANG < 202002L
-#error "Serializer requires C++20 or later"
-#endif
-#elif __cplusplus < 202002L
-#error "Serializer requires C++20 or later"
-#endif
+#include <rohit/cpp_standard.hpp>
 
 #include <rohit/binary_scalar.hpp>
 #include <rohit/stream_concepts.hpp>
@@ -76,14 +69,7 @@ constexpr T byteswap(const T& val) noexcept {
   if constexpr (std::same_as<std::remove_cv_t<T>, bool>) {
     return val;
   } else if constexpr (detail::endian_integer<T>) {
-#if defined(__cpp_lib_byteswap) && __cpp_lib_byteswap >= 202110L
     return std::byteswap(val);
-#else
-    // C++20 fallback: reverse actual object bytes without assumptions about native byte order.
-    auto bytes = std::bit_cast<std::array<std::byte, sizeof(T)>>(val);
-    std::reverse(bytes.begin(), bytes.end());
-    return std::bit_cast<T>(bytes);
-#endif
   } else {
     if constexpr (sizeof(T) == sizeof(std::uint32_t)) {
       return std::bit_cast<T>(rohit::byteswap(std::bit_cast<std::uint32_t>(val)));

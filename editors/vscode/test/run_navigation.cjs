@@ -13,7 +13,7 @@ async function main() {
   fs.mkdirSync(path.join(workspace, '.vscode'));
   fs.writeFileSync(path.join(workspace, '.vscode/settings.json'), JSON.stringify({
     'files.exclude': { '**/build': true }, 'search.exclude': { '**/build': true },
-    'C_Cpp.default.compilerPath': '', 'C_Cpp.default.cppStandard': 'c++20'
+    'C_Cpp.default.compilerPath': '', 'C_Cpp.default.cppStandard': 'c++23'
   }));
   delete process.env.ELECTRON_RUN_AS_NODE;
   await runTests({ vscodeExecutablePath: process.env.VSCODE_EXECUTABLE_PATH,

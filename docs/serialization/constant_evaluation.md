@@ -34,9 +34,10 @@ not acquire a sizing pass, stored evaluation flag, cached size or extra model co
 
 ## 2. Scope
 
-The required baseline is C++20 with a matching standard library. C++23 syntax may
-be supported as an optional implementation detail; it shall not be necessary for
-this feature. The format is explicitly `binary_none`, also known by the existing
+The current required baseline is C++23 with a matching standard library. The
+constant-evaluation subset was originally implemented and qualified in C++20;
+the historical results below retain their actual language modes. Upgrading the
+minimum does not broaden that subset or add constant-evaluated decoding. The format is explicitly `binary_none`, also known by the existing
 `binary_positional` alias, with its existing little-endian fixed-width profile.
 
 The feature consists of:
@@ -966,7 +967,7 @@ Handwritten lookalike model codecs do not establish generator support.
 
 | Area | Required verification |
 | --- | --- |
-| Language baseline | Successful C++20 constant size and write, with optional C++23 coverage |
+| Language baseline | Successful C++23 constant size and write; older language modes reject |
 | Byte identity | Static assertions against independent positional fixtures; equality with runtime output |
 | Runtime reading | Existing positional reader decodes constant-produced bytes and verifies values |
 | Fixed scalars | All supported integer widths, extrema/negatives, bool/char, float/double including signed zero and permitted bit patterns |
@@ -987,7 +988,7 @@ Handwritten lookalike model codecs do not establish generator support.
 | Binary-only generation | Actual restricted output, matching runtime reader, unchanged default generation and conflict diagnostics |
 | Runtime regression | Flag enabled and disabled: existing suites, identical bytes/layouts/validation, no extra runtime mode dispatch, traversal or state |
 | Performance and memory | Enabled/disabled CPU, stack/heap, allocation bytes/counts, reservations, buffer growth and code/data footprint retain baseline; compile-time cost measured separately |
-| Toolchains | Supported GCC, Clang, MSVC and clang-cl C++20 compiler/standard-library combinations |
+| Toolchains | Supported GCC, Clang, MSVC and clang-cl C++23 compiler/standard-library combinations |
 
 Compile-failure checks shall use isolated expected-failure translation units and
 assert the relevant diagnostic class without pinning whole compiler messages.

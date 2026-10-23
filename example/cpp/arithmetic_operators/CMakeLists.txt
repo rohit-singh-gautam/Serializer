@@ -10,7 +10,7 @@ add_executable(serializer_arithmetic_operators main.cpp)
 serializer_generate(TARGET serializer_arithmetic_operators SCHEMAS quantities.serializer
   OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}" CODING_STANDARD serializer)
 target_link_libraries(serializer_arithmetic_operators PRIVATE Serializer::runtime)
-target_compile_features(serializer_arithmetic_operators PRIVATE cxx_std_20)
+target_compile_features(serializer_arithmetic_operators PRIVATE cxx_std_23)
 if(MSVC)
   target_compile_options(serializer_arithmetic_operators PRIVATE /W4 /WX)
 else()

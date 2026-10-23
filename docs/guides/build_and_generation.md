@@ -7,7 +7,7 @@ For the shortest introduction, start with the [README](../../README.md#get-start
 
 ## Build and test
 
-With CMake, a C++20-or-newer compiler and standard library, clang-format 19+, and
+With CMake, a C++23-or-newer compiler and standard library, clang-format 19+, and
 GoogleTest 1.18.0 or newer available, use the commands below.
 
 **`clean` and `rebuild` run repository-wide `git clean -fdx`. They delete untracked
@@ -148,8 +148,8 @@ separate `Serializer::serializer_lib` compiler API target remains GPL; see
 [licensing](../project/licensing.md) for generated output, schema notices, and package scope.
 Use `-DSERIALIZER_BUILD_TESTS=OFF` for a standalone build without GoogleTest.
 
-C++20 is the minimum language mode and the build default. A newer mode selected
-with `CMAKE_CXX_STANDARD`, such as `-DCMAKE_CXX_STANDARD=23`, is preserved. Public
+C++23 is the minimum language mode and the build default. A newer mode selected
+with `CMAKE_CXX_STANDARD`, such as `-DCMAKE_CXX_STANDARD=26`, is preserved. Public
 headers also check the language mode when used outside CMake.
 
 Regenerate LLVM-profile headers after updating to the storage-donor naming fix.
@@ -174,8 +174,8 @@ Native macOS, Android, and ARM Linux builds still require their CI runners; thes
 checks do not establish support for every vcpkg triplet.
 
 The `rohit::byteswap` helper forwards supported integers directly to
-`std::byteswap` when `__cpp_lib_byteswap >= 202110L`; otherwise it uses a constexpr
-C++20 fallback. Supported floating-point values are converted through their
+`std::byteswap`; configuration and public headers require
+`__cpp_lib_byteswap >= 202110L` from the selected C++23 standard library. Supported floating-point values are converted through their
 integer bit representations. `rohit::change_endian` accepts supported scalar
 types and little/big byte orders, with compile-time rejection of unsupported
 types and mixed native byte order. Booleans are unchanged.
@@ -340,7 +340,7 @@ serializer_generate(TARGET my_app SCHEMAS schemas/account.serializer)
 
 A normal build of `my_app` builds the generator when using the source dependency,
 generates `account.hpp`, and supplies the generated include directory, runtime
-library, and C++20 requirement. Schema and generator changes trigger regeneration.
+library, and C++23 requirement. Schema and generator changes trigger regeneration.
 Use `CONFIG output.ini` to select output profiles. See the
 [CMake integration guide](cmake_integration.md) for complete source-dependency
 and installed-package examples, options, and shared schemas.

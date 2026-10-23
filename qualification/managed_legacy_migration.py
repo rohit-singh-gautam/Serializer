@@ -151,14 +151,14 @@ def consumer_source(directory, serializer_source, serializer_build, compiler, *,
         serializer_build / "managed/include", serializer_build / "managed/include/rohit"))
     text = f'''cmake_minimum_required(VERSION 4.0)
 project(legacy_migration_qualification LANGUAGES CXX)
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD {23 if current else 20})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 add_library(Serializer::runtime STATIC IMPORTED)
 set_target_properties(Serializer::runtime PROPERTIES
   IMPORTED_LOCATION {cmake_value(runtime_library(serializer_build))}
   INTERFACE_INCLUDE_DIRECTORIES {cmake_value(includes)}
-  INTERFACE_COMPILE_FEATURES cxx_std_20 SYSTEM FALSE)
+  INTERFACE_COMPILE_FEATURES cxx_std_{23 if current else 20} SYSTEM FALSE)
 add_library(Serializer::managed INTERFACE IMPORTED)
 set_target_properties(Serializer::managed PROPERTIES
   INTERFACE_INCLUDE_DIRECTORIES {cmake_value(managed_includes)}

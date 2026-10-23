@@ -17,9 +17,10 @@ implementation or qualification record is complete.
 
 ## First priority: C++23 minimum
 
-C++23 is mandatory for Serializer itself, including standalone use. Complete this
-migration before new schema-index or database implementation. C++20 support does
-not need to be preserved; the current C++20 build settings are migration work.
+C++23 is mandatory for Serializer itself, including standalone use. Compiler/runtime
+2.30.1 implements the build minimum; [platform and installed-consumer qualification](verification/verification-cpp23-2026-10-23.md)
+is in progress. Complete this gate before new schema-index or database implementation.
+C++20 support does not need to be preserved.
 
 | State | ID | Estimate | Remaining requirement and acceptance gate | Dependencies |
 | --- | --- | --- | --- | --- |

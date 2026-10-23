@@ -484,7 +484,7 @@ existing destination on failure when using `load_opc_into`. See the
 
 ## Compile the manual example
 
-Prerequisites: CMake **4.0+**, a C++20 compiler/standard library and Serializer
+Prerequisites: CMake **4.0+**, a C++23 compiler/standard library and Serializer
 with **XML/libxml2** enabled. The exporter selects DEFLATE, so it also needs
 **zlib**. These options must be enabled when building Serializer itself; enabling
 `[xml]` in a consuming project's INI cannot add a missing runtime provider.

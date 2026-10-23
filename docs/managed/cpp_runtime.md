@@ -49,7 +49,7 @@ The build option exposes the managed APIs; it adds no persistent IDs, transactio
 checks, or history storage to ordinary schemas. Those costs arise when a schema
 uses `managed` or an application creates managed stores and uses their features.
 
-Link `Serializer::managed`, and generate the application schema normally in C++20:
+Link `Serializer::managed`, and generate the application schema normally in C++23:
 
 ```cmake
 add_subdirectory(path/to/Serializer serializer-build)

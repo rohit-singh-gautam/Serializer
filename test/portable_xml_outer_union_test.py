@@ -258,12 +258,12 @@ def main():
                 library = args.cpp_library or args.compiler.parent / ('serializer_runtime.lib' if os.name == 'nt' else 'libserializer_runtime.a')
                 prefix = args.libxml2_prefix or args.compiler.parent / 'vcpkg_installed/x64-windows'
                 if os.name == 'nt':
-                    sdk.run(runner.command('cpp', 'cl', '/nologo', '/std:c++20', '/EHsc', '/MD', '/O2', '/W4', '/WX', '/utf-8',
+                    sdk.run(runner.command('cpp', 'cl', '/nologo', '/std:c++latest', '/EHsc', '/MD', '/O2', '/W4', '/WX', '/utf-8',
                         '/I'+str(ROOT / 'include'), '/I'+str(target), str(target / filename), str(library),
                         *[str(prefix / 'lib' / name) for name in ('zstd.lib','lz4.lib','z.lib','libxml2.lib')], '/Fe:'+str(executable)), cwd=target)
                     for dll in (prefix / 'bin').glob('*.dll'): shutil.copyfile(dll, target / dll.name)
                 else:
-                    sdk.run(runner.command('cpp', 'c++', '-std=c++20', '-O2', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
+                    sdk.run(runner.command('cpp', 'c++', '-std=c++23', '-O2', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
                         '-I'+str(ROOT / 'include'), '-I'+str(target), str(target / filename), str(library),
                         '-lxml2', '-lzstd', '-llz4', '-lz', '-o', str(executable)), cwd=target)
                 launch = [str(executable)]

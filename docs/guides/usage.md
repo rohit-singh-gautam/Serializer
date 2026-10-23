@@ -472,8 +472,9 @@ stable field/base paths, custom keys and optional snapshot field indexes.
 Automatic schema index declarations and typed `find_by` are a
 [combined storage/index proposal](../design/database_storage_requirements.md),
 including separate data ownership and local/database/both index placement.
-These declarations are not supported syntax or APIs; its required C++23 minimum
-is a future compiler/runtime upgrade, not the current C++20 build baseline.
+These declarations are not supported syntax or APIs. Compiler/runtime 2.30.1
+requires C++23 independently of database support; see the
+[migration steps](../../migration.md#c23-minimum-in-2301).
 See [custom-ID examples](../../example/custom_ids/README.md) for all-language
 application-owned registries and the native C++ managed companion.
 
@@ -789,7 +790,7 @@ checks decoded string budgets before growth. Temporary text token/numeric scratc
 is outside the allocation budget; also set input, string/token, and work limits.
 
 Serializer compiles a schema into a C++ header, then reads or writes generated
-objects through JSON or binary protocols. Use a C++20-or-newer compiler and
+objects through JSON or binary protocols. Use a C++23-or-newer compiler and
 standard library; the CMake project requires CMake 4.0 or newer. Header generation
 uses clang-format 19+ by default. Applications using existing headers do not need it.
 When building this repository's tests/examples with `make all` or `./make.ps1 all`,
@@ -1097,7 +1098,7 @@ The helper ships with Serializer and is also available through an installed
 `find_package(Serializer CONFIG REQUIRED)` package. It generates
 `build/generated/serializer_example/person.hpp` before compiling the application,
 adds its include directory, and links `Serializer::runtime`, which supplies
-the C++20 minimum. A newer language mode is preserved. Schema, config, and
+the C++23 minimum. A newer language mode is preserved. Schema, config, and
 generator dependencies drive regeneration; do not edit generated headers manually.
 The default formatter must be available as `clang-format` on `PATH`; pass
 `CLANG_FORMAT "/path/to/clang-format"` when using another location.
@@ -1942,7 +1943,7 @@ endpoints must agree on those choices. See [byte order](../serialization/wire_fo
 ### Count and emit constant positional bytes
 
 Compiler/runtime 1.4.0 provides `<rohit/constant_binary.hpp>` for strict,
-little-endian `binary_none` output during C++20 constant evaluation. Enable
+little-endian `binary_none` output during C++23 constant evaluation. Enable
 the owning model's additional traversal in the generator configuration:
 
 ```ini
@@ -1995,7 +1996,7 @@ to the existing optimized strict positional encoder; there is no implicit size p
 explicitly count an unchanged value before writing. Extra capacity is untouched;
 earlier committed bytes can remain after a later failure.
 
-The factory is consteval and invokes its callable twice. C++20 strings/vectors can
+The factory is consteval and invokes its callable twice. C++23 strings/vectors can
 allocate transiently inside each pass if the matching standard library supports the
 operations, but no allocation or borrowed local pointer may escape the result.
 An ordinary consteval function parameter cannot become an array template extent.
@@ -2008,7 +2009,7 @@ also makes ordinary generated codec templates and uncompressed stream entrypoint
 decoding requires constexpr-safe typed streams; see the
 [direct-codec subset](../serialization/constant_evaluation.md#34-direct-generated-codecs-and-value-qualifiers).
 Maps, managed operations, views, I/O, compression, and
-other protocols are outside its C++20 constant subset; raw unions require a valid
+other protocols are outside its qualified constant subset; raw unions require a valid
 initialized active alternative. The optional positional-only generation profile
 rejects Protobuf, managed and view combinations. See the [full support and failure
 contract](../serialization/constant_evaluation.md) and its qualified compiler/library combinations.

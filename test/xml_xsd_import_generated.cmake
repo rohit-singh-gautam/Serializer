@@ -23,7 +23,7 @@ add_custom_command(OUTPUT "${shared_xsd_generated_header}"
 add_executable(xml_xsd_import_generated_test xml_xsd_import_generated_test.cpp "${shared_xsd_generated_header}")
 target_include_directories(xml_xsd_import_generated_test PRIVATE "${shared_xsd_generated_directory}")
 target_link_libraries(xml_xsd_import_generated_test PRIVATE Serializer::runtime GTest::gtest_main)
-target_compile_features(xml_xsd_import_generated_test PRIVATE cxx_std_20)
+target_compile_features(xml_xsd_import_generated_test PRIVATE cxx_std_23)
 if(MSVC)
   target_compile_options(xml_xsd_import_generated_test PRIVATE /W4 /WX)
 else()

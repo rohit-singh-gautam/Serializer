@@ -1,6 +1,10 @@
 # Rohit Serializer for Visual Studio Code
 
-Version **2.0.12** supports schema language **1.22.0** cache declarations for
+Compiler/runtime **2.30.1** requires a C++23 compiler and matching standard
+library for generated C++ applications. Both local packages are **2.0.13**;
+schema language **1.22.0** and navigation contracts are unchanged.
+
+Version **2.0.13** supports schema language **1.22.0** cache declarations for
 compiler/runtime **2.30.0**: bare `cache` defaults to priority `0`, and
 `cache(priority = 200)` gives a higher retention preference within `0..255`.
 Owning cache values and native persistence services currently require C++; other
@@ -11,7 +15,7 @@ journals, retained caches and required state. See the
 [cache contract](../../docs/design/cache_attributes.md). Building packages does
 not install them or publish Marketplace listings.
 
-Both local packages share version **2.0.12**. Building and validating these files
+Both local packages share version **2.0.13**. Building and validating these files
 does not install the extensions or update live Marketplace listings.
 
 The existing schema language **1.20.0** authoring support includes XML defaults, field overrides,
@@ -24,7 +28,7 @@ remain prerequisites; editor support does not establish format conformance.
 Typed C++ `managed_ref<T>` tokens navigate to the managed target, including forward
 and included declarations. `class_id(decimal)` preserves explicit class identity;
 its numeric metadata does not become a type reference. VS Code supplies token and
-class-identity snippets. Both local packages share version 2.0.12; building them does
+class-identity snippets. Both local packages share version 2.0.13; building them does
 not install or publish them.
 
 
@@ -244,7 +248,7 @@ add_executable(my_app main.cpp)
 serializer_generate(TARGET my_app SCHEMAS schemas/account.serializer)
 ```
 
-The project still needs Serializer, a C++20 compiler, CMake 4.0+, and clang-format
+The project still needs Serializer, a C++23 compiler, CMake 4.0+, and clang-format
 19+ when output formatting is enabled. This extension does not bundle those tools.
 
 ## Declaration and definition navigation

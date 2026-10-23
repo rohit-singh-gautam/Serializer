@@ -14,10 +14,11 @@ not a substitute database engine.
 
 Use the [consolidated specification](../design/database_storage_requirements.md)
 for required C++23 qualification, proposed syntax, index families, resource bounds,
-publication and native engine acceptance. C++23 adoption is the first implementation
-priority; C++20 compatibility is not required. Current C++20 build settings must be
-migrated under [CPP01](../pending.md#first-priority-c23-minimum); this guide does not
-claim the upgrade or database is implemented.
+publication and native engine acceptance. Compiler/runtime 2.30.1 implements the
+C++23 minimum independently of database support. See the
+[migration](../../migration.md#c23-minimum-in-2301) and
+[qualification record](../verification/verification-cpp23-2026-10-23.md).
+The database APIs remain unimplemented.
 
 ## Current native workflow
 

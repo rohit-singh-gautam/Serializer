@@ -3,6 +3,7 @@
 Configure, build, clean or rebuild Serializer, or run CMake tests.
 .DESCRIPTION
 Keep native target behavior and options synchronized with the Linux Makefile.
+Native builds require a C++23 compiler/library; CMake checks the shared minimum.
 The all and rebuild targets build enabled CMake targets and both editor VSIX packages without
 installing them. Extension packaging requires Windows, Node.js 22+, npm and Visual
 Studio MSBuild. The configure and test targets operate on CMake targets only.

@@ -92,7 +92,7 @@ def build_local(language, compiler, directory, options, run):
                          for value in re.findall(r'=>\s+(/\S+)', dependencies)]
         artifacts.update({str(path): sha(path) for path in libraries})
         return {'launch': [str(executable)], 'generated': [str(generated)],
-                'tool': 'CMake strict C++20 ' + platform.platform(), 'artifacts': artifacts}
+                'tool': 'CMake strict C++23 ' + platform.platform(), 'artifacts': artifacts}
     generated = directory / 'schema.py'
     schema_directory = Path(options.get('schema_directory') or ADAPTERS)
     run([compiler, '--input', schema_directory / variant / 'order.serializer', '--language', 'python',

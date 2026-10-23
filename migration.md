@@ -1,5 +1,38 @@
 # Migrating to the snake_case Serializer API
 
+## C++23 minimum in 2.30.1
+
+Compiler/runtime 2.30.1 requires C++23 for standalone and embedded builds,
+generated C++ and managed consumers. Use CMake 4.0+ and a matching compiler and
+standard library providing `std::byteswap` (`__cpp_lib_byteswap >= 202110L`) and
+`std::span`. Configuration compiles a capability probe before discovering optional
+providers. Public headers diagnose direct C++20 use and missing library features.
+
+Remove `CMAKE_CXX_STANDARD=20` or raise it to 23. Source builds reject an explicit
+older standard, default to 23, require that mode and disable compiler extensions.
+Public `Serializer::runtime` requirements propagate `cxx_std_23` through the
+compiler library, managed target and generation helpers, including installed
+consumers. Newer requested modes remain selected and need their own qualification.
+Direct GCC/Clang invocations use `-std=c++23`; MSVC/clang-cl use the CMake-selected
+`/std:c++latest` mode with the installed toolchains. Match generator, generated
+headers and runtime from one release. Rebuild application objects and libraries.
+When a Windows consumer enables both C and C++, select clang-cl for both compiler
+languages; CMake rejects a mixed MSVC/clang-cl configuration.
+Regenerate C++ headers with checked portable arithmetic: their finite-value helper
+now uses `if consteval`, avoiding Clang's warning about trial constant evaluation
+of a `const bool` initializer while retaining runtime nonfinite-value errors.
+
+Both root build wrappers use the same CMake defaults and capability checks.
+No schema-language, payload, public API, generated-name or wire-format migration
+is required. Existing schemas and binary/JSON/XML contracts keep their identities.
+The integer endian helper now uses `std::byteswap` without a C++20 fallback.
+Both editor packages advance together to 2.0.13 for current prerequisites and
+navigation-host settings; package builds do not publish Marketplace listings.
+
+See [C++23 qualification](docs/verification/verification-cpp23-2026-10-23.md)
+for actual compiler/library combinations, configurations and remaining limits.
+
+
 ## Compiler/runtime 2.30.0 and schema language 1.22.0
 
 Regenerate owning C++ models to use `cache` or `cache(priority = 0..255)`. Omitted

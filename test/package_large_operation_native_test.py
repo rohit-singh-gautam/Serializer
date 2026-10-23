@@ -253,7 +253,7 @@ def main():
         selected = args.cxx if cpp else args.cc
         executable = build/('consumer.exe' if os.name == 'nt' else 'consumer')
         if os.name == 'nt':
-            command = [selected, '/nologo', '/std:c++20' if cpp else '/std:c11', '/W4', '/WX', '/O2', '/utf-8',
+            command = [selected, '/nologo', '/std:c++latest' if cpp else '/std:c11', '/W4', '/WX', '/O2', '/utf-8',
                        '/D_CRT_SECURE_NO_WARNINGS', '/DSERIALIZER_COMPRESSION_ZLIB=1', driver, '/Fe'+str(executable), '/Fo'+str(build/'main.obj')]
             if cpp:
                 command += ['/EHsc', '/MD', '/I'+str(ROOT/'include'), '/I'+str(args.runtime_build.resolve()/'generated/include')]
@@ -266,7 +266,7 @@ def main():
                 command += ['/LIBPATH:'+str(prefix/'lib')]
             command += ['libxml2.lib', 'z.lib'] + (['zstd.lib', 'lz4.lib'] if cpp else [])
         else:
-            command = [selected, '-std=c++20' if cpp else '-std=c11', '-Wall', '-Wextra', '-Wpedantic', '-Werror', '-O2', driver, '-o', executable]
+            command = [selected, '-std=c++23' if cpp else '-std=c11', '-Wall', '-Wextra', '-Wpedantic', '-Werror', '-O2', driver, '-o', executable]
             if cpp:
                 command += ['-I'+str(ROOT/'include'), '-I'+str(args.runtime_build.resolve()/'generated/include'), args.runtime_build.resolve()/'libserializer_runtime.a']
             command += subprocess.check_output(['pkg-config', '--cflags', '--libs', 'libxml-2.0'], text=True).split()+['-lz', '-lm', '-pthread']

@@ -1235,7 +1235,7 @@ if(MSVC)
   target_sources(compression_allocation_failure_test PRIVATE ../src/compression.cpp)
   target_include_directories(compression_allocation_failure_test PRIVATE
     "$<TARGET_PROPERTY:serializer_runtime,INTERFACE_INCLUDE_DIRECTORIES>")
-  target_compile_features(compression_allocation_failure_test PRIVATE cxx_std_20)
+  target_compile_features(compression_allocation_failure_test PRIVATE cxx_std_23)
   target_compile_definitions(compression_allocation_failure_test PRIVATE _ITERATOR_DEBUG_LEVEL=0
     "$<TARGET_PROPERTY:serializer_runtime,COMPILE_DEFINITIONS>")
   target_link_libraries(compression_allocation_failure_test PRIVATE ${serializer_compression_libraries})
@@ -1362,6 +1362,14 @@ if(serializer_test_ninja)
       "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/include_dependencies"
       -P "${CMAKE_CURRENT_SOURCE_DIR}/schema_include_build.cmake")
 endif()
+
+add_test(NAME serializer_cpp_standard
+  COMMAND "${CMAKE_COMMAND}"
+    "-DCOMPILER=${CMAKE_CXX_COMPILER}" "-DMSVC_LIKE=${MSVC}"
+    "-DCPP23_OPTION=${CMAKE_CXX23_STANDARD_COMPILE_OPTION}"
+    "-DSOURCE_DIRECTORY=${PROJECT_SOURCE_DIR}"
+    "-DWORK_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/cpp_standard"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/cpp_standard.cmake")
 
 add_test(NAME serializer_clang_format_discovery
   COMMAND "${CMAKE_COMMAND}" "-DFORMATTER=${SERIALIZER_CLANG_FORMAT_EXECUTABLE}"

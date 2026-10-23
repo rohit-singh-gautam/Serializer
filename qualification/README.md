@@ -147,8 +147,8 @@ defaults, resource limits, and input/transport failures. The dated record includ
 focused ASan/UBSan checks for these additions.
 
 Run the normal supported-platform build/test matrix for the platforms being qualified.
-Also run optimized and address/undefined-sanitized builds, and C++20/C++23 builds
-to cover the byte-swap fallback and standard-library paths.
+Also run optimized and address/undefined-sanitized C++23 builds. Verify explicit
+C++20 rejection and the required standard-library byte-swap path.
 
 ### Schema scanner validation
 

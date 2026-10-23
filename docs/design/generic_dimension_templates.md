@@ -203,7 +203,8 @@ C++ type. Preserve naming-profile transformations and existing codec entry point
 An undeclared specialization must fail clearly at compile time. Invalid dimensions
 must not become huge unsigned allocations or silently select another binding.
 Do not instantiate arbitrary schema classes from C++ alone. Demonstrate generated
-consumers in C++23 while preserving Serializer's existing C++20 minimum.
+consumers in C++23. Compiler/runtime 2.30.1 now requires C++23 throughout;
+prior C++20 qualification below remains historical evidence.
 
 ### Wire behavior and bounded input
 

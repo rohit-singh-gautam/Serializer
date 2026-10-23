@@ -83,7 +83,7 @@ select an API with the wrong C++ naming convention.
 When generation is allowed, select `DebugWindows` (Windows) or `DebugLinux`
 (Linux), then run **CMake: Configure**. The repository presets need `VCPKG_ROOT`;
 the standard test build also requires GoogleTest. Header generation needs a
-C++20 compiler and clang-format 19+. If the formatter is not found, configure with
+C++23 compiler and clang-format 19+. If the formatter is not found, configure with
 `SERIALIZER_CLANG_FORMAT_EXECUTABLE` set to its absolute executable path.
 
 For a configured Windows preset, generate every enabled header with:

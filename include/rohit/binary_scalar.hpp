@@ -3,6 +3,8 @@
 // See LICENSE-RUNTIME for permission to use this runtime in proprietary applications.
 #pragma once
 
+#include <rohit/cpp_standard.hpp>
+
 #include <concepts>
 #include <cstddef>
 #include <cstdint>

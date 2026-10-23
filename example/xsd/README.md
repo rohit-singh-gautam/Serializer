@@ -32,7 +32,7 @@ binary layouts are not claimed to be interchangeable.
 
 The [standalone CMake project](CMakeLists.txt) imports/binds the XSD, generates
 C++ headers, compiles both clients and runs their checks. It requires CMake 4.0+,
-a C++20 compiler and an XML-enabled Serializer 2.7 package or source checkout.
+a C++23 compiler and an XML-enabled Serializer 2.7 package or source checkout.
 Python and the other language SDKs are unnecessary for this workflow.
 
 From this checkout in Windows Developer PowerShell, select your libxml2 prefix:

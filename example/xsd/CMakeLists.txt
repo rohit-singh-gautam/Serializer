@@ -83,7 +83,7 @@ function(add_xsd_client workflow)
       CONFIG codegen.ini OUTPUT_DIRECTORY "${generated_directory}" INCLUDE_MODE inline
       DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/order.xsd" ${generator_argument})
   endif()
-  target_compile_features("${target}" PRIVATE cxx_std_20)
+  target_compile_features("${target}" PRIVATE cxx_std_23)
   if(MSVC)
     target_compile_options("${target}" PRIVATE /W4 /WX /utf-8)
   else()

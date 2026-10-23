@@ -61,15 +61,15 @@ int main() {
   if (scoped_output.namespace_bindings.contains("q0") || scoped.fallback != "q0:literal") {
     throw std::runtime_error{"Private root QName default changed a union string"};
   }
+  const std::array expected_root_names{
+      xml::name{"first", "urn:allowed"}, xml::name{"local", ""}, xml::name{"second", "urn:allowed"}};
   for (const auto& attribute : scoped_output.attributes) {
     if (attribute.qualified_name.local == "category" &&
         xml::resolve_qname(attribute.value, scoped_output).namespace_uri != "urn:active") {
       throw std::runtime_error{"Private root QName default changed another attribute's identity"};
     }
     if (attribute.qualified_name.local == "names" &&
-        !xml::lexical_qname_list_equal(attribute.value,
-            std::array{xml::name{"first", "urn:allowed"}, xml::name{"local", ""}, xml::name{"second", "urn:allowed"}},
-            scoped_output)) {
+        !xml::lexical_qname_list_equal(attribute.value, expected_root_names, scoped_output)) {
       throw std::runtime_error{"Private root QName list default changed schema identities"};
     }
   }

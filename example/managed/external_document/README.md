@@ -1,6 +1,6 @@
 # External JSON document with native recovery
 
-This runnable C++20 example supplies bounded owning JSON callbacks through
+This runnable C++23 example supplies bounded owning JSON callbacks through
 `make_journal_document_codec`. The ordinary document contains the current saved
 model. Its generated `persistent_id` fields are zero placeholders; authoritative
 IDs, allocation marks, history and session metadata belong to native companions.

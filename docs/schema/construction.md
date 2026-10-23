@@ -93,7 +93,7 @@ input objects must be disjoint from the destination and each other. A failed C
 construction preserves both destination and inputs.
 
 C++ marks eligible constructors, retained default constructors and factories
-`constexpr` under its C++20 baseline. Scalars, enums, ordinary owning records,
+`constexpr` under the current C++23 baseline, retaining the qualified constant subset. Scalars, enums, ordinary owning records,
 strings, vectors, optionals, fixed arrays and dotted revisions support this declaration when their
 contained values do. Literal bindings and `default(factory)` retain constant
 construction. Open type parameters defer constant evaluation to the chosen C++

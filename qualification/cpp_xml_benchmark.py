@@ -33,7 +33,7 @@ def main():
     parser.add_argument('--tags', type=int, default=20000)
     parser.add_argument('--headers', type=Path, default=ROOT / 'include',
                         help='Public headers matching the supplied immutable runtime library')
-    parser.add_argument('--cxx', help='MSVC cl.exe on Windows or a native C++20 compiler on Linux')
+    parser.add_argument('--cxx', help='MSVC cl.exe on Windows or a native C++23 compiler on Linux')
     parser.add_argument('--xml-library', type=Path,
                         help='Explicit LibXml2 library; otherwise resolved beneath the provider prefix')
     parser.add_argument('--link-library', type=Path, action='append', default=[],
@@ -44,7 +44,7 @@ def main():
         parser.error(f'--tags must be between 1 and {MAX_WORKLOAD_TAGS} for this owning workload')
     windows = os.name == 'nt'
     if not windows and platform.system() != 'Linux':
-        parser.error('This orchestrator supports native Windows MSVC and Linux C++20 hosts')
+        parser.error('This orchestrator supports native Windows MSVC and Linux C++23 hosts')
     compiler, runtime, provider, build = (path.resolve() for path in
         (args.compiler, args.runtime_library, args.provider_prefix, args.build))
     if build == ROOT or ROOT in build.parents and 'out' not in build.relative_to(ROOT).parts:
@@ -102,7 +102,7 @@ def main():
             run(command, name + '-generation')
             executable = output / ('benchmark.exe' if windows else 'benchmark')
             if windows:
-                command = [cxx, '/nologo', '/std:c++20', '/EHsc', '/MD', '/O2', '/W4', '/WX',
+                command = [cxx, '/nologo', '/std:c++latest', '/EHsc', '/MD', '/O2', '/W4', '/WX',
                            '/utf-8', '/I' + str(headers), '/I' + str(output),
                            '/Fo' + str(output / 'driver.obj'), '/Fe' + str(executable)]
                 if enabled:
@@ -112,7 +112,7 @@ def main():
                     command += ['/DSERIALIZER_XML_BENCHMARK_NATIVE_ONLY']
                 command += [driver, '/link', runtime, *args.link_library, 'Psapi.lib']
             else:
-                command = [cxx, '-std=c++20', '-O2', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
+                command = [cxx, '-std=c++23', '-O2', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
                            '-I' + str(headers), '-I' + str(output)]
                 if enabled:
                     command += ['-I' + str(provider / 'include/libxml2')]

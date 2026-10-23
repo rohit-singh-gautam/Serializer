@@ -32,7 +32,7 @@ definitions of the same type produce a preprocessor error. See the
 
 ## Build and run all six consumers
 
-From the repository root, using a configured C++20 toolchain, clang-format 19+,
+From the repository root, using a configured C++23 toolchain, clang-format 19+,
 GoogleTest, and JDK 17+:
 
 ```sh

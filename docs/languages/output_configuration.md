@@ -162,7 +162,7 @@ restrictions, NaN behavior and C++ generic alias requirements.
 
 These are **presentation profiles**, covering layout and generated identifiers.
 They do not change algorithms, access control, ownership, exception handling,
-the C++20 minimum, or wire encoding. They do not certify compliance with a whole guide.
+the C++23 minimum, or wire encoding. They do not certify compliance with a whole guide.
 
 | Profile | Layout | Types | Class fields | Enum values | Generated accessors |
 | --- | --- | --- | --- | --- | --- |

@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.30.0 LANGUAGES CXX)
+# Reject unsupported requests before compiler or dependency discovery performs work.
+if(DEFINED CMAKE_CXX_STANDARD AND
+    (CMAKE_CXX_STANDARD LESS 23 OR CMAKE_CXX_STANDARD EQUAL 98))
+  message(FATAL_ERROR "Serializer requires C++23 or later; remove or raise CMAKE_CXX_STANDARD")
+endif()
+
+project(serializer VERSION 2.30.1 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.22.0)
@@ -14,12 +20,17 @@ configure_file(cmake/version.hpp.in generated/include/rohit/version.hpp @ONLY)
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE-UNICODE" serializer_unicode_license)
 configure_file(cmake/unicode_license.hpp.in generated/private/unicode_license.hpp @ONLY)
 
-# Require at least C++20 while preserving a caller's newer language mode.
-if(NOT DEFINED CMAKE_CXX_STANDARD OR CMAKE_CXX_STANDARD LESS 20)
-  set(CMAKE_CXX_STANDARD 20)
+# Require C++23 for every target, including separately compiled providers.
+if(DEFINED CMAKE_CXX_STANDARD AND
+    (CMAKE_CXX_STANDARD LESS 23 OR CMAKE_CXX_STANDARD EQUAL 98))
+  message(FATAL_ERROR "Serializer requires C++23 or later; remove or raise CMAKE_CXX_STANDARD")
+endif()
+if(NOT DEFINED CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 23)
 endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+include(cmake/serializer_check_cpp_standard.cmake)
 
 option(SERIALIZER_BUILD_TESTS "Build Serializer's tests" ${PROJECT_IS_TOP_LEVEL})
 option(SERIALIZER_BUILD_MANAGED "Build the C++ managed snapshot runtime records" ON)
@@ -433,7 +444,7 @@ target_include_directories(serializer_runtime PUBLIC
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
 )
 target_include_directories(serializer_lib PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/private")
-target_compile_features(serializer_runtime PUBLIC cxx_std_20)
+target_compile_features(serializer_runtime PUBLIC cxx_std_23)
 target_compile_definitions(serializer_runtime PRIVATE
   SERIALIZER_ENABLE_SIMD=$<BOOL:${SERIALIZER_ENABLE_SIMD}>
   SERIALIZER_WITH_ZSTD=$<BOOL:${SERIALIZER_WITH_ZSTD}>
@@ -455,6 +466,15 @@ if(SERIALIZER_WITH_XML)
   target_link_libraries(serializer_runtime PRIVATE LibXml2::LibXml2)
 endif()
 target_link_libraries(serializer_lib PUBLIC Serializer::runtime)
+
+# Checked-in backend runtime templates exceed the standard's minimum guaranteed
+# literal length. Clang supports their actual extents; waive only that translation-
+# limit advisory on the compiler sources embedding them, leaving other warnings strict.
+if(CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|AppleClang)$")
+  set_property(SOURCE src/c_writer.cpp src/java_writer.cpp src/mobile_writer.cpp src/portable_writer.cpp
+    src/python_writer.cpp src/rust_writer.cpp src/xml_native_writer.cpp
+    src/xml_portable_writer.cpp APPEND PROPERTY COMPILE_OPTIONS -Wno-overlength-strings)
+endif()
 
 # Keep AVX2 flags off the dispatcher and consumers, including in unity builds.
 set(serializer_x64 FALSE)

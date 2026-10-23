@@ -8,7 +8,7 @@ archive and model byte hash. Corpus acquisition is explicit; qualification never
 downloads a schema, follows external XML entities or silently skips a missing SDK.
 
 Use an existing built Serializer compiler/runtime with XML enabled, Python 3,
-.NET SDK 10, CMake 4 and a C++20 toolchain. The .NET streaming `XmlSchemaSet` oracle
+.NET SDK 10, CMake 4 and a C++23 toolchain. The .NET streaming `XmlSchemaSet` oracle
 uses the unchanged finite Core occurrence bounds. Secondary `xmlschema` 4.2.0
 checks the 111 model parts no larger than 8192 bytes. These providers are independent
 of Serializer's importer, generated codecs and libxml2 grammar projection.

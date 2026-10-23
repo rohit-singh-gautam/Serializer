@@ -40,8 +40,10 @@ void reject_augmented_identity_field(const xml::element& node) {
 struct component {
   const schema_bundle::document* owner{};
   const xml::element* node{};
-  // Deduplicate identical static declarations reached through different finite graph paths.
-  bool operator==(const component&) const = default;
+  // Compare declaration identities without selecting MSVC STL's scalar-size vectorized find.
+  bool operator==(const component& other) const noexcept {
+    return owner == other.owner && node == other.node;
+  }
 };
 
 // Bind strict selectors against actual XSD declarations instead of guessing field types from XML text.

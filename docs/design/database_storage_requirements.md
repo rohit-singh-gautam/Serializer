@@ -11,14 +11,14 @@ remain separately qualified storage transports rather than database engines.
 It consolidates the previous schema-index design and durable-adapter requirements.
 All new `storage(...)`, `index(...)`, query and adapter syntax below is illustrative,
 not currently accepted grammar or implemented APIs. Existing API examples are
-explicitly identified. This document performs no C++ standard upgrade, changes no
-wire version and establishes no build, database, cloud or benchmark qualification.
+explicitly identified. Compiler/runtime 2.30.1 implements the C++23 build minimum;
+see its [qualification record](../verification/verification-cpp23-2026-10-23.md).
+This design does not establish database, cloud or benchmark qualification.
 
 **First implementation priority: C++23 is the minimum for Serializer itself**,
 including compiler, runtime, generated C++ and installed targets. C++20 support
-does not need to be preserved. Complete and qualify this migration before new
-schema-index or database implementation. The inspected build still selects
-C++20; that is unfinished migration work, not a compatibility requirement.
+does not need to be preserved. Compiler/runtime 2.30.1 implements this minimum.
+Complete platform qualification before new schema-index or database implementation.
 
 Use [the central pending backlog](../pending.md#managed-state-and-storage) as the
 sole unfinished-work inventory. Completed IDs and evidence live in the
@@ -73,9 +73,9 @@ hooks remain library work, rather than being relabeled as application policy.
 ## C++23 minimum and one qualified dependency source
 
 **Priority 1: adopt C++23; do not retain a C++20 compatibility mode.**
-The inspected CMake configuration still selects C++20 and must be migrated.
+Compiler/runtime 2.30.1 defaults to C++23 and rejects explicit older modes.
 Compiling one consumer in C++23 does not upgrade the library's supported minimum.
-The required implementation MUST raise compiler, runtime, managed runtime,
+The implementation MUST retain compiler, runtime, managed runtime,
 generated C++ and installed targets to a C++23 minimum, accepting newer standard
 modes through explicit toolchain qualification. This applies to standalone use as
 well as database integration; enabling a database is not what selects the minimum.

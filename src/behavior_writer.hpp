@@ -360,11 +360,13 @@ inline std::string helpers_base(std::string_view language, const checked_helpers
 namespace rohit::serializer::detail {
 // Reject invalid intermediate values before a comparison can conceal arithmetic failure.
 constexpr double srl_behavior_checked(double value) {
-  constexpr auto maximum = ::std::numeric_limits<double>::max();
-  const bool finite = ::std::is_constant_evaluated() ?
-      value >= -maximum && value <= maximum : ::std::isfinite(value);
-  if (!finite) { throw ::std::domain_error{"Non-finite portable expression"}; }
-  return value;
+  if consteval {
+    constexpr auto maximum = ::std::numeric_limits<double>::max();
+    if (value >= -maximum && value <= maximum) { return value; }
+  } else {
+    if (::std::isfinite(value)) { return value; }
+  }
+  throw ::std::domain_error{"Non-finite portable expression"};
 }
 // Both signed zero divisors are outside the portable division domain.
 constexpr double srl_behavior_divide(double left, double right) {

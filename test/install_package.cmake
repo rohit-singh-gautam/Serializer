@@ -48,6 +48,7 @@ endforeach()
 
 file(WRITE "${source}/CMakeLists.txt" "cmake_minimum_required(VERSION 4.0)\n"
   "project(installed_serializer_headers LANGUAGES CXX)\n"
+  "set(CMAKE_CXX_EXTENSIONS OFF)\n"
   "set(CMAKE_PREFIX_PATH [=[${prefix};${DEPENDENCY_PREFIXES}]=])\n"
   "find_package(Serializer ${installed_release} EXACT CONFIG REQUIRED)\n")
 if(installed_release_major GREATER 1)
@@ -69,6 +70,10 @@ endif()
 get_target_property(runtime_is_system Serializer::runtime SYSTEM)
 if(runtime_is_system)
   message(FATAL_ERROR "Installed runtime headers must use ordinary include precedence")
+endif()
+get_target_property(runtime_features Serializer::runtime INTERFACE_COMPILE_FEATURES)
+if(NOT "cxx_std_23" IN_LIST runtime_features)
+  message(FATAL_ERROR "Installed runtime must propagate the C++23 minimum")
 endif()
 get_target_property(runtime_dependencies Serializer::runtime INTERFACE_LINK_LIBRARIES)
 if(runtime_dependencies MATCHES "serializer_lib")
@@ -161,8 +166,46 @@ run_checked("${cmake_directory}/ctest" --test-dir "${build}" -C "${CONFIGURATION
   --output-on-failure)
 message(STATUS "Verified installed Serializer headers, targets, and compression capabilities")
 
+# SDK-only discovery must stay language-neutral and still permit a later native consumer.
+get_filename_component(repository "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+set(component_source "${DIRECTORY}/example_components")
+set(component_build "${DIRECTORY}/example_components_build")
+file(MAKE_DIRECTORY "${component_source}")
+file(WRITE "${component_source}/CMakeLists.txt" "cmake_minimum_required(VERSION 4.0)\n"
+  "project(installed_example_components LANGUAGES NONE)\n"
+  "set(CMAKE_PREFIX_PATH [=[${prefix};${DEPENDENCY_PREFIXES}]=])\n"
+  "set(CMAKE_CXX_EXTENSIONS OFF)\n"
+  "set(SERIALIZER_EXAMPLE_USE_INSTALLED ON)\n"
+  "include([=[${repository}/example/cmake/serializer_example_dependency.cmake]=])\n"
+  [=[
+serializer_example_dependency()
+if(NOT TARGET Serializer::serializer OR TARGET Serializer::runtime)
+  message(FATAL_ERROR "SDK-only example loaded native runtime dependencies")
+endif()
+enable_language(CXX)
+serializer_example_dependency()
+if(NOT TARGET Serializer::runtime)
+  message(FATAL_ERROR "Native example did not upgrade compiler-only discovery")
+endif()
+add_executable(component_consumer consumer.cpp)
+target_link_libraries(component_consumer PRIVATE Serializer::runtime)
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/consumer-path-$<CONFIG>.txt"
+  CONTENT "$<TARGET_FILE:component_consumer>")
+]=])
+file(WRITE "${component_source}/consumer.cpp" [=[
+#include <rohit/cpp_standard.hpp>
+#include <rohit/version.hpp>
+// Confirm that a newly enabled native consumer inherits the installed standard.
+int main() { return rohit::serializer::compiler_version.empty(); }
+]=])
+run_checked("${CMAKE_COMMAND}" -S "${component_source}" -B "${component_build}"
+  ${generator_arguments} "-DCMAKE_BUILD_TYPE=${CONFIGURATION}")
+run_checked("${CMAKE_COMMAND}" --build "${component_build}" --config "${CONFIGURATION}" --parallel 2)
+file(READ "${component_build}/consumer-path-${CONFIGURATION}.txt" component_executable)
+run_checked("${component_executable}")
+message(STATUS "Verified SDK-only example discovery and native runtime upgrade")
+
 if(EXAMPLE_PYTHON)
-  get_filename_component(repository "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
   set(example_cache "${DIRECTORY}/example_cache.cmake")
   # Initial cache entries preserve semicolon-separated prefixes through command argument lists.
   file(WRITE "${example_cache}"

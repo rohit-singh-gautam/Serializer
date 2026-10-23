@@ -26,8 +26,8 @@ After generation, C++ application code can use `response<std::uint32_t>` or
 `message<std::string>` directly and call the ordinary `serialize_out`, `serialize_in`,
 `serialize`, `deserialize`, and `deserialize_exact` APIs. No `instantiate` declaration
 or concrete schema field is required. Host type arguments must support the selected
-codec and the generated owning-value operations. C++20 remains the minimum; C++23
-consumers use the same API. Naming profiles apply to class and member names;
+codec and the generated owning-value operations. C++23 is the minimum;
+newer language modes use the same API. Naming profiles apply to class and member names;
 template parameter names retain their declared spelling.
 
 ## Optional cross-language contracts

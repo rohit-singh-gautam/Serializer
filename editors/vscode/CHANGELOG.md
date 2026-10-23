@@ -1,3 +1,8 @@
+# 2.0.13
+
+- Require a C++23 compiler and matching standard library for generated C++ consumers; keep navigation host settings aligned.
+- Preserve schema language 1.22.0 and existing navigation and generated wire contracts.
+
 # 2.0.12
 
 - Support schema language 1.22.0 cache fields with optional priority (default 0, range 0..255).

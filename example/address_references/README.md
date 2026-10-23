@@ -150,7 +150,7 @@ ctest --test-dir out/address-reference-cpp-installed -C Release --output-on-fail
 
 The C++ program also checks all four native protocols and demonstrates shared
 retention followed by weak-reference expiration. The standalone CMake entry point
-requires CMake 4.0+, a C++20 compiler and the installed package's dependencies.
+requires CMake 4.0+, a C++23 compiler and the installed package's dependencies.
 
 ## Read the consumers
 
