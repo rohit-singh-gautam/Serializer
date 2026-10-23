@@ -39,6 +39,7 @@ features and genuine library work.
 | Coordinate edits across clients | C++ collaboration and authority policy hooks | [Local collaboration](docs/managed/local_collaboration.md) |
 | Resolve typed entities and application keys | Opt-in C++ snapshot registries and field indexes | [State registries](docs/managed/state_registry.md) |
 | Explore mostly-disk indexes | Proposed paged backend and database comparison | [Paged indexing](docs/design/paged_indexing.md) |
+| Discuss rebuildable persistent caches | Proposed optional priority (default `0`, lowest), shared `.serializer/` folder and close-time lifetime | [Cache attribute design](docs/design/cache_attributes.md) |
 
 Selected compression framing, errors and byte/history admission now pass one shared corpus across all eleven outputs: 15,400 decisions, 2,904 owning exchanges and independent standard-frame checks. The [qualification record](docs/verification/verification-compression-parity-2026-10-20.md) identifies the actual compiler/runtime captures, provider deployments and scope.
 

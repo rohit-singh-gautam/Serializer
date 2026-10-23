@@ -39,6 +39,12 @@ languages can exchange managed records. Managed design documents retain their
 individual implementation boundaries. Design specifications and dated reports
 should be read with the current API guides and the versions they identify.
 
+For future durable database consumers, the proposed
+[database integration requirements](design/database_storage_requirements.md)
+connect C++23 qualification, adapter publication, incremental storage and
+security-sensitive managed-state acceptance to the existing deferred backlog.
+They do not describe currently supported database APIs.
+
 Use the [runnable example catalog](../example/README.md) for complete consumers.
 Release information and the project quick start are in the [project overview](../README.md).
 

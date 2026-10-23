@@ -7,6 +7,19 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 
 [Documentation index](../../../docs/README.md)
 
+The [cache attribute design](../../../docs/design/cache_attributes.md) proposes
+rebuildable persisted fields, optional priority defaulting to `0` (lowest retention),
+priority eviction, application-selected placement
+and cache retention after graceful-close journal retirement. Its proposed shared
+`.<filename>.serializer/` directory separates journal, cache and required state;
+current writers still use the documented `.journal/` or legacy layouts. Do not
+rename their directories manually or treat the proposed shared folder as `.tmp`.
+These are proposals, not available cache APIs or schema attributes. Keep using the
+documented `transient` contract for
+runtime-only fields; do not delete required journal companions on close with
+current APIs. Review the proposal's save/retirement requirements before planning
+an implementation; cache data and recovery metadata have different lifetimes.
+
 Use the [central pending backlog](../../../docs/pending.md) for every documented
 remaining requirement and proposal. Design guides retain contracts and rationale;
 check the backlog's backend scope and executed evidence before claiming completion.
