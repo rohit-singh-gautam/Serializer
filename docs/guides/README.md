@@ -13,4 +13,4 @@ guide that matches your application.
 | [Compiler command line](command_line.md) | Compiler options, schema-language version requirements, and generation profiles. |
 | [C++ persistent-ID migration](persistent_id_migration.md) | Compact and fixed ID encoding, regeneration, and identity-preserving offline conversion requirements. |
 | [Coding-agent integration](agent_integration.md) | Discovering and applying the repository's canonical integration skill from a consuming project. |
-| [Database storage](database_integration.md) | Choosing encoded storage representations and preserving model contracts; database adapters and document sinks remain proposals. |
+| [Native database storage](database_integration.md) | Standalone indexing, native data/index placement, typed snapshot loading and the proposed native storage boundary; no third-party database engines or sink adapters. |

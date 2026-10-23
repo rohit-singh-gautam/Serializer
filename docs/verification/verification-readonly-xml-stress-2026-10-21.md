@@ -90,4 +90,4 @@ separate document/object/generation/path contract. XML value export emits the
 selected payload and does not serialize those address records. See the
 [value-reference guide](../schema/value_references.md),
 [durable address contract](../schema/references.md), and
-[pending requirements](../pending.md#opc-and-3mf-requirements).
+[pending requirements](../project/completed_requirements.md#opc-and-3mf-requirements).

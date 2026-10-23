@@ -106,7 +106,7 @@ treated as implemented by this example.
 
 The authoritative status, remaining requirements and completion evidence for
 **OPC-R01–OPC-R13** are consolidated in
-[the central pending backlog](../pending.md#opc-and-3mf-requirements).
+[the central pending backlog](../project/completed_requirements.md#opc-and-3mf-requirements).
 Those IDs refine the existing
 [PKG01–PKG09 contracts](xml_support.md#pkg01-named-parts-and-standard-metadata).
 This document retains responsibility boundaries, design rationale and examples;

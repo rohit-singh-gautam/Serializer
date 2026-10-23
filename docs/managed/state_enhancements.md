@@ -281,8 +281,10 @@ Application context/policy administration is an explicit will-not-fix responsibi
 Other-language engines, proposed schema selector syntax and allocator-aware payload
 decoding remain separate from the implemented C++ profile contract.
 
-The authoritative remaining requirements are **MG01–MG10**, **MIG01–MIG03** and
-**DB01** in [the central backlog](../pending.md#managed-state-and-storage).
+Unfinished managed/storage requirements, including native **DB02**, are in
+[the central backlog](../pending.md#managed-state-and-storage). Completed IDs and
+their qualification scope are in the
+[implemented feature catalog](../project/completed_requirements.md).
 Generated codecs and standalone patch APIs do not prove those broader engines
 or adapters.
 

@@ -470,7 +470,10 @@ and [generics](../schema/generics.md) for C++ record map keys. The
 [state registry](../managed/state_registry.md) describes C++ typed identity lookup,
 stable field/base paths, custom keys and optional snapshot field indexes.
 Automatic schema index declarations and typed `find_by` are a
-[separate proposal](../design/schema_indexes.md), not supported syntax or APIs.
+[combined storage/index proposal](../design/database_storage_requirements.md),
+including separate data ownership and local/database/both index placement.
+These declarations are not supported syntax or APIs; its required C++23 minimum
+is a future compiler/runtime upgrade, not the current C++20 build baseline.
 See [custom-ID examples](../../example/custom_ids/README.md) for all-language
 application-owned registries and the native C++ managed companion.
 

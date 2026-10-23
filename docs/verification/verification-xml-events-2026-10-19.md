@@ -5,7 +5,7 @@ Working source: compiler/runtime **2.9.0**, schema language **1.20.0**, based on
 changes. This record qualifies the provider-independent C++
 [event contract](../serialization/xml_events.md). It does not qualify an XML
 byte tokenizer or generated direct token codecs. S02 and per-language work
-remain in [the backlog](../pending.md#shared-compiler-and-contract-tasks).
+remain in [the backlog](../project/completed_requirements.md#shared-compiler-and-contract-tasks).
 
 ## Executed checks
 

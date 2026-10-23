@@ -5,7 +5,7 @@ preserves heterogeneous child order in one native collection in all eleven
 owning outputs. C++ support began in 2.25.0. Fixed-XSD sequence/choice groups bind
 to the same explicit storage; generated readers and writers enforce their full
 occurrence grammar. XSD export retains that grammar and excludes fragment helper
-records. See [OPC-R04](../pending.md#opc-and-3mf-requirements).
+records. See [OPC-R04](../project/completed_requirements.md#opc-and-3mf-requirements).
 
 ## Schema and mapping
 

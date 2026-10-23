@@ -25,7 +25,7 @@ Generated Java also supplies [whole-message helpers](../languages/java.md#whole-
 for identity, gzip, zlib and raw DEFLATE, plus optional Zstandard/LZ4 providers.
 The table below identifies the other implemented generated helpers. Remaining
 generated-language compression work is tracked per backend in
-[the backlog](../pending.md#compression-tasks-for-each-language).
+[the backlog](../project/completed_requirements.md#compression-tasks-for-each-language).
 
 ## Generated language availability
 

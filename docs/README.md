@@ -8,11 +8,11 @@ indexes below link to the full reference and recorded verification.
 | Define models and exchange data | [C++ usage guide](guides/usage.md) | [Schema examples](schema/schema_examples.md), [language outputs](languages/README.md) |
 | Add generation to a build | [CMake integration](guides/cmake_integration.md) | [Build and generation](guides/build_and_generation.md), [compiler options](guides/command_line.md) |
 | Author an OPC-based format such as 3MF | [Current XML/OPC APIs](serialization/xml_packages.md) | [Responsibilities, requirements and restricted schema/build example](design/opc_3mf_support.md) |
-| Find any documented pending requirement | [Central pending backlog](pending.md) | Stable task IDs, implementation/proposal status, source contracts and verification gates |
+| Find unfinished or completed requirements | [Pending work](pending.md) | [Implemented feature catalog](project/completed_requirements.md), stable IDs and original verification records |
 | Evolve stored data | [Payload versioning](schema/versioning.md) | [Schema compatibility](schema/schema_evolution.md), [wire contract](serialization/wire_format.md) |
 | Edit application state with undo and recovery | [Managed-state quick start](managed/getting_started.md) | [C++ runtime](managed/cpp_runtime.md), [journaling](managed/journal.md), [local collaboration](managed/local_collaboration.md) |
 | Retain rebuildable derived data | [C++ cache usage](guides/usage.md#rebuildable-c-cache-fields) | [Cache validity, providers, priority and lifecycle](design/cache_attributes.md) |
-| Review automatic indexing and search design | [Schema-index proposal](design/schema_indexes.md) | [Existing registry APIs](managed/state_registry.md), [paged-index proposal](design/paged_indexing.md) |
+| Review local/database storage and indexing design | [Combined storage/index specification](design/database_storage_requirements.md) | [Existing registry APIs](managed/state_registry.md), [paged-index proposal](design/paged_indexing.md) |
 | Set up schema editing and navigation | [Editor extensions](editors/editor_extension.md) | [Navigation coverage](editors/editor_navigation.md), [generated-header IntelliSense](editors/intellisense.md) |
 | Integrate through a coding agent | [Agent integration](guides/agent_integration.md) | [Canonical integration skill](../.agents/skills/serializer-integration/SKILL.md) |
 
@@ -34,18 +34,19 @@ indexes below link to the full reference and recorded verification.
 ## Status and examples
 
 The [feature-status reference](project/feature_status.md) distinguishes implemented
-behavior from proposals. All current pending requirements are consolidated in
-[the central backlog](pending.md); design documents retain their rationale
-and contracts. Native managed engines currently run in C++; other
+behavior from proposals. Unfinished requirements are consolidated in
+[the central backlog](pending.md); completed IDs and their evidence are in the
+[implemented feature catalog](project/completed_requirements.md). Design documents
+retain rationale and contracts. Native managed engines currently run in C++; other
 languages can exchange managed records. Managed design documents retain their
 individual implementation boundaries. Design specifications and dated reports
 should be read with the current API guides and the versions they identify.
 
-For future durable database consumers, the proposed
-[database integration requirements](design/database_storage_requirements.md)
-connect C++23 qualification, adapter publication, incremental storage and
-security-sensitive managed-state acceptance to the existing deferred backlog.
-They do not describe currently supported database APIs.
+The [combined storage/index requirements](design/database_storage_requirements.md)
+cover standalone indexing and optional durable databases, C++23 minimum
+qualification, local/database data and index placement, incremental storage and
+security-sensitive acceptance. They connect to the existing deferred backlog;
+they do not describe currently supported schema/query/database APIs.
 
 Use the [runnable example catalog](../example/README.md) for complete consumers.
 Release information and the project quick start are in the [project overview](../README.md).

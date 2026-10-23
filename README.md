@@ -15,13 +15,14 @@ wire records but do not have equivalent native managed engines.
 
 The [application responsibility contract](docs/project/application_responsibilities.md)
 separates host authentication, policy administration, business effects and custom
-migration decisions from Serializer's compiler/runtime guarantees. The pending list
-marks those excluded responsibilities **will not fix**, separately from completed
-features and genuine library work.
+migration decisions from Serializer's compiler/runtime guarantees. Closed
+responsibility decisions, completed features and unfinished library work have
+separate references.
 
 [Project website](https://www.singh.org.in/serializer.html) ·
 [Documentation index](docs/README.md) ·
 [Pending requirements](docs/pending.md) ·
+[Implemented requirement catalog](docs/project/completed_requirements.md) ·
 [Serialization quick start](#get-started) ·
 [State-management quick start](docs/managed/getting_started.md) ·
 [Feature status](docs/project/feature_status.md)
@@ -756,11 +757,12 @@ and [generics](docs/schema/generics.md) for backend limits. C++ managed
 paths, custom-key uniqueness and optional ordered/hash indexes while retaining
 the existing identity, history, journal and collaboration protocols.
 Mostly-disk indexing is a [separate design proposal](docs/design/paged_indexing.md).
-The [schema-index proposal](docs/design/schema_indexes.md) explores automatic
-index declarations, typed `find_by`, duplicate result ranges and combined queries,
-with generic/precise naming for B-tree, hash, bitmap, BRIN, GiST, GIN and spatial
-methods. It also analyzes richer key types and time-series profiles; these
-declarations and query APIs are not implemented.
+The [combined storage and indexing specification](docs/design/database_storage_requirements.md)
+requires C++23 as the minimum and first implementation priority, and defines standalone indexes, database-backed
+data, independent local/database/both index placement, typed `find_by` and
+specialized methods. Its schema/query APIs and C++23 upgrade remain implementation
+requirements. C++20 support does not need to be preserved; current C++20 build
+settings are migration work tracked as [CPP01](docs/pending.md#first-priority-c23-minimum).
 The [custom-ID examples](example/custom_ids/README.md) demonstrate application-owned
 scoped keys in every language and a C++ managed registry companion.
 See the [enhancement verification record](docs/verification/verification-registry-numeric-2026-10-11.md)

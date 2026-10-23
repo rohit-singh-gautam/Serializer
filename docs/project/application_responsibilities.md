@@ -7,8 +7,9 @@ native runtime mechanisms. The consuming application supplies its domain data,
 security decisions and external services. An application responsibility is not
 an unimplemented Serializer feature.
 
-In the pending list, `[-]` means **Will not fix — application or maintainer
-responsibility**. It is a disposition, not an implementation or a passing test.
+Closed **will not fix — application or maintainer responsibility** decisions are
+recorded here and excluded from the pending list and implemented feature count.
+Historical `[-]` markers identify a disposition, not a passing test or feature.
 For mixed requirements, only the application-owned responsibility is excluded;
 missing compiler, codec, runtime or editor behavior stays pending.
 
@@ -66,7 +67,7 @@ consumption and supported logical part preservation remain Serializer obligation
 | Area | Application responsibility: will not fix | Serializer responsibility: remains required |
 | --- | --- | --- |
 | XML/XSD and typed packages | Choose the domain vocabulary, native/XML associations, business key/reference meaning, profiles and extension semantics. Supply domain-specific conformance corpora. | Preserve declared identities, enforce supported mappings, reject ambiguity precisely, validate generated references and qualify supported standard vocabularies and runtime limits. |
-| Durable field addresses | Define the application's persistent address identity, namespace, lifetime, versioning and resolution policy. | Implement and qualify a generic XML representation only after an explicit supported contract exists; existing unsupported combinations must reject. `OPC-R10`/`XML-B15` remain pending. |
+| Durable field addresses | Define the application's persistent address identity, namespace, lifetime, versioning and resolution policy. | Broader durable-address XML requires an explicit supported contract; unsupported combinations reject. The completed [OPC-R10 borrowed-output qualification](completed_requirements.md#opc-r10) preserves that rejection boundary; broader `XML-B15` remains pending. |
 | Collaboration | Supply authenticated network transports, service discovery, access policy and presence UI. | Preserve protocol/session ownership, leases, retries, journal ordering and deterministic reconnect/fault behavior. `MG05`'s native session/cache qualification is [executed on Windows and Linux](../verification/verification-managed-capabilities-2026-10-21.md). |
 | Signatures | Supply keys, trust anchors, signing authority and acceptance policy. | Canonicalization/signature provider interfaces and signed-package editing qualification remain missing work in `OPC-OPT02`. |
 | Views and native code | Keep borrowed source storage alive and unmodified for the stated lifetime; compile application native blocks and native-only expressions with the selected target toolchain. | Enforce representable bounds and documented ownership/error contracts; preserve diagnostics and qualify supported mappings. `BE03` and compiler/backend feature gaps remain pending. |

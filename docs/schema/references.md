@@ -213,7 +213,7 @@ outputs. It emits payload values, retains source lifetime requirements and rejec
 input into an export-only graph. See the [value-reference guide](value_references.md)
 and [XML token qualification](../verification/verification-xml-tokens-2026-10-19.md).
 Broader graph, resource and stress qualification remains tracked by
-[OPC-R10](../pending.md#opc-and-3mf-requirements). Existing borrowed
+[OPC-R10](../project/completed_requirements.md#opc-and-3mf-requirements). Existing borrowed
 `span`/`reference_wrapper` output and mapped binary views retain their independent
 contracts. See the [native, SDK and editor qualification report](../verification/verification-references-translators-2026-10-18.md)
 for executed checks and remaining verification boundaries.

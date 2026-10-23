@@ -57,5 +57,5 @@ Qualification does not include automatic XML/OPC document profile adapters,
 all schema/format/provider combinations, physical power-loss testing, a complete
 default CTest suite, or throughput/peak-memory benchmarks. Generic adapters
 require exact application-owned encode/decode callbacks and their external-format
-resource bounds. The broader [document-state bridge backlog](../pending.md#c-document-state-bridge-tasks)
+resource bounds. The broader [document-state bridge backlog](../project/completed_requirements.md#c-document-state-bridge-tasks)
 retains its independent completion gates.

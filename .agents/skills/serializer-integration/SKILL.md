@@ -24,7 +24,10 @@ declarations diagnose; arbitrary inline/appended formats need a host provider.
 
 Use the [central pending backlog](../../../docs/pending.md) for every documented
 remaining requirement and proposal. Design guides retain contracts and rationale;
-check the backlog's backend scope and executed evidence before claiming completion.
+completed capability IDs and original evidence live in the
+[implemented feature catalog](../../../docs/project/completed_requirements.md).
+Check exact backend/profile scope and dated evidence before claiming completion;
+completed slices do not close broader pending parents.
 Apply the [application ownership contract](../../../docs/project/application_responsibilities.md):
 keep authentication/principal binding, policy storage/administration, business
 side effects, custom historical layout interpretation and authorized publication
@@ -201,8 +204,11 @@ contributions now merge their child fields independently; tag/identity replaceme
 remains atomic. Complete publication, reference and contribution-version checks
 remain mandatory; the [Windows/Linux merge qualification](../../../docs/verification/verification-collaboration-merging-2026-10-21.md)
 records the actual native storage/ID profiles and fault boundaries.
-New non-C++ managed engines, paged/lazy storage and database sink/rebaseline adapters
-are deferred in linked GitHub issues, not completed features.
+New non-C++ managed engines, paged/lazy storage and native journal/storage
+migration remain deferred in linked issues. Native storage/index support is
+[DB02 / #6](https://github.com/rohit-singh-gautam/Serializer/issues/6), not a completed
+database/client feature. Third-party database engines and sink adapters are out
+of scope; use the native integration contract without adding those dependencies.
 For one-expression C++ serialization, call `serialize_as(value)` for an owning
 compact-JSON `std::string`, or `serialize_as<Result, Protocol>(value)` for another
 supported owning result/native protocol. Borrowed views require explicit storage:
@@ -1398,12 +1404,14 @@ the contract. Existing schemas keep their language-selected expression behavior.
 Use the C++ [state registry](../../../docs/managed/state_registry.md) for pinned typed
 entity lookup, stable field/base paths and optional application-key indexes.
 Custom keys retain compact scalar persistent IDs; lookup never grants permission.
-The [schema-index proposal](../../../docs/design/schema_indexes.md) covers automatic
-declarations, typed member/key queries, duplicates, composite indexes and time
-ranges, including generic intent versus explicit B-tree/hash/bitmap/BRIN/GiST/GIN/
-R-tree methods, rich operator families and the `timeseries` workload profile.
-Its `index(...)`, `find_by` and query planner are not available APIs;
-use the documented explicit registry/index workflow until implemented.
+The [combined storage/index specification](../../../docs/design/database_storage_requirements.md)
+requires C++23 as the minimum and first implementation priority, and covers standalone indexing, database data
+authority, local/database/both index placement, typed queries and specialized
+operator families. `storage(...)`, `index(...)`, `find_by`, placement and adapter
+APIs are proposals. C++20 compatibility is not required; current C++20 build
+settings await the priority [CPP01 migration](../../../docs/pending.md#first-priority-c23-minimum). Use current explicit
+registry/index APIs until implemented. Index placement never moves data or makes
+a local cache authoritative for database uniqueness or authorization.
 Treat a paged or customer index as derived state with explicit snapshot/lifetime
 and commit boundaries; [paged indexing](../../../docs/design/paged_indexing.md) remains
 a proposal rather than an available storage backend.

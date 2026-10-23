@@ -99,4 +99,4 @@ publication policy; it is not a claim that a durable-address XML codec exists.
 
 See the [value-reference guide](../schema/value_references.md),
 [durable address contract](../schema/references.md), and
-[pending requirements](../pending.md#opc-and-3mf-requirements).
+[pending requirements](../project/completed_requirements.md#opc-and-3mf-requirements).

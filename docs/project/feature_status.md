@@ -1,5 +1,12 @@
 # Features and implementation status
 
+The [implemented requirement catalog](completed_requirements.md) records **816
+completed capability and qualification IDs**, with their backend/profile limits
+and verification links. Completed sections have moved there from the pending
+list. [Pending work](../pending.md) contains only **34 unfinished requirements**;
+closed [ownership decisions](application_responsibilities.md#disposed-requirements)
+are recorded separately. This reorganization adds no new implementation claims.
+
 Compiler/runtime **2.30.0**, language **1.22.0**, adds
 [owning C++ cache fields and provider services](../design/cache_attributes.md),
 optional priority defaulting to `0`, conservative source fingerprints, immutable
@@ -472,11 +479,13 @@ while preserving its wire spelling and field ID.
 
 ## Database storage
 
-The [database integration guide](../guides/database_integration.md)
-compares document databases, SQL JSON columns, and opaque binary storage, including
-MongoDB, Firebase, PostgreSQL, SQLite, and other targets. It describes required
-type mappings and a proposed sink boundary; database adapters are not implemented
-or qualified in this repository.
+The [native database integration guide](../guides/database_integration.md) and
+[combined storage/index specification](../design/database_storage_requirements.md)
+describe standalone native indexing and a native structured-document engine,
+local/database data authority, index placement and explicit snapshot loading.
+Third-party database engines/sink adapters are outside scope. Native database
+and lazy client/storage APIs remain proposed under DB02; no engine qualification
+follows from codec support or this documentation.
 
 [Paged indexing](../design/paged_indexing.md) researches disk indexes and proposes a bounded
 page-cache sidecar followed by optional lazy model/history storage. Neither is

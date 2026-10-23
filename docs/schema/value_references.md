@@ -178,7 +178,7 @@ reading those graphs rejects before native candidate construction. Encode inside
 the binding/projection scope and keep the source unchanged through all passes.
 See [XML token qualification](../verification/verification-xml-tokens-2026-10-19.md)
 for the executed graph and lifetime boundaries; broader qualification remains
-[OPC-R10](../pending.md#opc-and-3mf-requirements). C++ emission-only,
+[OPC-R10](../project/completed_requirements.md#opc-and-3mf-requirements). C++ emission-only,
 constant-evaluation and Protocol Buffers profiles reject this runtime feature.
 
 The older [named durable address references](references.md) remain a separate

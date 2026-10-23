@@ -8,8 +8,9 @@ They remain unimplemented; deferral does not establish a storage capability.
 
 Status: research and proposed design, reviewed on **2026-10-11**. Serializer does
 not implement a paged index, lazy managed storage, or a database adapter. The
-candidate systems below implement disk-backed indexing themselves; they are not
-qualified Serializer integrations. No performance improvement or memory limit is
+reference systems below implement disk-backed indexing themselves; they are
+algorithm/storage research only. Third-party engine dependencies and adapters
+are outside the native design. No performance improvement or memory limit is
 claimed for an implementation that has not been built and measured.
 
 Serializer can keep most of an index on disk and read only the pages needed for
@@ -29,20 +30,19 @@ See the [current feature status](../project/feature_status.md),
 [database integration guidance](../guides/database_integration.md), and
 [wire-format contract](../serialization/wire_format.md).
 
-## Existing systems and candidate approaches
+## Existing systems as research references
 
 | System | Existing disk-backed indexing | Relevance and limitations for Serializer |
 | --- | --- | --- |
-| SQLite | Tables and indexes use separate disk B-trees; its pager reads, writes, caches, and commits fixed-size pages. [Architecture](https://sqlite.org/arch.html). | A candidate embedded adapter when a database dependency is acceptable. Its default page cache honors the configured cache target, but the target is not a process memory bound. [Cache configuration](https://sqlite.org/pragma.html#pragma_cache_size). |
-| LMDB / OpenLDAP | A mapped tree with copy-on-write pages and reader snapshots; OpenLDAP's MDB backend is an existing application. [Developer paper](https://www.openldap.org/pub/hyc/20111010LDAPCon-MDB.html). | A candidate for read-heavy workloads with OS-managed page residency. Clean mapped pages are reclaimable; mapping size does not limit resident memory. Long-lived readers delay page reuse. [Memory and reader behavior](https://lmdb.readthedocs.io/en/release/#memory-usage). |
-| RocksDB | Partitioned index/filter blocks use a smaller top-level index and load required partitions into block cache on demand. [Partitioned indexes](https://rocksdb.org/blog/2017/05/12/partitioned-index-filter.html). | A candidate for write-heavy key/value workloads. Budget memtables, index/filter blocks, iterator pins, and other allocations as well as the block cache; compaction needs separate qualification. [Memory accounting](https://github.com/facebook/rocksdb/wiki/Memory-usage-in-RocksDB). |
+| SQLite | Tables and indexes use separate disk B-trees; its pager reads, writes, caches, and commits fixed-size pages. [Architecture](https://sqlite.org/arch.html). | Cache-budget research reference, not a proposed dependency. Its configured cache target is not a process memory bound. [Cache configuration](https://sqlite.org/pragma.html#pragma_cache_size). |
+| LMDB / OpenLDAP | A mapped tree with copy-on-write pages and reader snapshots; OpenLDAP's MDB backend is an existing application. [Developer paper](https://www.openldap.org/pub/hyc/20111010LDAPCon-MDB.html). | Reader/pinning research reference. Clean mapped pages are reclaimable; mapping size does not limit resident memory. Long-lived readers delay page reuse. [Memory and reader behavior](https://lmdb.readthedocs.io/en/release/#memory-usage). |
+| RocksDB | Partitioned index/filter blocks use a smaller top-level index and load required partitions into block cache on demand. [Partitioned indexes](https://rocksdb.org/blog/2017/05/12/partitioned-index-filter.html). | Accounting research reference: budget write buffers, indexes, iterator pins and compaction separately. It is not a selected storage engine. [Memory accounting](https://github.com/facebook/rocksdb/wiki/Memory-usage-in-RocksDB). |
 
-These sources establish feasibility, not a winner for an unmeasured workload.
-A SQLite prototype offers existing indexing and transactional storage. A native
-Serializer sidecar avoids a mandatory database dependency and can preserve the
-existing document/journal containers. LMDB and RocksDB are alternatives to
-evaluate against actual access patterns, write rates, platform requirements, and
-dependency policy.
+These sources inform the native page-store design. The target is Serializer's
+own rebuildable sidecar/index and a supported native structured-document storage
+boundary, preserving the existing state contracts. No third-party database
+prototype or engine adapter is an implementation milestone. Measure the native
+algorithms against actual access patterns, write rates and resource budgets.
 
 ## What low memory means
 
