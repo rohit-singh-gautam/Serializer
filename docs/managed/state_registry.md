@@ -1,5 +1,10 @@
 # Typed state registries
 
+For proposed automatic schema declarations, `find_by`, duplicate result ranges,
+composite queries and date/time indexing, see the
+[schema-index specification](../design/schema_indexes.md). Those additions are
+not implemented; this guide describes the existing explicit APIs.
+
 Compiler/runtime **1.16.0** provides optional generated C++ managed registries.
 The registry extends generated C++ managed identities without replacing their
 allocator, history, journal, authorization or collaboration contracts. The

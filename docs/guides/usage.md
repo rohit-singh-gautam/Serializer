@@ -469,6 +469,8 @@ array bindings, trailing defaults and separately constrained C++ input types,
 and [generics](../schema/generics.md) for C++ record map keys. The
 [state registry](../managed/state_registry.md) describes C++ typed identity lookup,
 stable field/base paths, custom keys and optional snapshot field indexes.
+Automatic schema index declarations and typed `find_by` are a
+[separate proposal](../design/schema_indexes.md), not supported syntax or APIs.
 See [custom-ID examples](../../example/custom_ids/README.md) for all-language
 application-owned registries and the native C++ managed companion.
 

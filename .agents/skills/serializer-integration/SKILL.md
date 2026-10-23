@@ -1395,6 +1395,12 @@ the contract. Existing schemas keep their language-selected expression behavior.
 Use the C++ [state registry](../../../docs/managed/state_registry.md) for pinned typed
 entity lookup, stable field/base paths and optional application-key indexes.
 Custom keys retain compact scalar persistent IDs; lookup never grants permission.
+The [schema-index proposal](../../../docs/design/schema_indexes.md) covers automatic
+declarations, typed member/key queries, duplicates, composite indexes and time
+ranges, including generic intent versus explicit B-tree/hash/bitmap/BRIN/GiST/GIN/
+R-tree methods, rich operator families and the `timeseries` workload profile.
+Its `index(...)`, `find_by` and query planner are not available APIs;
+use the documented explicit registry/index workflow until implemented.
 Treat a paged or customer index as derived state with explicit snapshot/lifetime
 and commit boundaries; [paged indexing](../../../docs/design/paged_indexing.md) remains
 a proposal rather than an available storage backend.

@@ -205,6 +205,14 @@ are recorded separately from implemented scalar validation.
 
 ## Managed state and storage
 
+The [schema-index discussion](design/schema_indexes.md) proposes generated
+unique/ordered/hash declarations, pinned duplicate result ranges, typed member
+lookup, composite indexes and bounded multi-index planning. Its expanded design
+adds generic/precise selection for bitmap, BRIN, GiST, GIN and R-tree methods,
+richer type/operator families and a time-series profile. It is not an accepted
+implementation batch, introduces no counted requirement rows, and does not change
+PG01/PG02 deferrals. Promote agreed scope and acceptance gates before implementation.
+
 The [cache attribute discussion](design/cache_attributes.md) separately proposes
 rebuildable persisted fields, priority eviction, application-controlled placement,
 a shared `.serializer/` companion directory and cache retention after graceful-close

@@ -745,6 +745,11 @@ and [generics](docs/schema/generics.md) for backend limits. C++ managed
 paths, custom-key uniqueness and optional ordered/hash indexes while retaining
 the existing identity, history, journal and collaboration protocols.
 Mostly-disk indexing is a [separate design proposal](docs/design/paged_indexing.md).
+The [schema-index proposal](docs/design/schema_indexes.md) explores automatic
+index declarations, typed `find_by`, duplicate result ranges and combined queries,
+with generic/precise naming for B-tree, hash, bitmap, BRIN, GiST, GIN and spatial
+methods. It also analyzes richer key types and time-series profiles; these
+declarations and query APIs are not implemented.
 The [custom-ID examples](example/custom_ids/README.md) demonstrate application-owned
 scoped keys in every language and a C++ managed registry companion.
 See the [enhancement verification record](docs/verification/verification-registry-numeric-2026-10-11.md)
