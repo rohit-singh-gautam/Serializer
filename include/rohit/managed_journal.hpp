@@ -83,6 +83,9 @@ struct journal_options {
   // Opaque application provenance, used only on creation with a document codec.
   std::vector<std::uint8_t> origin{};
   std::size_t max_origin_bytes{64 * 1024};
+  // Explicit host promise: the saved external format preserves every identity and
+  // allocation watermark needed without side-channel metadata. Default is retain.
+  bool allow_document_retirement{};
 };
 
 namespace detail {
@@ -160,6 +163,10 @@ public:
   virtual void discard(const std::vector<std::uint8_t>&) {
     throw std::logic_error{"Journal backend does not support discard"};
   }
+  // Retire a saved external-document attachment permanently. False means unsupported;
+  // callers must verify clean values, saved allocation metadata and no shared state.
+  // Success releases its writer and removes only disposable native companions.
+  virtual bool retire_document() { return false; }
   // Return the last acknowledged operation sequence, independently of undo position.
   virtual std::uint64_t sequence() const noexcept = 0;
   // Report an uncertain durable decision that blocks further writes.

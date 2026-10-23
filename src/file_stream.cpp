@@ -79,7 +79,8 @@ public:
                            : (access == file_open_mode::create
                                   ? O_RDWR | O_CREAT | O_EXCL
                                   : (access == file_open_mode::lock ? O_RDWR | O_CREAT : O_RDWR));
-    handle_ = ::open(path.c_str(), flags | O_CLOEXEC, S_IRUSR | S_IWUSR);
+    handle_ = ::open(path.c_str(), flags | O_CLOEXEC |
+        (access == file_open_mode::lock ? O_NOFOLLOW : 0), S_IRUSR | S_IWUSR);
     if (handle_ < 0) {
       io_error("Open file stream");
     }
@@ -88,6 +89,18 @@ public:
       ::close(handle_);
       errno = error;
       io_error("Lock file stream");
+    }
+    if (access == file_open_mode::lock) {
+      // A retiring owner may unlink its locked inode. Never authorize a writer
+      // which opened that inode before retirement but acquired it afterward.
+      struct stat held{};
+      struct stat named{};
+      if (::fstat(handle_, &held) != 0 || ::lstat(path.c_str(), &named) != 0 ||
+          !S_ISREG(named.st_mode) || held.st_dev != named.st_dev || held.st_ino != named.st_ino) {
+        ::close(handle_);
+        errno = EAGAIN;
+        io_error("Writer lock path changed; retry opening the document");
+      }
     }
 #endif
   }

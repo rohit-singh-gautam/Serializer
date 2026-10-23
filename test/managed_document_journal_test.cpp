@@ -114,6 +114,116 @@ protected:
   }
 };
 
+// Explicit retirement preserves saved bytes, removes companions and permanently fences the owner.
+TEST_F(managed_document_journal, retire_clean_document_removes_disposable_history) {
+  auto options = json_options();
+  options.allow_document_retirement = true;
+  store_type store{ledger{"Base"}};
+  store.create_journal(path_, mode::sidecar, options);
+  const auto original = read_document_bytes(path_);
+  EXPECT_TRUE(store.retire_journal());
+  EXPECT_EQ(read_document_bytes(path_), original);
+  EXPECT_FALSE(std::filesystem::exists(journal_test_paths::directory(path_)));
+  EXPECT_TRUE(store.journal_needs_recovery());
+  EXPECT_THROW(store.save_journal(), managed::journal_indeterminate_error);
+}
+
+// A live session may preserve Undo in RAM and attach again before the next durable operation.
+TEST_F(managed_document_journal, retirement_can_keep_session_history_in_memory) {
+  auto options = json_options(); options.allow_document_retirement = true;
+  store_type store{ledger{"Base"}};
+  store.create_journal(path_, mode::sidecar, options);
+  store.execute_transaction([](auto& edit) { edit.root().set_name("Saved"); }).throw_if_failed();
+  store.save_journal();
+  const auto saved = read_document_bytes(path_);
+  const auto document = store.document(); const auto allocated = store.allocated_id();
+  EXPECT_TRUE(store.retire_journal(true));
+  EXPECT_FALSE(store.journal_attached());
+  EXPECT_FALSE(std::filesystem::exists(journal_test_paths::directory(path_)));
+  store.create_journal(path_, mode::sidecar, options);
+  store.undo();
+  EXPECT_TRUE(store.journal_dirty());
+  EXPECT_EQ(store.read()->name, "Base");
+  EXPECT_EQ(store.document(), document); EXPECT_EQ(store.allocated_id(), allocated);
+  EXPECT_EQ(read_document_bytes(path_), saved);
+}
+
+// Dirty edits and an unresolved host publication must retain their complete native attachment.
+TEST_F(managed_document_journal, retirement_retains_dirty_and_prepared_document) {
+  auto options = json_options();
+  options.allow_document_retirement = true;
+  store_type store{ledger{"Base"}};
+  store.create_journal(path_, mode::sidecar, options);
+  store.execute_transaction([](auto& edit) { edit.root().set_name("Changed"); }).throw_if_failed();
+  EXPECT_FALSE(store.retire_journal());
+  store.save_journal();
+  const auto saved = read_document_bytes(path_);
+  const auto pending = store.prepare_journal_save();
+  EXPECT_FALSE(store.journal_dirty());
+  EXPECT_FALSE(store.retire_journal());
+  EXPECT_EQ(store.prepared_journal_save()->token, pending.token);
+  EXPECT_EQ(read_document_bytes(path_), saved);
+  store.confirm_journal_save(pending.token, publication_evidence(pending.document));
+  EXPECT_TRUE(store.retire_journal());
+  EXPECT_EQ(read_document_bytes(path_), saved);
+}
+
+// The capability is opt-in, and changed saved bytes never authorize cleanup of their old journal.
+TEST_F(managed_document_journal, retirement_preserves_opt_out_and_changed_generation) {
+  auto options = json_options();
+  {
+    store_type store{ledger{"Base"}};
+    store.create_journal(path_, mode::sidecar, options);
+    EXPECT_FALSE(store.retire_journal());
+  }
+  options.allow_document_retirement = true;
+  store_type store{ledger{}};
+  store.recover_journal(path_, options);
+  const auto journal = read_document_bytes(companion_path());
+  auto changed = read_document_bytes(path_); changed.push_back(' ');
+  write_document_bytes(path_, changed);
+  EXPECT_THROW(store.retire_journal(), std::invalid_argument);
+  EXPECT_FALSE(store.journal_needs_recovery());
+  EXPECT_EQ(read_document_bytes(companion_path()), journal);
+  EXPECT_EQ(read_document_bytes(path_), changed);
+}
+
+// Failed edits may burn native IDs even with identical values; save that watermark before retirement.
+TEST_F(managed_document_journal, retirement_retains_unsaved_id_reservations) {
+  auto options = json_options(); options.allow_document_retirement = true;
+  store_type store{ledger{"Base"}};
+  store.create_journal(path_, mode::sidecar, options);
+  const auto allocated = store.allocated_id();
+  const auto failed = store.execute_transaction([](auto& edit) {
+    edit.root().entries().insert(100, {"Canceled", 1});
+    throw std::runtime_error{"Canceled fixture edit"};
+  });
+  EXPECT_EQ(failed.status, managed::transaction_status::failed);
+  EXPECT_GT(store.allocated_id(), allocated);
+  EXPECT_FALSE(store.journal_dirty());
+  EXPECT_FALSE(store.retire_journal());
+  store.save_journal();
+  EXPECT_TRUE(store.retire_journal());
+}
+
+// Preflight refuses directories/links without deleting any of their contents or fencing a healthy owner.
+TEST_F(managed_document_journal, retirement_preserves_non_file_entries) {
+  auto options = json_options(); options.allow_document_retirement = true;
+  store_type store{ledger{"Base"}};
+  store.create_journal(path_, mode::sidecar, options);
+  const auto original = read_document_bytes(path_);
+  const auto companion = read_document_bytes(companion_path());
+  const auto foreign = journal_test_paths::directory(path_) / "foreign";
+  ASSERT_TRUE(std::filesystem::create_directory(foreign));
+  EXPECT_THROW(store.retire_journal(), std::invalid_argument);
+  EXPECT_FALSE(store.journal_needs_recovery());
+  EXPECT_EQ(read_document_bytes(path_), original);
+  EXPECT_EQ(read_document_bytes(companion_path()), companion);
+  EXPECT_TRUE(std::filesystem::is_directory(foreign));
+  ASSERT_TRUE(std::filesystem::remove(foreign));
+  EXPECT_TRUE(store.retire_journal());
+}
+
 // The user document remains ordinary JSON while the journal retains IDs, edits and full undo state.
 TEST_F(managed_document_journal, json_edits_recover_without_rewriting_main_until_save) {
   const auto options = json_options();

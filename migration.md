@@ -1,5 +1,23 @@
 # Migrating to the snake_case Serializer API
 
+## Opt-in document journal retirement in 2.29.0
+
+Existing callers retain their current storage behavior. The new
+`journal_options::allow_document_retirement` defaults to false; enable it only
+when the saved external format independently retains document/object identities
+and allocation watermarks. A normalized document projection whose real IDs live
+in the side channel must keep that side channel.
+
+Use the guarded `model_store::retire_journal()` entry point after a confirmed
+Save. It rejects dirty, prepared, uncertain and collaboration-retaining owners.
+Default success is terminal. Passing true retains live history in memory, but
+requires reattachment before further mutations. Retirement does not synchronize
+or leave a collaboration session. See the
+[usage contract](docs/guides/usage.md#explicit-retirement-of-self-contained-documents).
+Rebuild C++ consumers with matching headers and runtime. Existing schemas,
+generated outputs and journal wire formats retain their versions; the schema
+language remains 1.21.0.
+
 ## XML wildcard declarations in 2.28.0
 
 Regenerate XML outputs to use exact XSD wildcard namespace predicates and

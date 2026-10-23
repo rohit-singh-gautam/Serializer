@@ -3326,6 +3326,12 @@ public:
     publish_notification(std::move(event));
   }
 
+  // Inspect attachment without creating storage; an unattached store has no durable writer.
+  bool journal_attached() const requires(has_journal) {
+    check_thread();
+    return static_cast<bool>(journal_state_.sink);
+  }
+
   // Compare current persistent values/identities with the last full Save, independently of history.
   bool journal_dirty() const
     requires(has_journal)
@@ -3335,6 +3341,48 @@ public:
       throw std::logic_error{"Managed store has no journal"};
     }
     return snapshot_ != journal_state_.saved_snapshot;
+  }
+
+  // Shared attachments, durable identity leases and merge ancestry need their
+  // native checkpoint even when authored values match the saved document.
+  bool retains_collaboration_state() const {
+    check_thread();
+    if (collaboration_state_.attachment ||
+        (collaboration_state_.identity_leases && !collaboration_state_.identity_leases->entries().empty())) { return true; }
+    if constexpr (Mode == history_mode::tree) { return !history_.merge_parents.empty(); }
+    return false;
+  }
+
+  // Explicitly release a clean external document's disposable history. Shared state,
+  // pending publication, uncertain writes and unsaved ID reservations always retain it.
+  // A successful retirement fences this store by default. keep_in_memory detaches
+  // only durable storage; the host must reattach before accepting further edits.
+  // Other sinks may return false. Failure may leave retired companions for inspection.
+  bool retire_journal(bool keep_in_memory = false)
+    requires(has_journal)
+  {
+    require_idle();
+    if (!journal_state_.sink || journal_needs_recovery() || journal_dirty() ||
+        retains_collaboration_state() ||
+        journal_state_.sink->has_prepared_save()) { return false; }
+    model_store restored{recovery_tag{}, options_, {}, resident_ledger_};
+    restored.load(journal_state_.sink->saved_envelope());
+    if (restored.allocated_id_ != allocated_id_ || restored.document_ != document_) { return false; }
+    bool retired{};
+    try {
+      retired = journal_state_.sink->retire_document();
+    } catch (...) {
+      if (journal_state_.sink->needs_recovery()) { journal_state_.indeterminate = true; }
+      throw;
+    }
+    if (retired) {
+      if (keep_in_memory) {
+        journal_state_.sink.reset();
+        std::vector<std::uint8_t>{}.swap(journal_state_.saved_snapshot);
+        journal_state_.delta_count = 0;
+      } else { journal_state_.indeterminate = true; }
+    }
+    return retired;
   }
 
   // Return acknowledged durable operation identity; reservations and history navigation also advance it.

@@ -44,6 +44,18 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Compiler/runtime **2.29.0** adds explicit retirement of disposable C++ external
+document journals. `journal_options::allow_document_retirement` is opt-in and
+requires a self-contained saved format preserving native identity/allocation
+metadata. `model_store::retire_journal()` preserves the main and refuses dirty,
+shared, pending, uncertain or unsaved-allocation state. Its optional in-memory
+mode preserves live session history; the host must reattach before further
+durable mutations. Retirement never synchronizes or publishes collaboration
+changes. See [the usage contract](docs/guides/usage.md#explicit-retirement-of-self-contained-documents).
+The schema language and journal formats are unchanged; existing callers retain
+their journals by default. Windows qualification and remaining boundaries are
+recorded with the feature; no Linux or power-loss qualification is implied.
+
 Compiler/runtime **2.28.2** prepares Windows extended-length native file and
 journal I/O without a registry change. Ordinary logical paths and opaque journal
 origin bytes stay unchanged; transient native drive/UNC spellings cover opening,
@@ -169,7 +181,7 @@ Regenerate Python package facades for cancellation checks after Save hooks:
 pre-publication cancellation preserves the old file; a failure after replacement
 reports `publication_uncertain` with the complete new archive retained.
 
-The current compiler and runtime release is **2.28.2**. Bug fixes and minor updates
+The current compiler and runtime release is **2.29.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.21.0**;

@@ -122,7 +122,8 @@ protected:
 
 // Full Save retains unsent work; reopening and synchronizing publishes the original native IDs once.
 TEST_F(managed_document_collaboration, saved_unsent_change_survives_reopen_and_sends_once) {
-  const auto options = json_options();
+  auto options = json_options();
+  options.allow_document_retirement = true;
   std::uint32_t child_id{};
   {
     store_type store{ledger{}};
@@ -136,6 +137,7 @@ TEST_F(managed_document_collaboration, saved_unsent_change_survives_reopen_and_s
         .throw_if_failed();
     EXPECT_EQ(store.collaboration().pending_count(), 1u);
     store.save_journal();
+    EXPECT_FALSE(store.retire_journal());
     EXPECT_EQ(store.collaboration().pending_count(), 1u);
     EXPECT_EQ(authority_.sequence(), 0u);
     EXPECT_TRUE(transport_.requests.empty());
@@ -152,6 +154,7 @@ TEST_F(managed_document_collaboration, saved_unsent_change_survives_reopen_and_s
     EXPECT_EQ(authority_.sequence(), 1u);
     EXPECT_EQ(authority_.read()->entries.at(100).persistent_id, child_id);
     EXPECT_EQ(recovered.collaboration().pending_count(), 0u);
+    EXPECT_FALSE(recovered.retire_journal());
     EXPECT_EQ(transport_.requests.size(), 1u);
     recovered.save_journal();
   }
@@ -165,9 +168,34 @@ TEST_F(managed_document_collaboration, saved_unsent_change_survives_reopen_and_s
   EXPECT_EQ(transport_.requests.size(), 1u);
 }
 
+// Retirement never sends. Unsent discard stays local; acknowledged changes need a new shared inverse.
+TEST_F(managed_document_collaboration, retirement_and_discard_do_not_unsend_acknowledged_changes) {
+  auto options = json_options(); options.allow_document_retirement = true;
+  store_type store{ledger{}};
+  attach(store); store.synchronize();
+  store.create_journal(path_, managed::journal_storage_mode::sidecar, options);
+  store.execute_transaction([](auto& edit) { edit.root().set_name("Unsent"); }).throw_if_failed();
+  store.save_journal();
+  EXPECT_FALSE(store.retire_journal());
+  EXPECT_TRUE(transport_.requests.empty()); EXPECT_EQ(authority_.read()->name, "Original");
+  const auto draft = store.collaboration().discard_pending();
+  EXPECT_EQ(draft->name, "Unsent"); EXPECT_EQ(store.read()->name, "Original");
+  EXPECT_EQ(store.collaboration().pending_count(), 0u); EXPECT_TRUE(transport_.requests.empty());
+  store.execute_transaction([](auto& edit) { edit.root().set_name("Shared"); }).throw_if_failed();
+  store.synchronize();
+  EXPECT_EQ(authority_.read()->name, "Shared"); ASSERT_EQ(transport_.requests.size(), 1u);
+  static_cast<void>(store.collaboration().discard_pending());
+  EXPECT_EQ(store.read()->name, "Shared"); EXPECT_EQ(authority_.read()->name, "Shared");
+  EXPECT_EQ(transport_.requests.size(), 1u); EXPECT_FALSE(store.retire_journal());
+  store.undo();
+  EXPECT_EQ(store.read()->name, "Original"); EXPECT_EQ(authority_.read()->name, "Shared");
+  store.synchronize();
+  EXPECT_EQ(authority_.read()->name, "Original"); EXPECT_EQ(transport_.requests.size(), 2u);
+}
+
 // Saving an accepted request with a lost reply preserves identical retry bytes across restart.
 TEST_F(managed_document_collaboration, save_and_reopen_preserve_exact_lost_reply_retry) {
-  const auto options = json_options();
+  auto options = json_options(); options.allow_document_retirement = true;
   bytes in_flight;
   {
     store_type store{ledger{}};
@@ -179,7 +207,9 @@ TEST_F(managed_document_collaboration, save_and_reopen_preserve_exact_lost_reply
     EXPECT_THROW(store.synchronize(), std::runtime_error);
     in_flight = store.collaboration().state()->in_flight;
     ASSERT_FALSE(in_flight.empty());
+    EXPECT_THROW(static_cast<void>(store.collaboration().discard_pending()), std::logic_error);
     store.save_journal();
+    EXPECT_FALSE(store.retire_journal());
     EXPECT_EQ(store.collaboration().state()->in_flight, in_flight);
     EXPECT_EQ(authority_.sequence(), 1u);
   }

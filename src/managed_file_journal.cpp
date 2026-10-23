@@ -287,6 +287,8 @@ public:
   bytes saved_envelope() const override;
   // Publish a restored envelope with a fresh operation sequence.
   void discard(const bytes& envelope) override;
+  // Remove saved external-document companions while this backend still owns their lock.
+  bool retire_document() override;
   // Return the last acknowledged operation sequence.
   std::uint64_t sequence() const noexcept override;
   // Expose fencing after an uncertain durable operation.
@@ -1177,6 +1179,56 @@ void file_journal::discard(const bytes& envelope) {
 // Return the monotonically increasing durable operation position, independently of history cursors.
 std::uint64_t file_journal::sequence() const noexcept {
   return state_->sequence;
+}
+
+// Retirement is terminal: all data deletion precedes releasing/unlinking the lock.
+// Main bytes are verified under that lock and never removed or rewritten here.
+bool file_journal::retire_document() {
+  auto& state = *state_;
+  state.require_ready();
+  if (!state.options.document_codec || !state.options.allow_document_retirement || state.auxiliary_directory.empty() ||
+      state.preparation || state.pending_manifest) { return false; }
+  if (!document_matches(state.manifest, read_file(state.path, state.options))) {
+    throw std::invalid_argument{"Saved document changed before journal retirement"};
+  }
+  const rohit::detail::native_file_path directory{state.auxiliary_directory};
+  if (std::filesystem::symlink_status(directory.get()).type() != std::filesystem::file_type::directory) {
+    throw std::invalid_argument{"Journal retirement requires an ordinary directory"};
+  }
+  std::vector<std::filesystem::path> companions;
+  constexpr std::size_t maximum_retirement_entries = 4096;
+  std::size_t entries{};
+  for (const auto& entry : std::filesystem::directory_iterator{directory.get()}) {
+    if (++entries > maximum_retirement_entries) {
+      throw std::length_error{"Journal retirement entry limit exceeded"};
+    }
+    if (entry.symlink_status().type() != std::filesystem::file_type::regular) {
+      throw std::invalid_argument{"Journal retirement preserves non-file entries for inspection"};
+    }
+    if (entry.path().filename() != journal_lock_name) { companions.push_back(entry.path()); }
+  }
+  // From this point no live mutation may resume, including after partial cleanup.
+  state.fenced = true;
+  state.writer.reset(); state.delta.reset();
+  for (const auto& companion : companions) { native_remove(companion); }
+  const auto lock = state.auxiliary_directory / journal_lock_name;
+#ifdef _WIN32
+  // Windows excludes every other opener while held and refuses deletion if a
+  // replacement writer acquires the file immediately after release.
+  state.lock.reset();
+  std::error_code error;
+  if (!native_remove(lock, error)) {
+    if (error) { return true; } // A competing writer owns its remaining folder.
+  }
+#else
+  // New openers validate inode identity after flock before accessing any data.
+  native_remove(lock);
+#endif
+  std::error_code directory_error;
+  native_remove(state.auxiliary_directory, directory_error); // Never recurse into a new writer's files.
+  state.lock.reset();
+  sync_parent_directory(state.auxiliary_directory);
+  return true;
 }
 
 // A fenced adapter cannot resume writes through an in-memory retry.

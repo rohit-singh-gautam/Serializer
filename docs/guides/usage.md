@@ -1860,6 +1860,49 @@ automatically generate those format-specific adapters or complete all standard
 and platform qualification. See the [journal file contract](../managed/journal.md)
 and [remaining requirements](../pending.md).
 
+### Explicit retirement of self-contained documents
+
+An application may defer `create_journal()` until its first durable edit. Use
+`journal_attached()` to distinguish an in-memory owner from an attached writer.
+An unmodified view does not require recovery storage merely because it was opened.
+
+For an external document that independently preserves its managed document
+identity, every durable object identity and its allocation watermark, set
+`journal_options::allow_document_retirement = true` before attachment. This is a
+host assertion, not a capability inferred from the codec. The generic normalized
+JSON projection described above does **not** satisfy this requirement: its real
+identities live in the side channel. The default remains to preserve storage.
+
+After confirming a full Save, call `store.retire_journal()` before closing the
+owner. It returns false for dirty values, unsaved allocation reservations,
+prepared publication, uncertain writes, collaboration attachments, durable
+identity leases or merge ancestry. The file adapter also requires a document
+codec, the explicit opt-in and a directory-based sidecar. It verifies the saved
+main's exact bytes before deleting companions, preserves non-file entries by
+rejecting cleanup, and never modifies the main file. Success fences the owner;
+destroy it instead of resuming edits. Cleanup failure after deletion begins also
+fences the owner and may leave companions for inspection.
+
+`store.retire_journal(true)` instead detaches storage while retaining the live
+root, identity allocation and Undo/Redo history in memory. The host must attach
+a new journal **before** accepting another mutation, reservation or Undo/Redo.
+Reattachment requires the saved main and matching origin to remain valid. This
+mode does not preserve history after process exit. A newly attached generation
+can retain the still-live history without changing the main's authored values.
+
+Retirement performs no network operations. `retains_collaboration_state()` is a
+conservative retention query, not synchronization or permission to forget shared
+state. Save can leave requests unsent; acknowledged requests cannot be unsent by
+discarding local data. Resolve uncertain deliveries with their exact operation
+IDs and use the collaboration authority's synchronization/leave protocol before
+considering shared-session cleanup. An empty outbox alone does not establish a
+current authority head or a completed leave. A later reopen must synchronize
+again rather than treating an old local journal as the current shared document.
+
+See the [executed retirement checks](../verification/verification-journal-retirement-2026-10-23.md)
+for the tested platform and remaining qualification boundaries. This API adds no
+new journal wire format or schema-language version.
+
 ### Choose the protocol
 
 | Protocol | Field identity | Application requirement |

@@ -79,10 +79,23 @@ remain unavailable for that storage representation. Use a supported explicit
 ordered mapping when direct token traversal is required. Follow the
 [legacy tree checks](../../../docs/verification/verification-legacy-cpp-wildcards-2026-10-22.md).
 
-The current compiler/runtime release is **2.28.2**, with schema language
+The current compiler/runtime release is **2.29.0**, with schema language
 **1.21.0**. Patch 2.28.1 restores strict GNU compilation of XML metadata,
 declaration prefixes and large embedded runtime literals without changing
 generated contracts or application integration.
+Release 2.29.0 adds opt-in external-document journal retirement. Use
+`journal_attached()` for read-only attachment queries and
+`retains_collaboration_state()` before host recovery cleanup. Set
+`journal_options::allow_document_retirement` only when the saved external format
+independently preserves required native IDs and allocation metadata; ordinary
+generated public JSON with normalized IDs does not establish this promise.
+Call `model_store::retire_journal()` rather than its detail backend. It refuses
+dirty/shared/pending/uncertain or unsaved-allocation state and never synchronizes.
+Default success is terminal. With `keep_in_memory=true`, preserve session history
+in RAM and explicitly acquire/revalidate a fresh journal before any later durable
+edit or reservation. See [retirement](../../../docs/guides/usage.md#explicit-retirement-of-self-contained-documents).
+Keep Linux, hostile path-swap, power-loss and cross-process race qualification
+separate from the selected Windows controls.
 Patch 2.28.2 prepares extended-length Windows file/journal I/O through transient
 native path arguments, including drive/UNC paths, stable locks, companion metadata
 and atomic publication. Keep logical path identity and opaque origin metadata;

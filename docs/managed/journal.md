@@ -1,5 +1,13 @@
 # Journal and crash recovery
 
+Compiler/runtime 2.29.0 adds explicit opt-in retirement of clean external-document
+companions through `model_store::retire_journal()`. It changes no record or
+container version. The saved external format must independently retain native
+identity/allocation metadata; shared, pending, uncertain and unsaved-allocation
+state retains its checkpoint. Retirement never synchronizes a shared session.
+See the [retirement contract](../guides/usage.md#explicit-retirement-of-self-contained-documents)
+and [executed checks](../verification/verification-journal-retirement-2026-10-23.md).
+
 Compiler/runtime 2.23.0 adds [native branch-merge records](branch_merging.md).
 They persist accepted payloads and both revision parents, binding to the exact
 first-parent envelope; recovery never invokes a conflict resolver. Optional tags
