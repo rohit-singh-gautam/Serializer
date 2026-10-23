@@ -31,14 +31,15 @@ This completes **SC02c** within the parser/resource scope above.
 
 | Check | Executed result |
 | --- | --- |
-| Windows MSVC 19.51 core | 618 cases execute: 617 pass; formatter-dependent case initially skips without its environment; full-wrapper replay passes the core test with formatter configured |
+| Windows MSVC 19.51 core | **618/618 pass** with the configured formatter; the initial direct invocation passed 617 and skipped the formatter-dependent case |
 | Linux GCC 15.2/libstdc++ 15 core | **615/615 pass**, including large canonical failures, long in-range hex, opaque native suffix/expression and old-header controls |
 | Standalone invalid-default controls | Both hosts reject 1,024/65,536/262,144 digits with the expected member diagnostic and preserve existing output bytes |
 | Integrated CLI regression | Both hosts pass **nine atomic two-output rejections**, nine native/legacy controls and generated Python defaults across all four protocols |
 | Generated compatibility | **19 byte-identical files** against compiler 2.31.0: all eleven ordinary generic outputs and eight managed-reference profiles |
 | Package version | Both hosts accept the earlier patch/minor requests within major 2 and reject newer/different-major requests |
+| Reduced-stack Linux controls | With **512 KiB stack**, 65,536/262,144 digits return ordinary range errors; the retained 2.31.0 compiler terminates with SIGSEGV in both controls |
 | GCC installed consumers | Installed headers, capability consumers, compiler/native discovery and C++/C/Python plus named-reference examples pass |
-| Full Windows release regression | Running; the source/compiler snapshot is kept unchanged until completion |
+| Full Windows release regression | **314/314 pass** through `./make.ps1 test`, serial CTest, **1,750.06 seconds**; source snapshot `59366dc` remains unchanged during the run |
 
 Both CLIs report compiler **2.31.1** and schema language **1.23.0**. The original
 Windows core formatter omission is distinct from a product failure; the root
