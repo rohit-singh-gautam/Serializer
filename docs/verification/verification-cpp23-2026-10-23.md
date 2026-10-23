@@ -1,8 +1,8 @@
 # C++23 minimum qualification — 23–24 October 2026
 
 Compiler/runtime **2.30.1**, schema language **1.22.0**, and both editor packages
-**2.0.13** implement the C++23 build migration. Platform qualification is in
-progress; this record does not yet close `CPP01`.
+**2.0.13** implement the C++23 build migration. The Windows/Linux build and
+installed-consumer gates below pass and close `CPP01` within their stated scope.
 The source is based on Git revision
 `67feaaccef2b1e4a0575a4a612b4b747bfcea05c` plus this migration's working-tree changes.
 
@@ -53,9 +53,9 @@ reuses `out/build/ReleaseWindows/` and its already installed provider dependenci
 
 | Platform and toolchain | Configuration | Status |
 | --- | --- | --- |
-| Windows x64 MSVC 19.51.36260, MSVC 14.51 library, CMake 4.4.2 | Release, C++23 requirement mapped by CMake to `/std:c++latest`, `/W4 /WX`, SIMD, XML and all compression providers | Full build and all 305 configured tests pass across the main run and provider replay; final managed-guard follow-up described below |
+| Windows x64 MSVC 19.51.36260, MSVC 14.51 library, CMake 4.4.2 | Release, C++23 requirement mapped by CMake to `/std:c++latest`, `/W4 /WX`, SIMD, XML and all compression providers | Full build and all 305 configured tests pass in one serial run; final QName fixture replay and both corrected qualification fixtures also pass |
 | Windows x64 clang-cl 21.1.6, MSVC 14.51 library | Release, CMake `-clang:-std=c++23`, `/EHsc /W4 /WX`, same providers | Compiler/runtime/managed records, all 76 installed headers, linked capability consumer, C++/C/Python examples, compiler-only/native discovery transition and standard admission pass |
-| Ubuntu WSL x64 GCC 15.2, libstdc++ 15, CMake 4.2.3 | Release, `-std=c++23`, warnings as errors, SIMD, XML 2.15.2, zlib 1.3.1, Zstandard 1.5.7 and LZ4 1.10.0 | Final all-provider build running |
+| Ubuntu WSL x64 GCC 15.2, libstdc++ 15, CMake 4.2.3 | Release, `-std=c++23`, warnings as errors, SIMD, XML 2.15.2, zlib 1.3.1, Zstandard 1.5.7 and LZ4 1.10.0 | Full all-provider build passes; all 95 selected registered commands pass across the initial run and corrected fixture replay |
 | Ubuntu WSL x64 Clang 21.1.8, libstdc++ 15 | Same native providers and C++23 mode | All-provider compiler/runtime/managed records, installed headers/examples, compiler-only/native discovery transition, standard admission and package-version compatibility pass |
 
 The Linux builds use the Windows-mounted source/build directory. Journal
@@ -64,8 +64,17 @@ documented mounted-filesystem journal replacement limitation. Zstandard/LZ4 and
 their xxHash dependency are official Ubuntu package archives extracted under
 `linux-provider-deps/`; archive hashes and actual linked-library paths are retained.
 Their package revisions are `1.5.7+dfsg-3`, `1.10.0-8` and `0.8.3-2build1`.
-Native macOS, ARM, Windows x86 and newer explicitly selected standard modes need
-separate qualification.
+The Windows native provider prefix records libxml2 **2.15.3**, zlib **1.3.2**,
+Zstandard **1.5.7**, LZ4 **1.10.0** and GTest **1.18.0**; this is distinct from
+the independent Python XML provider inventory below.
+Explicit C++26 root configuration preserves `CMAKE_CXX_STANDARD=26` under GCC
+and Clang. Each toolchain also compiles and runs an installed 2.30.1 consumer
+including public stream, managed and version headers with actual `-std=c++26`;
+the linked runtime retains its qualified C++23 build. Logs and compile commands
+are retained in the `linux-*-newer` and `newer-consumer-*` directories. These are
+newer-mode configuration/consumer checks, not complete C++26 compiler builds.
+Native macOS, ARM, Windows x86 and other newer-mode profiles need separate
+qualification.
 
 The MSVC full suite initially passes 294/305 tests in 766 seconds; the remaining
 eleven need the pinned `lxml==6.0.2` test provider. Their replay passes 11/11 in
@@ -77,6 +86,25 @@ reports an unexpected indeterminate full Save. That exact case passes in isolati
 and the complete 139-case direct/journal target passes serially in 13.33 seconds
 (one sidecar-only case is inapplicable). The parallel failure remains retained;
 its host-level cause is not established by these controls.
+The final complete serial run passes **305/305** in **1,893.48 seconds**. A final
+rebuild/replay of the named-array QName fixture passes as well. The corrected
+formatter-independent backend fixture and compiler-only/native package fixture
+pass both Windows follow-up commands in **18.44 seconds**.
+
+Linux's first selected replay uses native `/tmp` data and executes **95 registered
+commands** in 965.57 seconds. The installed-header/capability/example check passes
+in 564.36 seconds. Two fixture issues remain visible in that first log: the core
+backend check invokes an unconfigured bare `clang-format`, and a positive runtime
+package consumer starts with `LANGUAGES NONE` despite its native Zstandard thread
+dependency. The first fixture now leaves formatting to the separately configured
+formatter test; positive runtime consumers enable C++ after compiler-only checks.
+The full core replay passes **613/613** cases with the configured clang-format 19.
+The relocated compiler-package replay passes in **158.63 seconds**, completing
+all 95 selected commands across the original run and replay. These commands use
+their registered arguments/environment with the working directory and crash-test
+data redirected to exclusively owned native temporary directories. They are a
+selected native/package/XML/constant-evaluation replay, not a full Linux 305-test
+SDK matrix. JSON results retain the original failures and successful replays.
 
 ## Editor packages
 
@@ -87,6 +115,9 @@ Fresh real-compiler outputs pass **45,292 bidirectional navigation checks** acro
 all eleven ordinary outputs and the C++ naming/storage layouts. A broader native
 Visual Studio complex-fixture request exceeds its 256 MiB interpreter allocation
 budget (272,497,240 bytes charged); this remains a separate native-navigation gap.
+The subsequent [2.0.14 navigation repair](verification-native-c-navigation-2026-10-24.md)
+passes the complete 1,548-check native harness under the unchanged budget;
+it is a separate editor change from these 2.0.13 packages.
 These checks preserve the actual harness scope; they do not establish interactive
 host qualification. An attempted hidden Visual Studio COM host did not start
 (`CO_E_SERVER_EXEC_FAILURE`). No editor installation or Marketplace publication

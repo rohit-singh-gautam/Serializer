@@ -1,6 +1,6 @@
 # Collaboration examples
 
-These five C++20 programs use the real managed ledger schema, generated editors,
+These five C++23 programs use the real managed ledger schema, generated editors,
 automatic proposal encoding, and the implemented
 [collaboration runtime](../../../docs/managed/collaboration_runtime.md).
 Start with [local_sync.cpp](local_sync.cpp): a session attaches to the existing

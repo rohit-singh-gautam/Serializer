@@ -1,6 +1,6 @@
 # Compression examples
 
-Runnable C++20 examples cover every built-in compression format, explicit
+Runnable C++23 examples cover every built-in compression format, explicit
 uncompressed output, and the custom-backend interface. Each folder has a
 `main.cpp` and an executable. All use the generated owning classes from
 [shared/document.serializer](shared/document.serializer), with `binary_integer`
@@ -18,7 +18,7 @@ uncompressed output, and the custom-backend interface. Each folder has a
 
 ## Build and run
 
-Run from the repository root with CMake 4.0+, a C++20 compiler/standard library,
+Run from the repository root with CMake 4.0+, a C++23 compiler/standard library,
 and clang-format 19+. Make the selected dependencies available through
 `CMAKE_PREFIX_PATH` or the matching vcpkg features described in the
 [compression dependency guide](../../docs/serialization/compression.md#build-and-dependency-options).

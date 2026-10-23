@@ -32,7 +32,7 @@ On Linux use `make test`, then run the corresponding executable beneath
 `out/build/make-Release/example/cpp/expressions`.
 
 With an installed Serializer CMake package, this directory can also be configured
-as a standalone project. It requires a C++20 compiler and the normal generation
+as a standalone project. It requires a C++23 compiler and the normal generation
 prerequisites, including clang-format for the default profile. Generated output
 stays in the selected build directory.
 
@@ -46,7 +46,7 @@ invalid predicates: false
 ```
 
 See the [behavior guide](../../../docs/schema/behavior.md) for expression syntax,
-validation rules, evaluation limits and runtime-only C++20 math functions, and
+validation rules, evaluation limits and runtime-only C++23 math functions, and
 the [C++ examples](../README.md) for other maintained consumers.
 
 The [readonly-call SDK check](../../../test/readonly_function_languages.py)

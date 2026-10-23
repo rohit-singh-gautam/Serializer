@@ -50,7 +50,7 @@ Candidates are validated before output publication, and invalid XML must exit
 unsuccessfully without creating the requested output.
 
 Build the compiler and native tests through the root Windows/Linux wrappers with
-XML enabled. This includes strict C++20 targets `xsd_evolution_cpp_v1` and
+XML enabled. This includes strict C++23 targets `xsd_evolution_cpp_v1` and
 `xsd_evolution_cpp_v2` and their generated `order.hpp` files. Select installed SDKs
 and a fresh ignored evidence directory, then run from the repository root:
 

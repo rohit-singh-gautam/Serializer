@@ -71,7 +71,7 @@ foreach(provider IN ITEMS zstd lz4 ZLIB LibXml2)
   endforeach()
 endforeach()
 
-# Generate consumers without requiring any language SDK or C/C++ compiler.
+# Start language-neutral so compiler-only checks require no C/C++ SDK.
 function(write_consumer name body)
   set(source "${directory}/${name}")
   file(MAKE_DIRECTORY "${source}")
@@ -197,6 +197,8 @@ find_package(Serializer @VERSION@ EXACT CONFIG REQUIRED COMPONENTS compiler)
 if(TARGET Serializer::runtime OR TARGET Serializer::serializer_lib OR TARGET Serializer::managed)
   message(FATAL_ERROR "First compiler lookup loaded runtime exports")
 endif()
+# Native providers may require platform thread/compiler checks after this upgrade.
+enable_language(CXX)
 find_package(Serializer @VERSION@ EXACT CONFIG REQUIRED COMPONENTS runtime)
 if(NOT Serializer_runtime_FOUND OR NOT TARGET Serializer::runtime OR
     NOT TARGET Serializer::serializer_lib OR NOT TARGET Serializer::serializer)
@@ -214,6 +216,7 @@ endif()
 configure_consumer(repeated)
 
 write_consumer(default [=[
+enable_language(CXX)
 find_package(Serializer @VERSION@ EXACT CONFIG REQUIRED)
 if(NOT TARGET Serializer::runtime OR NOT TARGET Serializer::serializer_lib OR
     NOT TARGET Serializer::serializer)
@@ -226,6 +229,7 @@ endif()
 configure_consumer(default)
 
 write_consumer(unknown-optional [=[
+enable_language(CXX)
 find_package(Serializer @VERSION@ EXACT CONFIG REQUIRED OPTIONAL_COMPONENTS unsupported_optional)
 if(Serializer_unsupported_optional_FOUND OR NOT Serializer_runtime_FOUND OR
     NOT TARGET Serializer::runtime OR NOT TARGET Serializer::serializer_lib OR

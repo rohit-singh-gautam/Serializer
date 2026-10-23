@@ -225,7 +225,7 @@ cross-language qualification harnesses and require Python.
 Source dependency builds, the default for non-Go wrappers, build the schema
 compiler from this checkout and disable unrelated tests, managed runtime and
 compression dependencies unless explicitly enabled. Source bootstrap requires a
-C++20 compiler; the shared
+C++23 compiler; the shared
 language checks and SDK runners also require Python 3.10+ and the selected SDK
 listed below. C++ generation for the shared language examples uses
 an explicit configuration with formatting disabled; specialized style and API
@@ -268,7 +268,7 @@ On Windows use `build/serializer.exe` and an MSVC developer environment for C/C+
 Use `--cpp-library` when the matching Serializer library is not beside the
 compiler. The runner uses Release builds; pass the matching Release library.
 
-SDKs: C++20 and C11 compilers, JDK 17+, Node.js with ES2020 BigInt, TypeScript,
+SDKs: C++23 and C11 compilers, JDK 17+, Node.js with ES2020 BigInt, TypeScript,
 Go 1.22+, .NET 8+, Rust 2021, Python 3.10+, Swift 6, Kotlin/JVM 2.0+.
 Use `SERIALIZER_KOTLINC`, `SERIALIZER_TSC`, `SERIALIZER_JAVA`, etc. to override
 SDK executable paths. The runner never downloads SDKs or silently skips one.

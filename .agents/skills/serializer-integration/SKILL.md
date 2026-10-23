@@ -1411,7 +1411,7 @@ Use the C++ [state registry](../../../docs/managed/state_registry.md) for pinned
 entity lookup, stable field/base paths and optional application-key indexes.
 Custom keys retain compact scalar persistent IDs; lookup never grants permission.
 The [combined storage/index specification](../../../docs/design/database_storage_requirements.md)
-requires C++23 as the minimum and first implementation priority, and covers standalone indexing, database data
+retains the qualified C++23 minimum and covers standalone indexing, database data
 authority, local/database/both index placement, typed queries and specialized
 operator families. `storage(...)`, `index(...)`, `find_by`, placement and adapter
 APIs are proposals. Compiler/runtime 2.30.1 requires C++23 for every C++ consumer;

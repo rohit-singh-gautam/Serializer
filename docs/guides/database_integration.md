@@ -114,6 +114,7 @@ migration and keep allocator/reference/epoch domains explicit.
 - Qualify storage/cloud failure domains and diagnostics independently. A provider
   transport or codec round trip alone establishes no database engine capability.
 
-This guide update runs no database implementation, C++23 build, crash qualification
-or performance benchmark. Use the specification and backlog for requirements,
-and dated verification records for executed evidence.
+The [C++23 build qualification](../verification/verification-cpp23-2026-10-23.md)
+passes independently of database support. This guide claims no database
+implementation, database crash qualification or performance benchmark. Use the
+specification and backlog for requirements, and dated records for executed evidence.

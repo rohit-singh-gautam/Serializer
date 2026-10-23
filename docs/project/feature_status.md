@@ -1,17 +1,19 @@
 # Features and implementation status
 
-The [implemented requirement catalog](completed_requirements.md) records **816
+The [implemented requirement catalog](completed_requirements.md) records **817
 completed capability and qualification IDs**, with their backend/profile limits
 and verification links. Completed sections have moved there from the pending
-list. [Pending work](../pending.md) contains only **34 unfinished requirements**;
+list. [Pending work](../pending.md) contains only **33 unfinished requirements**;
 closed [ownership decisions](application_responsibilities.md#disposed-requirements)
-are recorded separately. This reorganization adds no new implementation claims.
+are recorded separately. Original records retain their dated qualification scope.
 
 Compiler/runtime **2.30.1** requires a C++23 compiler and matching standard library
 for the compiler, runtime and generated/managed C++ consumers. CMake and public
 headers check the new minimum; schema language **1.22.0**, APIs and wire formats
 are unchanged. [Platform qualification](../verification/verification-cpp23-2026-10-23.md)
-is in progress; `CPP01` remains open until its gate passes.
+passes Windows MSVC/clang-cl and Linux GCC/Clang builds and installed consumers;
+`CPP01` is complete within that recorded platform scope. Explicit GCC/Clang C++26
+configuration and installed consumers also pass.
 
 Compiler/runtime **2.30.0**, language **1.22.0**, adds
 [owning C++ cache fields and provider services](../design/cache_attributes.md),

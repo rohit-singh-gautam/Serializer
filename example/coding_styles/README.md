@@ -42,7 +42,7 @@ serializer --input example/coding_styles/google/account.serializer --output buil
 ```
 
 Compile [google.cpp](google/google.cpp) with this generated header directory and the
-repository's `include` directory on its include path. Use C++20 or newer.
+repository's `include` directory on its include path. Use C++23 or newer.
 For another profile, select its `.ini` and corresponding `.cpp` from the table.
 Keep headers for different profiles in separate directories and executables;
 they define alternative C++ APIs for the same schema.

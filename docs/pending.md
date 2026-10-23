@@ -1,9 +1,9 @@
 # Pending requirements across Serializer
 
-This list contains **34 unfinished requirements: 30 active and four deferred**.
+This list contains **33 unfinished requirements: 29 active and four deferred**.
 Completed items and fully completed sections have moved to the
 [implemented feature catalog](project/completed_requirements.md), with all
-**816 IDs and verification records** retained. The [feature list](project/feature_status.md)
+**817 IDs and verification records** retained. The [feature list](project/feature_status.md)
 summarizes supported capabilities. The three closed ownership decisions live in
 [application responsibilities](project/application_responsibilities.md#disposed-requirements),
 not in this unfinished-work inventory.
@@ -14,17 +14,6 @@ Native storage support is active `DB02`; third-party database engines and sink
 adapters are outside scope. Dependencies may refer to completed IDs in the
 feature catalog. Keep partial parent requirements open even when a narrower
 implementation or qualification record is complete.
-
-## First priority: C++23 minimum
-
-C++23 is mandatory for Serializer itself, including standalone use. Compiler/runtime
-2.30.1 implements the build minimum; [platform and installed-consumer qualification](verification/verification-cpp23-2026-10-23.md)
-is in progress. Complete this gate before new schema-index or database implementation.
-C++20 support does not need to be preserved.
-
-| State | ID | Estimate | Remaining requirement and acceptance gate | Dependencies |
-| --- | --- | --- | --- | --- |
-| [ ] | CPP01 | — | **Priority 1.** Adopt the [C++23 minimum](design/database_storage_requirements.md#c23-minimum-and-one-qualified-dependency-source) for compiler, runtime, managed runtime, generated C++, provider/object targets and installed/exported targets. Synchronize build defaults, consumer guidance and toolchain checks; qualify supported Windows/Linux builds and installed consumers. Preserve schemas, public APIs and wire formats; no C++20 fallback is required. | — |
 
 ## Managed references and migration
 
@@ -38,8 +27,9 @@ C++20 support does not need to be preserved.
 The [combined storage/index specification](design/database_storage_requirements.md)
 defines standalone native indexing, native database authority, independent
 local/database/both index placement, explicit snapshot loading and the mandatory
-C++23 minimum. It is a contract, not implementation evidence. `CPP01` takes
-priority over new schema-index and database implementation.
+C++23 minimum. The build minimum is qualified as
+[CPP01](project/completed_requirements.md#cpp01); the proposed storage/index APIs
+remain a contract rather than implementation evidence.
 Native indexing can proceed independently of the deferred database paging work.
 
 | State | ID | Estimate | Remaining requirement and acceptance gate | Dependencies |
@@ -51,7 +41,7 @@ Native indexing can proceed independently of the deferred database paging work.
 | [ ] | MG10 | — | Extend projection/dependency notification policies and compact nested identity/history records where proposed; measure retained/deleted-entity costs and edit latency; [Identity/history](managed/history.md), [data structures](managed/data_structures.md). | — |
 | [ ] | PG01 | — | **Deferred subsystem — [GitHub #2](https://github.com/rohit-singh-gautam/Serializer/issues/2).** Implement the proposed page store/cache, persistent index keys, dirty-page writeback/recovery, bounded construction and corruption handling before claiming a mostly-disk index; [Paged indexing](design/paged_indexing.md). | — |
 | [ ] | PG02 | — | **Deferred subsystem — [GitHub #3](https://github.com/rohit-singh-gautam/Serializer/issues/3).** Add lazy value/storage loading and the proposed paged capability selectors only after index/page lifetime and recovery contracts are implemented and measured; [Paged indexing](design/paged_indexing.md). | PG01 |
-| [ ] | DB02 | — | **Native storage support — [GitHub #6](https://github.com/rohit-singh-gautam/Serializer/issues/6).** Implement the [combined storage/index contract](design/database_storage_requirements.md): mandatory C++23 minimum, data authority and independent index placement, typed snapshots/explicit loading, prepared durable acceptance and qualified native querying/recovery. No third-party database engine/sink dependency; standalone indexing remains usable independently. | CPP01 first; PG01/PG02 for the incremental backend; MIG03 for migrations |
+| [ ] | DB02 | — | **Native storage support — [GitHub #6](https://github.com/rohit-singh-gautam/Serializer/issues/6).** Implement the [combined storage/index contract](design/database_storage_requirements.md): mandatory C++23 minimum, data authority and independent index placement, typed snapshots/explicit loading, prepared durable acceptance and qualified native querying/recovery. No third-party database engine/sink dependency; standalone indexing remains usable independently. | CPP01 complete; PG01/PG02 for the incremental backend; MIG03 for migrations |
 
 ## Compiler and backend proposals
 

@@ -772,7 +772,7 @@ paths, custom-key uniqueness and optional ordered/hash indexes while retaining
 the existing identity, history, journal and collaboration protocols.
 Mostly-disk indexing is a [separate design proposal](docs/design/paged_indexing.md).
 The [combined storage and indexing specification](docs/design/database_storage_requirements.md)
-requires C++23 as the minimum and first implementation priority, and defines standalone indexes, database-backed
+retains the qualified C++23 minimum and defines standalone indexes, database-backed
 data, independent local/database/both index placement, typed `find_by` and
 specialized methods. Its schema/query APIs remain proposals. Compiler/runtime
 2.30.1 requires C++23 for standalone and database use; see the

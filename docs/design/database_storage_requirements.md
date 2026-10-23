@@ -18,7 +18,8 @@ This design does not establish database, cloud or benchmark qualification.
 **First implementation priority: C++23 is the minimum for Serializer itself**,
 including compiler, runtime, generated C++ and installed targets. C++20 support
 does not need to be preserved. Compiler/runtime 2.30.1 implements this minimum.
-Complete platform qualification before new schema-index or database implementation.
+The [Windows/Linux qualification gate](../verification/verification-cpp23-2026-10-23.md)
+is complete; new schema-index and database work must retain this baseline.
 
 Use [the central pending backlog](../pending.md#managed-state-and-storage) as the
 sole unfinished-work inventory. Completed IDs and evidence live in the
@@ -1251,7 +1252,7 @@ Leap seconds and timezone database versions remain explicit host policies.
 | Area | Required decision/gate |
 | --- | --- |
 | Language | New minor language release when grammar ships; reject the feature under older declared versions, including includes; preserve old schemas |
-| Compiler/runtime | Adopt and qualify the mandatory C++23 minimum first; C++20 compatibility is not required. Additive index changes preserve existing schemas/APIs/bytes |
+| Compiler/runtime | Retain the qualified 2.30.1 C++23 minimum; C++20 compatibility is not required. Additive index changes preserve existing schemas/APIs/bytes |
 | Wire data | No index contents, descriptor names, native hashes or pointers in ordinary payloads; unchanged field IDs, wire names, payload revisions and entity IDs |
 | Semantic fingerprint | Index layout/method is derived metadata; unique/null/equality rules also require an explicit validation-contract identity for collaborating participants |
 | Existing documents | Adding uniqueness is an opt-in stricter schema contract; audit all retained histories, resolve duplicates explicitly, then migrate; never silently rewrite values or discard history |
@@ -1583,7 +1584,7 @@ commands, measured limits and known exclusions in verification records.
 
 | Contract | Required evidence | Existing work / boundary |
 | --- | --- | --- |
-| C++23 and dependency coherence | Windows/MSVC and Linux/GCC or Clang generation/build/install/consumer tests, newer mode retained, unsupported toolchains rejected, legacy API/wire fixtures unchanged, one runtime/generator across a combined dependency build. | Cross-cutting release decision; no upgrade implemented here. |
+| C++23 and dependency coherence | Windows/MSVC and Linux/GCC or Clang generation/build/install/consumer tests, newer mode retained, unsupported toolchains rejected, legacy API/wire fixtures unchanged, one runtime/generator across a combined dependency build. | CPP01 is qualified in 2.30.1; [toolchains and limits](../verification/verification-cpp23-2026-10-23.md). |
 | Prepare/accept/publish | Faults before/after every durable boundary, allocation failure during prepare, publication with allocation/callback guards, crash after acceptance before publication, recovery to precisely accepted revision. | DB02; integrate native managed validation rather than bypassing it. |
 | Operation identity | Lost acknowledgements and exact retries before/after restart, request mismatch, epoch changes, dedup expiry and uncertain-outcome fencing. | DB02/MIG03 and host idempotency policy. |
 | Structured changes/index metadata | Feed equals full before/after semantics, bounded lifetime/bytes, uniqueness races rejected atomically, stale comparator/schema/generation indexes rebuilt or rejected. | PG01/DB02; proposed metadata grammar separately reviewed. |
@@ -1644,7 +1645,9 @@ Serializer capabilities or required dependencies:
 - PostgreSQL [partial indexes](https://www.postgresql.org/docs/18/indexes-partial.html):
   restricted membership needs query-predicate coverage, not arbitrary cache filtering.
 
-Verification for this consolidation: specification/source review, local Markdown
+Original verification for this consolidation: specification/source review, local Markdown
 target/anchor checks, example inventory and whitespace checks only. Proposed
-declarations are not executable compiler tests. No C++23 upgrade, database adapter,
-placement engine, crash test or performance result is claimed as completed.
+declarations are not executable compiler tests. The later
+[C++23 upgrade qualification](../verification/verification-cpp23-2026-10-23.md)
+is complete; no database adapter, placement engine, database crash test or database
+performance result is claimed as completed.

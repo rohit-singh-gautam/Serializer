@@ -155,6 +155,8 @@ TEST(dimension_templates, backend_diagnostics) {
   rohit::full_stream_auto_alloc java{};
   EXPECT_NO_THROW(schema::writer::java::write(java, nodes, "Schema"));
   schema::writer::cpp_options options{};
+  // This checks backend support; formatter discovery has its own configured test.
+  options.format = false;
   options.protobuf = true;
   EXPECT_NO_THROW(schema::writer::cpp::generate(nodes, options));
 }

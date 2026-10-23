@@ -1,6 +1,6 @@
 # Reciprocal quantity constructors
 
-Requires compiler/runtime **2.0.0**, schema language **1.14.0**, and C++20.
+Requires compiler/runtime **2.0.0**, schema language **1.14.0**, and C++23.
 The schema declares `radius<Rep>` before `diameter<Rep>` and gives both a typed
 constructor accepting the other. Callable signatures resolve in a second pass;
 the quantity storage stays finite and consists of one `Rep` field.

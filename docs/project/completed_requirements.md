@@ -3,18 +3,24 @@
 [Feature list](feature_status.md) · [Pending work](../pending.md) ·
 [Ownership decisions](application_responsibilities.md#disposed-requirements)
 
-This feature catalog contains **816 implemented requirement records** moved out
-of the pending backlog on 2026-10-23. Each stable ID retains its capability scope,
+This feature catalog contains **817 implemented requirement records**, including
+the 816 records moved out of the pending backlog on 2026-10-23. Each stable ID retains its capability scope,
 dependencies and original verification links. Completion applies to the stated
 backend, profile and dated checks; it does not close a broader parent requirement
-or establish qualification on every platform. These are existing records, not new
-implementation or fresh test results. A completed design or qualification gate
+or establish qualification on every platform. New records link their executed
+implementation or qualification evidence. A completed design or qualification gate
 is cataloged as such; it does not by itself claim a runtime feature.
 
 Only unfinished requirements belong in [the pending list](../pending.md).
 The three closed application/maintainer ownership decisions remain in their
 separate reference; they are not implemented product features. Historical work-unit
 estimates are omitted here because this is a feature/evidence catalog.
+
+## C++ build minimum
+
+| ID | Implemented capability and recorded verification | Dependencies |
+| --- | --- | --- |
+| <a id="cpp01"></a>CPP01 | Compiler/runtime 2.30.1 requires C++23 across compiler, runtime, managed/generated consumers, provider targets and installed exports. Public language/library admission, explicit older-mode rejection, synchronized usage/migration guidance and Windows MSVC/clang-cl plus Linux GCC/Clang installed-consumer qualification preserve APIs, schemas and wire identities. Explicit GCC/Clang C++26 configuration and installed consumers retain the newer mode; [executed scope and limits](../verification/verification-cpp23-2026-10-23.md). | — |
 
 ## OPC and 3MF requirements
 

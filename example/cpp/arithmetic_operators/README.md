@@ -1,6 +1,6 @@
 # Typed arithmetic operators
 
-Requires compiler/runtime **2.0.0**, schema language **1.14.0**, and C++20.
+Requires compiler/runtime **2.0.0**, schema language **1.14.0**, and C++23.
 This example keeps distance and duration as distinct owning records. Operators
 forward to exact readonly methods; the schema declares each permitted operation.
 Both unary forms construct the owning result explicitly. Binary inline mappings

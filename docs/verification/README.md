@@ -17,7 +17,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
-| [C++23 minimum](verification-cpp23-2026-10-23.md) | Compiler/runtime 2.30.1 build and installed-target migration; platform qualification in progress, with completed editor/package checks and explicit host limits. |
+| [C++23 minimum](verification-cpp23-2026-10-23.md) | CPP01: compiler/runtime 2.30.1 build and installed-target migration; Windows MSVC/clang-cl and Linux GCC/Clang qualification, explicit newer consumers, editor/package checks and host limits. |
 | [Rebuildable caches and journal retirement](verification-cache-2026-10-23.md) | Owning C++ schema/metadata, source-bound optional providers, priority/pins, shared layout, migration, graceful-close recovery and editor qualification. |
 | [Explicit document-journal retirement](verification-journal-retirement-2026-10-23.md) | Earlier 2.29.0 opt-in self-contained-document retirement and retention guards. |
 

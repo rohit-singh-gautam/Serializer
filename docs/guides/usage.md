@@ -2765,13 +2765,15 @@ From an MSVC x64 developer environment, run
 `--cxx`, frozen `--headers`, `--runtime-library` and the actual `--xml-library`.
 Windows/Linux replay produces identical generated sources and encoded bytes.
 The driver generates the same
-public order schema with XML enabled and disabled, compiles both strict C++20
+public order schema with XML enabled and disabled, compiles both strict C++23
 profiles, and records 54 isolated owning operations with five wall/CPU samples
 each. Independent ElementTree checks the XML values; native bytes must match
 between profiles for all four ordinary protocols.
 
 The [C++ measurement record](../verification/verification-cpp-xml-performance-2026-10-20.md)
 retains source/encoded sizes, exact commands and process peak residency. The
+dated measurements used C++20; the C++23 migration qualifies builds and behavior
+without claiming a new timing baseline. The
 absolute OS high-water includes setup, model preparation, warmup and native
 libraries. Its change does not identify exact codec allocation, and zero change
 does not mean zero allocation. These complete owning messages establish no

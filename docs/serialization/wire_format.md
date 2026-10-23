@@ -685,7 +685,9 @@ and floating-point spelling may differ while representing the same value. Named
 enum fields use names in string-key binary; enum collection elements and union
 payloads use compact numeric values. JSON always uses enum names.
 
-This describes Serializer's implemented C++20 codecs. See the dated
+This describes Serializer's implemented codecs. Compiler/runtime 2.30.1 requires
+C++23 while preserving these bytes; see the
+[migration qualification](../verification/verification-cpp23-2026-10-23.md). See the dated
 [verification record](../verification/verification-2026-09-17.md) for tested revisions,
 configurations, results, and outstanding checks.
 
@@ -706,7 +708,7 @@ and protocol. Values are emitted field by field into the output stream.
 | --- | --- |
 | `char` | One byte |
 | `bool` | One byte, `00` or `01`; other input values are rejected |
-| Fixed-width integer | Declared width, least significant byte first by default; signed integers preserve their C++20 two's-complement representation |
+| Fixed-width integer | Declared width, least significant byte first by default; signed integers preserve their two's-complement representation |
 | `float`, `double` | Supported binary IEC 559 32-bit or 64-bit representation, least significant byte first by default; bit-preserving conversion through an unsigned integer |
 | String | Compact UTF-8 byte length followed by valid UTF-8 bytes; embedded NULs are preserved |
 | Vector | Compact element count followed by recursively encoded elements |

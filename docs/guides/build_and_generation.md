@@ -139,7 +139,7 @@ in Visual Studio to clear any cached platform setting. See
 for setup and the Ninja/platform error explanation.
 
 When embedding the library, add this repository with `add_subdirectory` and link
-to `Serializer::runtime`. It supplies the public include path and C++20
+to `Serializer::runtime`. It supplies the public include path and C++23
 requirement. The `serializer_generate` helper below handles that linkage for
 schema consumers. Installed packages expose the same targets and helper through
 `find_package(Serializer CONFIG REQUIRED)`.
@@ -259,7 +259,7 @@ each qualified model consistently for every consuming translation unit.
 Include `<rohit/constant_binary.hpp>` at call sites. See the
 [usage example](usage.md#count-and-emit-constant-positional-bytes) and
 [full API/support contract](../serialization/constant_evaluation.md) for deterministic two-pass
-factories, transient storage, runtime decoding and qualified C++20 toolchains.
+factories, transient storage, runtime decoding and qualified C++23 toolchains.
 For borrowed emission-only DTOs, also set `[cpp] emission_only = true`; this
 requires constant_evaluation true and protocols binary_none, with Protobuf false.
 Generate a second owning header on a separate target/output directory when a runtime

@@ -1,7 +1,7 @@
 # Owning construction and defaults
 
 This consumer requires compiler/runtime **2.0.0**, schema language **1.14.0**,
-and C++20. It initializes constructor-bound C++
+and C++23. It initializes constructor-bound C++
 members directly and expresses independent nested/fixed-array defaults in the schema.
 The vector's neutral value is `(0, 0, 1)`, while explicitly supplied coordinates
 survive construction and serialization unchanged.
