@@ -205,6 +205,14 @@ are recorded separately from implemented scalar validation.
 
 ## Managed state and storage
 
+The proposed [durable database integration requirements](design/database_storage_requirements.md)
+refine PG01, PG02, DB01 and MIG03 with publication, operation identity,
+incremental validation, retention and integration acceptance contracts. They do
+not change these deferred statuses or close MG02/MG03 integration gaps by
+inference. C++23 minimum/toolchain and any new public API/schema grammar require
+explicit maintainer release/scope decisions before implementation; this proposal
+does not change the current C++20 baseline or the inventory counts below.
+
 | State | ID | Estimate | Task and acceptance gate | Depends on |
 | --- | --- | --- | --- | --- |
 | [ ] | MG01 | — | **Deferred subsystem — [GitHub #1](https://github.com/rohit-singh-gautam/Serializer/issues/1).** Implement native managed engines for selected non-C++ backends: ownership, immutable reads, transactions, identity, history, journals and collaboration under native lifetime/error/concurrency contracts; [Language bindings](managed/language_bindings.md). | — |
