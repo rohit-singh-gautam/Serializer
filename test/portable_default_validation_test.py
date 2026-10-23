@@ -78,7 +78,36 @@ def execute(compiler, directory):
                 raise AssertionError('Native wire round trip changed checked default values')
     finally:
         del sys.modules[spec.name]
-    print(f'PASS: {len(failures)} atomic compiler rejections, {len(controls)} native/legacy controls and generated Python defaults across four protocols', flush=True)
+    # Large defaults exercise native literal classification and actual Python execution.
+    large_text = 'a' * 32768
+    source.write_text('serializer version 1.14.0; class sample { public string text { "' +
+                      large_text + '" }; public double number { 1.' + '0' * 32768 + ' }; }', encoding='utf-8')
+    result = invoke(compiler, source, cpp, python)
+    if result.returncode != 0:
+        raise AssertionError('Large portable defaults failed: '+result.stdout+result.stderr)
+    spec = importlib.util.spec_from_file_location('serializer_large_default_fixture', python)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    try:
+        value = module.Sample()
+        for protocol in module.Protocol:
+            decoded = module.Sample.decode(value.encode(protocol), protocol)
+            if decoded.text != large_text or decoded.number != 1.0:
+                raise AssertionError('Large native default changed')
+    finally:
+        del sys.modules[spec.name]
+    source.write_text('serializer version 1.14.0; class sample { public string text { "' +
+                      large_text + '\\q" }; }', encoding='utf-8')
+    cpp.write_bytes(sentinel)
+    python.write_bytes(sentinel)
+    result = invoke(compiler, source, cpp, python)
+    if result.returncode == 0 or 'Expected a portable literal default: text' not in result.stdout + result.stderr:
+        raise AssertionError('Invalid large portable escape was not rejected cleanly')
+    if cpp.read_bytes() != sentinel or python.read_bytes() != sentinel:
+        raise AssertionError('Rejected large portable escape replaced generated output')
+    print(f'PASS: {len(failures)} atomic scalar rejections, one large-string backend rejection, '
+          f'{len(controls)} native/legacy controls and generated Python defaults across four protocols', flush=True)
 
 
 def main():

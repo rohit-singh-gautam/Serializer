@@ -1,3 +1,4 @@
+#include "literal_syntax.hpp"
 #include "native_schema.hpp"
 #include "schema_version.hpp"
 
@@ -7,7 +8,6 @@
 #include <charconv>
 #include <cstdint>
 #include <limits>
-#include <regex>
 #include <set>
 #include <stdexcept>
 
@@ -71,7 +71,7 @@ std::string quote(std::string_view value) {
 // Validate source identifiers before a generated file is published.
 void validate_identifier(std::string_view value, std::string_view reserved) {
   const std::string name{value};
-  if (!std::regex_match(name, std::regex{"[A-Za-z][A-Za-z_0-9]*"}) ||
+  if (!literal_syntax::identifier(name) ||
       reserved.find(" " + name + " ") != std::string_view::npos || name.starts_with("Srl") ||
       name.starts_with("srl")) {
     throw std::invalid_argument{"Invalid or reserved native identifier: " + name};
@@ -136,7 +136,7 @@ std::string literal(const member& value) {
       return text;
     }
     if (type.name == "string" &&
-        std::regex_match(text, std::regex{"\"([^\"\\\\]|\\\\[\"\\\\bfnrt])*\""})) {
+        literal_syntax::quoted_string(text)) {
       return text;
     }
     if (type.name == "bool" && (text == "true" || text == "false")) {
@@ -157,7 +157,7 @@ std::string literal(const member& value) {
       }
     }
     if ((type.name == "float" || type.name == "double") &&
-        std::regex_match(text, std::regex{"-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?"})) {
+        literal_syntax::decimal_number(text)) {
       float f{};
       double d{};
       const auto parsed = type.name == "float"
@@ -168,7 +168,7 @@ std::string literal(const member& value) {
       }
     }
     if ((type.name.starts_with("int") || type.name.starts_with("uint")) &&
-        std::regex_match(text, std::regex{"-?(0|[1-9][0-9]*)"})) {
+        literal_syntax::decimal_integer(text)) {
       std::uint64_t u{};
       std::int64_t s{};
       const bool positive = type.name.starts_with('u');

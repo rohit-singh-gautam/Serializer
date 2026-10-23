@@ -1,5 +1,9 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.31.2** applies constant-stack literal recognition to portable
+backends and typed aggregate binding. Existing grammar, range errors and SDK
+boundaries are preserved; see the [resource qualification](../verification/verification-portable-literals-2026-10-24.md).
+
 Compiler/runtime **2.31.1** repairs long integer-default parsing without a schema
 change. Existing language 1.14+ decimal/hex range checks use constant stack space;
 large invalid values retain member-located diagnostics. See

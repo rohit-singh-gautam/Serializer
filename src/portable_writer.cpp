@@ -1,3 +1,4 @@
+#include "literal_syntax.hpp"
 #include "schema_projection.hpp"
 #include "native_schema.hpp"
 #include "xml_schema.hpp"
@@ -29,7 +30,6 @@
 #include <limits>
 #include <map>
 #include <memory>
-#include <regex>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -355,7 +355,7 @@ void validate_name(const std::string& value, target language) {
       "ulong unchecked unsafe ushort using virtual void volatile while ";
   const auto keywords = language == target::go ? go : language == target::csharp ? cs : js;
   const auto token = " " + value + " ";
-  if (!std::regex_match(value, std::regex{"[A-Za-z_][A-Za-z_0-9]*"}) || value == "_" ||
+  if (!literal_syntax::identifier(value, true) || value == "_" ||
       common.find(token) != std::string_view::npos ||
       keywords.find(token) != std::string_view::npos) {
     throw std::invalid_argument{"Invalid or reserved generated identifier: " + value};
@@ -585,7 +585,7 @@ class emitter {
       }
     } else if (item.type == object_type::primitive) {
       if (item.name == "string" &&
-          std::regex_match(text, std::regex{"\"([^\"\\\\]|\\\\[\"\\\\bfnrt])*\""})) {
+          literal_syntax::quoted_string(text)) {
         return text;
       }
       if (item.name == "bool" && (text == "true" || text == "false")) {
@@ -606,7 +606,7 @@ class emitter {
         }
       }
       if (item.name == "float" || item.name == "double") {
-        if (std::regex_match(text, std::regex{"-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?"})) {
+        if (literal_syntax::decimal_number(text)) {
           float single{};
           double real{};
           const auto parsed = item.name == "float"
@@ -631,7 +631,7 @@ class emitter {
         const auto parsed =
             is_unsigned ? std::from_chars(text.data(), text.data() + text.size(), unsigned_value)
                         : std::from_chars(text.data(), text.data() + text.size(), signed_value);
-        bool valid = std::regex_match(text, std::regex{"-?(0|[1-9][0-9]*)"}) &&
+        bool valid = literal_syntax::decimal_integer(text) &&
                      parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size();
         if (valid && bits < std::numeric_limits<std::uint64_t>::digits) {
           valid = is_unsigned ? unsigned_value < (std::uint64_t{1} << bits)

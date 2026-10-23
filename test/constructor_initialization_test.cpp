@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
@@ -666,6 +667,22 @@ TEST(constructor_initialization, older_constructor_lowering_retains_its_contract
     EXPECT_FALSE(record.member_list.front().initializer);
     EXPECT_NO_THROW(rohit::serializer::writer::cpp::generate(legacy, options));
   }
+}
+
+// Typed aggregate binding shares the iterative portable literal check before selecting a backend.
+TEST(constructor_initialization, large_record_string_default_binds_before_generation) {
+  constexpr std::size_t literal_bytes = 32768;
+  const auto text = std::string(literal_bytes, 'a');
+  const auto nodes = parse("serializer version 1.14.0; class item { public string text; } "
+      "class record { public item value {{\"" + text + "\"}}; }");
+  const auto& record = static_cast<const rohit::serializer::class_node&>(*nodes.back());
+  ASSERT_TRUE(record.member_list.front().initializer);
+  const auto& initializer = *record.member_list.front().initializer;
+  ASSERT_EQ(initializer.elements.size(), 1u);
+  EXPECT_EQ(initializer.elements.front().value, '"' + text + '"');
+  rohit::serializer::writer::cpp_options options{};
+  options.format = false;
+  EXPECT_NE(rohit::serializer::writer::cpp::generate(nodes, options).find(text), std::string::npos);
 }
 
 TEST(constructor_initialization, typed_default_shape_and_range_diagnostics_are_explicit) {

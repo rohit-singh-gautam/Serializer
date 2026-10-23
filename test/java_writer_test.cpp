@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <rohit/serializer_creator.hpp>
 #include <rohit/stream.hpp>
+#include <cstddef>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -14,6 +15,20 @@ std::string emit_java(std::string_view schema, rohit::serializer::writer::java_o
   rohit::full_stream_auto_alloc output{};
   rohit::serializer::writer::java::write(output, nodes, outer, options);
   return {reinterpret_cast<const char*>(output.begin()), output.current_offset()};
+}
+
+// Java literal classification preserves large accepted strings/numbers and clean legacy errors.
+TEST(java_writer, large_literal_defaults_preserve_backend_contracts) {
+  constexpr std::size_t literal_bytes = 32768;
+  const auto text = std::string(literal_bytes, 'a');
+  const auto number = "1." + std::string(literal_bytes, '0');
+  const auto source = "serializer version 1.14.0; class account { public string text { \"" +
+      text + "\" }; public double number { " + number + " }; }";
+  const auto output = emit_java(source);
+  EXPECT_NE(output.find(text), std::string::npos);
+  EXPECT_NE(output.find(number), std::string::npos);
+  EXPECT_THROW(emit_java("serializer version 1.13.0; class account { public uint64 value { " +
+      std::string(literal_bytes, '9') + " }; }"), std::invalid_argument);
 }
 
 // Profile renaming must preserve serialized names and explicit identifiers.

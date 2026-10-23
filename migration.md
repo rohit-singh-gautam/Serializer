@@ -1,5 +1,20 @@
 # Migrating to the snake_case Serializer API
 
+## Portable literal resource repair in 2.31.2
+
+Compiler/runtime 2.31.2 replaces recursive backend literal/identifier regexes
+with iterative recognizers. Existing portable quoted-string escapes, decimal
+integer/floating grammar, native identifier rules and backend range errors retain
+their meaning. Large supported literals generate normally instead of exhausting
+Linux's process stack. Typed aggregate defaults share the repaired check before
+backend selection, including C++.
+
+No schema/payload migration or regeneration of already generated files is
+required. Schema language remains 1.23.0 and editor packages remain 2.0.16.
+Native expressions, hex/octal defaults and underflow retain each backend's prior
+acceptance boundaries. This does not remove target SDK token/string limits; see
+[qualification and actual SDK profiles](docs/verification/verification-portable-literals-2026-10-24.md).
+
 ## Integer-default resource repair in 2.31.1
 
 Compiler/runtime 2.31.1 replaces recursive integer-literal recognition with a

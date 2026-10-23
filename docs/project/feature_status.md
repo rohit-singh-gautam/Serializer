@@ -1,11 +1,16 @@
 # Features and implementation status
 
-The [implemented requirement catalog](completed_requirements.md) records **820
+The [implemented requirement catalog](completed_requirements.md) records **821
 completed capability and qualification IDs**, with their backend/profile limits
 and verification links. Completed sections have moved there from the pending
 list. [Pending work](../pending.md) contains only **33 unfinished requirements**;
 closed [ownership decisions](application_responsibilities.md#disposed-requirements)
 are recorded separately. Original records retain their dated qualification scope.
+
+Compiler/runtime **2.31.2** extends constant-stack recognition to portable
+literal/identifier validation and typed aggregate binding. The existing grammar,
+backend errors and generated output remain compatible; [qualification](../verification/verification-portable-literals-2026-10-24.md)
+completes SC02d within the recorded compiler/backend scope.
 
 Compiler/runtime **2.31.1** repairs integer-default recognition using a linear,
 constant-stack scan. Accepted grammar, source diagnostics and language/wire

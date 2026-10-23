@@ -97,7 +97,7 @@ remain unavailable for that storage representation. Use a supported explicit
 ordered mapping when direct token traversal is required. Follow the
 [legacy tree checks](../../../docs/verification/verification-legacy-cpp-wildcards-2026-10-22.md).
 
-The current compiler/runtime release is **2.31.1**, with schema language
+The current compiler/runtime release is **2.31.2**, with schema language
 **1.23.0**. Release 2.31.0 requires a C++23 compiler and matching standard library
 with `std::byteswap` and `std::span`. Source builds reject an explicit standard
 below 23; public CMake targets propagate `cxx_std_23` to generated and managed
@@ -461,6 +461,11 @@ still require explicit application rebinding. Logical budgets do not measure har
 process peaks. See the [package contract](../../../docs/serialization/xml_packages.md#caller-authored-aggregate-profiles)
 and [executed scope](../../../docs/verification/verification-pending-xml-2026-10-20.md).
 
+Compiler 2.31.2 also recognizes portable strings/decimals and backend identifiers
+with constant stack space, including typed aggregate binding before backend
+selection. Preserve each backend's existing literal/range and target SDK token
+limits; [resource and SDK checks](../../../docs/verification/verification-portable-literals-2026-10-24.md)
+qualify those boundaries separately.
 Compiler 2.31.1 recognizes integer literals with a linear, constant-stack scan;
 long canonical values do not require recursive regex stack space. Accepted native
 expressions and source spelling remain unchanged. See the

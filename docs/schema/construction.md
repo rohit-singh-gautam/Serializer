@@ -1,5 +1,9 @@
 # Portable value construction and transient layout
 
+Compiler/runtime **2.31.2** applies constant-stack literal recognition to portable
+backends and typed aggregate binding. Existing grammar, range errors and SDK
+boundaries are preserved; see the [resource qualification](../verification/verification-portable-literals-2026-10-24.md).
+
 Compiler 2.31.1 recognizes the existing canonical integer-default grammar with
 constant stack use. Large decimal/hex literals receive member-located range
 errors without recursive regex stack exhaustion; in-range hexadecimal values with

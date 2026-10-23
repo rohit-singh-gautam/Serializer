@@ -1,3 +1,4 @@
+#include "literal_syntax.hpp"
 #include "schema_projection.hpp"
 #include "version_writer.hpp"
 #include "behavior_writer.hpp"
@@ -1014,7 +1015,7 @@ class emitter {
       }
     } else if (item.type == object_type::primitive) {
       if (item.name == "string" &&
-          std::regex_match(text, std::regex{"\"([^\"\\\\]|\\\\[\"\\\\bfnrt])*\""})) {
+          literal_syntax::quoted_string(text)) {
         return text;
       }
       if (item.name == "bool" && (text == "true" || text == "false")) {
@@ -1028,7 +1029,7 @@ class emitter {
           return "(byte) " + text;
         }
       }
-      if (std::regex_match(text, std::regex{"-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?"}) &&
+      if (literal_syntax::decimal_number(text) &&
           item.name != "char" && item.name != "string" && item.name != "bool") {
         if (item.name == "float" || item.name == "double") {
           float single{};

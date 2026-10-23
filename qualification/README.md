@@ -6,6 +6,25 @@ checks to a source revision and configurations, and lists outstanding work.
 
 ## Eleven-output native codec baselines
 
+`compiler_literals.py` qualifies compiler literal handling against independently
+checked default values and the maintained SDK consumers. Its common workload uses
+1,024 string bytes and 128 fraction digits, then round-trips all four protocols:
+
+```powershell
+python -B qualification/compiler_literals.py `
+  --compiler out/build/ReleaseWindows/serializer.exe `
+  --cpp-library out/build/ReleaseWindows/serializer_runtime.lib `
+  --build out/compiler-literals --language all
+```
+
+Use the SDK setup below and the [example prerequisites](../example/README.md).
+Select a subset with `--language python,java,javascript,typescript`; this subset
+also supports the separately qualified larger profile with `--text-bytes 32768`
+and `--fraction-digits 32768`. `--generate-only` runs compiler admission without SDK
+compilation. Each requested size is bounded to 1 MiB by this qualification tool.
+This tool limit does not alter schema limits. Compiler recognition and target SDK
+token/string limits remain separate; see the [dated resource checks](../docs/verification/verification-portable-literals-2026-10-24.md).
+
 `native_codec_baseline.py` runs the maintained C++, Python, portable and native/mobile
 measurement drivers sequentially on Windows. It audits all eleven actual SDKs,
 three fixed workloads and both XML-enabled/native-only positional binary controls:

@@ -3,6 +3,7 @@
 #include <rohit/stream.hpp>
 
 #include "../src/command_line.hpp"
+#include <cstddef>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -16,6 +17,40 @@ std::string emit_portable(std::string_view schema, std::string_view language,
   return rohit::serializer::writer::portable::generate(nodes, language, "Schema", options);
 }
 } // namespace
+
+// Actual backends preserve large accepted defaults without recursive regex stack growth.
+TEST(portable_writer, large_literal_defaults_preserve_source_spelling) {
+  constexpr std::size_t literal_bytes = 32768;
+  const auto text = std::string(literal_bytes, 'a');
+  const auto number = "1." + std::string(literal_bytes, '0');
+  const auto source = "serializer version 1.14.0; class account { public string text { \"" +
+      text + "\" }; public double number { " + number + " }; }";
+  for (const auto language :
+       {"js", "typescript", "go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
+    SCOPED_TRACE(language);
+    const auto output = emit_portable(source, language);
+    if (std::string_view{language} == "typescript") {
+      // Declarations omit runtime initializers; the paired JavaScript output is checked separately.
+      EXPECT_NE(output.find("text: string"), std::string::npos);
+      EXPECT_NE(output.find("number: number"), std::string::npos);
+      continue;
+    }
+    EXPECT_NE(output.find(text), std::string::npos);
+    EXPECT_NE(output.find(number), std::string::npos);
+  }
+}
+
+// Older unvalidated defaults still receive backend errors before any output can be published.
+TEST(portable_writer, large_legacy_integer_defaults_fail_cleanly) {
+  constexpr std::size_t literal_digits = 65536;
+  const auto source = "serializer version 1.13.0; class account { public uint64 value { " +
+      std::string(literal_digits, '9') + " }; }";
+  for (const auto language :
+       {"js", "typescript", "go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
+    SCOPED_TRACE(language);
+    EXPECT_THROW(emit_portable(source, language), std::invalid_argument);
+  }
+}
 
 // Kotlin's backing-field token is contextual; qualified model properties may use this wire name.
 TEST(portable_writer, kotlin_accepts_field_property) {
