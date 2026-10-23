@@ -103,7 +103,7 @@ with `std::byteswap` and `std::span`. Source builds reject an explicit standard
 below 23; public CMake targets propagate `cxx_std_23` to generated and managed
 consumers. Direct compiler invocations must select C++23 or later. Regenerate C++ headers
 for the `if consteval` checked-arithmetic helper; retain runtime nonfinite-value errors. Both editor
-packages are 2.0.13; no schema or payload version changes are required.
+packages are 2.0.14; no schema or payload version changes are required.
 Patch 2.28.1 restores strict GNU compilation of XML metadata,
 declaration prefixes and large embedded runtime literals without changing
 generated contracts or application integration.
@@ -2503,7 +2503,9 @@ not a historical checkout. Never invoke
 generation or configuration to satisfy navigation, or offer generation for a
 missing destination. Declaration opens the originating schema, while definition
 prefers existing generated output in any supported language and falls back to the original schema type
-declaration if no generated definition matches. Enum type prefixes in defaults
+declaration if no generated definition matches. Generated C declarations use a direct tag index instead of tokenizing bundled
+runtime bodies; preserve exact type/member offsets and the native interpreter
+resource limits when extending navigation. Enum type prefixes in defaults
 such as `AccountState::WaitingForReview` participate in both lookups; enum value
 navigation is not provided. Follow schema includes to their actual entry
 output. Separate C++ headers carry `// Serializer source: <absolute-schema-path>`;

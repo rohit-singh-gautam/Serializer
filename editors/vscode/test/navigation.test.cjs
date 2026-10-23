@@ -1404,6 +1404,31 @@ test('generated indices ignore multiline literals and keep Rust lifetimes and Ty
   assert.deepEqual(outputNames('HTTPModels::ID2Record', 'schema.rs', ''), ['HTTPModelsID2Record']);
 });
 
+test('C declarations retain exact tag, alias and member locations around large runtime bodies', async () => {
+  const runtime = 'static inline unsigned helper(unsigned x) { return (x + 1) ^ (x >> 2); }\r\n'.repeat(12000);
+  const generated = banner + '#define SRL_NATIVE_RUNTIME_INCLUDED\r\n' + runtime +
+    '/* struct fake_comment {}; */\r\nconst char* text = "enum fake_literal { value };";\r\n' +
+    'typedef struct data_order order_alias;\r\nstruct data_order { unsigned count; };\r\n' +
+    'typedef enum data_state { ready } state_alias;\r\n';
+  const index = indexGeneratedSource(generated, 'schema.h');
+  assert.ok(!index.symbols.some(symbol => symbol.name.startsWith('fake_')));
+  for (const symbol of index.symbols) {
+    assert.equal(generated.slice(symbol.start, symbol.end), symbol.name);
+    if (symbol.definition) { assert.equal(generated[symbol.body], '{'); }
+  }
+  const schema = 'serializer version 1; namespace data { class order { public uint32 count (1); } enum state { ready } }';
+  const state = fixture({ 'model.serializer': schema, 'schema.h': generated,
+    'schema.h.d': `${escapeDependency(file('schema.h'))}: ${escapeDependency(file('model.serializer'))}` });
+  for (const [marker, expected] of [['data_order {', 'order'], ['data_state {', 'state'], ['count;', 'count']]) {
+    const start = generated.indexOf(marker);
+    const length = marker.split(/[ {;]/)[0].length;
+    for (const offset of [start, start + length]) {
+      assert.deepEqual(selected(state, await state.resolver().generatedDeclaration(file('schema.h'), offset)),
+        [['model.serializer', expected]]);
+    }
+  }
+});
+
 test('C typedef tag and alias locations and TypeScript enum aliases resolve to schema types', async () => {
   for (const [name, source, markers] of [
     ['schema.h', '#define SRL_NATIVE_RUNTIME_INCLUDED\ntypedef struct data_order data_order;\nstruct data_order {};\ntypedef enum data_state { ready } data_state;',

@@ -51,8 +51,12 @@ with `std::byteswap` and `std::span` for the compiler, runtime, generated C++ an
 managed consumers. Regenerate C++ headers for the `if consteval` arithmetic helper.
 Public CMake targets propagate the minimum; direct C++20 use
 rejects explicitly. Schemas, public APIs and serialized formats are unchanged.
-Both editor packages are **2.0.13**. See the [migration steps](migration.md#c23-minimum-in-2301)
+Both editor packages are **2.0.14**. See the [migration steps](migration.md#c23-minimum-in-2301)
 and [qualification record](docs/verification/verification-cpp23-2026-10-23.md).
+
+Editor **2.0.14** uses a direct generated C declaration index to keep native
+navigation within its existing interpreter allocation budget. See the
+[native navigation checks](docs/verification/verification-native-c-navigation-2026-10-24.md).
 Installed SDK-only examples use compiler-component discovery; enabling a native
 language later upgrades discovery to the runtime without duplicating the compiler.
 

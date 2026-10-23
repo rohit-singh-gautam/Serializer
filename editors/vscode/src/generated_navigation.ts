@@ -86,19 +86,32 @@ function schemaDeclarations(text: string, language: string | undefined): string 
     .replace(/[^\r\n]+/g, line => ' '.repeat(line.length)) + text.slice(finish);
 }
 
+/** Read C tags without tokenizing implementation bodies in the bundled native runtime. */
+function indexCTags(code: string): SourceIndex {
+  const symbols: TypeSymbol[] = [];
+  for (const match of code.matchAll(/\b(struct|enum)\s+([A-Za-z_]\w*)\s*([\{;])/g)) {
+    const start = match.index! + match[0].indexOf(match[2], match[1].length);
+    symbols.push({ name: match[2], qualified: match[2], kind: match[1] === 'enum' ? 'enum' : 'class',
+      start, end: start + match[2].length, declaration: match.index!,
+      body: match.index! + match[0].length - 1, definition: match[3] === '{' });
+  }
+  return { symbols, includes: [], references: [] };
+}
+
 /** Index the actual declaration forms emitted by each generator, excluding runtime references. */
 export function indexGeneratedSource(text: string, file: string): SourceIndex {
   const language = generatedLanguage(file, text);
   const declarations = schemaDeclarations(text, language);
   if (language === 'cpp' || language === 'java' || language === 'csharp' || language === 'c') {
-    const result = indexSource(declarations, false, language === 'java');
+    const cCode = language === 'c' ? codeOnly(declarations) : undefined;
+    const result = cCode === undefined ? indexSource(declarations, false, language === 'java') : indexCTags(cCode);
     if (language === 'csharp') {
       // Schema namespaces are flattened; the configurable C# namespace is only a wrapper.
       for (const symbol of result.symbols) { symbol.qualified = symbol.name; }
     }
     if (language === 'c') {
       // C services can resolve either a struct tag or its typedef name.
-      for (const match of codeOnly(text).matchAll(/\btypedef\s+(struct|enum)\s+([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*;/g)) {
+      for (const match of cCode!.matchAll(/\btypedef\s+(struct|enum)\s+([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*;/g)) {
         const tag = match.index! + match[0].indexOf(match[2]);
         const start = match.index! + match[0].lastIndexOf(match[3]);
         result.symbols.push({ name: match[2], qualified: match[2], kind: match[1] === 'enum' ? 'enum' : 'class',
@@ -106,7 +119,7 @@ export function indexGeneratedSource(text: string, file: string): SourceIndex {
         result.symbols.push({ name: match[3], qualified: match[3], kind: match[1] === 'enum' ? 'enum' : 'class',
           start, end: start + match[3].length, body: start, declaration: start, definition: false });
       }
-      const code = codeOnly(text);
+      const code = cCode!;
       for (const symbol of [...result.symbols].filter(item => item.definition && item.kind === 'enum')) {
         let end = symbol.body;
         let depth = 0;

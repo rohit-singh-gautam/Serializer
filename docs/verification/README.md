@@ -7,6 +7,12 @@ configurations, and toolchains named in each report. They retain historical
 release metadata and outstanding qualification limits; a result does not imply
 that later changes or untested backend combinations passed the same checks.
 
+## 24 October 2026
+
+| Record | Scope |
+| --- | --- |
+| [Native C navigation allocation](verification-native-c-navigation-2026-10-24.md) | Direct generated C declaration indexing, unchanged native interpreter limits, shared tests and real .NET adapter checks; interactive hosts remain separate. |
+
 ## 23 October 2026
 
 | Record | Scope |

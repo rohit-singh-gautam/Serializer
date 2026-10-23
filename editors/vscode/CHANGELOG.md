@@ -1,3 +1,8 @@
+# 2.0.14
+
+- Index generated C tags directly instead of tokenizing bundled runtime implementation bodies, preserving declaration/member offsets and the native interpreter resource limits.
+- Synchronize both editor packages; compiler/runtime 2.30.1 and schema language 1.22.0 remain current.
+
 # 2.0.13
 
 - Require a C++23 compiler and matching standard library for generated C++ consumers; keep navigation host settings aligned.

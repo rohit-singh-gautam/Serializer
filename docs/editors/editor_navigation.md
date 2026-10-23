@@ -1,5 +1,15 @@
 # Editor navigation investigation
 
+## Generated C allocation repair (2.0.14)
+
+Both editor packages index C struct/enum tags and typedef aliases directly,
+without tokenizing bundled runtime implementation bodies. Existing schema,
+package and field destinations preserve their exact UTF-16 source offsets.
+The native Visual Studio adapter retains its 256 MiB allocation budget and
+30-second request timeout. The real interpreter passes 1,548 checks across all
+eleven languages; [the qualification record](../verification/verification-native-c-navigation-2026-10-24.md)
+separates those checks from remaining interactive editor-host qualification.
+
 This records the VS Code 1.1.4 navigation repair and the new Visual Studio 1.0.4
 navigation implementation, with verification on Windows. Both use the same
 schema/generated-output resolver and custom-type highlighting grammar.
