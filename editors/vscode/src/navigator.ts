@@ -210,9 +210,11 @@ export class Navigator {
         }
       }
       let fieldAt: ReturnType<typeof generatedMemberReader> | undefined;
-      for (const token of generated.text.matchAll(/[A-Za-z_]\w*/g)) {
+      // Only candidate spellings need interpreted match objects or cancellation callbacks.
+      const spellings = names.map(name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+      const candidates = new RegExp(`\\b(?:${spellings})\\b`, 'g');
+      for (const token of generated.text.matchAll(candidates)) {
         if (this.host.cancelled()) { return []; }
-        if (!names.includes(token[0])) { continue; }
         // A field can occur in many generated methods; masking the entire output per occurrence
         // exhausts the native interpreter's request budget across an eleven-language result set.
         fieldAt ??= generatedMemberReader(generated.text, output, generated.index);

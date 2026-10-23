@@ -1,3 +1,8 @@
+# 2.0.16
+
+- Bound generated C++ navigation work with a declaration index, exact field-candidate matching and reusable block-depth lookup; preserve namespace/template offsets and authored C++ behavior.
+- Keep the existing native interpreter memory, timeout and cancellation limits. Qualify large direct/separate managed outputs and synchronize both packages.
+
 # 2.0.15
 
 - Support the language 1.23 named managed generic self-reference contract in compiler/runtime 2.31.0, retaining older schema contracts and unsupported nested/base restrictions.

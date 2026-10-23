@@ -11,7 +11,8 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
-| [Named managed self references](verification-named-managed-references-2026-10-24.md) | Compiler/runtime 2.31.0 and language 1.23; versioned direct field binding, native profiles and release qualification in progress. |
+| [Native C++ navigation allocation](verification-native-cpp-navigation-2026-10-24.md) | Editor 2.0.16: bounded generated declaration/field lookup, large direct/separate managed outputs and native interpreter checks under unchanged limits. |
+| [Named managed self references](verification-named-managed-references-2026-10-24.md) | Compiler/runtime 2.31.0 and language 1.23; MR03a versioned direct field binding, eight Windows/Linux native profiles and four installed-toolchain consumers. |
 | [Managed variant merges](verification-managed-variants-2026-10-24.md) | MG09a: all four Windows/Linux identity/storage profiles, conflict retries, atomic replacement identity, full/delta journal recovery and selective Undo/Redo. |
 | [Native C navigation allocation](verification-native-c-navigation-2026-10-24.md) | Direct generated C declaration indexing, unchanged native interpreter limits, shared tests and real .NET adapter checks; interactive hosts remain separate. |
 

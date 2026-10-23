@@ -1,5 +1,14 @@
 # Editor navigation investigation
 
+## Generated C++ allocation repair (2.0.16)
+
+Both editor packages preserve generated type/field destinations while bounding
+native work for large managed C++ outputs. Direct and separate-values named
+reference fixtures pass within the existing 256 MiB interpreter budget. The
+[qualification record](../verification/verification-native-cpp-navigation-2026-10-24.md)
+records shared/fresh-output checks and 1,600 real native-adapter checks; interactive
+host qualification remains distinct.
+
 ## Generated C allocation repair (2.0.14)
 
 Both editor packages index C struct/enum tags and typedef aliases directly,

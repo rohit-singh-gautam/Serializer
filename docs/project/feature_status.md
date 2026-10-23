@@ -1,6 +1,6 @@
 # Features and implementation status
 
-The [implemented requirement catalog](completed_requirements.md) records **818
+The [implemented requirement catalog](completed_requirements.md) records **819
 completed capability and qualification IDs**, with their backend/profile limits
 and verification links. Completed sections have moved there from the pending
 list. [Pending work](../pending.md) contains only **33 unfinished requirements**;
@@ -12,7 +12,7 @@ Compiler/runtime **2.31.0**, schema language **1.23.0**, implements versioned
 copied C++ token fields and supported container wrappers. Older declarations keep
 their contract; shared nested/base records remain restricted. Windows/Linux native
 profiles pass; [release qualification](../verification/verification-named-managed-references-2026-10-24.md)
-is in progress and MR03 remains open for the broader reference contracts.
+completes MR03a; MR03 remains open for the broader reference contracts.
 
 Compiler/runtime **2.30.1** requires a C++23 compiler and matching standard library
 for the compiler, runtime and generated/managed C++ consumers. CMake and public

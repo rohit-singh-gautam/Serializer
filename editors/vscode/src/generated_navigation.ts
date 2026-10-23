@@ -98,13 +98,44 @@ function indexCTags(code: string): SourceIndex {
   return { symbols, includes: [], references: [] };
 }
 
+/** Read namespace-qualified C++ tags without tokenizing generated implementation expressions. */
+function indexCppTags(code: string): SourceIndex {
+  const symbols: TypeSymbol[] = [];
+  const scopes: string[][] = [[]];
+  const declarations = /\bnamespace(?:\s+([A-Za-z_]\w*(?:\s*::\s*[A-Za-z_]\w*)*))?\s*\{|\b(enum\s+(?:class\s+|struct\s+)?|class\s+|struct\s+)([A-Za-z_]\w*)|[{}]/g;
+  const suffix = /\s*(?:<[^{};]*>)?\s*(?:final\s*)?(?::(?!:)[^{};]*)?([{;])/y;
+  let match: RegExpExecArray | null;
+  while ((match = declarations.exec(code)) !== null) {
+    const scope = scopes[scopes.length - 1];
+    if (match[0] === '}') {
+      if (scopes.length > 1) { scopes.pop(); }
+    } else if (match[2]) {
+      // A tag must introduce a declaration, not a template parameter or an elaborated type use.
+      suffix.lastIndex = declarations.lastIndex;
+      const tail = suffix.exec(code);
+      if (!tail) { continue; }
+      const name = match[3];
+      const start = match.index + match[0].length - name.length;
+      symbols.push({ name, qualified: [...scope, name].join('::'),
+        kind: match[2].startsWith('enum') ? 'enum' : 'class', start, end: start + name.length,
+        declaration: match.index, body: tail.index + tail[0].length - 1, definition: tail[1] === '{' });
+    } else {
+      // Namespace openings are consumed with their brace; all other braces preserve the current scope.
+      scopes.push(match[1] ? [...scope, ...match[1].split('::').map(name => name.trim())] : scope);
+    }
+  }
+  return { symbols, includes: [], references: [] };
+}
+
 /** Index the actual declaration forms emitted by each generator, excluding runtime references. */
 export function indexGeneratedSource(text: string, file: string): SourceIndex {
   const language = generatedLanguage(file, text);
   const declarations = schemaDeclarations(text, language);
   if (language === 'cpp' || language === 'java' || language === 'csharp' || language === 'c') {
     const cCode = language === 'c' ? codeOnly(declarations) : undefined;
-    const result = cCode === undefined ? indexSource(declarations, false, language === 'java') : indexCTags(cCode);
+    const result = cCode !== undefined ? indexCTags(cCode)
+      : language === 'cpp' && generatedBanner(text) ? indexCppTags(codeOnly(declarations))
+      : indexSource(declarations, false, language === 'java');
     if (language === 'csharp') {
       // Schema namespaces are flattened; the configurable C# namespace is only a wrapper.
       for (const symbol of result.symbols) { symbol.qualified = symbol.name; }
@@ -226,12 +257,38 @@ export function generatedMemberReader(text: string, file: string,
   index: SourceIndex): (offset: number) => ReturnType<typeof generatedMember> {
   const language = generatedLanguage(file, text);
   const code = generatedCode(schemaDeclarations(text, language), language ?? '');
-  return offset => generatedMemberAt(code, language, index, offset);
+  const braces = language === 'python' ? undefined : indexBraces(code);
+  return offset => generatedMemberAt(code, language, index, offset, braces);
+}
+
+/** Prepare matching block ends and logarithmic depth lookup without walking each body per candidate. */
+function indexBraces(code: string): { close(open: number): number; depth(offset: number): number } {
+  const positions: number[] = [];
+  const depths: number[] = [];
+  const stack: number[] = [];
+  const closing = new Map<number, number>();
+  for (const match of code.matchAll(/[{}]/g)) {
+    if (match[0] === '{') { stack.push(match.index!); }
+    else if (stack.length) { closing.set(stack.pop()!, match.index!); }
+    positions.push(match.index!);
+    depths.push(stack.length);
+  }
+  return {
+    close: open => closing.get(open) ?? code.length,
+    depth: offset => {
+      let lower = 0, upper = positions.length;
+      while (lower < upper) {
+        const middle = lower + Math.floor((upper - lower) / 2);
+        if (positions[middle] < offset) { lower = middle + 1; } else { upper = middle; }
+      }
+      return lower ? depths[lower - 1] : 0;
+    }
+  };
 }
 
 /** Check a candidate against its prepared code and owning declaration without allocating another mask. */
 function generatedMemberAt(code: string, language: string | undefined, index: SourceIndex,
-  offset: number): ReturnType<typeof generatedMember> {
+  offset: number, braces?: ReturnType<typeof indexBraces>): ReturnType<typeof generatedMember> {
   let start = offset;
   if (!/[A-Za-z_0-9]/.test(code[start] ?? '') && /[A-Za-z_0-9]/.test(code[start - 1] ?? '')) { --start; }
   if (!/[A-Za-z_0-9]/.test(code[start] ?? '')) { return undefined; }
@@ -255,12 +312,9 @@ function generatedMemberAt(code: string, language: string | undefined, index: So
       continue;
     }
     const open = code.indexOf('{', owner.body);
-    if (open < 0 || open >= start) { continue; }
-    let depth = 1;
-    for (let next = open + 1; next < start && depth > 0; ++next) {
-      if (code[next] === '{') { ++depth; }
-      if (code[next] === '}') { --depth; }
-    }
+    if (open < 0 || open >= start || !braces || braces.close(open) <= start) { continue; }
+    const depth = 1 + braces.depth(start) - braces.depth(open + 1);
+    if (depth !== 1 && !(language === 'javascript' && depth === 2)) { continue; }
     const suffix = code.slice(end);
     const lineStart = Math.max(code.lastIndexOf('\n', start), code.lastIndexOf(';', start), open) + 1;
     const prefix = code.slice(lineStart, start);

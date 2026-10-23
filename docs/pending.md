@@ -3,7 +3,7 @@
 This list contains **33 unfinished requirements: 29 active and four deferred**.
 Completed items and fully completed sections have moved to the
 [implemented feature catalog](project/completed_requirements.md), with all
-**818 IDs and verification records** retained. The [feature list](project/feature_status.md)
+**819 IDs and verification records** retained. The [feature list](project/feature_status.md)
 summarizes supported capabilities. The three closed ownership decisions live in
 [application responsibilities](project/application_responsibilities.md#disposed-requirements),
 not in this unfinished-work inventory.
@@ -19,7 +19,7 @@ implementation or qualification record is complete.
 
 | State | ID | Estimate | Remaining requirement and acceptance gate | Dependencies |
 | --- | --- | --- | --- | --- |
-| [ ] | MR03 | — | Define and qualify managed token codecs for other generated outputs; keep these distinct from full native managed engines. Language 1.23 implements direct named generic self binding with [qualification in progress](verification/verification-named-managed-references-2026-10-24.md); shared nested/base and mutual named-generic selection remain restricted until their explicit contracts are implemented. | — |
+| [ ] | MR03 | — | Define and qualify managed token codecs for other generated outputs; keep these distinct from full native managed engines. Language 1.23 direct named generic self binding is qualified as [MR03a](project/completed_requirements.md#mr03a); shared nested/base and mutual named-generic selection remain restricted until their explicit contracts are implemented. | — |
 | [ ] | MIG03 | — | **Deferred subsystem — [GitHub #5](https://github.com/rohit-singh-gautam/Serializer/issues/5), native portion.** Define native journal/storage/schema migration and rebaseline separately from managed-save/raw-model conversion; preserve the old recoverable generation through interrupted publication. Third-party sink conversion is excluded. | DB02 for native database profiles |
 
 ## Managed state and storage
@@ -64,7 +64,7 @@ qualification does not close the broader SC02 requirement below.
 | [ ] | QA01 | — | Replay changed contracts on other supported platforms and remaining provider combinations with real SDKs; retain exact versions, configurations and failures; [2.14 checkpoint](verification/verification-backlog-2026-10-20.md). WSL Windows-mounted appended-journal discard failures remain outside the passing native Windows/Linux filesystem profile; [recorded controls](verification/verification-document-origin-2026-10-22.md#toolchains-and-limits). | — |
 | [ ] | QA02 | — | Execute the independent XML/XSD/ZIP/OPC/3MF corpus, malformed-input/fault/resource cases and cross-language exchanges for each newly implemented slice. | — |
 | [ ] | QA03 | — | Measure throughput, allocations/peak memory, encoded size and generated-code size against reproducible workloads/baselines; preserve ordinary non-OPC paths; [Python compression measurements](verification/verification-python-compression-performance-2026-10-20.md). | — |
-| [ ] | QA04 | — | Qualify current editor-host behavior where a dated record identifies only shared/provider/native-interpreter checks; keep packaged/listing versions and all supported navigation synchronized when changed. Editor 2.0.14 repairs generated C indexing within the existing native interpreter budget; [native adapter checks](verification/verification-native-c-navigation-2026-10-24.md) do not close interactive-host qualification. See [Editor navigation](editors/editor_navigation.md), [qualification records](verification/README.md). | — |
+| [ ] | QA04 | — | Qualify current editor-host behavior where a dated record identifies only shared/provider/native-interpreter checks; keep packaged/listing versions and all supported navigation synchronized when changed. Editors 2.0.14/2.0.16 repair generated C/C++ indexing within the existing native interpreter budget; [native adapter checks](verification/verification-native-cpp-navigation-2026-10-24.md) do not close interactive-host qualification. See [Editor navigation](editors/editor_navigation.md), [qualification records](verification/README.md). | — |
 
 ## XML and package backlog
 

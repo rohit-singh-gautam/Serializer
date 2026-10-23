@@ -1404,6 +1404,21 @@ test('generated indices ignore multiline literals and keep Rust lifetimes and Ty
   assert.deepEqual(outputNames('HTTPModels::ID2Record', 'schema.rs', ''), ['HTTPModelsID2Record']);
 });
 
+test('generated C++ declaration indexing preserves namespace, template and enum offsets around large bodies', () => {
+  const source = banner + 'namespace models::detail {\r\n' +
+    'template<class T, unsigned N = 2> class box;\r\n' +
+    'template<class T, unsigned N> class box<T, N> final : public base<T> {\r\n' +
+    'enum class state : unsigned { ready };\r\n' +
+    'static unsigned helper(unsigned value) { return (value + 1) ^ (value >> 2); }\r\n'.repeat(5000) +
+    'const char* text = "namespace fake { struct ghost {}; }";\r\n};\r\n' +
+    '}\r\nnamespace other { struct box {}; }\r\nnamespace { class hidden {}; }\r\n';
+  const select = symbols => symbols.map(({ name, qualified, kind, start, end, body, declaration, definition }) =>
+    ({ name, qualified, kind, start, end, body, declaration, definition }));
+  assert.deepEqual(select(indexGeneratedSource(source, 'model.hpp').symbols), select(indexSource(source, false).symbols));
+  assert.deepEqual(select(indexGeneratedSource(source.slice(banner.length), 'authored.hpp').symbols),
+    select(indexSource(source.slice(banner.length), false).symbols));
+});
+
 test('C declarations retain exact tag, alias and member locations around large runtime bodies', async () => {
   const runtime = 'static inline unsigned helper(unsigned x) { return (x + 1) ^ (x >> 2); }\r\n'.repeat(12000);
   const generated = banner + '#define SRL_NATIVE_RUNTIME_INCLUDED\r\n' + runtime +

@@ -60,12 +60,15 @@ with `std::byteswap` and `std::span` for the compiler, runtime, generated C++ an
 managed consumers. Regenerate C++ headers for the `if consteval` arithmetic helper.
 Public CMake targets propagate the minimum; direct C++20 use
 rejects explicitly. Schemas, public APIs and serialized formats are unchanged.
-Both editor packages are **2.0.15**. See the [migration steps](migration.md#c23-minimum-in-2301)
+Both editor packages are **2.0.16**. See the [migration steps](migration.md#c23-minimum-in-2301)
 and [qualification record](docs/verification/verification-cpp23-2026-10-23.md).
 
 Editor **2.0.14** uses a direct generated C declaration index to keep native
 navigation within its existing interpreter allocation budget. See the
 [native navigation checks](docs/verification/verification-native-c-navigation-2026-10-24.md).
+Editor **2.0.16** also bounds generated C++ field navigation within the same native
+interpreter budget, including separate-values managed layouts; see the
+[C++ navigation checks](docs/verification/verification-native-cpp-navigation-2026-10-24.md).
 Installed SDK-only examples use compiler-component discovery; enabling a native
 language later upgrades discovery to the runtime without duplicating the compiler.
 
@@ -299,7 +302,7 @@ Release **2.17.0** adds [generated package policies and application references](
 Generated [C](docs/languages/c_packages.md), [Rust](docs/languages/rust_packages.md)
 and [Swift](docs/languages/swift_packages.md) outputs now provide bounded owning
 ZIP/OPC facades, typed loading, preservation and staged Save. Both editor packages
-are **2.0.15** and recognize language **1.23.0** named self-reference contracts,
+are **2.0.16** and recognize language **1.23.0** named self-reference contracts,
 **1.22.0** cache fields and earlier package declarations.
 Version 2.28 composes C/Rust XML document companions with typed package roles.
 Language 1.21 declarations select fixed/default ZIP storage and scoped typed keys
