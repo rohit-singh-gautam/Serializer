@@ -1821,10 +1821,11 @@ their durable values and satisfy the chosen external profile's validation rules.
 The adapter does not automatically create a valid XML/OPC projection for every
 managed reference graph.
 
-New journals keep the main file beside one `.<filename>.journal/` directory.
-Its `manifest`, `changes-<high>-<low>`, stable `writer.lock` and temporary
-`manifest.pending` coordinate recovery/publication. Keep the main and entire
-directory together. Existing flat layouts retain their original filenames.
+New journals keep the main file beside one `.<filename>.serializer/` directory.
+Its `state/manifest`, `journal/changes-<high>-<low>`, stable root `writer.lock` and
+temporary `state/manifest.pending` coordinate recovery/publication. Keep required
+state and coordination with the main. Older `.journal/` and flat layouts retain
+their names until explicit migration; preserve any resulting legacy lock guards.
 Recovery checks the exact main-file size and SHA-256 before invoking its decoder;
 external edits require a new baseline rather than attaching the old sidecar.
 Do not remove pending manifests or retired-looking companions before recovery.
@@ -1884,6 +1885,12 @@ main's exact bytes before deleting companions, preserves non-file entries by
 rejecting cleanup, and never modifies the main file. Success fences the owner;
 destroy it instead of resuming edits. Cleanup failure after deletion begins also
 fences the owner and may leave companions for inspection.
+
+With the shared companion layout in 2.30.0, retirement preserves `cache/`,
+unrelated state and the stable root writer lock. It removes owned recovery files
+and their manifest without recursively deleting the shared directory. Unknown
+non-file root entries still reject preflight. Legacy directory retirement retains
+its previous layout-specific behavior.
 
 `store.retire_journal(true)` instead detaches storage while retaining the live
 root, identity allocation and Undo/Redo history in memory. The host must attach
@@ -2774,3 +2781,98 @@ Use `qualification/xml_exchange_qualification.py --help` for explicit SDK, nativ
 helper and offline-cache inputs. A missing SDK fails qualification; it cannot
 silently remove a backend. This selected small-document proof leaves broader
 malformed/resource, vocabulary, platform and performance gates separate.
+
+## Rebuildable C++ cache fields
+
+Compiler/runtime 2.30.0 and schema language 1.22.0 support inspectable owning C++
+cache values. Unlike `transient`, they can use optional independent persistence.
+Unlike durable fields, cache loss must be recoverable from retained sources.
+
+```text
+serializer version 1.22.0;
+namespace cache_example {
+  class document stable_ids managed {
+    public string body (1);
+    public cache uint64 count {0};
+    public cache(priority = 200) string preview;
+  }
+}
+```
+
+Bare `cache` has priority `0`, the lowest retention preference. `255` is highest
+but still disposable. Cache declarations do not consume payload IDs or change
+durable fingerprints. Defaults are initial values, not cache hits. Non-C++ outputs
+and unsupported reference/view/native-storage graphs diagnose explicitly.
+
+After generating `cache_attributes.hpp`, an owner-thread application can use:
+
+```cpp
+#include <cache_attributes.hpp>
+#include <rohit/cache_codec.hpp>
+#include <rohit/managed.hpp>
+#include <memory>
+
+// Establish a new owned document; recover an existing journal instead of recreating it.
+rohit::managed::model_store<cache_example::document> store{cache_example::document{}};
+const std::filesystem::path document_path{"article.srl"};
+store.create_journal(document_path, rohit::managed::journal_storage_mode::sidecar);
+
+auto disk = std::make_shared<rohit::cache::directory_provider>(
+    rohit::cache::companion_directory(document_path) / "cache");
+rohit::cache::service caches{disk};
+const auto field = rohit::cache::fields<cache_example::document>::count();
+const auto key = store.cache_key(field.metadata, "body-byte-count.v1");
+const auto source = store.clone_value();
+rohit::cache::request_options options;
+options.priority = field.metadata.priority;
+options.validate = [](std::span<const std::uint8_t> bytes) {
+  try { static_cast<void>(rohit::cache::decode<std::uint64_t>(bytes)); return true; }
+  catch (const std::exception&) { return false; }
+};
+const auto result = caches.get_or_rebuild(key, [&] {
+  return rohit::cache::encode(static_cast<std::uint64_t>(source.body.size()));
+}, options);
+if (result.state == rohit::cache::status::failed) {
+  std::rethrow_exception(result.error);
+}
+if (result.state == rohit::cache::status::ready) {
+  const auto count = rohit::cache::decode<std::uint64_t>(result.pin->value);
+  store.publish_cache(key, [count](auto& runtime) {
+    runtime.root().set_count(count);
+  }).throw_if_failed();
+}
+// Optional result.storage_error reports disk failure even when rebuilding produced a ready value.
+// Stop work and coordinate required synchronization before this explicit fallible operation.
+store.close_journal();
+```
+
+Supply recipe versions and all relevant external inputs through `recipe` and
+`parameters`. For nested ordinary occurrences, include a stable field/container
+path in parameters; use persistent entity IDs for managed occurrences.
+`cache_source()` binds the complete durable root and schema identity. After an edit,
+navigation or recovery, request a key for the selected source. `publish_cache`
+rejects stale or cross-document results and uses guarded runtime publication without
+history, dirty state or journal/collaboration writes. Read pins remain immutable.
+
+The service coalesces synchronous rebuilds, exposes readiness independently from
+values, and bounds slots/value bytes. Background scheduling, authentication,
+authorization and rebuild work remain application-owned. Never call a store from
+a background task: dispatch final publication to its owner thread. Callbacks must
+bound their own temporary allocations. Pass normal decode limits to cache decoders.
+
+`directory_options` controls entry/total bytes, count/scan limits and a free-space
+reserve. Admission failure is optional cache failure; reclaim through
+`disk->reclaim(target_bytes)` before a deliberate retry. Reclamation orders eligible
+entries by ascending priority, then LRU and key, reports pinned exceptions and
+physical space shortfall, and touches only its own namespace. Use separate memory
+and disk budgets. Share a provider instance across threads; competing processes
+must obtain its exclusive domain lock. Construct a service without a provider to
+disable disk persistence.
+
+`close_journal()` durably saves all required dependencies before retiring recovery
+records. Native closed documents need no selected recovery sidecar; external
+formats retain authoritative metadata under `state/`. Caches remain. Destructors
+only release resources. Never delete the whole shared directory or treat `state/`
+as a cache. Use `migrate_journal_layout()` for older directory/flat layouts and keep
+its legacy guards. See the [full contract](../design/cache_attributes.md) and
+[qualification record](../verification/verification-cache-2026-10-23.md).

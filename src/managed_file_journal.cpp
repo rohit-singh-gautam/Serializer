@@ -7,6 +7,7 @@
 #include <rohit/digest.hpp>
 #include <rohit/managed_journal.hpp>
 #include <rohit/managed_journal_stream.hpp>
+#include <rohit/cache.hpp>
 #include "managed_journal_delta.hpp"
 #include "managed_journal_document.hpp"
 #include "native_file_path.hpp"
@@ -38,6 +39,8 @@ constexpr std::size_t file_header_bytes = 9 * wire_word_bytes;
 constexpr std::uint64_t file_magic = 0x314c4e4a5a5253;
 constexpr std::uint64_t record_version = 2;
 constexpr std::uint64_t differential_record_version = 3;
+constexpr std::uint64_t shared_record_version = 4;
+constexpr std::uint64_t retired_record_version = 5;
 constexpr std::uint64_t base_file_kind = 1;
 constexpr std::uint64_t sidecar_file_kind = 2;
 constexpr std::string_view journal_directory_suffix{".journal"};
@@ -172,6 +175,64 @@ struct file_header {
   std::uint64_t version{record_version};
 };
 
+// Inspect only a native container prefix; application document bytes are never treated as a header.
+bool selects_shared_layout(const std::filesystem::path& path) {
+  if (!native_exists(path)) { return false; }
+  file_stream input{path, file_open_mode::read_shared};
+  if (input.size() < file_header_bytes) { return false; }
+  std::array<std::uint8_t, file_header_bytes> header{};
+  read_stream_exact(input, header);
+  return get_word(header, 0) == file_magic && get_word(header, 1) >= shared_record_version;
+}
+
+// Keep the old writer's lock/manifest namespace as an explicit migration guard, never a new journal.
+std::filesystem::path migration_guard(const std::filesystem::path& document,
+                                      const std::filesystem::path& old_directory) {
+  if (!old_directory.empty()) { return old_directory / "layout.migration"; }
+  auto result = document;
+  result += ".layout.migration";
+  return result;
+}
+
+// Pair old/new lock namespaces with a portable nonce; document identity stays in validated state.
+bytes make_migration_receipt(bool directory) {
+  bytes result;
+  put_word(result, 0x3147494d5a5253ULL);
+  put_word(result, 1);
+  put_word(result, directory ? 1 : 0);
+  std::random_device entropy;
+  std::uniform_int_distribution<std::uint64_t> word;
+  put_word(result, word(entropy));
+  put_word(result, word(entropy));
+  put_word(result, checksum(result));
+  return result;
+}
+
+// Validate the exact receipt shape before treating coexisting layouts as an explicit migration.
+void validate_migration_receipt(const bytes& receipt, bool directory) {
+  constexpr std::size_t receipt_words = 6;
+  if (receipt.size() != receipt_words * wire_word_bytes ||
+      get_word(receipt, 0) != 0x3147494d5a5253ULL || get_word(receipt, 1) != 1 ||
+      get_word(receipt, 2) != (directory ? 1u : 0u) ||
+      get_word(receipt, receipt_words - 1) != checksum(std::span<const std::uint8_t>{receipt}.first(receipt.size() - wire_word_bytes))) {
+    throw std::invalid_argument{"Invalid journal layout migration receipt"};
+  }
+}
+
+// Stage and sync tiny ownership metadata before atomic selection; failed writes preserve old bytes.
+void publish_metadata(const std::filesystem::path& path, const bytes& value) {
+  auto staging = path;
+  std::random_device entropy;
+  staging += "." + std::to_string(entropy()) + ".tmp";
+  {
+    file_stream output{staging, file_open_mode::create};
+    write_stream_bytes(output, value);
+    output.sync();
+  }
+  publish_file(staging, path, native_exists(path));
+  sync_parent_directory(path);
+}
+
 // Encode a versioned header binding physical mode, generation, sequence, and base frame checksum.
 bytes encode_header(const file_header& header) {
   bytes result;
@@ -192,14 +253,16 @@ file_header decode_header(std::span<const std::uint8_t> input, std::uint64_t kin
   }
   const auto header = input.first(file_header_bytes);
   if (get_word(header, 0) != file_magic ||
-      (get_word(header, 1) != record_version && get_word(header, 1) != differential_record_version) ||
+      (get_word(header, 1) != record_version && get_word(header, 1) != differential_record_version &&
+       get_word(header, 1) != shared_record_version && get_word(header, 1) != retired_record_version) ||
       get_word(header, 3) != kind ||
       checksum(header.first(file_header_bytes - wire_word_bytes)) != get_word(header, 8)) {
     throw std::invalid_argument{"Invalid managed journal header"};
   }
   const auto mode = static_cast<journal_storage_mode>(get_word(header, 2));
   if ((mode != journal_storage_mode::appended && mode != journal_storage_mode::sidecar) ||
-      (mode == journal_storage_mode::appended && get_word(header, 1) != record_version) ||
+      (mode == journal_storage_mode::appended && get_word(header, 1) != record_version &&
+       get_word(header, 1) != shared_record_version) ||
       (get_word(header, 4) == 0 && get_word(header, 5) == 0)) {
     throw std::invalid_argument{"Invalid managed journal mode or generation"};
   }
@@ -293,13 +356,19 @@ public:
   std::uint64_t sequence() const noexcept override;
   // Expose fencing after an uncertain durable operation.
   bool needs_recovery() const noexcept override;
+  // Preserve legacy writer exclusion while publishing a shared-layout checkpoint.
+  void migrate_layout(const bytes& envelope, std::span<const std::uint8_t> document) override;
+  // Save a self-contained native baseline or external durable metadata, then retire recovery files.
+  void close(const bytes& envelope, std::span<const std::uint8_t> document) override;
 };
 
 struct file_journal::implementation {
   std::filesystem::path path{};
   std::filesystem::path auxiliary_directory{};
+  std::filesystem::path shared_directory{};
   journal_options options{};
   std::unique_ptr<file_stream> lock{};
+  std::unique_ptr<file_stream> legacy_lock{};
   std::unique_ptr<file_stream> writer{};
   file_header header{};
   std::filesystem::path append_path{};
@@ -314,9 +383,47 @@ struct file_journal::implementation {
   journal_document_manifest manifest{};
   bool pending_manifest{};
   std::optional<journal_document_manifest> preparation{};
+  bool retiring{};
+  bool activating{};
+  bytes recovered_envelope{};
+
+  // Create only Serializer-owned namespaces; writer.lock remains at the stable shared root.
+  void use_shared(const std::filesystem::path& directory) {
+    prepare_journal_directory(directory);
+    for (const auto* name : {"journal", "state", "staging"}) {
+      prepare_journal_directory(directory / name);
+    }
+    shared_directory = directory;
+    auxiliary_directory = directory / "journal";
+  }
+
+  // After durable retirement, retry only recognized unselected recovery generations. Never scan
+  // state/cache or follow links; unknown files deliberately prevent removal of the journal folder.
+  void retire_obsolete() const {
+    constexpr std::size_t max_cleanup_entries = 4096;
+    const rohit::detail::native_file_path directory{auxiliary_directory};
+    std::size_t inspected{};
+    for (const auto& item : std::filesystem::directory_iterator(directory.get())) {
+      if (++inspected > max_cleanup_entries) { break; }
+      if (item.symlink_status().type() != std::filesystem::file_type::regular ||
+          !item.path().filename().string().starts_with("changes-")) { continue; }
+      file_header selected;
+      {
+        file_stream input{item.path(), file_open_mode::read};
+        if (input.size() < file_header_bytes) { continue; }
+        std::array<std::uint8_t, file_header_bytes> prefix{};
+        read_stream_exact(input, prefix);
+        selected = decode_header(prefix, sidecar_file_kind);
+      }
+      if (generation_path(auxiliary_directory / "changes", selected, "-").filename() != item.path().filename()) { continue; }
+      native_remove(item.path());
+      sync_parent_directory(item.path());
+    }
+  }
 
   // Keep unresolved publication state under Serializer's stable writer lock.
   std::filesystem::path prepared_path() const {
+    if (!shared_directory.empty()) { return shared_directory / "state" / journal_prepared_name; }
     if (!auxiliary_directory.empty()) { return auxiliary_directory / journal_prepared_name; }
     auto result = path;
     result += ".journal.prepared";
@@ -325,6 +432,9 @@ struct file_journal::implementation {
 
   // Use a stable side-channel manifest without adding managed data to application document bytes.
   std::filesystem::path manifest_path(bool pending = false) const {
+    if (!shared_directory.empty()) {
+      return shared_directory / "state" / (pending ? journal_pending_manifest_name : journal_manifest_name);
+    }
     if (!auxiliary_directory.empty()) {
       return auxiliary_directory / (pending ? journal_pending_manifest_name : journal_manifest_name);
     }
@@ -335,12 +445,18 @@ struct file_journal::implementation {
 
   // The saved generation chooses exactly one companion; directory contents are never guessed.
   std::filesystem::path companion_path(const file_header& selected) const {
+    if (!shared_directory.empty() && selected.version == retired_record_version) {
+      return generation_path(shared_directory / "state" / "snapshot", selected, "-");
+    }
     return auxiliary_directory.empty() ? generation_path(path, selected, ".journal-")
         : generation_path(auxiliary_directory / "changes", selected, "-");
   }
 
   // Temporary documents and manifests stay inside the same auxiliary directory as their journal.
   std::filesystem::path staging_path(const file_header& selected) const {
+    if (!shared_directory.empty()) {
+      return generation_path(shared_directory / "staging" / "pending", selected, "-");
+    }
     return auxiliary_directory.empty() ? generation_path(path, selected, ".pending-")
         : generation_path(auxiliary_directory / "pending", selected, "-");
   }
@@ -407,6 +523,7 @@ struct file_journal::implementation {
                             word(entropy), replacement_sequence, frame.digest,
                             mode == journal_storage_mode::sidecar ? differential_record_version
                                                                  : record_version};
+    if (!shared_directory.empty()) { replacement.version = shared_record_version; }
     if (replacement.generation_high == 0 && replacement.generation_low == 0) {
       replacement.generation_low = 1;
     }
@@ -520,7 +637,7 @@ void file_journal::implementation::replace_document(
     throw std::overflow_error{"Managed journal sequence exhausted"};
   }
   const bool attach_existing = !existing && native_exists(path);
-  const bool preserve_document = attach_existing || advance_sequence;
+  const bool preserve_document = attach_existing || advance_sequence || activating;
   auto document_bytes = preserve_document ? read_file(path, options) : codec.encode(document);
   if (document_bytes.size() > options.max_file_bytes) {
     throw std::length_error{"Managed document file budget exceeded"};
@@ -540,6 +657,9 @@ void file_journal::implementation::replace_document(
   std::uniform_int_distribution<std::uint64_t> word;
   file_header replacement{mode, base_file_kind, word(entropy), word(entropy), replacement_sequence,
                           frame.digest, differential_record_version};
+  if (!shared_directory.empty()) {
+    replacement.version = retiring ? retired_record_version : shared_record_version;
+  }
   if (replacement.generation_high == 0 && replacement.generation_low == 0) {
     replacement.generation_low = 1;
   }
@@ -684,6 +804,7 @@ file_journal::file_journal(const std::filesystem::path& path, journal_options op
   auto legacy_pending = legacy_manifest;
   legacy_pending += ".pending";
   const auto directory = journal_directory(state_->path);
+  const auto shared = cache::companion_directory(state_->path);
   const bool directory_exists = native_exists(directory);
   const bool legacy_metadata = native_exists(lock_path) ||
       native_exists(legacy_manifest) || native_exists(legacy_pending);
@@ -692,12 +813,36 @@ file_journal::file_journal(const std::filesystem::path& path, journal_options op
   }
   // Old native containers may have been copied without their lock. Keep their existing
   // flat generation contract; data-only documents are recognized by their manifests.
-  const bool legacy_native = !directory_exists && !state_->options.document_codec &&
-      native_exists(state_->path);
-  if (!legacy_metadata && !legacy_native) {
-    prepare_journal_directory(directory);
-    state_->auxiliary_directory = directory;
-    lock_path = directory / journal_lock_name;
+  const bool shared_selected = selects_shared_layout(state_->path) ||
+      native_exists(shared / "state" / journal_manifest_name) ||
+      native_exists(shared / "state" / journal_pending_manifest_name);
+  const bool old_layout = directory_exists || legacy_metadata ||
+      (!shared_selected && !state_->options.document_codec && native_exists(state_->path));
+  if (directory_exists) { lock_path = directory / journal_lock_name; }
+  if (shared_selected && old_layout) {
+    // A migrated document keeps acquiring both lock identities. Old writers cannot race the new one.
+    state_->legacy_lock = std::make_unique<file_stream>(lock_path, file_open_mode::lock);
+    if (!native_exists(shared / "migration") ||
+        !native_exists(migration_guard(state_->path, directory_exists ? directory : std::filesystem::path{}))) {
+      throw std::invalid_argument{"Conflicting shared and legacy journal layouts"};
+    }
+    constexpr std::size_t receipt_bytes = 6 * wire_word_bytes;
+    const auto expected = read_file(shared / "migration", state_->options, receipt_bytes);
+    validate_migration_receipt(expected, directory_exists);
+    if (read_file(migration_guard(state_->path, directory_exists ? directory : std::filesystem::path{}),
+                  state_->options, receipt_bytes) != expected) {
+      throw std::invalid_argument{"Conflicting shared and legacy journal layouts"};
+    }
+  }
+  if (shared_selected || !old_layout) {
+    state_->use_shared(shared);
+    lock_path = shared / journal_lock_name;
+  } else {
+    if (directory_exists) { state_->auxiliary_directory = directory; }
+    if (native_exists(shared / "journal") && !native_exists(shared / "migration") &&
+        !native_exists(migration_guard(state_->path, directory_exists ? directory : std::filesystem::path{}))) {
+      throw std::invalid_argument{"Conflicting shared and legacy journal layouts"};
+    }
   }
   state_->lock = std::make_unique<file_stream>(lock_path, file_open_mode::lock);
 }
@@ -767,7 +912,7 @@ file_journal::recover(const std::filesystem::path& path, journal_options options
     }
     state.header = decode_header(state.manifest.header, base_file_kind);
     if (state.header.mode != journal_storage_mode::sidecar ||
-        state.header.version != differential_record_version) {
+        state.header.version < differential_record_version) {
       throw std::invalid_argument{"Invalid managed document journal mode or version"};
     }
     // Admit the complete selected companion before invoking application document decoding.
@@ -781,11 +926,17 @@ file_journal::recover(const std::filesystem::path& path, journal_options options
     }
   } else {
     state.header = decode_header(input, base_file_kind);
+    if (state.header.version == retired_record_version) {
+      throw std::invalid_argument{"Retired external metadata requires its document codec"};
+    }
   }
   const auto baseline =
       read_file_frame(input, file_header_bytes, state.header.sequence, 0, state.options);
   if (!baseline || baseline->digest != state.header.base_digest) {
     throw std::invalid_argument{"Incomplete or mismatched managed journal base"};
+  }
+  if (state.header.version == retired_record_version && baseline->end_offset != input.size()) {
+    throw std::invalid_argument{"Trailing records in immutable retired document state"};
   }
   if (external) {
     auto canonical = state.options.document_codec->decode(document);
@@ -799,13 +950,14 @@ file_journal::recover(const std::filesystem::path& path, journal_options options
                                               state.options.max_replay_bytes);
     state.replay_bytes = envelope.size();
     consume(true, envelope);
+    if (state.header.version == retired_record_version) { state.recovered_envelope = envelope; }
   } else {
-    if (state.header.version == differential_record_version) {
+    if (state.header.mode == journal_storage_mode::sidecar && state.header.version >= differential_record_version) {
       state.check_replay(0, baseline->payload.size());
       state.replay_bytes = baseline->payload.size();
     }
     consume(true, baseline->payload);
-    if (state.header.version == differential_record_version) {
+    if (state.header.mode == journal_storage_mode::sidecar && state.header.version >= differential_record_version) {
       state.delta = std::make_unique<journal_delta_base>(
           bytes{baseline->payload.begin(), baseline->payload.end()});
     }
@@ -901,6 +1053,14 @@ void file_journal::finish_recovery() {
     }
     state.writer.swap(writer);
     state.recovering = false;
+    if (state.header.version == retired_record_version) {
+      // Retained state is immutable. Admit a fresh journal generation only after complete validation.
+      const auto canonical = state.delta->bytes();
+      state.activating = true;
+      state.replace(state.recovered_envelope, journal_storage_mode::sidecar, true, false, canonical);
+      state.activating = false;
+      bytes{}.swap(state.recovered_envelope);
+    }
   } catch (...) {
     state.fenced = true;
     throw nested_journal_error{"Managed tail repair must be recovered"};
@@ -1176,6 +1336,68 @@ void file_journal::discard(const bytes& envelope) {
   state_->replace(envelope, state_->header.mode, true, true, document);
 }
 
+// Keep both generations' lock identities held across an explicit legacy-to-shared publication.
+void file_journal::migrate_layout(const bytes& envelope, std::span<const std::uint8_t> document) {
+  auto& state = *state_;
+  state.require_ready();
+  if (!state.shared_directory.empty()) { return; }
+  const auto old_directory = state.auxiliary_directory;
+  const auto shared = cache::companion_directory(state.path);
+  prepare_journal_directory(shared);
+  auto next_lock = std::make_unique<file_stream>(shared / journal_lock_name, file_open_mode::lock);
+  const auto receipt = make_migration_receipt(!old_directory.empty());
+  // Receipts precede publication. Before selection, the complete old layout remains authoritative;
+  // after selection they prove why both layouts exist and which legacy lock must still be held.
+  publish_metadata(migration_guard(state.path, old_directory), receipt);
+  publish_metadata(shared / "migration", receipt);
+  try {
+    state.use_shared(shared);
+    state.replace(envelope, state.header.mode, true, false, document);
+  } catch (...) {
+    if (!state.fenced) {
+      state.shared_directory.clear();
+      state.auxiliary_directory = old_directory;
+    }
+    throw;
+  }
+  state.legacy_lock.swap(state.lock);
+  state.lock.swap(next_lock);
+}
+
+// Publish a complete durable checkpoint before deleting only the selected recovery generation.
+void file_journal::close(const bytes& envelope, std::span<const std::uint8_t> document) {
+  auto& state = *state_;
+  state.require_ready();
+  state.event(journal_io_event::before_retire);
+  const auto legacy_companion = state.header.mode == journal_storage_mode::sidecar ? state.append_path : std::filesystem::path{};
+  migrate_layout(envelope, document);
+  state.retiring = true;
+  try {
+    // A native saved baseline needs no sidecar. External bytes keep required metadata in state/.
+    state.replace(envelope, state.options.document_codec ? journal_storage_mode::sidecar :
+                  journal_storage_mode::appended, true, false, document);
+  } catch (...) {
+    state.retiring = false;
+    throw;
+  }
+  state.retiring = false;
+  state.writer.reset();
+  try {
+    state.event(journal_io_event::after_retire);
+    if (!legacy_companion.empty() && legacy_companion != state.append_path) {
+      std::error_code ignored;
+      native_remove(legacy_companion, ignored);
+    }
+    state.retire_obsolete();
+    // Never recurse: caches, locks, selected state and unrelated files have independent lifetimes.
+    std::error_code ignored;
+    const rohit::detail::native_file_path directory{state.auxiliary_directory};
+    std::filesystem::remove(directory.get(), ignored);
+  } catch (...) {
+    // Durable selection already succeeded. Obsolete files may be retried under future coordination.
+  }
+}
+
 // Return the monotonically increasing durable operation position, independently of history cursors.
 std::uint64_t file_journal::sequence() const noexcept {
   return state_->sequence;
@@ -1190,6 +1412,37 @@ bool file_journal::retire_document() {
       state.preparation || state.pending_manifest) { return false; }
   if (!document_matches(state.manifest, read_file(state.path, state.options))) {
     throw std::invalid_argument{"Saved document changed before journal retirement"};
+  }
+  if (!state.shared_directory.empty()) {
+    // The shared root coordinates future writers and may contain persistent caches. Only
+    // retire owned recovery/state namespaces; never unlink its stable lock or recurse.
+    const rohit::detail::native_file_path root{state.shared_directory};
+    for (const auto& item : std::filesystem::directory_iterator{root.get()}) {
+      const auto name = item.path().filename().string();
+      const auto type = item.symlink_status().type();
+      if (name == "journal" || name == "state" || name == "staging" || name == "cache") {
+        if (type != std::filesystem::file_type::directory) {
+          throw std::invalid_argument{"Journal retirement requires ordinary namespaces"};
+        }
+      } else if (type != std::filesystem::file_type::regular) {
+        throw std::invalid_argument{"Journal retirement preserves unknown non-file entries"};
+      }
+    }
+    state.fenced = true;
+    state.writer.reset();
+    state.delta.reset();
+    native_remove(state.manifest_path());
+    sync_parent_directory(state.manifest_path());
+    state.retire_obsolete();
+    std::error_code cleanup_error;
+    native_remove(state.auxiliary_directory, cleanup_error);
+    // A version-5 checkpoint is not normally active here, but preserve any unrelated
+    // state files rather than treating the entire state namespace as disposable.
+    native_remove(state.shared_directory / "state", cleanup_error);
+    sync_parent_directory(state.auxiliary_directory);
+    state.lock.reset();
+    state.legacy_lock.reset();
+    return true;
   }
   const rohit::detail::native_file_path directory{state.auxiliary_directory};
   if (std::filesystem::symlink_status(directory.get()).type() != std::filesystem::file_type::directory) {

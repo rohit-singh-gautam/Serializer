@@ -3,6 +3,7 @@
 // See LICENSE-RUNTIME for permission to use this runtime in proprietary applications.
 #pragma once
 #include <rohit/managed_memory.hpp>
+#include <rohit/cache.hpp>
 #include <rohit/managed_authorization.hpp>
 #include <rohit/managed_capabilities.hpp>
 #include <rohit/managed_changes.hpp>
@@ -2187,6 +2188,34 @@ public:
     return current_;
   }
 
+  // Bind cache reuse to exact schema, values and identities, independently of view/journal counters.
+  cache::fingerprint cache_source() const {
+    require_idle();
+    std::vector<std::uint8_t> source(Traits::schema_id.begin(), Traits::schema_id.end());
+    source.push_back(0);
+    source.insert(source.end(), snapshot_.begin(), snapshot_.end());
+    return make_digest<digest_algorithm::sha256>(source);
+  }
+
+  // Build a per-document cache key; recipe and external dependency parameters are application-owned.
+  cache::key cache_key(cache::descriptor descriptor, std::string_view recipe,
+                       std::uint64_t entity = 0, std::span<const std::uint8_t> parameters = {}) const {
+    return cache::make_key(document_.high, document_.low, entity, descriptor,
+                           cache_source(), recipe, parameters);
+  }
+
+  // Reject stale/cross-document asynchronous results before guarded, immutable runtime publication.
+  template <typename Callable>
+  [[nodiscard]] transaction_outcome publish_cache(const cache::key& expected, Callable&& callback) {
+    require_idle();
+    if (expected.document_high != document_.high || expected.document_low != document_.low ||
+        expected.source != cache_source()) {
+      return {transaction_status::failed,
+          std::make_exception_ptr(std::invalid_argument{"Cache result belongs to a different durable source"})};
+    }
+    return update_runtime(std::forward<Callable>(callback));
+  }
+
   // Build an opt-in derived catalog pinned to this document's selected immutable snapshot.
   auto registry(registry_options options = {}) const {
     check_thread();
@@ -3194,7 +3223,38 @@ public:
     admission.commit();
   }
 
-  // Read bounded native provenance without inserting application locators into authored content.
+  // Explicitly migrate a complete checkpoint while preserving both writer-lock identities.
+  void migrate_journal_layout()
+    requires(has_journal)
+  {
+    require_idle();
+    if (!journal_state_.sink) { throw std::logic_error{"Managed store has no journal"}; }
+    const auto bytes = save();
+    if (!collaboration_state_.attachment) { check_journal_envelope(bytes); }
+    const auto document = journal_state_.sink->uses_document_codec()
+        ? journal_document_snapshot() : std::vector<std::uint8_t>{};
+    journal_operation([&] { journal_state_.sink->migrate_layout(bytes, document); });
+  }
+
+  // Graceful close explicitly saves history/allocator/session state, retires recovery bytes and
+  // detaches on success. Destruction never saves; failed/uncertain publication retains recovery.
+  void close_journal()
+    requires(has_journal)
+  {
+    require_idle();
+    if (!journal_state_.sink) { throw std::logic_error{"Managed store has no journal"}; }
+    const auto bytes = save();
+    if (!collaboration_state_.attachment) { check_journal_envelope(bytes); }
+    const auto document = journal_state_.sink->uses_document_codec()
+        ? journal_document_snapshot() : std::vector<std::uint8_t>{};
+    journal_operation([&] { journal_state_.sink->close(bytes, document); });
+    journal_state_.sink.reset();
+    std::vector<std::uint8_t>{}.swap(journal_state_.saved_snapshot);
+    journal_state_.delta_count = 0;
+    resident_auxiliary_.resize(estimate_auxiliary(snapshot_, identities_, history_));
+  }
+
+  // Read checked provenance independently of authored content.
   std::vector<std::uint8_t> journal_origin() const
     requires(has_journal)
   {

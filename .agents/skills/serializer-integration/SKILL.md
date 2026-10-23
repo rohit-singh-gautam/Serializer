@@ -1,24 +1,26 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer's schema compiler and generated runtimes into applications. Use for schemas and release migration, CMake generation, native codecs, portable behavior, owner-bound defaults and bindings, callable availability, arrays/generics, borrowed/shared/weak references and typed field addresses, XML/XSD and identity contracts, restricted HTML, document profiles, bounded compression, ZIP/OPC packages, or C++ managed identity, transactions, registries, indexes, history, journals, collaboration and persistence. Review the installed version's complete supported feature set and apply every capability relevant to the user's contract; preserve APIs and wire identities, and qualify unsupported combinations."
+description: "Integrate Serializer's schema compiler and generated runtimes into applications. Use for schemas and release migration, CMake generation, native codecs, portable behavior, owner-bound defaults and bindings, callable availability, arrays/generics, borrowed/shared/weak references and typed field addresses, XML/XSD and identity contracts, restricted HTML, document profiles, bounded compression, ZIP/OPC packages, rebuildable caches, or C++ managed identity, transactions, registries, indexes, history, journals, collaboration and persistence. Review the installed version's complete supported feature set and apply every capability relevant to the user's contract; preserve APIs and wire identities, and qualify unsupported combinations."
 ---
 
 # Serializer Integration
 
 [Documentation index](../../../docs/README.md)
 
-The [cache attribute design](../../../docs/design/cache_attributes.md) proposes
-rebuildable persisted fields, optional priority defaulting to `0` (lowest retention),
-priority eviction, application-selected placement
-and cache retention after graceful-close journal retirement. Its proposed shared
-`.<filename>.serializer/` directory separates journal, cache and required state;
-current writers still use the documented `.journal/` or legacy layouts. Do not
-rename their directories manually or treat the proposed shared folder as `.tmp`.
-These are proposals, not available cache APIs or schema attributes. Keep using the
-documented `transient` contract for
-runtime-only fields; do not delete required journal companions on close with
-current APIs. Review the proposal's save/retirement requirements before planning
-an implementation; cache data and recovery metadata have different lifetimes.
+For rebuildable data, review the [owning C++ cache contract](../../../docs/design/cache_attributes.md)
+and [usage example](../../../docs/guides/usage.md#rebuildable-c-cache-fields).
+Language 1.22.0 accepts `cache` and `cache(priority = 200)`; omitted priority is `0`
+(lowest), and `255` remains disposable. Use generated `cache::fields<Owner>`
+descriptors, explicit recipe/dependency identity and an application-selected
+`cache::provider`/`directory_provider`. Consult readiness separately from defaults.
+Use `model_store::cache_key` and owner-thread `publish_cache` for exact-source
+guarded updates. Preserve existing memory-only `transient` behavior.
+New journals use `.<filename>.serializer/`; explicitly migrate older layouts with
+`migrate_journal_layout()`. Invoke fallible `close_journal()` after stopping work
+and coordinating required synchronization; destruction does not save. Keep caches,
+required external-document `state/` metadata and migration guards. Never manually
+delete required companions or treat the shared directory as `.tmp`. Non-C++ cache
+declarations diagnose; arbitrary inline/appended formats need a host provider.
 
 Use the [central pending backlog](../../../docs/pending.md) for every documented
 remaining requirement and proposal. Design guides retain contracts and rationale;
@@ -92,8 +94,8 @@ remain unavailable for that storage representation. Use a supported explicit
 ordered mapping when direct token traversal is required. Follow the
 [legacy tree checks](../../../docs/verification/verification-legacy-cpp-wildcards-2026-10-22.md).
 
-The current compiler/runtime release is **2.29.0**, with schema language
-**1.21.0**. Patch 2.28.1 restores strict GNU compilation of XML metadata,
+The current compiler/runtime release is **2.30.0**, with schema language
+**1.22.0**. Patch 2.28.1 restores strict GNU compilation of XML metadata,
 declaration prefixes and large embedded runtime literals without changing
 generated contracts or application integration.
 Release 2.29.0 adds opt-in external-document journal retirement. Use
@@ -736,8 +738,9 @@ durable values. Recovery verifies its raw-byte SHA-256 binding, companion
 generation and complete first baseline-frame extent/checksum before calling the
 decoder, restores persistent identities from side-channel metadata, and retains
 history and pending collaboration through Save. New journals keep auxiliaries in
-one `.<filename>.journal/` directory (hidden on Windows); keep the main and whole
-directory together. Legacy flat layouts continue to recover and Save in place;
+one `.<filename>.serializer/` directory (hidden on Windows), separating journal,
+cache, state and staging. Keep required metadata/coordination with the main.
+Older directory and flat layouts continue in place until explicit migration;
 do not mix older writers with the new lock layout or remove live lock files.
 Callbacks own format-specific
 parsing, resource bounds and borrowed lifetimes; do not claim automatic XML/OPC

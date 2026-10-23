@@ -12,6 +12,7 @@ TestResults/
 
 # Managed test directories can remain after an interrupted or crashing test.
 journal-test-[0-9]*/
+cache-test-[0-9]*/
 serializer-collaboration-fault-[0-9]*/
 serializer-collaboration-[0-9]*/
 collaboration-undo-[0-9]*/

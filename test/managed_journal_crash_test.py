@@ -28,14 +28,14 @@ MAX_RECORD_BYTES = 64 * 1024 * 1024
 
 def journal_directory(path):
     """Derive the single auxiliary folder from the documented document basename."""
-    return path.parent / ('.' + path.name + '.journal')
+    return path.parent / ('.' + path.name + '.serializer')
 
 
 def companion_path(path, high, low):
     """Resolve the exact selected generation in new and legacy layouts without scanning files."""
     directory = journal_directory(path)
     if directory.is_dir():
-        return directory / f'changes-{high}-{low}'
+        return directory / 'journal' / f'changes-{high}-{low}'
     return Path(f'{path}.journal-{high}-{low}')
 
 
@@ -43,7 +43,7 @@ def manifest_path(path, pending=False):
     """Keep manifest selection independent from its unchanged byte-level integrity checks."""
     directory = journal_directory(path)
     if directory.is_dir():
-        return directory / ('manifest.pending' if pending else 'manifest')
+        return directory / 'state' / ('manifest.pending' if pending else 'manifest')
     return Path(str(path) + ('.journal.pending' if pending else '.journal'))
 
 
@@ -102,7 +102,7 @@ def verify_container(path, mode, return_tags=False):
     base = path.read_bytes()
     header = struct.unpack_from("<9Q", base)
     assert header[0] == 0x00314C4E4A5A5253
-    assert header[1] in ((2,) if mode == "appended" else (2, 3))
+    assert header[1] in ((2, 4) if mode == "appended" else (2, 3, 4))
     assert header[2:4] == (1 if mode == "appended" else 2, 1)
     assert header[8] == crc64(base[:64])
     sequence = header[6]
@@ -130,7 +130,7 @@ def verify_container(path, mode, return_tags=False):
     while offset < len(base):
         sequence += 1
         offset, digest, payload = frame(base, offset, sequence, digest)
-        if header[1] == 3:
+        if header[1] >= 3 and mode == "sidecar":
             payload = decode_delta(payload, baseline)
         assert payload
         tags.append(payload[0])
@@ -201,7 +201,7 @@ def verify_document_container(path):
     assert manifest[136:136+codec_bytes] == b'application/json'
     assert struct.unpack_from('<Q', manifest, len(manifest)-8)[0] == crc64(manifest[:-8])
     header = struct.unpack_from('<9Q', manifest, 16)
-    assert header[:4] == (0x00314C4E4A5A5253, 3, 2, 1)
+    assert header[0] == 0x00314C4E4A5A5253 and header[1] in (3, 4) and header[2:4] == (2, 1)
     assert header[8] == crc64(manifest[16:80])
     companion = companion_path(path, header[4], header[5]).read_bytes()
     other = struct.unpack_from('<9Q', companion)
@@ -342,7 +342,7 @@ def main():
                             run(path, 'prepare', point, expected=86)
                         else:
                             run(path, 'prepare')
-                            proposed = (journal_directory(path) / 'save.prepared').read_bytes()
+                            proposed = (journal_directory(path) / 'state' / 'save.prepared').read_bytes()
                             assert struct.unpack_from('<2Q', proposed) == (0x33434F444A5A5253, 2)
                             assert struct.unpack_from('<Q', proposed, len(proposed)-8)[0] == crc64(proposed[:-8])
                             codec_size, = struct.unpack_from('<Q', proposed, 128)
@@ -367,7 +367,7 @@ def main():
                             assert token[136:144] == proposed[88:96]
                             assert token[144:176] == proposed[96:128]
                             high, low = struct.unpack_from('<2Q', proposed, 48)
-                            staged = journal_directory(path) / f'pending-{high}-{low}'
+                            staged = journal_directory(path) / 'staging' / f'pending-{high}-{low}'
                             proposed_document = staged.read_bytes()
                             external = Path(str(path) + '.external')
 
@@ -398,9 +398,9 @@ def main():
                         inspect(path, 'Changed 1 0 1' if published else 'Changed 1 1 1')
                         assert run(path, 'inspect_prepared') == f'{int(unresolved)} {9 if published else 0}'
                         if unresolved:
-                            proposed = (journal_directory(path) / 'save.prepared').read_bytes()
+                            proposed = (journal_directory(path) / 'state' / 'save.prepared').read_bytes()
                             high, low = struct.unpack_from('<2Q', proposed, 48)
-                            staged = journal_directory(path) / f'pending-{high}-{low}'
+                            staged = journal_directory(path) / 'staging' / f'pending-{high}-{low}'
                             Path(str(path) + '.external').write_bytes(staged.read_bytes())
                             run(path, 'confirm')
                             inspect(path, 'Changed 1 0 1')
@@ -411,9 +411,9 @@ def main():
                     run(path, 'create')
                     old_document = path.read_bytes()
                     run(path, 'prepare')
-                    proposed = (journal_directory(path) / 'save.prepared').read_bytes()
+                    proposed = (journal_directory(path) / 'state' / 'save.prepared').read_bytes()
                     high, low = struct.unpack_from('<2Q', proposed, 48)
-                    staged = journal_directory(path) / f'pending-{high}-{low}'
+                    staged = journal_directory(path) / 'staging' / f'pending-{high}-{low}'
                     assert staged.read_bytes() == old_document
                     Path(str(path) + '.external').write_bytes(old_document)
                     run(path, 'confirm', point, expected=86)

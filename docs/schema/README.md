@@ -14,6 +14,7 @@ identify unsupported combinations in their respective contracts.
 | [Optional values](optional.md) | Presence, defaults, target representations, decoding failures, and managed occurrences. |
 | [Unions and owning variants](unions_and_variants.md) | Choice declarations, owning storage, discriminator contracts, and backend limits. |
 | [Behavior and native source](behavior.md) | Portable functions, native fragments, checked expressions, and transient members. |
+| [Rebuildable caches](../design/cache_attributes.md) | Owning C++ cache declarations, optional priority, source validity, providers and close-time retention. |
 | [Value construction](construction.md) | Typed constructors and factories, concrete/generic parameter defaults, numeric bindings, authoring hooks, and transient layout. |
 | [Array and callable APIs](array_and_callable_api.md) | Explicit array exposure/axes, native borrowing, logical helpers, owner field factories, availability, typed bindings and richer signatures. |
 | [Owning record APIs](owning_api.md) | Readonly getters, direct initialization, nested defaults, reciprocal signatures and arithmetic mappings. |

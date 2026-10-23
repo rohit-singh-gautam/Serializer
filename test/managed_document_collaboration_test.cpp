@@ -193,6 +193,37 @@ TEST_F(managed_document_collaboration, retirement_and_discard_do_not_unsend_ackn
   EXPECT_EQ(authority_.read()->name, "Original"); EXPECT_EQ(transport_.requests.size(), 2u);
 }
 
+// Graceful close retires recovery bytes while preserving the exact unsent session and native IDs.
+TEST_F(managed_document_collaboration, close_retains_unsent_state_and_sends_once) {
+  const auto options = json_options();
+  std::uint32_t child_id{};
+  bytes expected;
+  {
+    store_type store{ledger{}};
+    attach(store);
+    store.synchronize();
+    store.create_journal(path_, managed::journal_storage_mode::sidecar, options);
+    store.execute_transaction([&](auto& edit) {
+      child_id = edit.root().entries().insert(100, {"Pending close", 500});
+    }).throw_if_failed();
+    expected = store.save();
+    store.close_journal();
+    EXPECT_FALSE(std::filesystem::exists(rohit::cache::companion_directory(path_) / "journal"));
+    EXPECT_EQ(authority_.sequence(), 0u);
+  }
+  store_type reopened{ledger{}};
+  attach(reopened);
+  reopened.recover_journal(path_, options);
+  EXPECT_EQ(reopened.save(), expected);
+  EXPECT_EQ(reopened.collaboration().pending_count(), 1u);
+  EXPECT_EQ(reopened.read()->entries.at(100).persistent_id, child_id);
+  reopened.synchronize();
+  EXPECT_EQ(authority_.sequence(), 1u);
+  EXPECT_EQ(transport_.requests.size(), 1u);
+  EXPECT_EQ(reopened.collaboration().pending_count(), 0u);
+  reopened.close_journal();
+}
+
 // Saving an accepted request with a lost reply preserves identical retry bytes across restart.
 TEST_F(managed_document_collaboration, save_and_reopen_preserve_exact_lost_reply_retry) {
   auto options = json_options(); options.allow_document_retirement = true;

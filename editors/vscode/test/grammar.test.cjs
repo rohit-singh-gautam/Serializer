@@ -5,6 +5,19 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
+test('language 1.22 cache declarations scope optional priorities without hiding owning types', async () => {
+  const grammar = await loadGrammar();
+  const lines = ['serializer version 1.22.0; class model {',
+    'public cache uint64 count {0};', 'public cache(priority = 200) lib::preview thumbnail;', '}'];
+  let state = INITIAL;
+  const tokens = lines.map(line => { const result = grammar.tokenizeLine(line, state); state = result.ruleStack; return result.tokens; });
+  const scope = (line, word) => tokens[line].find(token => token.startIndex <= lines[line].indexOf(word) && token.endIndex > lines[line].indexOf(word)).scopes.at(-1);
+  assert.equal(scope(1, 'cache'), 'storage.modifier.serializer');
+  assert.equal(scope(2, 'cache'), 'storage.modifier.serializer');
+  assert.equal(scope(2, '200'), 'constant.numeric.serializer');
+  assert.equal(state.depth, 1);
+});
+
 test('language 1.20 managed entity tokens and class identities retain type and numeric scopes', async () => {
   const grammar = await loadGrammar();
   const lines = ['serializer version 1.20.0; class owner managed class_id(18446744073709551615) {',

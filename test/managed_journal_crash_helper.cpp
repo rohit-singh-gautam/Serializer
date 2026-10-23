@@ -54,7 +54,9 @@ managed::journal_io_event parse_event(std::string_view name) {
       {"before_prepare_publish", event::before_prepare_publish},
       {"after_prepare_publish", event::after_prepare_publish},
       {"before_confirm", event::before_confirm},
-      {"after_confirm_decision", event::after_confirm_decision}};
+      {"after_confirm_decision", event::after_confirm_decision},
+      {"before_retire", event::before_retire},
+      {"after_retire", event::after_retire}};
   for (const auto& [text, value] : events) {
     if (name == text) {
       return value;
@@ -113,6 +115,13 @@ int main(int argc, char** argv) {
       store.undo();
     } else if (operation == "save") {
       store.save_journal();
+    } else if (operation == "close") {
+      rohit::cache::directory_options cache_options;
+      cache_options.reserve_free_bytes = 0;
+      rohit::cache::directory_provider cache{
+          rohit::cache::companion_directory(path) / "cache", cache_options};
+      cache.publish(store.cache_key({"crash.preview", 200}, "v1"), std::vector<std::uint8_t>{1, 2, 3});
+      store.close_journal();
     } else if (operation == "prepare") {
       store.prepare_journal_save(std::vector<std::uint8_t>{9});
     } else if (operation == "confirm") {

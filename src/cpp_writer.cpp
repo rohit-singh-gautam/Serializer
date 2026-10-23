@@ -5930,6 +5930,7 @@ public:
                      "#include <rohit/digest.hpp>\n");
     if (!managed_.empty()) { out_stream.write("#include <rohit/managed.hpp>\n#include <optional>\n"); }
     else if (managed_.has_references()) { out_stream.write("#include <rohit/managed_reference.hpp>\n"); }
+    if (managed_.has_caches()) { out_stream.write("#include <rohit/cache_codec.hpp>\n"); }
     if (protobuf_enabled) { out_stream.write("#include <rohit/protobuf.hpp>\n"); }
     if (xml_options_.enabled) {
       out_stream.write("#include <rohit/xml.hpp>\n#include <rohit/xml_tokens.hpp>\n#include <rohit/xml_lexical_contract.hpp>\n#include <rohit/xml_pattern.hpp>\n#include <rohit/xml_choice_contract.hpp>\n");

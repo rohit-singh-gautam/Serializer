@@ -15,7 +15,7 @@ guides for supported APIs.
 | Document | Status and purpose |
 | --- | --- |
 | [Schema-declared indexes and typed queries](schema_indexes.md) | Proposed automatic indexes, typed/composite queries and snapshot caching; generic/precise B-tree, hash, bitmap, BRIN, GiST, GIN and R-tree selections, richer operator types and time-series analysis. No new index syntax or query API is implemented. |
-| [Rebuildable cache attributes and storage](cache_attributes.md) | Proposed disposable derived fields, retention priority, application-selected placement, shared `.serializer/` companion directory and cache survival after graceful-close journal retirement; no implementation or new syntax is available. |
+| [Rebuildable cache attributes and storage](cache_attributes.md) | Owning C++ cache fields, bounded provider/rebuild APIs, optional retention priority, shared `.serializer/` layout, explicit migration and graceful-close retirement; see the dated qualification record for actual scope. |
 | [Dimension templates and fixed arrays](generic_dimension_templates.md) | Historical implementation specification with accepted scope and qualification links; see the current [generics guide](../schema/generics.md) for implemented behavior. |
 | [Low-memory paged indexing](paged_indexing.md) | Research and proposed disk-backed indexing, recovery, bounded construction, and lazy storage; no paged backend is implemented or measured. |
 | [Durable database integration requirements](database_storage_requirements.md) | Proposed C++23, prepare/durable-accept/publication, structured changes, incremental storage, security-sensitive profiles, retention and acceptance requirements; no implementation or benchmark evidence. |

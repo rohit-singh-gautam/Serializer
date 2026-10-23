@@ -39,11 +39,22 @@ features and genuine library work.
 | Coordinate edits across clients | C++ collaboration and authority policy hooks | [Local collaboration](docs/managed/local_collaboration.md) |
 | Resolve typed entities and application keys | Opt-in C++ snapshot registries and field indexes | [State registries](docs/managed/state_registry.md) |
 | Explore mostly-disk indexes | Proposed paged backend and database comparison | [Paged indexing](docs/design/paged_indexing.md) |
-| Discuss rebuildable persistent caches | Proposed optional priority (default `0`, lowest), shared `.serializer/` folder and close-time lifetime | [Cache attribute design](docs/design/cache_attributes.md) |
+| Retain rebuildable C++ caches | Optional priority (default `0`, lowest), application-selected providers and graceful-close retention | [Cache contract](docs/design/cache_attributes.md) |
 
 Selected compression framing, errors and byte/history admission now pass one shared corpus across all eleven outputs: 15,400 decisions, 2,904 owning exchanges and independent standard-frame checks. The [qualification record](docs/verification/verification-compression-parity-2026-10-20.md) identifies the actual compiler/runtime captures, provider deployments and scope.
 
 ## Releases and supported outputs
+
+Compiler/runtime **2.30.0**, schema language **1.22.0**, adds owning C++ `cache`
+fields, generated descriptors, bounded optional persistence, exact-source guarded
+publication and priority reclamation. New journals use `.<filename>.serializer/`
+with separate journal, cache and durable-state namespaces. Explicit
+`close_journal()` saves required state before retiring recovery data, preserving
+caches; legacy layouts have an explicit migration API. Existing payload IDs,
+bytes and transient behavior remain compatible. Both editor packages are
+**2.0.12**. See the [cache contract](docs/design/cache_attributes.md),
+[usage example](docs/guides/usage.md#rebuildable-c-cache-fields) and
+[qualification record](docs/verification/verification-cache-2026-10-23.md).
 
 Compiler/runtime **2.29.0** adds explicit retirement of disposable C++ external
 document journals. `journal_options::allow_document_retirement` is opt-in and
@@ -182,10 +193,10 @@ Regenerate Python package facades for cancellation checks after Save hooks:
 pre-publication cancellation preserves the old file; a failure after replacement
 reports `publication_uncertain` with the complete new archive retained.
 
-The current compiler and runtime release is **2.29.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.30.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
-compatibility across major releases. The schema language version is **1.21.0**;
+compatibility across major releases. The schema language version is **1.22.0**;
 see [release and schema versions](docs/guides/command_line.md).
 
 Release **2.21.0** adds [C++ OPC core-property adapters](docs/serialization/core_properties.md),
@@ -261,7 +272,7 @@ Release **2.17.0** adds [generated package policies and application references](
 Generated [C](docs/languages/c_packages.md), [Rust](docs/languages/rust_packages.md)
 and [Swift](docs/languages/swift_packages.md) outputs now provide bounded owning
 ZIP/OPC facades, typed loading, preservation and staged Save. Both editor packages
-are **2.0.11** and recognize language **1.21.0** package declarations.
+are **2.0.12** and recognize language **1.22.0** cache fields and earlier package declarations.
 Version 2.28 composes C/Rust XML document companions with typed package roles.
 Language 1.21 declarations select fixed/default ZIP storage and scoped typed keys
 and references. Runtime storage overrides retain declared XML/model identities;
@@ -665,7 +676,7 @@ regenerate through their build rules. Supported 1.x schema headers, generated
 model names, runtime APIs and wire contracts retain their existing behavior;
 see [2.0 migration](migration.md#compilerruntime-200).
 
-Use `serializer version 1.21.0;` for new schemas. Older 1.x schemas through
+Use `serializer version 1.22.0;` for new schemas. Older 1.x schemas through
 `1.20.0` remain supported. The original
 `serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
 version 1. Future versions require all three components; see the

@@ -206,6 +206,16 @@
     "body": "public transient uint64 ${1:token_cache_key} {0};",
     "description": "Keep normal in-memory state outside wire formats and managed history"
   },
+  "Cache member": {
+    "prefix": "cache",
+    "body": "public cache ${1:uint64} ${2:derived_count} {0};",
+    "description": "Declare rebuildable C++ owning cache data with optional priority defaulting to 0; requires schema language 1.22.0"
+  },
+  "Prioritized cache member": {
+    "prefix": "cache-priority",
+    "body": "public cache(priority = ${1:200}) ${2:string} ${3:preview};",
+    "description": "Retain higher-priority disposable cache data longer; priority is 0..255, not a durability guarantee"
+  },
   "Native method": {
     "prefix": "functioncpp",
     "body": [

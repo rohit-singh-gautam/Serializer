@@ -39,6 +39,7 @@ constexpr std::size_t base_digest_word = 7;
 constexpr std::size_t header_checksum_word = 8;
 constexpr std::uint64_t legacy_version = 2;
 constexpr std::uint64_t differential_version = 3;
+constexpr std::uint64_t shared_version = 4;
 constexpr std::uint64_t sidecar_mode = 2;
 constexpr std::uint64_t companion_kind = 2;
 constexpr std::uint64_t delta_magic = 0x3141544c444a5253;
@@ -133,7 +134,7 @@ captured_sidecar capture_sidecar(const std::filesystem::path& path) {
   result.baseline.assign(baseline->payload.begin(), baseline->payload.end());
   managed::detail::journal_delta_base dictionary{result.baseline};
   result.physical = read_bytes(companion_path(path, main));
-  const bool differential = managed::detail::get_word(main, version_word) == differential_version;
+  const bool differential = managed::detail::get_word(main, version_word) >= differential_version;
   auto offset = file_header_bytes;
   auto digest = baseline->digest;
   while (offset < result.physical.size()) {
@@ -156,7 +157,8 @@ void create_legacy_sidecar(const std::filesystem::path& source,
                             const std::filesystem::path& destination) {
   auto appended = read_bytes(source);
   if (appended.size() < file_header_bytes ||
-      managed::detail::get_word(appended, version_word) != legacy_version ||
+      (managed::detail::get_word(appended, version_word) != legacy_version &&
+       managed::detail::get_word(appended, version_word) != shared_version) ||
       managed::detail::get_word(appended, mode_word) != 1) {
     throw std::invalid_argument{"Legacy fixture source must be a version-two appended file"};
   }
@@ -166,6 +168,7 @@ void create_legacy_sidecar(const std::filesystem::path& source,
     throw std::invalid_argument{"Legacy fixture source has no complete base"};
   }
   bytes main(appended.begin(), appended.begin() + static_cast<std::ptrdiff_t>(baseline->end_offset));
+  managed::detail::journal_put_word(main, version_word * wire_word_bytes, legacy_version);
   managed::detail::journal_put_word(main, mode_word * wire_word_bytes, sidecar_mode);
   refresh_header_checksum(main);
   bytes companion(main.begin(), main.begin() + file_header_bytes);
@@ -216,7 +219,7 @@ TEST_F(managed_sidecar_test, default_records_reference_large_original_and_recove
     store_type store{ledger{"Base", {{10, {payload, 200}}}}};
     store.create_journal(path_, managed::journal_storage_mode::sidecar);
     original = read_bytes(path_);
-    EXPECT_EQ(managed::detail::get_word(original, version_word), differential_version);
+    EXPECT_EQ(managed::detail::get_word(original, version_word), shared_version);
     const auto companion = companion_path(path_, original);
     EXPECT_EQ(std::filesystem::file_size(companion), file_header_bytes);
     auto previous_size = std::filesystem::file_size(companion);

@@ -121,9 +121,17 @@ TEST_F(managed_document_journal, retire_clean_document_removes_disposable_histor
   store_type store{ledger{"Base"}};
   store.create_journal(path_, mode::sidecar, options);
   const auto original = read_document_bytes(path_);
+  const auto cache_directory = journal_test_paths::directory(path_) / "cache";
+  rohit::cache::directory_provider cache{cache_directory};
+  const auto identity = rohit::cache::make_key(1, 2, 0, {"retirement.fixture", 200}, {}, "v1");
+  const bytes cached{1, 2, 3};
+  cache.publish(identity, cached);
   EXPECT_TRUE(store.retire_journal());
   EXPECT_EQ(read_document_bytes(path_), original);
-  EXPECT_FALSE(std::filesystem::exists(journal_test_paths::directory(path_)));
+  ASSERT_TRUE(cache.lookup(identity));
+  EXPECT_EQ(cache.lookup(identity)->value, cached);
+  EXPECT_FALSE(std::filesystem::exists(journal_test_paths::directory(path_) / "journal"));
+  EXPECT_FALSE(std::filesystem::exists(journal_test_paths::directory(path_) / "state" / "manifest"));
   EXPECT_TRUE(store.journal_needs_recovery());
   EXPECT_THROW(store.save_journal(), managed::journal_indeterminate_error);
 }
@@ -139,7 +147,7 @@ TEST_F(managed_document_journal, retirement_can_keep_session_history_in_memory) 
   const auto document = store.document(); const auto allocated = store.allocated_id();
   EXPECT_TRUE(store.retire_journal(true));
   EXPECT_FALSE(store.journal_attached());
-  EXPECT_FALSE(std::filesystem::exists(journal_test_paths::directory(path_)));
+  EXPECT_FALSE(std::filesystem::exists(journal_test_paths::directory(path_) / "journal"));
   store.create_journal(path_, mode::sidecar, options);
   store.undo();
   EXPECT_TRUE(store.journal_dirty());
@@ -683,7 +691,9 @@ TEST_F(managed_document_journal, legacy_flat_layout_recovers_and_stays_flat) {
   const auto folder = journal_test_paths::directory(path_);
   // Build an old-runtime fixture only after every native handle has closed.
   std::vector<std::filesystem::path> components;
-  for (const auto& item : std::filesystem::directory_iterator{folder}) { components.push_back(item.path()); }
+  for (const auto& item : std::filesystem::recursive_directory_iterator{folder}) {
+    if (item.is_regular_file()) { components.push_back(item.path()); }
+  }
   for (const auto& component : components) {
     const auto name = component.filename().string();
     auto destination = path_;
@@ -693,6 +703,7 @@ TEST_F(managed_document_journal, legacy_flat_layout_recovers_and_stays_flat) {
     else { FAIL() << "Unexpected legacy fixture component: " << name; }
     std::filesystem::rename(component, destination);
   }
+  for (const auto* name : {"journal", "state", "staging"}) { std::filesystem::remove(folder / name); }
   ASSERT_TRUE(std::filesystem::remove(folder));
   {
     store_type recovered{ledger{}};
@@ -723,10 +734,10 @@ TEST_F(managed_document_journal, document_metadata_stays_inside_one_directory) {
     store.save_journal();
   }
   EXPECT_EQ(decode_document<codec::json>(read_document_bytes(path_)).name, "Changed");
-  EXPECT_TRUE(std::filesystem::exists(folder / "manifest"));
+  EXPECT_TRUE(std::filesystem::exists(folder / "state" / "manifest"));
   EXPECT_TRUE(std::filesystem::exists(folder / "writer.lock"));
   EXPECT_EQ(static_cast<std::size_t>(std::distance(std::filesystem::directory_iterator{folder},
-      std::filesystem::directory_iterator{})), 3U);
+      std::filesystem::directory_iterator{})), 4U);
 }
 
 // An ambiguous flat/directory pair is rejected before any decode or publication can choose wrong state.
@@ -755,8 +766,8 @@ TEST_F(managed_document_journal, unicode_document_basename_keeps_its_own_auxilia
     store_type store{ledger{"Saved"}};
     store.create_journal(path_, mode::sidecar, options);
   }
-  const auto folder = directory_ / std::filesystem::path{u8".r\u00e9sum\u00e9.json.journal"};
-  EXPECT_TRUE(std::filesystem::exists(folder / "manifest"));
+  const auto folder = directory_ / std::filesystem::path{u8".r\u00e9sum\u00e9.json.serializer"};
+  EXPECT_TRUE(std::filesystem::exists(folder / "state" / "manifest"));
   store_type recovered{ledger{}};
   EXPECT_NO_THROW(recovered.recover_journal(path_, options));
   EXPECT_EQ(recovered.read()->name, "Saved");
@@ -1004,7 +1015,7 @@ TEST_F(managed_document_journal, prepared_bindings_reject_foreign_stale_and_corr
   }
   const auto folder = journal_test_paths::directory(path_);
   std::filesystem::path staged;
-  for (const auto& entry : std::filesystem::directory_iterator(folder)) {
+  for (const auto& entry : std::filesystem::directory_iterator(folder / "staging")) {
     if (entry.path().filename().string().starts_with("pending-") && entry.path().extension() != ".manifest") {
       staged = entry.path();
     }

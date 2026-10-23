@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.29.0 LANGUAGES CXX)
+project(serializer VERSION 2.30.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
-set(serializer_schema_language_version 1.21.0)
+set(serializer_schema_language_version 1.22.0)
 string(REPLACE "." ";" serializer_schema_language_version_components
   "${serializer_schema_language_version}")
 list(GET serializer_schema_language_version_components 0 serializer_schema_language_version_major)
@@ -50,6 +50,9 @@ endif()
 
 # Application support is permissively licensed and contains no schema compiler code.
 add_library(serializer_runtime
+  src/cache.cpp
+  include/rohit/cache.hpp
+  include/rohit/cache_codec.hpp
   src/digest.cpp
   include/rohit/digest.hpp
   src/file_stream.cpp

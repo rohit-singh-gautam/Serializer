@@ -99,7 +99,7 @@ stored records; it does not run editing callbacks again.
 | Storage mode | Files |
 | --- | --- |
 | `journal_storage_mode::appended` | The saved baseline and later records share a document file; its journal directory holds the stable writer lock and staging. |
-| `journal_storage_mode::sidecar` | The baseline has a separate journal companion; keep the main and entire `.<filename>.journal/` directory when moving it. Legacy flat layouts stay supported. |
+| `journal_storage_mode::sidecar` | The baseline has a separate journal companion; keep the main and required `.<filename>.serializer/` state/coordination when moving it. Older directory/flat layouts stay supported; explicit migration retains legacy guards. |
 
 Durability and the user's Save state are separate. An edit can be recoverable
 while `journal_dirty()` remains true. `save_journal()` updates the saved baseline;

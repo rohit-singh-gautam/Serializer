@@ -90,6 +90,7 @@ class managed_writer {
   std::vector<const class_node*> editor_classes{};
   std::vector<const class_node*> visiting_editors{};
   std::vector<managed_class> managed_classes{};
+  std::vector<const class_node*> cache_classes{};
   std::map<const class_node*, std::uint64_t> managed_hashes{};
   bool has_declared_references_{};
   mutable std::map<const class_node*, bool> reference_presence_{};
@@ -343,12 +344,68 @@ class managed_writer {
     }
     std::vector<const class_node*> classes;
     collect_classes(statements, classes);
+    // A cache owns its complete disposable graph; references and hidden host storage cannot persist.
+    for (const auto* source : classes) {
+      if (!std::any_of(source->member_list.begin(), source->member_list.end(),
+          [](const auto& field) { return field.cached; })) { continue; }
+      if (source->storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+          (source->attributes & class_attributes::packed) == class_attributes::packed || source->reference) {
+        throw std::invalid_argument{"Cache fields require unpacked owning C++ records"};
+      }
+      std::set<const class_node*> visited;
+      const auto check_type = [&](auto&& self, const serializer::type_name& type) -> void {
+        if (type.contains_managed_reference()) {
+          throw std::invalid_argument{"Cache fields cannot contain managed references"};
+        }
+        for (const auto& argument : type.arguments) { self(self, argument); }
+        const auto* node = type.resolved_node;
+        if (!node || node->type != object_type::class_type) { return; }
+        const auto* record = static_cast<const class_node*>(node);
+        if (!visited.insert(record).second) { return; }
+        if (record->supports_managed() || record->reference ||
+            (record->attributes & class_attributes::packed) == class_attributes::packed ||
+            record->storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+            std::any_of(record->native_blocks.begin(), record->native_blocks.end(),
+                [](const auto& block) { return !block.no_instance_storage; })) {
+          throw std::invalid_argument{"Cache graphs require inspectable owning values without identities"};
+        }
+        for (const auto& base : record->parents) {
+          serializer::type_name base_type{std::string{base.parent_class->name}, base.parent_class->parent_namespace};
+          base_type.resolved_node = base.parent_class;
+          self(self, base_type);
+        }
+        for (const auto& child : record->member_list) {
+          if (child.managed || child.value_reference ||
+              (child.modifier == member::modifier_type::variant && !child.owning_variant)) {
+            throw std::invalid_argument{"Cache graphs cannot contain references, identities or raw unions"};
+          }
+          for (const auto& child_type : child.type_name_list) { self(self, child_type); }
+          if (child.key_type) { self(self, *child.key_type); }
+        }
+      };
+      for (const auto& field : source->member_list) {
+        if (!field.cached) { continue; }
+        if (field.value_reference || field.wire_only ||
+            (field.modifier == member::modifier_type::variant && !field.owning_variant)) {
+          throw std::invalid_argument{"Cache fields require an ordinary owning value"};
+        }
+        for (const auto& type : field.type_name_list) { check_type(check_type, type); }
+        if (field.key_type) { check_type(check_type, *field.key_type); }
+      }
+      cache_classes.push_back(source);
+    }
     const auto inspect_references = [&](auto&& self, const auto& nodes) -> void {
       for (const auto& node : nodes) {
         if (node->type == object_type::namespace_type) {
           self(self, static_cast<const namespace_node&>(*node).statements);
         } else if (node->type == object_type::class_type || node->type == object_type::generic_definition) {
           const auto* record = static_cast<const class_node*>(node.get());
+          if (node->type == object_type::generic_definition &&
+              std::any_of(record->member_list.begin(), record->member_list.end(),
+                  [](const auto& field) { return field.cached; })) {
+            throw std::invalid_argument{
+                "Cache descriptors require a concrete owning declaration, not an open generic definition"};
+          }
           for (const auto& field : record->member_list) {
             has_declared_references_ = has_declared_references_ || std::any_of(
                 field.type_name_list.begin(), field.type_name_list.end(),
@@ -903,9 +960,10 @@ class managed_writer {
     for (const auto& field : source->member_list) {
       const auto name = field_name(field.name);
       if (field.transient) {
+        const auto initial = field.cached ? writer_.default_value(field) : field.default_value;
         write_managed_text(output, "    value.", name, " = ",
-            copy ? "source." + name : field.default_value.empty() ? "decltype(value." + name + "){}" :
-              "decltype(value." + name + "){" + field.default_value + "}", ";\n");
+            copy ? "source." + name : initial.empty() ? "decltype(value." + name + "){}" :
+              "decltype(value." + name + "){" + initial + "}", ";\n");
         continue;
       }
       if (field.owning_variant) {
@@ -1264,6 +1322,25 @@ class managed_writer {
     write_managed_text(output, "  }\n");
   }
 
+  // Publish separate cache descriptors without allocating payload IDs or changing codec layouts.
+  void write_cache_fields(auto& output, const class_node* storage, const class_node* source) {
+    const auto type = full_type_name(storage);
+    write_managed_text(output, "namespace rohit::cache {\n"
+        "// Generated optional-cache bindings; use runtime editors for managed publication.\n"
+        "template<> struct fields<", type, "> {\n");
+    for (const auto& field : source->member_list) {
+      if (!field.cached) { continue; }
+      const auto name = field_name(field.name);
+      write_managed_text(output,
+          "  // Identify and access this disposable field independently of durable wire metadata.\n"
+          "  static constexpr auto ", function_name(field.name), "() {\n"
+          "    return ::rohit::cache::member<", type, ", decltype(", type, "::", name,
+          ")>{{\"", class_identity(source), "::", field.name, "\", ", static_cast<std::uint32_t>(field.cache_priority),
+          "}, &", type, "::", name, "};\n  }\n");
+    }
+    write_managed_text(output, "};\n}\n");
+  }
+
   // Generate all companions and traits; no handwritten adapters are required by consumers.
   void write_managed(auto& output) {
     for (const auto& item : managed_classes) {
@@ -1291,6 +1368,13 @@ class managed_writer {
       }
       writer_.write_reusable_unit(output, "managed-editor:" + full_type_name(source),
           {reinterpret_cast<const char*>(unit_output.begin()), unit_output.current_offset()});
+    }
+    for (const auto* source : cache_classes) {
+      if (!writer_.owns_source(source)) { continue; }
+      write_cache_fields(output, source, source);
+      if (separate_values_ && source->supports_managed()) {
+        write_cache_fields(output, managed_for(source).data.get(), source);
+      }
     }
     for (const auto& item : managed_classes) {
       full_stream_auto_alloc unit_output{};
@@ -1522,6 +1606,9 @@ public:
     for (const auto& item : managed_classes) {
       if (item.data.get() == source) { original = item.source; break; }
     }
+    if (std::find(cache_classes.begin(), cache_classes.end(), original) != cache_classes.end()) {
+      write_managed_text(output, "  template<class> friend struct ::rohit::cache::fields;\n");
+    }
     if (std::find(editor_classes.begin(), editor_classes.end(), original) == editor_classes.end()) {
       return;
     }
@@ -1548,6 +1635,8 @@ public:
   bool empty() const {
     return managed_classes.empty();
   }
+  // Include the optional cache metadata API only when a declaration actually uses it.
+  bool has_caches() const { return !cache_classes.empty(); }
   // Emit companions after their ordinary payload declarations.
   void write(auto& output) {
     write_managed(output);

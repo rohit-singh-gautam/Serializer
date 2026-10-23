@@ -11,6 +11,7 @@ indexes below link to the full reference and recorded verification.
 | Find any documented pending requirement | [Central pending backlog](pending.md) | Stable task IDs, implementation/proposal status, source contracts and verification gates |
 | Evolve stored data | [Payload versioning](schema/versioning.md) | [Schema compatibility](schema/schema_evolution.md), [wire contract](serialization/wire_format.md) |
 | Edit application state with undo and recovery | [Managed-state quick start](managed/getting_started.md) | [C++ runtime](managed/cpp_runtime.md), [journaling](managed/journal.md), [local collaboration](managed/local_collaboration.md) |
+| Retain rebuildable derived data | [C++ cache usage](guides/usage.md#rebuildable-c-cache-fields) | [Cache validity, providers, priority and lifecycle](design/cache_attributes.md) |
 | Review automatic indexing and search design | [Schema-index proposal](design/schema_indexes.md) | [Existing registry APIs](managed/state_registry.md), [paged-index proposal](design/paged_indexing.md) |
 | Set up schema editing and navigation | [Editor extensions](editors/editor_extension.md) | [Navigation coverage](editors/editor_navigation.md), [generated-header IntelliSense](editors/intellisense.md) |
 | Integrate through a coding agent | [Agent integration](guides/agent_integration.md) | [Canonical integration skill](../.agents/skills/serializer-integration/SKILL.md) |

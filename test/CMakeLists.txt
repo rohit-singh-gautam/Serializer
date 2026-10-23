@@ -89,6 +89,34 @@ endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
 
+if(SERIALIZER_BUILD_MANAGED)
+  add_executable(cache_attributes_test cache_attributes_test.cpp)
+  serializer_generate(TARGET cache_attributes_test SCHEMAS resources/cache_attributes.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/cache_attributes")
+  target_link_libraries(cache_attributes_test PRIVATE Serializer::serializer_lib Serializer::managed GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(cache_attributes_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(cache_attributes_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME cache_attributes_test COMMAND cache_attributes_test)
+  foreach(cache_profile IN ITEMS direct64 separate32 separate64)
+    add_executable(cache_attributes_${cache_profile}_test cache_attributes_test.cpp)
+    serializer_generate(TARGET cache_attributes_${cache_profile}_test
+      SCHEMAS resources/cache_attributes.serializer
+      CONFIG "resources/cache_${cache_profile}.ini"
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/cache_${cache_profile}")
+    target_link_libraries(cache_attributes_${cache_profile}_test PRIVATE
+      Serializer::serializer_lib Serializer::managed GTest::gtest_main)
+    if(MSVC)
+      target_compile_options(cache_attributes_${cache_profile}_test PRIVATE /W4 /WX)
+    else()
+      target_compile_options(cache_attributes_${cache_profile}_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME cache_attributes_${cache_profile}_test COMMAND cache_attributes_${cache_profile}_test)
+  endforeach()
+endif()
+
 add_executable(xml_event_test xml_event_test.cpp)
 target_link_libraries(xml_event_test PRIVATE Serializer::runtime GTest::gtest_main)
 if(MSVC)
@@ -1158,6 +1186,8 @@ if(SERIALIZER_BUILD_MANAGED)
     SCHEMAS ../example/managed/ledger/ledger.serializer
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_journal_crash")
   target_link_libraries(managed_journal_crash_helper PRIVATE Serializer::managed)
+    add_executable(cache_crash_helper cache_crash_helper.cpp)
+    target_link_libraries(cache_crash_helper PRIVATE Serializer::runtime)
   if(MSVC)
     target_compile_options(managed_journal_crash_helper PRIVATE /W4 /WX)
   else()
@@ -1165,6 +1195,11 @@ if(SERIALIZER_BUILD_MANAGED)
   endif()
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)
+      add_test(NAME cache_crash_test
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/cache_crash_test.py"
+          --cache-helper "$<TARGET_FILE:cache_crash_helper>"
+          --journal-helper "$<TARGET_FILE:managed_journal_crash_helper>"
+          --directory "${CMAKE_CURRENT_BINARY_DIR}/cache_crash")
     add_test(NAME managed_journal_crash_test
       COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/managed_journal_crash_test.py"
         --helper "$<TARGET_FILE:managed_journal_crash_helper>"

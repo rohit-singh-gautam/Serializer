@@ -1,5 +1,17 @@
 # Journal and crash recovery
 
+Compiler/runtime 2.30.0 adds cache fields and the shared `.serializer/` companion
+layout. Explicit `close_journal()` saves all required native state before retiring
+recovery data and retains caches. It also retains external-document identity,
+history and provenance in `state/`, independently of the self-contained-format
+assertion required by `retire_journal()`. See the
+[cache and close contract](../design/cache_attributes.md).
+
+The current qualification passes on native Windows and native Linux storage.
+WSL mounted-Windows storage exhibits permission failures during journal atomic
+replacement; it is not qualified for this lifecycle. See the
+[filesystem evidence](../verification/verification-cache-2026-10-23.md).
+
 Compiler/runtime 2.29.0 adds explicit opt-in retirement of clean external-document
 companions through `model_store::retire_journal()`. It changes no record or
 container version. The saved external format must independently retain native
@@ -256,12 +268,17 @@ complete-envelope behavior; this stream refactor does not change history retenti
 
 ## Durable decisions and files
 
-New journals group every auxiliary file in one `.<filename>.journal/` directory
-beside the main file. It is dot-prefixed and hidden on Windows. Existing flat
-layouts remain supported and continue writing their original filenames; there
-is no automatic live migration. Simultaneous new-layout and legacy metadata
-rejects. Move the closed main with its entire journal directory, and do not mix
-older writers with the new directory/lock protocol.
+New 2.29 journals use `.<filename>.serializer/` beside the main file, dot-prefixed
+and hidden on Windows. The stable `writer.lock` is at that root; recovery
+companions are in `journal/`, external manifests and prepared-publication metadata
+in `state/`, and publication staging in `staging/`. Applications may place optional
+cache providers in `cache/`. This shared directory survives graceful close.
+Existing `.journal/` and flat layouts remain supported in place. Explicit
+`migrate_journal_layout()` publishes a complete shared checkpoint while retaining
+old/new lock guards and matched migration receipts; unexplained coexistence
+rejects. Move closed documents with all required state and retained migration
+guards. Older writers must not operate on the new layout/container versions.
+See [the complete cache/lifecycle contract](../design/cache_attributes.md).
 
 One store owns the document through its stable `writer.lock` in that directory
 (legacy: `<path>.lock`). Windows uses an
@@ -274,7 +291,8 @@ exist. External file modifications are unsupported.
 In appended mode, `<path>` contains the base header and base envelope frame,
 followed by committed snapshot/control frames. In sidecar mode, `<path>` contains only the
 base header and frame. Its generation selects
-`changes-<generation_high>-<generation_low>` inside the directory (legacy:
+`journal/changes-<generation_high>-<generation_low>` inside the shared directory (older directory:
+`changes-<generation_high>-<generation_low>`; legacy flat:
 `<path>.journal-<generation_high>-<generation_low>`), which contains a matching
 header and subsequent frames. A missing sidecar fails recovery, including an empty
 one; a stale or substituted sidecar cannot be attached by filename alone.
@@ -292,6 +310,16 @@ the generation selected by the base. Automatic scanning/deletion of crash leftov
 is not implemented. Cleanup failure cannot invalidate a successful Save.
 
 ### External main-file formats
+
+`close_journal()` explicitly saves and retires required recovery records after
+durable publication; destructors do not save. Native closed state is a complete
+baseline without a selected sidecar. External closed state retains a version-5
+immutable `state/snapshot-<generation>` selected by its manifest, preserving native
+identities, allocator state, history, provenance and pending session dependencies.
+Recovery validates that checkpoint before starting a fresh version-4 journal.
+Caches remain independent. Failed/uncertain publication retains recovery or fences
+the writer; post-publication cleanup failure can leave identifiable obsolete
+files. Never implement close by deleting the whole companion directory.
 
 Set `journal_options.document_codec` using
 `make_journal_document_codec<Root>(format_id, encode, decode)` from

@@ -148,6 +148,16 @@ private:
     }
     // Forward the underlying document projection requirement to the owning store.
     bool uses_document_codec() const noexcept override { return sink->uses_document_codec(); }
+    // Keep complete native model/session/outbox dependencies during explicit layout migration.
+    void migrate_layout(const std::vector<std::uint8_t>& bytes,
+                        std::span<const std::uint8_t> document) override {
+      sink->migrate_layout(bytes, document);
+    }
+    // Retire recovery data while retaining the supplied complete durable session checkpoint.
+    void close(const std::vector<std::uint8_t>& bytes,
+               std::span<const std::uint8_t> document) override {
+      sink->close(bytes, document);
+    }
     // Preserve native provenance independently of the paired session checkpoint.
     std::vector<std::uint8_t> origin() const override { return sink->origin(); }
     // Publish origin changes with the complete supplied model/session envelope.

@@ -1,3 +1,10 @@
+# 2.0.12
+
+- Support schema language 1.22.0 cache fields with optional priority (default 0, range 0..255).
+- Preserve qualified type navigation, transitive includes, unsaved edits and ordinary types named cache.
+- Add cache snippets and document compiler/runtime 2.30.0 owning C++ support and shared companion storage.
+- Keep both local package versions synchronized; packaging does not publish Marketplace listings.
+
 # 2.0.11
 
 - Update current compiler/runtime 2.23.0 usage and fixed-array output boundaries.

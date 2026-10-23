@@ -220,6 +220,14 @@ payload revision, review its type, identity, storage and wire layout against
 
 ### Behavior and runtime members
 
+Language `1.22.0` adds owning C++ `cache` fields with optional `priority = 0..255`.
+Bare `cache` defaults to `0`, the lowest retention preference. Cache fields consume
+no payload IDs and share the runtime projection, with separate generated cache
+descriptors, source validity, optional providers and readiness. Reference-bearing,
+opaque, view/packed and open-generic owner combinations diagnose. Non-C++ outputs
+diagnose cache declarations. See [cache semantics and lifecycle](../design/cache_attributes.md)
+and the [working usage example](../guides/usage.md#rebuildable-c-cache-fields).
+
 Language `1.6.0` adds `public function double score() readonly;`, backend bodies,
 ordered native declarations/preambles, typed portable expressions, and
 `public transient uint64 lookup_cache {0};`. Functions and transient members

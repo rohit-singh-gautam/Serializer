@@ -1495,6 +1495,24 @@ public:
     }
   }
 
+  // Migrate complete authority state under the existing authority operation barrier.
+  void migrate_journal_layout()
+    requires(store_type::has_journal)
+  {
+    operation_scope guard{*this};
+    try { store_->migrate_journal_layout(); }
+    catch (const journal_indeterminate_error&) { journal_state_.fenced = true; throw; }
+  }
+
+  // Save and retire authority recovery data; application coordination precedes this explicit close.
+  void close_journal()
+    requires(store_type::has_journal)
+  {
+    operation_scope guard{*this};
+    try { store_->close_journal(); }
+    catch (const journal_indeterminate_error&) { journal_state_.fenced = true; throw; }
+  }
+
   // Reopen durable document state in a fresh authority before binding sessions or accepting edits.
   void recover_journal(const std::filesystem::path& path, journal_options options = {})
     requires(store_type::has_journal)

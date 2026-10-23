@@ -470,7 +470,9 @@ struct member {
   compact_encoding compact{compact_encoding::none};
   bool compact_strict{true}; // Prefix overflow is checked unless truncation is explicit.
   bool owning_variant{false}; // The variant keyword selects owning storage without changing union wire data.
-  bool transient{false}; // Memory-only schema field; excluded from all durable traversal.
+  bool transient{false}; // Excluded from durable traversal; cached distinguishes optional cache persistence.
+  bool cached{false}; // Rebuildable runtime projection with independent optional persistence.
+  std::uint8_t cache_priority{}; // Lowest retention by default; never a payload wire value.
   bool empty_layout{false}; // Portable hint: overlap only a stateless transient generated value.
   std::string default_factory{}; // Typed zero-argument factory on the field's generated record.
   std::vector<std::string> auto_size_formats{}; // Selected native formats derive the containing record's byte length.
@@ -505,7 +507,8 @@ struct member {
            type_name_list == rhs.type_name_list && name == rhs.name && managed == rhs.managed &&
            extent_expression == rhs.extent_expression && fixed_extent == rhs.fixed_extent &&
            inferred_extent == rhs.inferred_extent && owning_variant == rhs.owning_variant &&
-           transient == rhs.transient && empty_layout == rhs.empty_layout &&
+           transient == rhs.transient && cached == rhs.cached &&
+           cache_priority == rhs.cache_priority && empty_layout == rhs.empty_layout &&
            default_factory == rhs.default_factory &&
            readonly_getter == rhs.readonly_getter &&
            readonly_getter_access == rhs.readonly_getter_access &&
@@ -943,6 +946,10 @@ inline void require_unmanaged_backend(const std::vector<std::unique_ptr<syntax_n
       }
     } else if (node->type == object_type::class_type || node->type == object_type::generic_definition) {
       const auto& object = static_cast<const class_node&>(*node);
+      if (std::any_of(object.member_list.begin(), object.member_list.end(),
+          [](const auto& field) { return field.cached; })) {
+        throw std::invalid_argument{"Cache fields currently require the C++ owning backend"};
+      }
       if (std::any_of(object.member_list.begin(), object.member_list.end(), [](const auto& field) {
             return std::any_of(field.type_name_list.begin(), field.type_name_list.end(),
                 [](const auto& type) { return type.contains_managed_reference(); }) ||

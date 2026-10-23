@@ -540,6 +540,47 @@ framing byte for byte. Memory buffers, standard byte streams, and `file_stream`
 share the same record writer/reader; synchronization is an explicit backend
 capability, not an additional serialized field.
 
+### Cache records and shared companion layouts
+
+Compiler/runtime **2.30.0** adds owning C++ cache declarations with **no ordinary
+payload fields, IDs, wire values or durable fingerprint contributions**. Cache
+records have a separate version-one `.srcache` envelope with fixed-width exact-key
+bindings, bounded payload length and SHA-256 integrity; priority is optional policy
+metadata, default `0`, not a document field. Ordinary decoders retain exact-message
+boundaries and reject appended cache bytes outside an explicit container slice.
+
+The cache entry layout is independent of C++ object layout. Integers are
+little-endian uint64, and each fingerprint is 32 SHA-256 bytes:
+
+| Field | Bytes/validation |
+| --- | --- |
+| Magic | 8; `0x3145484341435253` |
+| Cache record version | 8; `1` |
+| Retention priority | 8; `0..255` |
+| Payload length | 8; bounded before allocating, exact remaining payload extent |
+| Document high, document low, entity/scope | 24; document namespace must be nonzero |
+| Declaration, source, recipe, parameter fingerprints | 128; four exact 32-byte bindings |
+| Payload | Declared length; decoded under the cache value's own codec/limits |
+| Integrity | 32; SHA-256 over every preceding byte |
+
+The fixed header is 184 bytes and total envelope overhead is 216 bytes. The
+filename is the lowercase SHA-256 hex digest of the 152-byte encoded key followed
+by `.srcache`. Declared priority hints do not enter key equality or filenames;
+effective priority is record policy metadata. LRU uses file access-update
+timestamps solely for retention, never source validity. The generic C++ cache
+variant codec writes a uint64 alternative index followed by its selected owning
+value; unsupported tags and trailing bytes reject. None of these bytes enter an
+ordinary document field or change its union mapping.
+
+New shared-layout journal headers use container version **4**, preserving the
+72-byte header and frame contracts. Sidecar operations retain differential record
+encoding; appended operations retain ordinary encoding. Gracefully closed external
+state uses version **5** in its manifest/checkpoint headers and rejects trailing
+operation frames. Existing version-2/3 files remain readable/writable in their
+legacy layouts until explicit migration. Old readers reject versions 4/5; frame,
+payload, schema-language and cache-record versions are independent. See
+[shared layout and close](../design/cache_attributes.md#shared-companion-layout-and-compatibility).
+
 ### External document origin metadata
 
 Compiler/runtime 2.26.0 preserves journal frame versions two/three and default

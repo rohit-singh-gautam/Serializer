@@ -769,7 +769,7 @@
           }
         },
         {
-          "match": "\\b(public|protected|private|managed)\\s+((?!(?:(?:array|map|union|managed|transient|wire_only|conversion|translator|function|version|magic)\\b|class_id\\s*\\(|variant\\s*\\(|constructor\\s*(?:<|\\()|factory\\s+[A-Za-z_]\\w*\\s*(?:<|\\()))(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+          "match": "\\b(public|protected|private|managed)\\s+((?!(?:(?:array|map|union|managed|transient|cache|wire_only|conversion|translator|function|version|magic)\\b|class_id\\s*\\(|variant\\s*\\(|constructor\\s*(?:<|\\()|factory\\s+[A-Za-z_]\\w*\\s*(?:<|\\()))(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
           "captures": {
             "1": {
               "name": "storage.modifier.serializer"
@@ -864,7 +864,7 @@
         },
         {
           "name": "storage.modifier.serializer",
-          "match": "\\b(explicit|const_ref|public|protected|private|transient|edit|virtual|abstract|override|stable_ids|managed|borrowed|shared|weak|owning|view|readonly|mutable|packed|compact_prefix|compact_varint|strict|lenient)\\b"
+          "match": "\\b(explicit|const_ref|public|protected|private|transient|cache|edit|virtual|abstract|override|stable_ids|managed|borrowed|shared|weak|owning|view|readonly|mutable|packed|compact_prefix|compact_varint|strict|lenient)\\b"
         },
         {
           "name": "support.type.serializer",
@@ -2392,7 +2392,7 @@
       ]
     },
     "native_member_body": {
-      "begin": "(?=\\b(?:function|constructor|factory|conversion|translator|array|map|union|variant|digest|wire_only|managed|transient|version|magic|compact_prefix|compact_varint)\\b)|((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+      "begin": "(?=\\b(?:function|constructor|factory|conversion|translator|array|map|union|variant|digest|wire_only|managed|transient|cache|version|magic|compact_prefix|compact_varint)\\b)|((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
       "beginCaptures": {
         "1": {
           "patterns": [

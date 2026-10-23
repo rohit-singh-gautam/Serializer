@@ -45,7 +45,9 @@ enum class journal_io_event {
   before_prepare_publish,
   after_prepare_publish,
   before_confirm,
-  after_confirm_decision
+  after_confirm_decision,
+  before_retire,
+  after_retire
 };
 
 // Host-supplied evidence for independently published bytes; authenticity belongs to the host.
@@ -117,6 +119,14 @@ class journal_sink {
 public:
   // Release backend resources without implicitly saving or changing the durable decision.
   virtual ~journal_sink() = default;
+  // Move a validated complete state to the shared layout under both old and new writer locks.
+  virtual void migrate_layout(const std::vector<std::uint8_t>&, std::span<const std::uint8_t>) {
+    throw std::logic_error{"Journal backend does not support layout migration"};
+  }
+  // Durably save all dependencies and retire recovery data; release ownership only on success.
+  virtual void close(const std::vector<std::uint8_t>&, std::span<const std::uint8_t>) {
+    throw std::logic_error{"Journal backend does not support graceful close"};
+  }
   // Repair only a validated incomplete tail and establish a durable recovery position.
   virtual void finish_recovery() = 0;
   // Persist borrowed metadata/label/snapshot before returning; never retain the borrowed buffers.

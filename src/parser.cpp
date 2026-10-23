@@ -1394,8 +1394,20 @@ bool behavior_modifier_head(const rohit::type_check::schema_input_buffer auto& i
     // Numeric/quoted field metadata on a user type named transient keeps its original grammar.
     return !lookahead.full() && is_first_identifier(lookahead);
   }
-  if (keyword == "transient" && (candidate == "variant" || candidate == "union") && *lookahead == '(') {
+  if ((keyword == "transient" || keyword == "cache") &&
+      (candidate == "variant" || candidate == "union") && *lookahead == '(') {
     ++lookahead; skip_whitespace_and_comment(lookahead);
+    return !lookahead.full() && is_first_identifier(lookahead);
+  }
+  if (keyword == "cache" && candidate == "map" && *lookahead == '(') {
+    ++lookahead;
+    skip_whitespace_and_comment(lookahead);
+    if (lookahead.full() || !is_first_identifier(lookahead)) { return false; }
+    static_cast<void>(parse_type_expression(lookahead, nullptr));
+    skip_whitespace_and_comment(lookahead);
+    if (lookahead.full() || *lookahead != ')') { return false; }
+    ++lookahead;
+    skip_whitespace_and_comment(lookahead);
     return !lookahead.full() && is_first_identifier(lookahead);
   }
   return false;
@@ -1479,7 +1491,57 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
     wire_only = true;
   }
   bool transient{};
+  bool cached{};
+  std::uint8_t cache_priority{};
+  // Preserve ordinary types named cache; only a modifier-shaped suffix selects the feature.
+  bool cache_head = behavior_modifier_head(in_stream, "cache");
+  if (next_keyword(in_stream, "cache")) {
+    const auto lookahead = make_constant_full_stream(in_stream.curr(), in_stream.remaining_buffer());
+    parse_identifier_impl(lookahead);
+    skip_whitespace_and_comment(lookahead);
+    cache_head = cache_head || (!lookahead.full() && *lookahead == '(');
+  }
+  if (cache_head) {
+    if (active_language_version < language_version{1u, 22u, 0u}) {
+      throw exception::bad_member_spec{in_stream, "Cache fields require serializer version 1.22.0"};
+    }
+    parse_identifier_impl(in_stream);
+    skip_whitespace_and_comment(in_stream);
+    if (!in_stream.full() && *in_stream == '(') {
+      ++in_stream;
+      skip_whitespace_and_comment(in_stream);
+      if (parse_identifier_impl(in_stream) != "priority") {
+        throw exception::bad_member_spec{in_stream, "Cache accepts only optional priority = 0..255"};
+      }
+      skip_whitespace_and_comment(in_stream);
+      check_and_increase(in_stream, '=');
+      skip_whitespace_and_comment(in_stream);
+      std::uint32_t priority{};
+      bool digit{};
+      while (!in_stream.full() && *in_stream >= '0' && *in_stream <= '9') {
+        digit = true;
+        const auto next = static_cast<std::uint32_t>(*in_stream - '0');
+        if (priority > (std::numeric_limits<std::uint8_t>::max() - next) / 10u) {
+          throw exception::bad_member_spec{in_stream, "Cache priority must be in 0..255"};
+        }
+        priority = priority * 10u + next;
+        ++in_stream;
+      }
+      if (!digit) {
+        throw exception::bad_member_spec{in_stream, "Cache priority must be in 0..255"};
+      }
+      cache_priority = static_cast<std::uint8_t>(priority);
+      skip_whitespace_and_comment(in_stream);
+      check_and_increase(in_stream, ')');
+      skip_whitespace_and_comment(in_stream);
+    }
+    cached = true;
+    transient = true;
+  }
   bool empty_layout{};
+  if (cached && behavior_modifier_head(in_stream, "transient")) {
+    throw exception::bad_member_spec{in_stream, "Cache and transient modifiers are mutually exclusive"};
+  }
   if (behavior_modifier_head(in_stream, "transient")) {
     if (active_language_version < language_version{1u, 6u, 0u}) {
       throw exception::bad_member_spec{in_stream, "Transient fields require serializer version 1.6.0"};
@@ -1944,6 +2006,8 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
     }
   }
   result.transient = transient;
+  result.cached = cached;
+  result.cache_priority = cache_priority;
   result.empty_layout = empty_layout;
   result.default_factory = std::move(default_factory);
   result.portable_default_enabled = active_declared_language_contract &&

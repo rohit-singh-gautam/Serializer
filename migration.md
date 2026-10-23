@@ -1,5 +1,36 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.30.0 and schema language 1.22.0
+
+Regenerate owning C++ models to use `cache` or `cache(priority = 0..255)`. Omitted
+priority is `0`, the lowest retention preference. Cache fields have independent
+descriptor identities and remain outside ordinary codecs, field IDs, durable
+fingerprints, history and collaboration. Existing `transient` fields keep their
+memory-only contract; do not convert an ordinary durable field without separately
+preserving its released wire identity/history. Non-C++ cache declarations reject.
+
+Use `<rohit/cache.hpp>` and `<rohit/cache_codec.hpp>` for bounded services,
+application-selected providers, explicit recipes and exact-source keys. Managed
+stores publish through `publish_cache`; defaults never imply readiness. Follow
+the [usage example](docs/guides/usage.md#rebuildable-c-cache-fields).
+
+New journals use `.<filename>.serializer/` and version-4 container headers. Older
+directory/flat layouts remain supported in place. Call `migrate_journal_layout()`
+to publish a complete shared checkpoint under old/new writer locks; retain its
+legacy guards/receipts and move them with required document metadata. Do not
+rename folders manually or mix older writers with the new container versions.
+
+Call `close_journal()` explicitly after stopping edits and coordinating required
+synchronization. It saves complete native state/history/allocator/session metadata
+before retiring recovery files, retains caches, and detaches on success. External
+documents keep required version-5 state checkpoints and provenance in `state/`;
+these are authoritative, not evictable cache data. Destructor-only shutdown does
+not save or retire journals. Failed/uncertain Save retains recovery or fences the
+store. Existing document payload bytes and journal frame payloads are unchanged.
+
+Both editor packages advance together to **2.0.12**; rebuild them for cache syntax,
+snippets and navigation. Packaging is separate from installation/publication.
+
 ## Opt-in document journal retirement in 2.29.0
 
 Existing callers retain their current storage behavior. The new

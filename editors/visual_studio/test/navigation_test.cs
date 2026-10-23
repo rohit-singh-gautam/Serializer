@@ -16,6 +16,11 @@ internal static class NavigationTest {
       var text = File.ReadAllText(model).Replace("serializer version 1;", "serializer version 1.0.0;");
       var live = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [model] = text };
       var checks = 0;
+      if (args.Length > 2 && args[2] == "--cache-only") {
+        CheckCacheNavigation(repository, live, ref checks);
+        Console.WriteLine("Visual Studio native cache navigation passed: " + checks + " checks.");
+        return 0;
+      }
       if (args.Length > 4 && args[4] == "--inherited-only") {
         CheckInheritedNavigation(Path.GetFullPath(args[3]), live, ref checks);
         Console.WriteLine("Visual Studio fresh inherited-field request passed: " + checks +
@@ -798,6 +803,48 @@ internal static class NavigationTest {
       }
     }
     Require(fieldLanguages.Count == 11, "inherited generic field declarations in every output language with unsaved schema edits");
+  }
+
+  /// <summary>Exercise cache type positions through the actual Visual Studio Jint/path adapter.</summary>
+  private static void CheckCacheNavigation(string repository, Dictionary<string, string> live, ref int checks) {
+    var directory = Path.Combine(repository, "out", "extension-tests", "cache");
+    var model = Path.Combine(directory, "cache_model.serializer");
+    var middle = Path.Combine(directory, "cache_middle.serializer");
+    var common = Path.Combine(directory, "cache_common.serializer");
+    var source = "serializer version 1.22.0; include cache_middle; namespace app { class model { " +
+      "public cache(priority = 200) lib::preview first; public cache lib::preview second; " +
+      "public cache map(string) lib::preview indexed; " +
+      "public cache variant(lib::preview = value, uint64 = number) choice; public lib::cache ordinary; } }";
+    var declarations = "serializer version 1.22.0; namespace lib { class preview {} class cache {} }";
+    live[model] = source;
+    live[middle] = "include cache_common;";
+    live[common] = declarations;
+    foreach (var name in new[] { "lib::preview", "lib::cache" }) {
+      for (var start = source.IndexOf(name, StringComparison.Ordinal); start >= 0;
+           start = source.IndexOf(name, start + name.Length, StringComparison.Ordinal)) {
+        var expected = declarations.IndexOf("class " + name.Substring(5), StringComparison.Ordinal) + "class ".Length;
+        for (var cursor = start; cursor <= start + name.Length; ++cursor) {
+          foreach (var definition in new[] { false, true }) {
+            var target = NavigationRunner.Resolve(model, cursor, definition, directory, live, CancellationToken.None);
+            Require(target.Length == 1 && target[0].file == common && target[0].start == expected,
+              "cache type navigation preserves qualified selection boundaries and transitive includes");
+            ++checks;
+          }
+        }
+      }
+    }
+    source = source.Replace("lib::preview first", "lib::cache first");
+    live[model] = source;
+    var edited = NavigationRunner.Resolve(model, source.IndexOf("lib::cache", StringComparison.Ordinal),
+      true, directory, live, CancellationToken.None);
+    Require(edited.Length == 1 && edited[0].start == declarations.IndexOf("class cache", StringComparison.Ordinal) + "class ".Length,
+      "cache navigation observes unsaved type edits");
+    ++checks;
+    live[model] = "serializer version 1; include cache_common; namespace lib { class model { public cache value; } }";
+    var legacy = NavigationRunner.Resolve(model, live[model].IndexOf("cache value", StringComparison.Ordinal),
+      false, directory, live, CancellationToken.None);
+    Require(legacy.Length == 1 && legacy[0].file == common, "ordinary types named cache preserve legacy navigation");
+    ++checks;
   }
 
   /// <summary>Fail the executable on any observable navigation mismatch.</summary>

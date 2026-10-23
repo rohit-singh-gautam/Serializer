@@ -7,6 +7,13 @@ configurations, and toolchains named in each report. They retain historical
 release metadata and outstanding qualification limits; a result does not imply
 that later changes or untested backend combinations passed the same checks.
 
+## 23 October 2026
+
+| Record | Scope |
+| --- | --- |
+| [Rebuildable caches and journal retirement](verification-cache-2026-10-23.md) | Owning C++ schema/metadata, source-bound optional providers, priority/pins, shared layout, migration, graceful-close recovery and editor qualification. |
+| [Explicit document-journal retirement](verification-journal-retirement-2026-10-23.md) | Earlier 2.29.0 opt-in self-contained-document retirement and retention guards. |
+
 ## 22 October 2026
 
 | Record | Scope |

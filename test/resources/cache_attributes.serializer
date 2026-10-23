@@ -1,0 +1,24 @@
+serializer version 1.22.0;
+
+namespace cache_example {
+  class derived_value stable_ids {
+    public string text (1);
+    public array uint32 bins (2);
+  }
+
+  class payload stable_ids {
+    public string body (1);
+    private cache uint64 count {0};
+    public cache(priority = 255) derived_value preview;
+    public cache variant(derived_value = structured, uint64 = number) selection;
+    public cache array uint32 buckets;
+    public cache map(string) uint64 totals;
+  }
+
+  class document stable_ids managed {
+    public string body (1);
+    public transient uint64 session_counter {0};
+    public cache uint64 count {0};
+    public cache(priority = 200) string preview;
+  }
+}

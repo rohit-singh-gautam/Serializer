@@ -144,18 +144,23 @@ not selected remain inert; directory scanning is not permission to evict them.
 
 ## Files and compatibility
 
-New journals keep all auxiliaries in `.<filename>.journal/`:
+New 2.29 journals keep auxiliaries in the shared `.<filename>.serializer/` folder:
 
 ```text
 document.json
-.document.json.journal/
+.document.json.serializer/
   writer.lock
-  manifest
-  changes-<generation>
-  save.prepared                 # only while unresolved / cleanup pending
-  pending-<generation>           # proposed main during prepared Save
-  pending-<generation>.manifest  # publication staging
-  manifest.pending              # native confirmation/Save decision
+  journal/
+    changes-<generation>
+  state/
+    manifest
+    manifest.pending              # native confirmation/Save decision
+    save.prepared                 # only while unresolved / cleanup pending
+    snapshot-<generation>          # selected durable metadata after graceful close
+  staging/
+    pending-<generation>           # proposed main during prepared Save
+    pending-<generation>.manifest  # publication staging
+  cache/                          # optional application-selected provider
 ```
 
 The writer uses a native exclusive Windows handle or POSIX `flock`. A separate
@@ -163,16 +168,20 @@ stable lock remains necessary because Save replaces the main and manifest; it
 must survive those replacements. A lock file remaining on disk is not a held
 lock. Do not delete/replace it while a writer may exist.
 
-Existing flat-layout journals still recover and Save in their original layout.
-The runtime rejects simultaneous legacy and new-layout metadata instead of
-guessing. Move the main with its entire journal directory when closed. Older
+Existing `.journal/` and flat-layout journals still recover and Save in place.
+Explicit `migrate_journal_layout()` publishes a shared checkpoint under old/new
+locks and retains migration guards; unexplained simultaneous layouts reject.
+Move the main with required state/coordination and any retained legacy guards. Older
 binaries do not understand the new directory/lock protocol; do not mix old and
 new writers on a new-layout document.
 
 Default no-origin/no-confirmation manifests remain byte-compatible version one.
 Version two adds bounded provenance and a confirmation receipt; current readers
 accept both. Older readers reject version-two manifests. Native journal versions
-two/three, schema language 1.21.0 and authored payload bytes are unchanged.
+two/three remain supported. New shared-layout headers use version four, and
+gracefully closed external state uses version five; authored payload bytes stay
+unchanged. Explicit fallible `close_journal()` preserves provenance and durable
+metadata while retiring recovery files; it keeps caches. Destructors do not save.
 Origin/prepared Save are supported for external-document sidecars; ordinary
 native containers reject these additions, and custom sinks explicitly opt in.
 

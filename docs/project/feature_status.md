@@ -1,5 +1,13 @@
 # Features and implementation status
 
+Compiler/runtime **2.30.0**, language **1.22.0**, adds
+[owning C++ cache fields and provider services](../design/cache_attributes.md),
+optional priority defaulting to `0`, conservative source fingerprints, immutable
+guarded publication, shared companion storage and explicit graceful-close journal
+retirement. Existing transient fields remain memory-only. Non-C++ cache declarations
+diagnose; arbitrary inline/appended formats use an application provider. See the
+[qualification record](../verification/verification-cache-2026-10-23.md).
+
 Compiler/runtime **2.21.0** adds selected
 [C++ core-property adapters](../serialization/core_properties.md),
 [managed authorization/publication gates](../managed/authorization.md), explicit

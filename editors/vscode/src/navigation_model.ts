@@ -102,6 +102,23 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     const maximumTypeDepth = 128;
     if (depth >= maximumTypeDepth) { return start + 1; }
     const token = tokens[start]?.text;
+    if (token === 'cache' && language !== null && Number(language[1]) === 1 && Number(language[2] ?? 0) >= 22) {
+      let operand = start + 1;
+      if (tokens[operand]?.text === '(') {
+        ++operand;
+        while (operand < tokens.length && ![')', ';', '}'].includes(tokens[operand].text)) { ++operand; }
+        if (tokens[operand]?.text === ')') { return typeReference(operand + 1, depth + 1); }
+        return operand;
+      }
+      const next = qualified(operand);
+      // Types named cache retain their ordinary interpretation when only a field name follows.
+      const compound = ['map', 'variant', 'union', 'digest'].includes(tokens[operand]?.text ?? '') &&
+        tokens[operand + 1]?.text === '(' && /^[A-Za-z_]\w*$/.test(tokens[operand + 2]?.text ?? '');
+      if (compound || (next && (/^[A-Za-z_]\w*$/.test(tokens[next.next]?.text ?? '') ||
+          ['<', '['].includes(tokens[next.next]?.text ?? '')))) {
+        return typeReference(operand, depth + 1);
+      }
+    }
     if (token === 'layout' && tokens[start + 1]?.text === '(') {
       let next = start + 2;
       while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) { ++next; }

@@ -6,8 +6,8 @@ implementations. `MG03`'s existing inherited authorization and publication bound
 is complete within Serializer; principal binding, policy persistence and policy
 administration belong to the host. See the
 [ownership decisions and remaining mixed requirements](project/application_responsibilities.md).
-The current inventory is **815 implemented/verified, 3 will not fix and 33 pending**
-out of 851 rows. **28 are active and five are deferred subsystem requirements**.
+The current inventory is **816 implemented/verified, 3 will not fix and 33 pending**
+out of 852 rows. **28 are active and five are deferred subsystem requirements**.
 By maintainer direction on 2026-10-21, new non-C++ managed engines (`MG01`),
 the page store/index (`PG01`), lazy model/history storage (`PG02`), database sinks
 (`DB01`) and sink migration/rebaseline (`MIG03`) are deferred to linked GitHub
@@ -213,13 +213,17 @@ richer type/operator families and a time-series profile. It is not an accepted
 implementation batch, introduces no counted requirement rows, and does not change
 PG01/PG02 deferrals. Promote agreed scope and acceptance gates before implementation.
 
-The [cache attribute discussion](design/cache_attributes.md) separately proposes
-rebuildable persisted fields, priority eviction, application-controlled placement,
-a shared `.serializer/` companion directory and cache retention after graceful-close
-journal retirement. It is exploratory
-design, not an accepted implementation batch or an implemented API; it adds no
-counted requirement rows and does not change PG01/PG02/DB01 deferrals. Promote
-agreed scope and acceptance gates into this inventory before implementation.
+The accepted [cache contract](design/cache_attributes.md) is tracked as CACHE01:
+owning C++ declarations/metadata, optional priority defaulting to zero, bounded
+providers and rebuild services, exact-source guarded publication, shared companion
+layout, explicit legacy migration and graceful-close retirement preserving caches
+and required state. It does not change PG01/PG02/DB01 deferrals. Its
+[qualification record](verification/verification-cache-2026-10-23.md) separates
+actual generated/runtime/editor checks from unsupported output/provider contracts.
+
+| State | ID | Estimate | Task and acceptance gate | Depends on |
+| --- | --- | --- | --- | --- |
+| [x] | CACHE01 | — | Owning C++ cache declarations, optional priority defaulting to zero, bounded provider/rebuild services, exact-source guarded publication and shared layout/migration/close preserving caches and required state. Four generated profiles, native Windows/Linux storage, recovery/failure boundaries and matching editor packages have [executed qualification](verification/verification-cache-2026-10-23.md); WSL mounted-storage replacement failures and unsupported graphs/providers remain explicit limits. | — |
 
 The proposed [durable database integration requirements](design/database_storage_requirements.md)
 refine PG01, PG02, DB01 and MIG03 with publication, operation identity,
