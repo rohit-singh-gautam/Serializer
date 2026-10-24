@@ -3,7 +3,7 @@
 [Feature list](feature_status.md) · [Pending work](../pending.md) ·
 [Ownership decisions](application_responsibilities.md#disposed-requirements)
 
-This feature catalog contains **824 implemented requirement records**, including
+This feature catalog contains **826 implemented requirement records**, including
 the 816 records moved out of the pending backlog on 2026-10-23. Each stable ID retains its capability scope,
 dependencies and original verification links. Completion applies to the stated
 backend, profile and dated checks; it does not close a broader parent requirement
@@ -14,6 +14,8 @@ is cataloged as such; it does not by itself claim a runtime feature.
 The [pending list](../pending.md) retains its tracked requirements after completion,
 marked `[x]` and linked to their evidence. Historical records archived before this
 policy remain here.
+The thirteen retained XML/package parents are [resolved separately](xml_package_backlog_resolution.md);
+reconciled aliases and declined extensions are not additional implemented records.
 The three closed application/maintainer ownership decisions remain in their
 separate reference; they are not implemented product features. Historical work-unit
 estimates are omitted here because this is a feature/evidence catalog.
@@ -176,10 +178,12 @@ and cache-dependency inventory are optional future work, not prerequisites.
 | <a id="xml-b13"></a>XML-B13 | Actual prepared providers, bounded input, concurrent reuse, caller validator interfaces and prohibited remote schema/entity loading qualified in all eleven outputs. Physical namespace admissions pass 44,892 independent tree/token boundary decisions; fresh C++ provider 4/4 and late-completion regressions pass. Broader combined-operation gates remain separate; [capture provenance and scope](../verification/verification-runtime-boundaries-2026-10-21.md). | — |
 | <a id="xml-b16"></a>XML-B16 | Compression parity: Complete whole-object source/sink wrappers and identical framing/error/limit contracts across every output; qualify optional Zstandard/LZ4 adapters; [qualification](../verification/verification-compression-parity-2026-10-20.md). | — |
 | <a id="xml-b17"></a>XML-B17 | Package parity: Complete ZIP/OPC source/sink, metadata, shared budgets and full-Save guarantees across every output; [eleven-output completion and limits](../verification/verification-managed-reference-faults-2026-10-21.md#package-parent-reconciliation). | — |
+| <a id="xml-b19"></a>XML-B19 | Compiler/runtime 2.34.0 and language 1.24.0 complete schema-local owning package profiles across eleven outputs: codec/compression policies, inert target modes, vocabulary/type inventories and existing runtime envelope and generated key/reference contracts. Final profile validation runs without requiring INI overrides. All eleven actual SDKs pass 176 independent inputs and 88 inspected output archives; the separate Kotlin module test preserves first-exception identity. [Executed scope and limits](../verification/verification-xml-authoring-2026-10-24.md). | OPC-R06, OPC-R07 |
 | <a id="xml-b20"></a>XML-B20 | Typed package loading: Complete generated transactional profiles and automatic codec/reference budgets in every backend; caller-owned callbacks compose selected codecs with the same shared context; [2.18 SDK verification and graph limits](../verification/verification-native-xml-operations-2026-10-21.md). | — |
 | <a id="xml-b21"></a>XML-B21 | All eleven actual SDKs qualify the selected large OPC/DEFLATE/scoped-reference/preservation/publication chain, including cumulative quotas, cancellation/real deadlines, previous-file preservation and recovery. Java/C#/Go readonly late-success prepared-provider cancellation has separate actual-provider evidence; Python returning Save hooks now fence both pre-publication rollback and post-publication uncertainty. [Large operation results](../verification/verification-large-package-operations-2026-10-21.md), [completion regressions](../verification/verification-operation-publication-2026-10-21.md); opaque provider preemption/process ceilings remain host deployment limits. | — |
 | <a id="xml-b22"></a>XML-B22 | Preservation: XML/package policy and collision qualification covers supported graphs in every backend, including simultaneous fixed-role rebinding, removed-role tombstones, exact selector/external values and failure publication; broader graph gates, signatures and lexical preservation remain separate. [Executed matrix and historical XML-policy evidence](../verification/verification-package-relocation-2026-10-21.md). | — |
 | <a id="xml-b23"></a>XML-B23 | Independent canonical ordering/metadata policies pass across all eleven outputs on Windows/Linux: 2,112 actual archives, six input permutations, two fresh processes and both ZIP64 selections. Provider-qualified compressed equality preserves existing wire policies; Python plain ZIP is a private diagnostic. [2.19.1 evidence and scope](../verification/verification-package-reproducibility-2026-10-21.md). | — |
+| <a id="xml-b24"></a>XML-B24 | Compiler/runtime 2.34.0 extends the closed HTML fragment profile to 30 tags with explicitly balanced sub/sup phrasing containers across eleven outputs. Actual SDKs, shared accepted/rejected fixtures, independent HTML token/tree readers and native parity pass. Arbitrary HTML, browser recovery and unrestricted XHTML remain excluded. [Executed qualification and limits](../verification/verification-html-profile-2026-10-24.md). | — |
 
 <a id="work-units-capped-at-five-hours"></a>
 

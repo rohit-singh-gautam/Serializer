@@ -1,12 +1,21 @@
 # Features and implementation status
 
-The [implemented requirement catalog](completed_requirements.md) records **824
+The [implemented requirement catalog](completed_requirements.md) records **826
 completed capability and qualification IDs**, with their backend/profile limits
 and verification links. Historical completed sections were archived there.
-The [requirement tracker](../pending.md) retains **34 requirements: one completed
-and 33 unfinished**, marking completed items `[x]` in place;
+The [requirement tracker](../pending.md) retains **34 requirements: 14 closed
+and 20 unfinished (16 active and four deferred)**, marking completed items `[x]` in place;
 closed [ownership decisions](application_responsibilities.md#disposed-requirements)
 are recorded separately. Original records retain their dated qualification scope.
+
+Compiler/runtime **2.34.0**, language **1.24.0**, adds schema-local ordered XML and
+package profiles, supported ordered/list declaration import and bounded Python
+namespace/token combinations. The [Windows qualification](../verification/verification-xml-authoring-2026-10-24.md)
+closes XML-B19 with eleven actual SDKs. The closed 30-tag HTML profile completes
+XML-B24; the [resolution ledger](xml_package_backlog_resolution.md) closes all
+thirteen XML/package rows through implemented contracts, OPC reconciliation and
+explicit scope decisions. Full Core 1.4 remains C++/Python only; dependencies in
+other sections retain their existing states.
 
 Compiler/runtime **2.33.0** independently adds Java heap/direct/sliced
 [ByteBuffer output](../languages/java.md#caller-owned-nio-buffers). Defaults retain
