@@ -1,3 +1,9 @@
+# 2.0.19
+
+- Support schema language 1.24.0 ordered XML and package profile metadata with compiler/runtime 2.34.0.
+- Highlight ordered child mappings, target modes, required types and vocabulary inventories.
+- Document the closed HTML fragment profile with subscript/superscript phrasing support.
+
 # 2.0.18
 
 - Document compiler/runtime 2.33.0's independent opt-in heap/direct Java ByteBuffer output with unchanged schema language 1.23.0.
@@ -342,6 +348,11 @@
 - Retain optional `instantiate` and concrete-field contracts for cross-language generation; C++ templates no longer require them.
 
 # Changelog
+
+## 2.0.19
+
+- Support schema language 1.24.0 ordered XML and package profile metadata with compiler/runtime 2.34.0.
+- Highlight ordered child mappings, target modes, required types and vocabulary inventories.
 
 ## 1.1.14
 
