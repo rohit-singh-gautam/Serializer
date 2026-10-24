@@ -65,10 +65,10 @@ it does not measure process RSS or bound arbitrary application allocations.
 
 The subsequent allocation-floor checkpoint passes **16/16 native database unit
 tests**. Restoring with a watermark of 100 produces ID 101 on the next allocation;
-an invalid floor rejects before invoking the converter. The existing migration
+an invalid floor rejects before invoking the converter. At that checkpoint, the migration
 test changes schema metadata on the same generated root type. It does not qualify
 conversion between separately generated old/new field layouts or renamed type
-keys. The current converter preserves every exact live type key.
+keys; that checkpoint's converter preserves every exact live type key.
 
 GCC 15.2 compiles the physical log implementation in the later Linux kernel build;
 this is compilation evidence, not Linux native-engine runtime qualification.
@@ -76,3 +76,11 @@ After compiler/backend merge `dacd81e`, the combined native build and all 22
 selected CTest targets pass in 39.77 seconds, including the 16 native database
 cases, allocation-denied publication and all seven native acceptance/migration
 process-crash boundaries. Evidence: `out/build/compiler-merge-native`.
+
+The subsequent [native schema conversion replay](verification-native-schema-migration-2026-10-24.md)
+qualifies independently generated renamed layouts using preserved stable class
+tags. Six new cases pass in direct uint32/separate uint64 compact profiles; the
+focused replay passes five targets, including the existing allocation-denial and
+seven-boundary native crash campaigns. Exact type keys remain the fallback for
+handwritten traits without class tags. Broader native journal/history migration
+and additional host/profile qualification remain open.

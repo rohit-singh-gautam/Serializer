@@ -1381,6 +1381,24 @@ if(SERIALIZER_BUILD_MANAGED)
     target_compile_options(managed_direct_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME managed_direct_test COMMAND managed_direct_test)
+  foreach(migration_profile IN ITEMS direct32 separate64)
+    add_executable(native_schema_migration_${migration_profile}_test native_schema_migration_test.cpp)
+    serializer_generate(TARGET native_schema_migration_${migration_profile}_test
+      SCHEMAS resources/native_schema_old.serializer resources/native_schema_new.serializer
+        resources/native_schema_retyped.serializer
+      CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/managed_migration_${migration_profile}.ini"
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/native_schema_migration_${migration_profile}")
+    target_link_libraries(native_schema_migration_${migration_profile}_test
+      PRIVATE Serializer::managed GTest::gtest_main)
+    if(MSVC)
+      target_compile_options(native_schema_migration_${migration_profile}_test PRIVATE /W4 /WX)
+    else()
+      target_compile_options(native_schema_migration_${migration_profile}_test
+        PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME native_schema_migration_${migration_profile}_test
+      COMMAND native_schema_migration_${migration_profile}_test)
+  endforeach()
   add_executable(native_database_crash_helper native_database_crash_helper.cpp)
   serializer_generate(TARGET native_database_crash_helper
     SCHEMAS ../example/managed/ledger/ledger.serializer

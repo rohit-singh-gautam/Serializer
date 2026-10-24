@@ -1,0 +1,14 @@
+serializer version 1.20.0;
+
+namespace native_schema_old {
+  class item managed stable_ids class_id(9101) {
+    public uint64 amount (1);
+    public string memo (2);
+  }
+
+  class document managed stable_ids class_id(9102) {
+    public string name (1);
+    public managed array item items (2);
+    public optional<managed_ref<item>> selected (3);
+  }
+}

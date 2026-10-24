@@ -226,7 +226,8 @@ public:
   bool retired() const { check_owner(); return retired_; }
 
   // Convert the current native generation under its stable writer lock. Preserve every identity
-  // and type key; start a strictly newer epoch at revision zero with an empty retry horizon.
+  // and stable class tag (or legacy type key); start a strictly newer epoch at revision zero
+  // with an empty retry horizon. Explicit class tags permit schema and generated type renames.
   // The create-only archive retains all original outcomes. An uncertain replacement requires
   // reopening the named database; neither converter nor host validation runs during recovery.
   template <typename DestinationRoot = Root, typename DestinationTraits = model_traits<DestinationRoot>,
@@ -268,9 +269,20 @@ public:
     const auto previous = current_->registry({options_.model.decode.max_collection_elements,
                                              options_.model.decode.max_allocation_bytes});
     std::size_t count{};
-    DestinationTraits::visit_entities(*next->read(), [&](auto id, std::string_view type) {
-      if (count >= previous.size() || !previous.contains(id) || previous.type(id) != type) {
-        throw std::invalid_argument{"Native migration changes entity identities or type keys"};
+    detail::visit_registry_entities<DestinationTraits>(*next->read(),
+        [&]<typename Plain>(const auto& entity) {
+      const auto id = entity.persistent_id;
+      constexpr auto destination_class_id = detail::registry_class_id<Plain>();
+      if (count >= previous.size() || !previous.contains(id)) {
+        throw std::invalid_argument{"Native migration changes entity identities"};
+      }
+      const auto source_class_id = previous.class_id(id);
+      // Source spellings may change only when both schemas explicitly retain the same class tag.
+      const bool same_type = source_class_id != 0 && destination_class_id != 0
+          ? source_class_id == destination_class_id
+          : previous.type(id) == model_traits<Plain>::type_key;
+      if (!same_type) {
+        throw std::invalid_argument{"Native migration changes entity class identities"};
       }
       ++count;
     });

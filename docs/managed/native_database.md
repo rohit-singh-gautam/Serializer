@@ -147,8 +147,24 @@ MIG03 journal/history and upgrade requirements.
 `source.migrate<DestinationRoot>(next_epoch, archive_path, converter, validator)`
 prepares a complete identified destination under the original writer lock.
 The synchronous converter receives the immutable current storage and returns
-destination storage. Every live entity ID and exact type key, the document
-namespace must remain unchanged. The allocation watermark cannot decrease. A different
+destination storage. Every live entity ID, stable class tag and the document
+namespace must remain unchanged. Explicit `class_id(...)` tags shared by the
+source and destination schemas permit renamed generated classes, namespaces and
+fields, and newly introduced payload fields. The converter maps each value and
+reconstructs typed references to destination classes with the same document/ID;
+no field mapping is inferred from matching tags. A changed class tag rejects even
+when the converter reuses the original instance ID. Handwritten traits without
+class tags retain exact type-key matching. `registry_view::class_id(id)` exposes
+the selected snapshot's tag, or zero when its traits provide none.
+
+Reference constructors remain private. After mapping the identified owning
+graph, use a destination registry with the retained document namespace and
+`reference<DestinationEntity>(old_reference.id())` to check destination membership
+and mint the exact new C++ token. The [generated conversion fixture](../../test/native_schema_migration_test.cpp)
+demonstrates this for direct and separate storage. The database still validates
+the complete destination graph before any durable migration write.
+
+The allocation watermark cannot decrease. A different
 identity width, deleted/retyped entity or invalid destination rejects. The
 destination's ordinary schema/reference/index validation runs before I/O;
 the optional validator applies destination application invariants.

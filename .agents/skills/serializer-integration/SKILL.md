@@ -105,6 +105,13 @@ language version only when language syntax or semantics change. Follow
 [native migration](../../../docs/managed/native_database.md#native-migration-and-rebaseline)
 for the current implementation and archive-retention boundary.
 
+For renamed native schema layouts, retain explicit `class_id(...)` tags and
+every live persistent ID. Map introduced fields and reconstruct destination
+typed references explicitly in the converter. Changed class tags and removed
+entities reject before publication. `registry_view::class_id(id)` exposes the
+selected stable tag; handwritten traits without tags retain exact type-key
+matching. Ordinary typed lookup still checks the exact generated type.
+
 For Python or Java exchange of managed payloads and typed-reference envelopes,
 explicitly enable the selected backend's `managed_token_codecs = true`; choose
 the same identity width/encoding as C++. Follow the

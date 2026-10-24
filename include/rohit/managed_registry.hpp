@@ -160,6 +160,16 @@ void write_registry_path(Storage& storage, std::span<const std::uint32_t> path, 
 // Address identity is a local type check only; it is never persisted or used as a wire key.
 template <typename Plain> inline constexpr unsigned char registry_type_token{};
 
+// Preserve a generated stable class tag while admitting legacy handwritten traits without one.
+template <typename Plain>
+constexpr std::uint64_t registry_class_id() {
+  if constexpr (requires { model_traits<Plain>::class_id; }) {
+    return static_cast<std::uint64_t>(model_traits<Plain>::class_id);
+  } else {
+    return 0;
+  }
+}
+
 // Adapt generated traversal while leaving existing two-argument identity visitors unchanged.
 template <typename Callback>
 struct registry_entity_visitor {
@@ -431,6 +441,7 @@ private:
     const void* pointer{};
     const void* type_token{};
     std::string_view type_key{};
+    std::uint64_t class_id{};
   };
   std::shared_ptr<const storage_type> root_;
   document_id document_{};
@@ -502,7 +513,7 @@ public:
           sizeof(typename decltype(locations_)::value_type) + catalog_node_overhead_bytes);
       admit(next);
       const location entry{std::addressof(storage), &detail::registry_type_token<Plain>,
-                           model_traits<Plain>::type_key};
+                           model_traits<Plain>::type_key, detail::registry_class_id<Plain>()};
       if (storage.persistent_id == 0 || !locations_.emplace(storage.persistent_id, entry).second) {
         throw registry_error{registry_error_code::invalid_identity, "Invalid registry identity"};
       }
@@ -526,6 +537,14 @@ public:
       throw registry_error{registry_error_code::missing_id, "Registry entity is missing"};
     }
     return found->second.type_key;
+  }
+  // Inspect the stable schema class tag; zero means handwritten traits provide no tag.
+  std::uint64_t class_id(id_type id) const {
+    const auto found = locations_.find(id);
+    if (found == locations_.end()) {
+      throw registry_error{registry_error_code::missing_id, "Registry entity is missing"};
+    }
+    return found->second.class_id;
   }
   // Resolve in logarithmic catalog time and pin the exact selected occurrence.
   template <typename Plain>

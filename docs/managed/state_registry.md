@@ -36,8 +36,12 @@ returns an immutable `entity_read<T>` which pins the complete source root; its
 `storage()`, `value()` and `id()` remain valid across later commits, load, recovery,
 undo, redo and tree checkout. A catalog created before navigation keeps its old
 values. Request `store.registry()` again to index the newly selected snapshot.
-`contains`, `size`, `type`, and `visit` inspect membership without granting
-permissions. Missing IDs, wrong types, missing members, wrong member types,
+`contains`, `size`, `type`, `class_id` and `visit` inspect membership without granting
+permissions. `type(id)` returns the generated type spelling; `class_id(id)`
+returns its stable schema discriminator, or zero for handwritten traits without
+one. Explicit shared tags let a [native database migration](native_database.md#native-migration-and-rebaseline)
+preserve class identity across renamed generated types without weakening ordinary
+typed `find`/`resolve` checks. Missing IDs, wrong types, missing members, wrong member types,
 duplicate keys and expired registry editors use `registry_error` with a
 machine-readable `registry_error_code`.
 

@@ -22,6 +22,10 @@ See [edit dispatch and dependency notifications](../managed/edit_dispatch_and_no
 for guarded behavior and stable field changes. Native database preparations expose
 these details before durability. For migration, retain the create-only old log,
 choose a strictly newer epoch and use [native migration/rebaseline](../managed/native_database.md#native-migration-and-rebaseline).
+For changed generated layouts, retain explicit `class_id(...)` tags and every
+live persistent ID; map new fields and reconstruct typed references in the
+converter. Changing a class tag or removing an existing entity rejects before
+publication. Handwritten traits without class tags retain exact type-key checks.
 When restoring an older native archive, retain external epoch/allocation metadata
 and provide the known allocation floor; an old archive cannot discover later IDs.
 The [paged derived index](../managed/paged_index.md) binds disk entries to exact

@@ -15,7 +15,12 @@ checksummed storage container around native managed save envelopes; it is not a
 new application codec or an automatic conversion of existing journal files.
 Native migration publishes a new baseline in that same storage container with an
 explicitly newer epoch and selected destination schema; the archived log retains
-its original wire bytes and outcomes. Allocator-bound payload containers and
+its original wire bytes and outcomes.
+The explicit native schema converter may map renamed generated types with the
+same stable class tags and persistent IDs. It writes a new destination envelope;
+ordinary recovery still rejects a mismatched schema binding. This does not
+change log framing or infer a conversion from equal class tags.
+Allocator-bound payload containers and
 managed edit adapters do not change application codec bytes. The derived
 [paged-index format](../managed/paged_index.md) has its own generated manifest and
 checksummed pages; it never replaces authoritative model identities or payloads.

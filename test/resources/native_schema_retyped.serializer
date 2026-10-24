@@ -1,0 +1,16 @@
+serializer version 1.20.0;
+
+namespace native_schema_retyped {
+  class line managed stable_ids class_id(9103) {
+    public uint64 amount_minor_units (1);
+    public string note (2);
+    public string currency (3);
+  }
+
+  class workspace managed stable_ids class_id(9102) {
+    public string title (1);
+    public managed array line lines (2);
+    public optional<managed_ref<line>> selected (3);
+    public uint64 schema_revision (4);
+  }
+}

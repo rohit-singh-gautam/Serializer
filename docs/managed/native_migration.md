@@ -1,7 +1,23 @@
-# Native managed migration status
+# Native managed migration and backend groundwork
 
-The managed runtime is still implemented only in C++. The work described here is
-preparation for native ports, not a completed feature migration.
+Current native storage/schema upgrades use the separate
+[C++ database migration/rebaseline contract](native_database.md#native-migration-and-rebaseline).
+It preserves a recoverable source generation, validates the converted destination
+and selects a new authority epoch. Shared explicit class tags preserve identity
+across renamed generated types; unsupported formats require an explicit converter
+or rejection. Managed Save/raw-model conversion is a separate operation.
+
+Native managed engines also exist in the qualified
+[Python](python_native_runtime.md) and [Java](java_native_runtime.md) profiles.
+Their formats and capabilities do not automatically implement the C++ migration,
+history or collaboration contracts. The remaining ports are active work in
+[MG01](../pending.md#managed-state-and-storage).
+
+The following groundwork and verification describe the original October 2
+checkpoint. Its porting checklist is broader than the currently qualified native
+profiles; the final paragraph records that historical checkpoint's limitations.
+
+## Original porting groundwork
 
 Implemented groundwork:
 
