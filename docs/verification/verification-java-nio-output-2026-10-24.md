@@ -35,7 +35,7 @@ BE02 packed/stream/channel/native-acceleration requirement remains open.
 | Installed standalone example | **1/1 pass per host**, compiler-component discovery with LANGUAGES NONE, actual installed prefixes, array and heap/direct nonzero-offset reuse |
 | Editor checks | **165/165** shared tests, **50,713** fresh bidirectional checks across all eleven outputs, **1,548** native source/output checks plus **52** named-self checks, unchanged 256 MiB interpreter budget |
 | Matching local packages | Both **2.0.18** VSIXs rebuild and validate through `./make.ps1 extension`; interactive-host testing, installation and publication remain separate |
-| Full Windows release suite | Running against frozen 2.33.0 source; not yet a completed full-suite claim |
+| Full Windows release suite | **316/316 pass** in **1,692.37 seconds** against frozen compiler 2.33.0 source at `1b5bb7d` |
 
 Each normal SDK profile reports 141,113 assertions and the restricted profile
 31,487; separate compatibility probes remain additional checks. Compilation uses
@@ -51,22 +51,34 @@ keeps results observable. Counters measure the encoding thread's requested JVM
 allocation, excluding retained caller storage, native/JIT/other-thread allocation
 and whole-process peaks.
 
-| Mode | Requested JVM bytes/operation, both hosts | Generated UTF-8 source bytes |
-| --- | ---: | ---: |
-| 2.32.2 ordinary owning | 22,808 | 266,398 |
-| 2.33.0 ordinary owning | 22,808 | 269,414 |
-| 2.33.0 array window | 2,128 | 282,739 |
-| 2.33.0 heap NIO window | 2,192 | 287,614 |
-| 2.33.0 direct NIO window | 2,200 | 287,614 |
+| Mode | Windows JVM bytes/operation | Linux JVM bytes/operation | Generated UTF-8 source bytes |
+| --- | ---: | ---: | ---: |
+| 2.32.2 ordinary owning | 22,808 | 22,808 | 266,398 |
+| 2.33.0 ordinary owning | 22,808 | 22,808 | 269,414 |
+| 2.33.0 array window | 2,128 | 2,128 | 282,739 |
+| 2.33.0 heap NIO window | 2,192 | 2,192 | 287,614 |
+| 2.33.0 direct NIO window | 2,200 | 2,168 | 287,614 |
 
-NIO uses about **90.4% less requested JVM allocation** than ordinary owning
-encoding in this workload, with **64/72 bytes** more than the array window for
+NIO uses about **90.4-90.5% less requested JVM allocation** than ordinary owning
+encoding in this workload, with **40-72 bytes** more than the array window for
 its private view. Caller direct memory is allocated before measurement and is
 excluded. Temporary writer/view/UTF-8 work remains. Source sizes include the
 maintained fixture's declarations and are distinct from compiled class size.
-Initial timing samples ran alongside other qualification and varied; their raw
-reports are retained in `*-benchmark-concurrent/`. A quieter timing replay is
-pending after the release suite, so no throughput conclusion is drawn here.
+
+Initial timing samples ran alongside other qualification and varied; raw reports
+remain in `*-benchmark-concurrent/`. The final replay below ran each host
+sequentially after other task qualification finished. Medians are observations
+with JVM/host variation, not a general speedup or regression guarantee. The Linux
+direct-mode allocation sample also changes from 2,200 to 2,168 bytes/operation
+between runs; JVM scalar replacement is not a fixed allocation contract.
+
+| Mode | Windows median ns/operation | Linux median ns/operation |
+| --- | ---: | ---: |
+| 2.32.2 ordinary owning | 69,929.2 | 84,952.9 |
+| 2.33.0 ordinary owning | 72,716.4 | 82,963.4 |
+| 2.33.0 array window | 73,082.6 | 73,729.0 |
+| 2.33.0 heap NIO window | 66,943.2 | 77,555.6 |
+| 2.33.0 direct NIO window | 80,726.1 | 73,784.2 |
 
 
 Drivers, prior 2.32.2 compilers, raw reports and verification logs remain under
