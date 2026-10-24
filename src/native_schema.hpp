@@ -3,7 +3,10 @@
 #include <rohit/serializer_creator.hpp>
 #include "xml_schema.hpp"
 
+#include <cstddef>
+#include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -31,6 +34,13 @@ struct schema {
     const auto index = found == source_files.end() ? source_files.size() - 1 : found->second;
     return "\n\x1e" + std::to_string(index) + "\x1f\n";
   }
+
+  std::map<const class_node*, std::uint64_t> managed_class_ids{};
+  std::size_t managed_id_bytes{4};
+  bool managed_compact_ids{true};
+  bool managed_engine{false};
+  std::map<const class_node*, std::string> managed_schema_ids{};
+  std::map<const class_node*, std::set<std::string>> managed_field_names{};
   std::vector<std::shared_ptr<const xml_binding::declaration_inventory>> xml_inventories{};
   // Append each private validation AST once after XML options have been configured.
   void collect_xml_validators();

@@ -2,6 +2,7 @@
 
 #include "managed_schema.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -21,6 +22,39 @@ class managed_lowering {
   std::set<const class_node*> validated_{};
   std::map<const class_node*, std::uint64_t> hashes_{};
   std::string id_type_;
+  bool codec_only_{};
+  persistent_id_encoding id_encoding_{};
+
+  // Identify values whose ordinary reset would leave a required token invalid.
+  static bool requires_token(const type_name& type, std::set<const class_node*>& visited) {
+    if (type.is_managed_reference()) { return true; }
+    if (type.is_optional() || type.is_sequence() || type.is_associative()) { return false; }
+    if (!type.resolved_node || type.resolved_node->type != object_type::class_type) { return false; }
+    const auto* record = static_cast<const class_node*>(type.resolved_node);
+    if (record->reference || !visited.insert(record).second) { return false; }
+    for (const auto& base : record->parents) {
+      type_name base_type{std::string{base.parent_class->name}, record->parent_namespace};
+      base_type.resolved_node = base.parent_class;
+      if (requires_token(base_type, visited)) { return true; }
+    }
+    return std::any_of(record->member_list.begin(), record->member_list.end(),
+        [&](const auto& field) { return requires_token(field, visited); });
+  }
+
+  // Empty variable containers are valid resets; fixed arrays and first variants retain requirements.
+  static bool requires_token(const member& field, std::set<const class_node*>& visited) {
+    if (std::any_of(field.type_name_list.begin(), field.type_name_list.end(),
+        [](const auto& type) { return type.contains_managed_reference(); }) &&
+        (field.initializer || !field.default_value.empty() || !field.default_factory.empty())) {
+      return true;
+    }
+    if (field.modifier == member::modifier_type::map ||
+        (field.modifier == member::modifier_type::array && field.extent_expression.empty() &&
+         field.fixed_extent == 0U)) {
+      return false;
+    }
+    return !field.type_name_list.empty() && requires_token(field.type_name_list.front(), visited);
+  }
 
   // Reject unsupported ownership and metadata collisions before emitting any target language.
   void validate(const class_node* node) {
@@ -60,6 +94,7 @@ class managed_lowering {
       }
       for (const auto& type : field.type_name_list) {
         const auto check = [&](auto&& recurse, const type_name& value) -> void {
+          if (value.is_managed_reference()) { return; }
           if (value.resolved_node && value.resolved_node->type == object_type::class_type) {
             validate(static_cast<const class_node*>(value.resolved_node));
           }
@@ -77,6 +112,10 @@ class managed_lowering {
   clone(const std::vector<std::unique_ptr<syntax_node>>& source) {
     std::vector<std::unique_ptr<syntax_node>> result;
     for (const auto& node : source) {
+      if (codec_only_ && node->type != object_type::namespace_type &&
+          node->type != object_type::enum_type && node->type != object_type::class_type) {
+        throw std::invalid_argument{"Managed token codecs require concrete record and enum declarations"};
+      }
       std::unique_ptr<syntax_node> copy;
       if (node->type == object_type::namespace_type) {
         auto space = std::make_unique<namespace_node>(node->type, std::string{node->name},
@@ -99,6 +138,9 @@ class managed_lowering {
         object->member_list = original.member_list;
         object->reference = original.reference;
         object->functions = original.functions;
+        object->constructions = original.constructions;
+        object->conversions = original.conversions;
+        object->arithmetic = original.arithmetic;
         object->native_blocks = original.native_blocks;
         object->body_order = original.body_order;
         object->magic_bytes = original.magic_bytes;
@@ -115,8 +157,57 @@ class managed_lowering {
         object->reserved_ids = original.reserved_ids;
         object->reserved_variables = original.reserved_variables;
         object->reserved_names = original.reserved_names;
+        object->named_generic_source = original.named_generic_source;
+        object->named_generic_arguments = original.named_generic_arguments;
+        object->named_managed_self_binding = original.named_managed_self_binding;
+        object->explicit_class_id = original.explicit_class_id;
+        object->xml = original.xml;
+        object->prepared_xml_validation = original.prepared_xml_validation;
+        if (codec_only_) {
+          if (!original.generic_name.empty() || !original.functions.empty() ||
+              !original.constructions.empty() || !original.conversions.empty() ||
+              !original.arithmetic.empty() || original.reference || !original.native_blocks.empty()) {
+            throw std::invalid_argument{"Managed token codecs require ordinary concrete records without behavior or bindings"};
+          }
+          for (const auto& base : original.parents) {
+            if (base.managed && !base.parent_class->supports_managed()) {
+              throw std::invalid_argument{"Managed bases require an explicitly managed target class"};
+            }
+          }
+          for (const auto& field : original.member_list) {
+            if (field.cached || field.indexing != member::index_method::none || !field.readonly_getter.empty()) {
+              throw std::invalid_argument{"Managed token codecs do not provide caches, indexes or readonly exposure"};
+            }
+            if (field.managed) {
+              for (const auto& type : field.type_name_list) {
+                if (!type.resolved_node || type.resolved_node->type != object_type::class_type ||
+                    !static_cast<const class_node*>(type.resolved_node)->supports_managed()) {
+                  throw std::invalid_argument{"Managed members require an explicitly managed target class"};
+                }
+              }
+            }
+            std::set<const class_node*> token_path;
+            if ((field.transient || !field.omitted_formats.empty()) && requires_token(field, token_path)) {
+              throw std::invalid_argument{"Required managed tokens cannot be transient or omitted"};
+            }
+          }
+        }
         if (original.supports_managed() && node->type != object_type::generic_definition) {
           validate(&original);
+          if (codec_only_) {
+            constexpr std::uint64_t offset_basis = 14695981039346656037ULL;
+            constexpr std::uint64_t prime = 1099511628211ULL;
+            auto tag = offset_basis;
+            for (const auto byte : original.get_full_name()) {
+              tag = (tag ^ static_cast<unsigned char>(byte)) * prime;
+            }
+            tag = original.explicit_class_id.value_or(tag);
+            if (tag == 0 || std::any_of(class_ids.begin(), class_ids.end(),
+                [&](const auto& item) { return item.second == tag; })) {
+              throw std::invalid_argument{"Managed class identity is zero or collides"};
+            }
+            class_ids.emplace(object.get(), tag);
+          }
           bindings.emplace(object.get(),
                            "managed.direct.v1:" + original.get_full_name() + ":" +
                                std::to_string(managed_schema_hash(&original, hashes_)) + ":" +
@@ -132,11 +223,23 @@ class managed_lowering {
                           true};
           identity.type_name_list.front().type = object_type::primitive;
           identity.fixed_name = true;
+          if (codec_only_ && id_encoding_ == persistent_id_encoding::compact_varint) {
+            identity.compact = compact_encoding::varint;
+          }
           object->member_list.push_back(std::move(identity));
           if (!object->body_order.empty()) {
             object->body_order.push_back({class_body_item::kind_type::field,
                                           object->member_list.size() - 1});
           }
+        }
+        if (codec_only_) {
+          for (const auto& field : original.member_list) {
+            if (field.managed) { managed_fields[object.get()].insert(field.name); }
+          }
+          object->attributes = static_cast<class_attributes>(static_cast<std::uint8_t>(object->attributes) &
+              ~static_cast<std::uint8_t>(class_attributes::managed));
+          for (auto& base : object->parents) { base.managed = false; }
+          for (auto& field : object->member_list) { field.managed = false; }
         }
         copy = std::move(object);
       }
@@ -194,12 +297,15 @@ class managed_lowering {
 
 public:
   std::map<const class_node*, std::string> bindings{};
+  std::map<const class_node*, std::uint64_t> class_ids{};
+  std::map<const class_node*, std::set<std::string>> managed_fields{};
   std::vector<std::unique_ptr<syntax_node>> statements{};
 
   // Lower the existing default direct representation with either supported identity width.
   explicit managed_lowering(const std::vector<std::unique_ptr<syntax_node>>& source,
-                            std::string id_type = "uint32")
-      : id_type_{std::move(id_type)} {
+                            std::string id_type = "uint32", bool codec_only = false,
+                            persistent_id_encoding id_encoding = persistent_id_encoding::compact_varint)
+      : id_type_{std::move(id_type)}, codec_only_{codec_only}, id_encoding_{id_encoding} {
     if (id_type_ != "uint32" && id_type_ != "uint64") {
       throw std::invalid_argument{"managed.id_type must be uint32 or uint64"};
     }
