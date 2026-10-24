@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [Native provider combinations](verification-provider-matrix-2026-10-24.md) | QA01 Windows provider slice: 16 independently built combinations, 576 semantic checks, exact availability/byte/bound controls and one worker; Linux replay tracked separately. |
 | [Current native measurements](verification-native-baselines-2026-10-24.md) | QA03 ordinary/native slice: all eleven SDKs, 132 operation profiles, 660 wall samples, reviewable generated/encoded sizes and separate C++ allocation/Python provider baselines. |
 | [Crash-oracle path repair](verification-crash-oracle-paths-2026-10-24.md) | QA01 test-harness slice: deep Windows build paths, 474 semantic checks and 942 fresh crash-helper processes; native storage code unchanged. |
 | [Current XSD export corpus](verification-xsd-export-corpus-2026-10-24.md) | QA02 compiler-tooling slice: 321 complete decisions, independently validated scalar-union exports, unchanged native field identities and protected publication; broader runtime/corpus gates remain open. |
