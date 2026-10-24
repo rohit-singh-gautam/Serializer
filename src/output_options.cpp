@@ -570,6 +570,8 @@ output_options read_output_options(const std::filesystem::path& file) {
         result.cpp.managed_id_encoding = parse_managed_id_encoding(value);
       } else if (section == "cpp" && key == "constant_evaluation") {
         result.cpp.constant_evaluation = read_bool(value);
+      } else if (section == "cpp" && key == "payload_allocator") {
+        result.cpp.payload_allocator = read_bool(value);
       } else if (section == "cpp" && key == "emission_only") {
         result.cpp.emission_only = read_bool(value);
       } else if (section == "cpp" && key == "protocols") {

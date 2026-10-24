@@ -714,3 +714,29 @@ TEST(output_options, readable_magic_literals_in_owning_and_emission_profiles) {
     EXPECT_EQ(source.find(std::string(1, static_cast<char>(0xc3))), std::string::npos);
   }
 }
+
+// Allocator-aware ownership is explicit and leaves existing standard-container output unchanged.
+TEST(output_options, payload_allocator_profile_is_opt_in_and_rejects_unsupported_contracts) {
+  constexpr std::string_view source =
+      "class record { public string text; public array string values; public map(uint32) string lookup; }";
+  writer::cpp_options options;
+  options.format = false;
+  const auto defaults = emit(source, options);
+  EXPECT_EQ(defaults.find("payload_allocator.hpp"), std::string::npos);
+  options.payload_allocator = true;
+  const auto generated = emit(source, options);
+  EXPECT_NE(generated.find("::rohit::serializer::payload_string"), std::string::npos);
+  EXPECT_NE(generated.find("serializer_payload_resources_match"), std::string::npos);
+  EXPECT_NE(generated.find("Allocator-aware payloads support positional and integer-key native binary only"),
+      std::string::npos);
+  for (const auto contract : {"class record packed { public uint32 value; }",
+                             "class record { public magic {'HDR'}; public uint32 value; }",
+                             "class record { public uint32 serializer_payload_binding; }"}) {
+    EXPECT_THROW(emit(contract, options), std::exception);
+  }
+  options.managed_separate_values = true;
+  EXPECT_THROW(emit(source, options), std::invalid_argument);
+  options.managed_separate_values = false;
+  options.constant_evaluation = true;
+  EXPECT_THROW(emit(source, options), std::invalid_argument);
+}

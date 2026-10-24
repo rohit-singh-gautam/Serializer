@@ -1,0 +1,18 @@
+serializer version 1.20.0;
+
+namespace payload_graph {
+  class child managed stable_ids class_id(301) {
+    public string label (1);
+    public array string notes (2);
+    public map(string) string lookup (3);
+    public optional<string> subtitle (4);
+  }
+  class document managed stable_ids class_id(302) {
+    public managed array child children (1);
+    public child ordinary (2);
+    public optional<child> selected (3);
+    public array[3] string fixed (4);
+    public map(uint32) child by_number (5);
+    public transient optional<child> runtime_selected;
+  }
+}

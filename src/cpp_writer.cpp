@@ -98,6 +98,7 @@ class emitter : private naming {
   bool positional_only{false};
   bool emission_only{false};
   bool managed_separate_values{false};
+  bool payload_allocator_enabled{false};
   bool rename_behavior_identifiers{true};
   std::map<std::string, class_comparison_options> class_comparisons;
   auto_size::configuration class_auto_sizes;
@@ -298,6 +299,7 @@ public:
         positional_only{options.protocols == cpp_protocols::binary_none},
         emission_only{options.emission_only},
         managed_separate_values{options.managed_separate_values},
+        payload_allocator_enabled{options.payload_allocator},
         rename_behavior_identifiers{options.rename_identifiers},
         class_comparisons{options.class_comparisons},
         class_auto_sizes{options.class_auto_sizes},
@@ -333,6 +335,7 @@ public:
                                 storage_mode mode = storage_mode::owning) {
     if (!node) {
       if (emission_only && name == "string") { return "::std::string_view"; }
+      if (payload_allocator_enabled && name == "string") { return "::rohit::serializer::payload_string"; }
       const auto& primitive = serializer::get_cpp_type(name);
       return primitive.starts_with("std::") ? "::" + primitive : primitive;
     }
@@ -355,10 +358,10 @@ public:
       return "::std::optional<" + storage_type_name(value.arguments.front(), mode) + ">";
     }
     if (value.is_sequence()) {
-      return "::std::vector<" + storage_type_name(value.arguments.front(), mode) + ">";
+      return std::string{payload_allocator_enabled ? "::rohit::serializer::payload_vector<" : "::std::vector<"} + storage_type_name(value.arguments.front(), mode) + ">";
     }
     if (value.is_associative()) {
-      return "::std::map<" + storage_type_name(value.arguments[0], mode) + ", " +
+      return std::string{payload_allocator_enabled ? "::rohit::serializer::payload_map<" : "::std::map<"} + storage_type_name(value.arguments[0], mode) + ", " +
              storage_type_name(value.arguments[1], mode) + ">";
     }
     if (value.type == object_type::unresolved && value.name == "digest") {
@@ -368,7 +371,8 @@ public:
       if (value.digest_extent != 0) {
         return "::std::array<::std::uint8_t, " + std::to_string(value.digest_extent) + ">";
       }
-      return emission_only ? "::std::span<const ::std::uint8_t>" : "::std::vector<::std::uint8_t>";
+      return emission_only ? "::std::span<const ::std::uint8_t>" : payload_allocator_enabled ?
+          "::rohit::serializer::payload_vector<::std::uint8_t>" : "::std::vector<::std::uint8_t>";
     }
     return storage_type_name(value.name, value.resolved_node, mode);
   }
@@ -920,14 +924,15 @@ public:
       if (emission_only) {
         return "::std::span<const " + generic_default(member.type_name_list[0]) + ">";
       }
-      return std::string(!member.extent_expression.empty() ? "::std::array<" : "::std::vector<") +
+      return std::string(!member.extent_expression.empty() ? "::std::array<" : payload_allocator_enabled ?
+                            "::rohit::serializer::payload_vector<" : "::std::vector<") +
              generic_default(member.type_name_list[0]) +
              (!member.extent_expression.empty() ? ", ::rohit::serializer::detail::fixed_extent(" +
                  (member.fixed_extent ? std::to_string(member.fixed_extent) :
                      dimension_default(member.extent_expression.front())) + ")" : "") +
              ">";
     case member::modifier_type::map:
-      return std::string("::std::map<") +
+      return std::string(payload_allocator_enabled ? "::rohit::serializer::payload_map<" : "::std::map<") +
              (member.key_type ? generic_default(*member.key_type) : storage_type_name(member.key, member.key_node)) + "," +
              generic_default(member.type_name_list[0]) +
              ">";
@@ -1854,6 +1859,10 @@ public:
          "SerializeOutProtocol::key_type == ::rohit::serializer::serialize_key_type::string,\n     "
          "  "
          " \"Unsupported serializer key type\");"));
+    if (payload_allocator_enabled) {
+      out_stream.write("\n    static_assert(SerializeOutProtocol::key_type != ::rohit::serializer::serialize_key_type::string,\n"
+          "        \"Allocator-aware payloads support positional and integer-key native binary only\");\n");
+    }
     write_schema_value_scope(out_stream, obj);
     if (obj->reference) { out_stream.write("\n    validate_address();\n"); }
     write_auto_size_output(out_stream, *obj);
@@ -2287,7 +2296,8 @@ public:
                      "  constexpr void serialize_in_member_by_identifier(SerializeInProtocol& "} +
          local_name("serializer_protocol") +
          (std::string{", const ::std::uint32_t "} + local_name("identifier") +
-          ", [[maybe_unused]] StorageSource " + local_name("storage_donor") + ") {\n    switch (" +
+          ", [[maybe_unused]] StorageSource " + local_name("storage_donor") + ") {\n" +
+          (payload_allocator_enabled ? "    ::rohit::serializer::payload_allocation_scope serializer_payload_scope{serializer_payload_resource()};\n" : "") + "    switch (" +
           local_name("identifier") + ") {\n")));
 
     write_serializer_in_body_for_parent_key_integer(out_stream, obj);
@@ -2365,7 +2375,9 @@ public:
                       local_name("serializer_protocol") +
                       (std::string{", ::std::string_view "} + local_name("name") +
                        ", [[maybe_unused]] StorageSource " + local_name("storage_donor") +
-                       ") {\n    switch (::rohit::serializer::detail::field_name_hash(" +
+                       ") {\n" + (payload_allocator_enabled ?
+                           "    ::rohit::serializer::payload_allocation_scope serializer_payload_scope{serializer_payload_resource()};\n" : "") +
+                       "    switch (::rohit::serializer::detail::field_name_hash(" +
                        local_name("name") + ")) {\n")));
     for (const auto& [hash_value, entries] : groups) {
       static_cast<void>(hash_value);
@@ -2477,6 +2489,11 @@ public:
         "SerializeInProtocol::key_type "
         "== ::rohit::serializer::serialize_key_type::string,\n        \"Unsupported serializer key "
         "type\");"));
+    if (payload_allocator_enabled) {
+      out_stream.write("\n    static_assert(SerializeInProtocol::key_type != ::rohit::serializer::serialize_key_type::string,\n"
+          "        \"Allocator-aware payloads support positional and integer-key native binary only\");\n"
+          "    ::rohit::serializer::payload_allocation_scope serializer_payload_scope{serializer_payload_resource()};\n");
+    }
     write_schema_value_scope(out_stream, obj);
     write_auto_size_input_start(out_stream, *obj);
     if (obj->reference) {
@@ -2622,6 +2639,9 @@ public:
                  "  ", std::string_view{object->reference ? "" : "constexpr "},
                  "void serialize_in(SerializeInProtocol& ", local_name("serializer_protocol"),
                  ", [[maybe_unused]] StorageSource ", local_name("storage_donor"), " = nullptr) {\n");
+    if (payload_allocator_enabled) {
+      output.write("    ::rohit::serializer::payload_allocation_scope serializer_payload_scope{serializer_payload_resource()};\n");
+    }
     write_auto_size_input_start(output, *object);
     if (object->reference) {
       output.write("    // Keep the old owner alive through the complete positional decode.\n"
@@ -5271,6 +5291,26 @@ public:
     out_stream.write(" {\n");
     auto current_access = access_type::private_access;
     const auto cpp_access_section = [&](auto access) { return access_section(access, current_access); };
+    if (payload_allocator_enabled) {
+      out_stream.write("  ::rohit::serializer::payload_allocation_binding serializer_payload_binding_;\n",
+          cpp_access_section(access_type::public_access),
+          "  // Inspect the retained payload allocation domain; no store or process default is changed.\n"
+          "  [[nodiscard]] const ::std::shared_ptr<::std::pmr::memory_resource>& serializer_payload_resource() const noexcept {\n"
+          "    return serializer_payload_binding_.resource();\n  }\n"
+          "  // Reject mixed allocation domains before publishing a managed candidate.\n"
+          "  [[nodiscard]] bool serializer_payload_resources_match(const ::std::shared_ptr<::std::pmr::memory_resource>& resource) const {\n"
+          "    if (serializer_payload_resource().get() != resource.get()) { return false; }\n");
+      for (const auto& base : obj->parents) {
+        out_stream.write("    if (!::rohit::serializer::payload_resources_match(static_cast<const ",
+            parent_type_name(base), "&>(*this), resource)) { return false; }\n");
+      }
+      for (const auto& field : obj->member_list) {
+        if (field.wire_only) { continue; }
+        out_stream.write("    if (!::rohit::serializer::payload_resources_match(this->", member_name(field),
+            ", resource)) { return false; }\n");
+      }
+      out_stream.write("    return true;\n  }\n");
+    }
     managed_.write_access_friends(out_stream, obj);
     if (managed_.requires_reference_scope(obj)) {
       out_stream.write(cpp_access_section(access_type::public_access),
@@ -5777,11 +5817,12 @@ public:
           generic_default(value.arguments.at(1)) + ">";
     }
     if (value.is_optional() || value.is_sequence()) {
-      return std::string{value.is_optional() ? "::std::optional<" : "::std::vector<"} +
+      return std::string{value.is_optional() ? "::std::optional<" : payload_allocator_enabled ?
+                            "::rohit::serializer::payload_vector<" : "::std::vector<"} +
              generic_default(value.arguments.front()) + ">";
     }
     if (value.is_associative()) {
-      return "::std::map<" + generic_default(value.arguments[0]) + ", " +
+      return std::string{payload_allocator_enabled ? "::rohit::serializer::payload_map<" : "::std::map<"} + generic_default(value.arguments[0]) + ", " +
              generic_default(value.arguments[1]) + ">";
     }
     if (value.kind == generic_argument_kind::dimension && value.dimension != 0) {
@@ -5851,6 +5892,42 @@ public:
   // Generate a complete C++ header while retaining the parsed schema and original wire names.
   void emit(rohit::type_check::output_buffer auto& out_stream,
             const std::vector<std::unique_ptr<syntax_node>>& statements) {
+    if (payload_allocator_enabled) {
+      if (protobuf_enabled || xml_options_.enabled || emission_only ||
+          constant_evaluation_enabled || managed_separate_values || !class_comparisons.empty() || !class_auto_sizes.empty()) {
+        throw std::invalid_argument{"cpp.payload_allocator requires direct owning native binary output without XML, Protobuf, constexpr or computed helpers"};
+      }
+      const auto validate = [&](auto&& self, const auto& nodes) -> void {
+        for (const auto& node : nodes) {
+          if (node->type == object_type::namespace_type) {
+            self(self, static_cast<const namespace_node&>(*node).statements);
+          } else if (node->type == object_type::class_type) {
+            const auto& record = static_cast<const class_node&>(*node);
+            if (record.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+                (record.attributes & class_attributes::packed) != class_attributes::none || record.reference ||
+                !record.functions.empty() || !record.constructions.empty() || !record.conversions.empty() ||
+                !record.arithmetic.empty() || !record.native_blocks.empty() || record.has_magic()) {
+              throw std::invalid_argument{"Allocator-aware payloads require concrete unpacked owning records without behavior, magic or reference bindings"};
+            }
+            for (const auto& field : record.member_list) {
+              if (field.modifier == member::modifier_type::map && field.key_node &&
+                  field.key_node->type == object_type::class_type) {
+                throw std::invalid_argument{"Allocator-aware payload maps require primitive or enum keys"};
+              }
+              if (field.modifier == member::modifier_type::variant || field.cached || field.initializer ||
+                  field.indexing != member::index_method::none ||
+                  field.array_exposure || !field.readonly_getter.empty() ||
+                  field_name(field.name).starts_with("serializer_payload_")) {
+                throw std::invalid_argument{"Allocator-aware payload field uses an unsupported variant, cache, initializer or exposure contract"};
+              }
+            }
+          } else if (node->type != object_type::enum_type) {
+            throw std::invalid_argument{"Allocator-aware payloads require concrete record and enum declarations"};
+          }
+        }
+      };
+      validate(validate, statements);
+    }
     if (protobuf_enabled && !managed_separate_values) {
       const auto require_unmanaged_protobuf = [&](const auto& self, const auto& nodes) -> void {
         for (const auto& node : nodes) {
@@ -5974,6 +6051,7 @@ public:
                      "#include <rohit/serializer.hpp>\n"
                      "#include <rohit/numeric.hpp>\n"
                      "#include <rohit/digest.hpp>\n");
+    if (payload_allocator_enabled) { out_stream.write("#include <rohit/payload_allocator.hpp>\n"); }
     if (!managed_.empty()) { out_stream.write("#include <rohit/managed.hpp>\n#include <optional>\n"); }
     else if (managed_.has_references()) { out_stream.write("#include <rohit/managed_reference.hpp>\n"); }
     if (managed_.has_caches()) { out_stream.write("#include <rohit/cache_codec.hpp>\n"); }

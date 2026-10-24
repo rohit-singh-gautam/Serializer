@@ -7,6 +7,13 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 
 [Documentation index](../../../docs/README.md)
 
+For generated C++ allocation domains, select `cpp.payload_allocator = true`
+and follow [payload allocation](../../../docs/managed/payload_allocation.md).
+Use a retained shared resource for every supported concrete owning binary graph.
+Construct/decode under its scope and clone foreign graphs explicitly. Managed
+callbacks and history restore select that same resource. Keep routed-byte bounds
+distinct from resident admission and process RSS; unsupported profiles reject.
+
 For virtual/abstract/override C++ managed edits, follow
 [guarded dispatch](../../../docs/managed/edit_dispatch.md). Select language 1.24
 in each declaring file and bind the exact editor adapter. Keep borrowed behavior

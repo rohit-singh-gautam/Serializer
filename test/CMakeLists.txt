@@ -120,6 +120,17 @@ endif()
 add_test(NAME payload_allocator_test COMMAND payload_allocator_test)
 
 if(SERIALIZER_BUILD_MANAGED)
+  add_executable(payload_allocation_generated_test payload_allocation_generated_test.cpp)
+  serializer_generate(TARGET payload_allocation_generated_test
+    SCHEMAS resources/payload_allocation.serializer CONFIG resources/payload_allocation.ini
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/payload_allocation")
+  target_link_libraries(payload_allocation_generated_test PRIVATE Serializer::managed GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(payload_allocation_generated_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(payload_allocation_generated_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME payload_allocation_generated_test COMMAND payload_allocation_generated_test)
   foreach(index_profile IN ITEMS direct32 direct64 separate32 separate64)
     add_executable(schema_indexes_${index_profile}_test schema_indexes_test.cpp paged_index_test.cpp)
     set(index_config)

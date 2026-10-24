@@ -46,6 +46,12 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Select `cpp.payload_allocator = true` for supported direct owning native
+binary [payload graphs](docs/managed/payload_allocation.md). Generated records,
+decode temporaries and managed callbacks retain their selected allocation domain;
+explicit cloning transfers graphs. The hard bound covers routed requested bytes,
+with separate resident admission and process-memory contracts.
+
 Language 1.24 [guarded C++ edit dispatch](docs/managed/edit_dispatch.md)
 supports virtual/abstract/override contracts through checked editor adapters.
 Implementations borrow the transaction channel and preserve owned/borrowed

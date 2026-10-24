@@ -87,6 +87,7 @@ struct cpp_options {
   std::map<std::string, class_auto_size_options> class_auto_sizes{};
   xml_options xml{};
   persistent_id_encoding managed_id_encoding{persistent_id_encoding::compact_varint};
+  bool payload_allocator{false}; // Explicit owning positional payload allocation profile.
 };
 
 enum class java_coding_standard { serializer, google, oracle };

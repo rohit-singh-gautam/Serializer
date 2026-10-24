@@ -106,6 +106,7 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
      "Generate borrowed emission models (default false; requires constant evaluation and binary_none)."},
     {'\0', "cpp.protobuf", "true|false",
      "Generate direct Protobuf binary, ProtoJSON, and TextProto codecs."},
+    {'\0', "cpp.payload_allocator", "true|false", "Generate allocator-aware owning native binary payload containers."},
     {'\0', "xml.enabled", "true|false", "Generate statically mapped owning C++ XML codecs."},
     {'\0', "xml.namespace", "uri", "Default XML element namespace; class/field bindings may override it."},
     {'\0', "xml.scalars", "attribute|element", "Default scalar placement without a fixed XSD (default element)."},
@@ -249,6 +250,13 @@ void apply_output_overrides(rohit::serializer::writer::output_options& options,
       throw std::invalid_argument{"cpp.constant_evaluation must be true or false"};
     }
     options.cpp.constant_evaluation = value == "true";
+  }
+  if (arguments.contains("cpp.payload_allocator")) {
+    const auto& value = cli::first(arguments, "cpp.payload_allocator");
+    if (value != "true" && value != "false") {
+      throw std::invalid_argument{"cpp.payload_allocator must be true or false"};
+    }
+    options.cpp.payload_allocator = value == "true";
   }
   if (arguments.contains("cpp.emission_only")) {
     const auto& value = cli::first(arguments, "cpp.emission_only");
