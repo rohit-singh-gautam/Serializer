@@ -33,6 +33,24 @@ bool breaks_new_reader(const std::vector<codec::compatibility_issue>& issues) {
 }
 } // namespace
 
+// Bit fields retain scalar wire widths while narrowing or widening the reader's accepted values.
+TEST(schema_compatibility, bit_field_ranges_are_directional) {
+  const auto scalar = schema("serializer version 1.24.0; class flags stable_ids { public uint8 value (1) {5}; }");
+  const auto full = schema("serializer version 1.24.0; class flags stable_ids { public uint8 value (1) bits(8) {5}; }");
+  const auto narrow = schema("serializer version 1.24.0; class flags stable_ids { public uint8 value (1) bits(3) {5}; }");
+  for (const auto mode : {protocol::binary_none, protocol::binary_integer, protocol::binary_string, protocol::json}) {
+    EXPECT_TRUE(codec::check_schema_compatibility(scalar, full, mode).empty());
+    const auto issues = codec::check_schema_compatibility(scalar, narrow, mode);
+    ASSERT_EQ(issues.size(), 1u);
+    EXPECT_FALSE(issues.front().breaks_old_reader);
+    EXPECT_TRUE(issues.front().breaks_new_reader);
+    const auto widened = codec::check_schema_compatibility(narrow, scalar, mode);
+    ASSERT_EQ(widened.size(), 1u);
+    EXPECT_TRUE(widened.front().breaks_old_reader);
+    EXPECT_FALSE(widened.front().breaks_new_reader);
+  }
+}
+
 // Compact encodings change native binary shape while overflow policy and text retain the contract.
 TEST(schema_compatibility, compact_encodings_are_native_binary_contracts) {
   const auto fixed = schema("class record stable_ids { public uint32 value (1); }");

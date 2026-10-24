@@ -155,6 +155,10 @@ inline void validate_owner(const class_node& owner, const class_comparison_optio
                                 owner.get_full_name()};
   }
   for (const auto* field : selected.fields) {
+    if (field->bit_width != 0) {
+      throw std::invalid_argument{"Generated comparison does not support bit-field addresses: " +
+                                  owner.get_full_name() + "::" + field->name};
+    }
     if (field->modifier == member::modifier_type::variant) {
       throw std::invalid_argument{"Generated comparison does not support union/variant fields: " +
                                   owner.get_full_name() + "::" + field->name};

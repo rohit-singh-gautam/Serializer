@@ -1,6 +1,6 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction scalar_defaults extended_construction overloaded_construction readonly_behavior derived_sizes conversion reference_fields stateless_layout generic_constraints readonly_function_calls readonly_function_overloads numeric_values generic_calls)
+    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction scalar_defaults extended_construction overloaded_construction readonly_behavior derived_sizes conversion reference_fields stateless_layout generic_constraints readonly_function_calls readonly_function_overloads numeric_values generic_calls bit_fields)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
@@ -11,6 +11,7 @@ add_executable(core_serializer_test
   readonly_behavior_test.cpp
   readonly_function_calls_test.cpp
   generic_calls_test.cpp
+  bit_fields_test.cpp
   construction_test.cpp
   scalar_default_test.cpp
   extended_construction_test.cpp

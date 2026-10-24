@@ -2715,6 +2715,7 @@ std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements
   auto options = requested;
   options.xml = xml_binding::effective_options(statements, options.xml);
   xml_binding::validate_options(statements, options.xml, "java");
+  validate_bit_field_output(statements, false);
   require_unmanaged_backend(statements);
   auto_size::validate(statements, options.class_auto_sizes);
   comparison::validate(statements, options.class_comparisons, true);

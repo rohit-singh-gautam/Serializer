@@ -1,0 +1,15 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.24.0;
+
+class bit_fields stable_ids {
+  public uint8 flags (1) bits(3) {5};
+  public uint16 count (2) bits(11) {1024};
+  public uint64 token (3) bits(64) {18446744073709551615};
+}
+
+class bit_fields_wire stable_ids {
+  public uint8 flags (1) {5};
+  public uint16 count (2) {1024};
+  public uint64 token (3) {18446744073709551615};
+}

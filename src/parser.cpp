@@ -1775,6 +1775,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   access_type readonly_getter_access{access_type::public_access};
   std::optional<array_exposure_options> array_exposure{};
   std::optional<xml_field_options> xml_mapping{};
+  std::uint8_t bit_width{};
   while (true) {
     skip_whitespace_and_comment(in_stream);
     if (*in_stream == '(') {
@@ -1799,6 +1800,30 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
       } else {
         default_value = get_default_value(in_stream);
       }
+    } else if (next_keyword(in_stream, "bits")) {
+      if (active_language_version < language_version{1u, 24u, 0u} || bit_width != 0) {
+        throw exception::bad_member_spec{in_stream, "bits requires serializer version 1.24.0 and one width"};
+      }
+      parse_identifier_impl(in_stream);
+      skip_whitespace_and_comment(in_stream);
+      check_and_increase(in_stream, '(');
+      skip_whitespace_and_comment(in_stream);
+      unsigned parsed_width{};
+      constexpr auto maximum_bit_width = std::numeric_limits<std::uint64_t>::digits;
+      while (!in_stream.full() && is_number(*in_stream)) {
+        const auto digit = static_cast<unsigned>(*in_stream - '0');
+        if (parsed_width > (maximum_bit_width - digit) / 10u) {
+          throw exception::bad_member_spec{in_stream, "Bit-field width exceeds 64"};
+        }
+        parsed_width = parsed_width * 10u + digit;
+        ++in_stream;
+      }
+      if (parsed_width == 0 || parsed_width > std::numeric_limits<std::uint64_t>::digits) {
+        throw exception::bad_member_spec{in_stream, "Bit-field width must be an integer from 1 through 64"};
+      }
+      bit_width = static_cast<std::uint8_t>(parsed_width);
+      skip_whitespace_and_comment(in_stream);
+      check_and_increase(in_stream, ')');
     } else if (next_keyword(in_stream, "xml")) {
       if (xml_mapping) { throw exception::bad_member_spec{in_stream, "Only one XML mapping is allowed per field"}; }
       xml_mapping = parse_xml_field_options(in_stream);
@@ -2012,6 +2037,22 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   result.default_factory = std::move(default_factory);
   result.portable_default_enabled = active_declared_language_contract &&
       active_language_version >= language_version{1u, 14u, 0u};
+  result.strict_default_enabled = active_declared_language_contract &&
+      active_language_version >= language_version{1u, 24u, 0u};
+  result.bit_width = bit_width;
+  if (bit_width != 0) {
+    auto scalar = result.type_name_list.front();
+    // Builtin spellings are known here; declaration binding assigns the stored type category later.
+    scalar.type = object_type::primitive;
+    const bool unsigned_scalar = scalar.name == "uint8" || scalar.name == "uint16" ||
+        scalar.name == "uint32" || scalar.name == "uint64";
+    if (!unsigned_scalar || scalar.application || member_modifier != member::modifier_type::none ||
+        managed || transient || version || compact != compact_encoding::none ||
+        !auto_sizes.empty() || !readonly_getter.empty() || xml_mapping ||
+        bit_width > writer::native::width(scalar) * std::numeric_limits<std::uint8_t>::digits) {
+      throw exception::bad_member_spec{in_stream, "bits requires an ordinary uint8/16/32/64 field within its declared width"};
+    }
+  }
   result.readonly_getter = std::move(readonly_getter);
   result.readonly_getter_access = readonly_getter_access;
   result.array_exposure = std::move(array_exposure);
@@ -2762,6 +2803,14 @@ void validate_class_keys(const rohit::type_check::schema_input_buffer auto& inpu
   }
   // Exposed accessors share the source member namespace, independently of their wire names.
   for (const auto& field : obj.member_list) {
+    if (field.bit_width != 0 && (obj.supports_managed() ||
+        (obj.attributes & class_attributes::packed) != class_attributes::none ||
+        obj.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+        !obj.type_parameters.empty() || !obj.functions.empty() || !obj.constructions.empty() ||
+        !obj.conversions.empty())) {
+      throw exception::bad_member_spec{input,
+          "Bit fields require a concrete ordinary owning record without callable or conversion declarations"};
+    }
     if (field.readonly_getter.empty()) { continue; }
     if (obj.supports_managed() ||
         (obj.attributes & class_attributes::packed) == class_attributes::packed ||

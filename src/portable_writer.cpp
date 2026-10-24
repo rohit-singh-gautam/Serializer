@@ -3389,6 +3389,7 @@ std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements
   auto options = requested;
   options.xml = xml_binding::effective_options(statements, options.xml);
   xml_binding::validate_options(statements, options.xml, language);
+  validate_bit_field_output(statements, false);
   behavior::require_callable_backend(statements, language);
   require_unmanaged_backend(statements);
   auto_size::validate(statements, options.class_auto_sizes);

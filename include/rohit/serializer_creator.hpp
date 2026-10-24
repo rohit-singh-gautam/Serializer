@@ -496,6 +496,9 @@ struct member {
   std::size_t source_column{};
   std::string source_path{};
 
+  bool strict_default_enabled{false}; // Language 1.24 scalar defaults use the portable literal contract.
+  std::uint8_t bit_width{}; // Nonzero selects native unsigned C++ bit-field storage, not a wire width.
+
   // Select a computed fixed-width size without storing per-instance codec policy.
   bool auto_sizes(std::string_view format) const {
     return std::find(auto_size_formats.begin(), auto_size_formats.end(), format) != auto_size_formats.end();
