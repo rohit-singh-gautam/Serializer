@@ -1,3 +1,4 @@
+#include "default_diagnostic.hpp"
 #include "literal_syntax.hpp"
 #include "schema_projection.hpp"
 #include "version_writer.hpp"
@@ -1006,7 +1007,8 @@ class emitter {
         const auto prefix = text.substr(0, separator);
         if (prefix != item.name && prefix != item.resolved_node->name &&
             prefix != item.resolved_node->get_full_name()) {
-          throw std::invalid_argument{"Java enum default names the wrong type: " + value.name};
+          throw std::invalid_argument{default_diagnostic(value,
+              "Java enum default names the wrong type: " + value.name)};
         }
       }
       const auto& values = static_cast<const enum_node&>(*item.resolved_node).enum_name_list;
@@ -1038,7 +1040,8 @@ class emitter {
                                   ? std::from_chars(text.data(), text.data() + text.size(), single)
                                   : std::from_chars(text.data(), text.data() + text.size(), real);
           if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size()) {
-            throw std::invalid_argument{"Java floating default out of range: " + value.name};
+            throw std::invalid_argument{default_diagnostic(value,
+                "Java floating default out of range: " + value.name)};
           }
           return text + (item.name == "float" ? "F" : "D");
         }
@@ -1056,7 +1059,8 @@ class emitter {
                                     signed_value < (std::int64_t{1} << (bits - 1));
         }
         if (!valid) {
-          throw std::invalid_argument{"Java integer default out of range: " + value.name};
+          throw std::invalid_argument{default_diagnostic(value,
+              "Java integer default out of range: " + value.name)};
         }
         if (!is_unsigned) {
           return text + (bits == 64 ? "L" : "");
@@ -1068,7 +1072,8 @@ class emitter {
         return cast + "0x" + std::string{digits.data(), converted.ptr} + (bits == 64 ? "L" : "");
       }
     }
-    throw std::invalid_argument{"Java requires a portable literal or enum default: " + value.name};
+    throw std::invalid_argument{default_diagnostic(value,
+        "Java requires a portable literal or enum default: " + value.name)};
   }
 
   // Build a direct scalar read expression with context-sensitive enum representation.
@@ -1261,8 +1266,8 @@ class emitter {
                                                                                : "public ";
     const auto name = field(value.name);
     if (value.modifier != member::modifier_type::none && !value.default_value.empty() && !value.initializer) {
-      throw std::invalid_argument{"Java collection/union defaults are not supported: " +
-                                  value.name};
+      throw std::invalid_argument{default_diagnostic(value,
+          "Java collection/union defaults are not supported: " + value.name)};
     }
     if (value.modifier == member::modifier_type::array) {
       line(access + type(item) + "[] " + name + " = " + (value.initializer ? default_value(value) : value.fixed_extent == 0 ? array_initial(item, "0") :

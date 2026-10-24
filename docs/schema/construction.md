@@ -1,5 +1,11 @@
 # Portable value construction and transient layout
 
+Compiler/runtime **2.32.2** reports portable field-default failures at the original
+`file:line:column: member name:` declaration, including older included files and
+concrete generic definitions. Existing reasons and native C++ generation acceptance
+remain unchanged; ASTs without coordinates retain their earlier error text. See the
+[diagnostic qualification](../verification/verification-backend-default-locations-2026-10-24.md).
+
 Compiler/runtime **2.31.2** applies constant-stack literal recognition to portable
 backends and typed aggregate binding. Existing grammar, range errors and SDK
 boundaries are preserved; see the [resource qualification](../verification/verification-portable-literals-2026-10-24.md).

@@ -52,6 +52,45 @@ TEST(portable_writer, large_legacy_integer_defaults_fail_cleanly) {
   }
 }
 
+// Delayed default rejection must use the authored field, including copied generic members.
+TEST(portable_writer, legacy_default_errors_retain_member_locations) {
+  constexpr std::string_view sources[]{
+      "serializer version 1.13.0;\nclass sample {\n  public uint8 value {999};\n}",
+      "serializer version 1.13.0;\nclass holder<T> {\n  public T value {999};\n}\n"
+      "instantiate tiny = holder<uint8>;"};
+  for (const auto source : sources) {
+    for (const auto language :
+         {"js", "typescript", "go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
+      SCOPED_TRACE(language);
+      try {
+        static_cast<void>(emit_portable(source, language));
+        FAIL() << "Expected invalid legacy default";
+      } catch (const std::invalid_argument& error) {
+        EXPECT_TRUE(std::string_view{error.what()}.starts_with("<schema>:3:3: member value: "));
+      }
+    }
+  }
+}
+
+// Public AST callers without retained source coordinates keep the previous error text.
+TEST(portable_writer, source_free_default_errors_keep_existing_messages) {
+  constexpr std::string_view source =
+      "serializer version 1.13.0; class sample { public uint8 value {999}; }";
+  const auto input = rohit::make_constant_stream(source.data(), source.size());
+  auto nodes = rohit::serializer::parser::parse(input);
+  auto& field = static_cast<rohit::serializer::class_node&>(*nodes.front()).member_list.front();
+  field.source_path.clear();
+  for (const auto language : {"js", "python"}) {
+    try {
+      static_cast<void>(rohit::serializer::writer::portable::generate(nodes, language, "Schema"));
+      FAIL() << "Expected invalid synthetic default";
+    } catch (const std::invalid_argument& error) {
+      EXPECT_EQ(std::string_view{error.what()}, std::string_view{language} == "js"
+          ? "Expected a supported literal default: value" : "Expected a portable literal default: value");
+    }
+  }
+}
+
 // Kotlin's backing-field token is contextual; qualified model properties may use this wire name.
 TEST(portable_writer, kotlin_accepts_field_property) {
   const auto output = emit_portable(

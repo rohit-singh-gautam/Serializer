@@ -1,5 +1,15 @@
 # Migrating to the snake_case Serializer API
 
+## Backend field-default locations in 2.32.2
+
+Rejected portable field defaults now prefix the existing error with the original
+`file:line:column: member name:` location. Included older declarations and copied
+generic fields retain their declaration coordinates. Existing reasons and C++
+native generation acceptance are unchanged. Public ASTs without coordinates keep
+their previous text. Diagnostic consumers may accept the same location format
+already used by parser checks; schema headers and generated files need no migration.
+See the [contract and qualification](docs/verification/verification-backend-default-locations-2026-10-24.md).
+
 ## Java runtime source-token bounds in 2.32.1
 
 The source build splits one embedded Java runtime literal to retain the existing

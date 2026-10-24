@@ -31,6 +31,23 @@ TEST(java_writer, large_literal_defaults_preserve_backend_contracts) {
       std::string(literal_bytes, '9') + " }; }"), std::invalid_argument);
 }
 
+// Concrete generic lowering retains the original field coordinates in backend errors.
+TEST(java_writer, legacy_default_errors_retain_member_locations) {
+  constexpr std::string_view sources[]{
+      "serializer version 1.13.0;\nclass sample {\n  public uint8 value {999};\n}",
+      "serializer version 1.13.0;\nclass holder<T> {\n  public T value {999};\n}\n"
+      "instantiate tiny = holder<uint8>;"};
+  for (const auto source : sources) {
+    try {
+      static_cast<void>(emit_java(source));
+      FAIL() << "Expected invalid legacy Java default";
+    } catch (const std::invalid_argument& error) {
+      EXPECT_EQ(std::string_view{error.what()},
+          "<schema>:3:3: member value: Java integer default out of range: value");
+    }
+  }
+}
+
 // Additive output-window codecs preserve ordinary encoding and private helper/name boundaries.
 TEST(java_writer, caller_owned_output_overloads_and_helper_names) {
   constexpr std::string_view schema =

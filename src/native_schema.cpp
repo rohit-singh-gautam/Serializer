@@ -1,3 +1,4 @@
+#include "default_diagnostic.hpp"
 #include "literal_syntax.hpp"
 #include "native_schema.hpp"
 #include "schema_version.hpp"
@@ -338,7 +339,8 @@ schema::schema(const std::vector<std::unique_ptr<syntax_node>>& statements) {
     }
     for (const auto& field : object.member_list) {
       if (field.modifier != member::modifier_type::none && !field.default_value.empty() && !field.initializer) {
-        throw std::invalid_argument{"Collection and union defaults are unsupported"};
+        throw std::invalid_argument{default_diagnostic(field,
+            "Collection and union defaults are unsupported")};
       }
       if (field.modifier == member::modifier_type::map) {
         const auto key = map_key(field);
@@ -372,7 +374,11 @@ schema::schema(const std::vector<std::unique_ptr<syntax_node>>& statements) {
           if (!field.transient) { add_key(field.display_name); }
         }
         if (field.modifier == member::modifier_type::none) {
-          (void)literal(field);
+          try {
+            (void)literal(field);
+          } catch (const std::invalid_argument& error) {
+            throw std::invalid_argument{default_diagnostic(field, error.what())};
+          }
         }
       }
     }

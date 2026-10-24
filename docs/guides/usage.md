@@ -1,5 +1,11 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.32.2** reports portable field-default failures at the original
+`file:line:column: member name:` declaration, including older included files and
+concrete generic definitions. Existing reasons and native C++ generation acceptance
+remain unchanged; ASTs without coordinates retain their earlier error text. See the
+[diagnostic qualification](../verification/verification-backend-default-locations-2026-10-24.md).
+
 Compiler/runtime **2.32.0** adds opt-in Java caller-owned output windows. Enable
 `java.output_buffer_reuse = true` when regenerating, give the codec an exclusive
 non-aliased array window and use the returned byte count after success. See the

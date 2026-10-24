@@ -1,3 +1,4 @@
+#include "default_diagnostic.hpp"
 #include "literal_syntax.hpp"
 #include "schema_projection.hpp"
 #include "native_schema.hpp"
@@ -576,7 +577,8 @@ class emitter {
         const auto prefix = text.substr(0, separator);
         if (prefix != item.name && prefix != item.resolved_node->name &&
             prefix != item.resolved_node->get_full_name()) {
-          throw std::invalid_argument{"Enum default names the wrong type: " + value.name};
+          throw std::invalid_argument{default_diagnostic(value,
+              "Enum default names the wrong type: " + value.name)};
         }
       }
       const auto& values = static_cast<const enum_node&>(*item.resolved_node).enum_name_list;
@@ -652,7 +654,8 @@ class emitter {
         }
       }
     }
-    throw std::invalid_argument{"Expected a supported literal default: " + value.name};
+    throw std::invalid_argument{default_diagnostic(value,
+        "Expected a supported literal default: " + value.name)};
   }
   // Register flattened names and reject namespace-flattening collisions.
   void register_nodes(const std::vector<std::unique_ptr<syntax_node>>& values,
@@ -869,7 +872,8 @@ class emitter {
         if (item.wire_only) { continue; }
         const auto identifier = field(item.name, item.access);
         if (item.modifier != member::modifier_type::none && !item.default_value.empty() && !item.initializer) {
-          throw std::invalid_argument{"Collection and union defaults are unsupported"};
+          throw std::invalid_argument{default_diagnostic(item,
+              "Collection and union defaults are unsupported")};
         }
         if (item.modifier == member::modifier_type::map &&
             ((item.key_node && item.key_node->type != object_type::enum_type) ||

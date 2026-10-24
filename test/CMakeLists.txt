@@ -556,6 +556,9 @@ if(Python3_Interpreter_FOUND)
   add_test(NAME portable_default_validation_test
     COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_default_validation_test.py"
       --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_default_validation")
+  add_test(NAME backend_default_diagnostics_test
+    COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/backend_default_diagnostics_test.py"
+      --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/backend_default_diagnostics")
   if(CMAKE_GENERATOR MATCHES "Ninja")
     set(serializer_publication_ninja "${CMAKE_MAKE_PROGRAM}")
   else()
