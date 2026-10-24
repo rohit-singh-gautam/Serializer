@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer's schema compiler and generated runtimes into applications. Use for schemas and release migration, CMake generation, native codecs, caller-owned Java array/NIO output windows, portable behavior, owner-bound defaults and bindings, callable availability, arrays/generics, borrowed/shared/weak references and typed field addresses, XML/XSD and identity contracts, restricted HTML, document profiles, bounded compression, ZIP/OPC packages, rebuildable caches, or C++ managed identity, transactions, registries, indexes, history, journals, collaboration and persistence. Review the installed version's complete supported feature set and apply every capability relevant to the user's contract; preserve APIs and wire identities, and qualify unsupported combinations."
+description: "Integrate Serializer's schema compiler and generated runtimes into applications. Use for schemas and release migration, CMake generation, native codecs, caller-owned Java array/NIO output windows, streams/channels, fixed-scalar Java packed buffers, C++ bit fields, native dependency layouts, pinned OPC signatures, portable behavior, owner-bound defaults and bindings, callable availability, arrays/generics, borrowed/shared/weak references and typed field addresses, XML/XSD and identity contracts, restricted HTML, document profiles, bounded compression, ZIP/OPC packages, rebuildable caches, or C++ managed identity, transactions, registries, indexes, history, journals, collaboration and persistence. Review the installed version's complete supported feature set and apply every capability relevant to the user's contract; preserve APIs and wire identities, and qualify unsupported combinations."
 ---
 
 # Serializer Integration
@@ -70,6 +70,25 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
+For compiler/runtime 2.34.0, follow the
+[compiler/backend contracts](../../../docs/guides/compiler_backend_updates.md).
+Language 1.24 scalar defaults require portable literals; retain older headers for
+native C++ expressions. Use `bits(width)` only for supported C++ owning native
+fields: it narrows stored values without changing scalar wire width. Bind independent
+generic calls from typed arguments; supply explicit native input types for fully
+omitted constructor/factory defaults. Keep other-backend generic API rejections.
+Opt native dependency bundles in with `--include-mode separate`, publish every
+`generate_files` artifact, keep Python's sibling package, and compile all Swift/
+Kotlin companions together. Preserve compiler source/output navigation comments.
+Java `stream_output` borrows a synchronous sink through two stable-model traversals;
+allow partial prefixes on I/O failure and require channel progress. Packed buffers
+specify dense positional bytes, not JVM object memory. For OPC signatures,
+require `signatures::available()`, pin the trusted DER certificate and explicitly
+require payload/relationship coverage. Remove signatures before editing and
+verify newly signed bytes; opaque preservation never supplies authentication.
+Consult the [dated qualification](../../../docs/verification/verification-compiler-backends-2026-10-24.md)
+before claiming a provider/platform or performance result.
+
 For fixed-XSD extension content in 2.28.0, use the
 [generated wildcard contract](../../../docs/serialization/xml_tokens.md#xsd-wildcards-and-positioned-extensions-in-2280).
 All eleven owning outputs retain namespace predicates, element/attribute kind,
@@ -97,13 +116,13 @@ remain unavailable for that storage representation. Use a supported explicit
 ordered mapping when direct token traversal is required. Follow the
 [legacy tree checks](../../../docs/verification/verification-legacy-cpp-wildcards-2026-10-22.md).
 
-The current compiler/runtime release is **2.33.0**, with schema language
-**1.23.0**. Release 2.31.0 requires a C++23 compiler and matching standard library
+The current compiler/runtime release is **2.34.0**, with schema language
+**1.24.0**. Release 2.31.0 requires a C++23 compiler and matching standard library
 with `std::byteswap` and `std::span`. Source builds reject an explicit standard
 below 23; public CMake targets propagate `cxx_std_23` to generated and managed
 consumers. Direct compiler invocations must select C++23 or later. Regenerate C++ headers
 for the `if consteval` checked-arithmetic helper; retain runtime nonfinite-value errors. Both editor
-packages are 2.0.18. Existing valid schemas retain their headers and payload revisions;
+packages are 2.0.19. Existing valid schemas retain their headers and payload revisions;
 use language 1.23 for new named managed self bindings. See the
 [named binding contract](../../../docs/schema/named_managed_references.md) and
 [runnable example](../../../example/managed/named_references/README.md).
@@ -1294,8 +1313,10 @@ C++ schema includes
 generate separate dependency headers by default; use `--include-mode inline`,
 `[output] include_mode = inline`, or CMake `INCLUDE_MODE inline` for a combined
 header. Preserve the entry header's adjacent `.includes/` directory when copying
-or installing generated APIs. Other backends retain their existing combined entry
-units; separate-file generation for them is not implemented. See
+or installing generated APIs. C/Rust/Python/Swift/Kotlin retain inline defaults
+and accept explicit dependency bundles in 2.34.0; copy the complete bundle and
+compile all Swift/Kotlin companions in one module. Other backends retain combined
+entry units. See
 [include layout](../../../docs/guides/usage.md#share-declarations-with-includes).
 For a 1.x compiler/runtime upgrade, update versioned package discovery to
 `find_package(Serializer 2.0 CONFIG REQUIRED)` and regenerate through the

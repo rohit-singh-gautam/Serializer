@@ -208,11 +208,12 @@ for signed/unsigned, precision and division guarantees.
 Independently generic construction/readonly APIs require C++ output. They do not
 establish application-side generic methods in the other ten backends. Existing
 class templates remain portable through their ordinary concrete schema applications.
-Independent readonly inputs are deduced by host C++ callers; schema expression
-calls to those generic functions diagnose as unsupported. Calls to ordinary
-methods of a class-generic receiver retain their existing substitution contract.
-Parameter defaults on independent generic input types remain unsupported; the
-declared factory default above applies to class type parameters instead.
+Independent readonly inputs are deduced by host C++ callers. Language 1.24 also
+supports exact typed deduction in schema calls; older declared contracts retain
+the unsupported-call diagnostic. Calls to ordinary methods of a class-generic
+receiver retain their existing substitution contract. Language 1.24 construction
+defaults can bind independent input types under the typed default/factory rules;
+see the [current contract](../guides/compiler_backend_updates.md).
 
 ## Parameters, defaults, and fixed arrays
 
@@ -474,3 +475,9 @@ contracts and are excluded from this check.
 See [usage](../guides/usage.md), [schema reference](schema_reference.md),
 [wire format](../serialization/wire_format.md), [migration](../../migration.md), and the
 [runnable cross-language generic examples](../../example/generics/README.md).
+
+## Language 1.24 independent calls and defaults
+
+See the [compiler/backend contract](../guides/compiler_backend_updates.md) for exact syntax, native source layouts,
+Java sink/buffer ownership, mapped-view boundaries and signature provider policy.
+The [qualification record](../verification/verification-compiler-backends-2026-10-24.md) identifies executed SDK checks and remaining limits.

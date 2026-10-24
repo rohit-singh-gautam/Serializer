@@ -46,6 +46,16 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Compiler/runtime **2.34.0**, schema language **1.24.0**, adds checked scalar
+field defaults, C++ unsigned bit fields and exact independent generic calls/defaults.
+Native backends gain explicit dependency source layouts; Java gains opt-in native
+stream/channel output and fixed-scalar packed buffers. C++ OPC signatures use a
+Windows provider with explicitly pinned signing certificates and reported coverage.
+See the [compiler/backend contracts](docs/guides/compiler_backend_updates.md) and
+[qualification status](docs/verification/verification-compiler-backends-2026-10-24.md).
+Both editor packages are **2.0.19**. Existing declared language contracts and wire
+formats remain independent of these additions.
+
 Compiler/runtime **2.33.0** adds independently opt-in Java heap/direct
 `ByteBuffer` output with `java.nio_output_buffer_reuse = true`. A successful encode
 advances the caller's position; failures preserve its cursor while confining any
@@ -263,7 +273,7 @@ Regenerate Python package facades for cancellation checks after Save hooks:
 pre-publication cancellation preserves the old file; a failure after replacement
 reports `publication_uncertain` with the complete new archive retained.
 
-The current compiler and runtime release is **2.33.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.34.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.23.0**;
@@ -342,7 +352,8 @@ Release **2.17.0** adds [generated package policies and application references](
 Generated [C](docs/languages/c_packages.md), [Rust](docs/languages/rust_packages.md)
 and [Swift](docs/languages/swift_packages.md) outputs now provide bounded owning
 ZIP/OPC facades, typed loading, preservation and staged Save. Both editor packages
-are **2.0.18** and recognize language **1.23.0** named self-reference contracts,
+are **2.0.19** and recognize language **1.24.0** bit fields and generic calls,
+**1.23.0** named self-reference contracts,
 **1.22.0** cache fields and earlier package declarations.
 Version 2.28 composes C/Rust XML document companions with typed package roles.
 Language 1.21 declarations select fixed/default ZIP storage and scoped typed keys

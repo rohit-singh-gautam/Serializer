@@ -2940,3 +2940,9 @@ only release resources. Never delete the whole shared directory or treat `state/
 as a cache. Use `migrate_journal_layout()` for older directory/flat layouts and keep
 its legacy guards. See the [full contract](../design/cache_attributes.md) and
 [qualification record](../verification/verification-cache-2026-10-23.md).
+
+## Compiler/backend additions
+
+See the [compiler/backend contract](compiler_backend_updates.md) for exact syntax, native source layouts,
+Java sink/buffer ownership, mapped-view boundaries and signature provider policy.
+The [qualification record](../verification/verification-compiler-backends-2026-10-24.md) identifies executed SDK checks and remaining limits.

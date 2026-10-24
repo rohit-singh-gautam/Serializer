@@ -94,12 +94,13 @@ belongs to Serializer's standard-package layer. It supplies all fifteen current
 properties, including localized mixed keywords, standard singleton relationship
 discovery and shared XML/package budgets. Applications supply property values.
 Older `contentType` metadata and arbitrary extensions remain opaque pass-through
-contracts outside this typed adapter. Digital signatures still need a separately
-selected signature/trust provider. Neither opaque-byte retention nor
-deterministic ZIP ordering supplies signature verification, XML canonicalization
-or preservation of signature validity after editing signed content. Those features
-need an explicitly scoped provider and independent qualification before a claim of
-support. Standard OPC optional features and 3MF extensions must not be silently
+contracts outside this typed adapter. Compiler/runtime 2.34.0 adds a separately
+selected [Windows OPC signature provider](../guides/compiler_backend_updates.md#opc-signature-provider)
+with pinned signing-key trust and explicitly required coverage. Neither opaque-byte
+retention nor deterministic ZIP ordering invokes that provider or preserves
+signature validity after editing signed content. Its
+[qualification record](../verification/verification-compiler-backends-2026-10-24.md)
+identifies the executed provider profile. Standard OPC optional features and 3MF extensions must not be silently
 treated as implemented by this example.
 
 ## Generic framework status and remaining requirements

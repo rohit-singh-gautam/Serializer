@@ -271,3 +271,9 @@ from one mode to multiple modes changes `person` to `person<mode>` at call sites
 
 For integration steps, see [usage.md](../guides/usage.md) and the
 [repository integration skill](../../.agents/skills/serializer-integration/SKILL.md).
+
+## Mapped-file qualification
+
+See the [compiler/backend contract](../guides/compiler_backend_updates.md) for exact syntax, native source layouts,
+Java sink/buffer ownership, mapped-view boundaries and signature provider policy.
+The [qualification record](../verification/verification-compiler-backends-2026-10-24.md) identifies executed SDK checks and remaining limits.
