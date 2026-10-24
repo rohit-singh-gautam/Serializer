@@ -2437,6 +2437,12 @@ if(SERIALIZER_WITH_XML)
   add_test(NAME xml_shapes_cpp COMMAND xml_shapes_cpp)
 endif()
 
+add_executable(mapped_view_platform_test mapped_view_platform_test.cpp)
+serializer_generate(TARGET mapped_view_platform_test SCHEMAS resources/mapped_view_platform.serializer
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mapped_view_platform")
+target_link_libraries(mapped_view_platform_test PRIVATE Serializer::runtime)
+add_test(NAME mapped_view_platform_test COMMAND mapped_view_platform_test)
+
 if(Python3_Interpreter_FOUND)
   add_test(NAME native_file_layout_python
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/native_file_layout_test.py"

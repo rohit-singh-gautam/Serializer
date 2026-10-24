@@ -1,0 +1,9 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1;
+
+class mapped_view_platform view owning {
+  public uint32 value;
+  public string label;
+  public array uint32 values;
+}
