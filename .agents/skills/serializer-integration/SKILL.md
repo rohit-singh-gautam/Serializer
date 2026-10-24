@@ -7,6 +7,13 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 
 [Documentation index](../../../docs/README.md)
 
+For standalone C++ managed scalar lookup, use language 1.24
+[index declarations](../../../docs/schema/indexes.md). Choose ordered/unordered
+and optional unique keys at local/inherited placement. Query the generated field
+descriptor through the pinned registry. Uniqueness applies before acceptance,
+including loaded history, independently of query-cache materialization. Preserve
+the documented key/profile bounds; database placement and composite keys reject.
+
 For bounded eager durable C++ roots, select
 [`native_database<Root>`](../../../docs/managed/native_database.md). Prepare
 against the exact epoch/revision and canonical request bytes, then accept

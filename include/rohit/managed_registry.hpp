@@ -17,6 +17,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -73,6 +74,35 @@ struct member_descriptor {
       throw registry_error{registry_error_code::missing_member, "Registry member is readonly"};
     }
     set(storage, std::move(value));
+  }
+};
+
+// Native scalar index semantics are versioned independently of payload field encoding.
+enum class index_method { ordered, unordered };
+enum class index_site { inherit, local };
+struct index_info {
+  std::uint32_t id{};
+  std::uint32_t field_id{};
+  index_method method{};
+  bool unique{};
+  index_site site{};
+  std::uint32_t comparator_version{1};
+};
+
+// Retain ordinary descriptor operations while making query capabilities statically checkable.
+template <typename Plain, typename Storage, typename Value, index_method Method,
+          bool Unique, index_site Site = index_site::inherit>
+struct indexed_member_descriptor : member_descriptor<Plain, Storage, Value> {
+  static constexpr auto method = Method;
+  static constexpr bool unique = Unique;
+  static constexpr auto site = Site;
+  // Bind the same private-safe generated accessors without adding per-object data.
+  constexpr indexed_member_descriptor(member_info metadata, const Value& (*getter)(const Storage&),
+      void (*setter)(Storage&, Value), Value& (*mutable_getter)(Storage&) = nullptr)
+      : member_descriptor<Plain, Storage, Value>{metadata, getter, setter, mutable_getter} {}
+  // Field shorthand reserves its field ID in the separate type-local index identity domain.
+  constexpr index_info index() const noexcept {
+    return {this->info.id, this->info.id, Method, Unique, Site, 1};
   }
 };
 
@@ -144,6 +174,66 @@ template <typename Traits, typename Storage, typename Callback>
 void visit_registry_entities(Storage& storage, Callback callback) {
   registry_entity_visitor<Callback> visitor{std::move(callback)};
   Traits::visit_entities(storage, visitor);
+}
+
+// Enforce generated type-wide scalar uniqueness before any candidate can be accepted.
+// Index eviction cannot disable constraints; scratch maps are rebuilt and charged per validation.
+template <typename Traits, typename Storage>
+void validate_declared_unique_indexes(const Storage& root, const serializer::decode_limits& limits,
+    const std::shared_ptr<resident_ledger>& ledger) {
+  std::vector<const void*> visited;
+  resident_charge charge{ledger};
+  std::size_t work{};
+  const auto consume_work = [&] {
+    if (work >= limits.max_work_units) {
+      throw std::length_error{"Schema index validation work limit exceeded"};
+    }
+    ++work;
+  };
+  visit_registry_entities<Traits>(root, [&]<typename Plain>(const auto&) {
+    consume_work();
+    const auto* token = &registry_type_token<Plain>;
+    if (std::find(visited.begin(), visited.end(), token) != visited.end()) { return; }
+    if (visited.size() >= limits.max_collection_elements) {
+      throw std::length_error{"Schema index validation type budget exceeded"};
+    }
+    visited.push_back(token);
+    const auto visited_bytes = multiply_memory_estimate(visited.capacity(), sizeof(const void*));
+    if (visited_bytes > limits.max_allocation_bytes) {
+      throw std::length_error{"Schema index validation allocation budget exceeded"};
+    }
+    charge.resize(visited_bytes);
+    fields<Plain>::visit([&](const auto& descriptor) {
+      using descriptor_type = std::remove_cvref_t<decltype(descriptor)>;
+      if constexpr (requires { descriptor_type::unique; }) {
+        if constexpr (descriptor_type::unique) {
+          using key_type = typename descriptor_type::value_type;
+          std::map<key_type, typename Traits::id_type> keys;
+          std::size_t bytes = visited_bytes;
+          visit_registry_entities<Traits>(root, [&]<typename Actual>(const auto& node) {
+            consume_work();
+            if constexpr (std::same_as<Plain, Actual>) {
+              if (keys.size() >= limits.max_collection_elements) {
+                throw std::length_error{"Schema unique index entity budget exceeded"};
+              }
+              const auto& key = descriptor.get(node);
+              constexpr auto node_bytes = sizeof(typename decltype(keys)::value_type) + 6U * sizeof(void*);
+              add_memory_estimate(bytes, node_bytes);
+              add_memory_estimate(bytes, estimate_dynamic_memory(key));
+              if (bytes > limits.max_allocation_bytes) {
+                throw std::length_error{"Schema unique index allocation budget exceeded"};
+              }
+              charge.resize(bytes);
+              if (!keys.emplace(key, node.persistent_id).second) {
+                throw registry_error{registry_error_code::duplicate_key, "Duplicate schema unique index key"};
+              }
+            }
+          });
+          charge.resize(visited_bytes);
+        }
+      }
+    });
+  });
 }
 
 // Resolve anew after each structural edit rather than reusing a candidate pointer.
@@ -270,6 +360,27 @@ struct registry_options {
   std::size_t max_index_bytes{std::numeric_limits<std::size_t>::max()};
 };
 
+// A match range owns immutable entity pins and its selected derived index independently of a view.
+template <typename Plain>
+class match_range {
+  std::vector<entity_read<Plain>> values_;
+  std::shared_ptr<const void> index_;
+  std::shared_ptr<detail::resident_charge> charge_;
+public:
+  // Transfer fully resolved handles; a temporary registry or subsequent publication cannot invalidate them.
+  match_range(std::vector<entity_read<Plain>> values, std::shared_ptr<const void> index,
+      std::shared_ptr<detail::resident_charge> charge)
+      : values_{std::move(values)}, index_{std::move(index)}, charge_{std::move(charge)} {}
+  // Begin immutable entity traversal in stable persistent-ID order within an equal key.
+  auto begin() const noexcept { return values_.begin(); }
+  // Mark the end of this snapshot's matching entities.
+  auto end() const noexcept { return values_.end(); }
+  // Report whether the exact equality query matched no entities.
+  bool empty() const noexcept { return values_.empty(); }
+  // Count the bounded materialized matches.
+  std::size_t size() const noexcept { return values_.size(); }
+};
+
 // A secondary index pins its source snapshot and accounts its derived owned capacity.
 template <typename Root, typename Map>
 class secondary_index {
@@ -304,6 +415,8 @@ public:
   document_id document() const noexcept { return document_; }
   // Retain the exact root to resolve returned IDs through a compatible snapshot catalog.
   const auto& snapshot() const noexcept { return root_; }
+  // Estimate owned map/key/ID capacity for aggregate automatic-cache admission.
+  std::size_t storage_bytes() const { return detail::estimate_dynamic_memory(values_); }
 };
 
 // A rebuildable catalog belongs to exactly one immutable root; default stores allocate none.
@@ -325,6 +438,12 @@ private:
   registry_options options_{};
   std::shared_ptr<detail::resident_charge> charge_{};
   std::shared_ptr<detail::resident_ledger> ledger_{};
+  struct declared_index_cache {
+    std::mutex mutex{};
+    std::map<std::pair<const void*, std::uint32_t>, std::shared_ptr<const void>> indexes{};
+    std::size_t bytes{};
+  };
+  std::shared_ptr<declared_index_cache> declared_indexes_{std::make_shared<declared_index_cache>()};
 
   // Admit derived capacity without claiming a hard allocator or process peak ceiling.
   void admit(std::size_t bytes) {
@@ -332,6 +451,40 @@ private:
       throw std::length_error{"Registry index admission budget exceeded"};
     }
     if (charge_) { charge_->resize(bytes); }
+  }
+
+  // Reuse one declared access path in this immutable registry; failed builds publish no cache entry.
+  template <typename Descriptor>
+  auto declared_index(const Descriptor& descriptor) const {
+    if (!root_) { throw std::logic_error{"Registry snapshot handle was moved"}; }
+    // Immutable snapshots may be queried concurrently; serialize cache construction and admission.
+    const std::lock_guard lock{declared_indexes_->mutex};
+    using plain_type = typename Descriptor::plain_type;
+    const auto identity = std::make_pair(static_cast<const void*>(&detail::registry_type_token<Descriptor>),
+        descriptor.info.id);
+    const auto build = [&] {
+      if constexpr (Descriptor::method == index_method::ordered) {
+        return ordered(descriptor, Descriptor::unique);
+      } else {
+        return hashed(descriptor, Descriptor::unique);
+      }
+    };
+    using index_type = decltype(build());
+    const auto found = declared_indexes_->indexes.find(identity);
+    if (found != declared_indexes_->indexes.end()) {
+      return std::static_pointer_cast<const index_type>(found->second);
+    }
+    static_assert(std::same_as<typename Descriptor::storage_type,
+        typename model_traits<plain_type>::storage_type>);
+    auto index = std::make_shared<const index_type>(build());
+    auto bytes = declared_indexes_->bytes;
+    detail::add_memory_estimate(bytes, index->storage_bytes());
+    if (bytes > options_.max_index_bytes) {
+      throw std::length_error{"Declared schema index cache budget exceeded"};
+    }
+    declared_indexes_->indexes.emplace(identity, index);
+    declared_indexes_->bytes = bytes;
+    return index;
   }
 public:
   // Build only from a pinned generated snapshot; duplicate/zero identities reject construction.
@@ -408,6 +561,43 @@ public:
   template <typename Callback>
   void visit(Callback&& callback) const {
     for (const auto& [id, entry] : locations_) { callback(id, entry.type_key); }
+  }
+  // Resolve exact scalar matches through the declared method and retain both snapshot and index pins.
+  template <typename Descriptor>
+    requires requires { Descriptor::method; Descriptor::unique; }
+  auto find_by(const Descriptor& descriptor, const typename Descriptor::value_type& key) const {
+    using plain_type = typename Descriptor::plain_type;
+    auto index = declared_index(descriptor);
+    std::vector<entity_read<plain_type>> matches;
+    const auto found = index->find(key);
+    if (found != index->end()) {
+      const auto bytes = detail::multiply_memory_estimate(found->second.size(), sizeof(entity_read<plain_type>));
+      if (bytes > options_.max_index_bytes) {
+        throw std::length_error{"Schema index match range budget exceeded"};
+      }
+      matches.reserve(found->second.size());
+      for (const auto id : found->second) { matches.push_back(find<plain_type>(id)); }
+    }
+    const auto bytes = detail::multiply_memory_estimate(matches.capacity(), sizeof(entity_read<plain_type>));
+    auto charge = ledger_ ? std::make_shared<detail::resident_charge>(ledger_, bytes) : nullptr;
+    return match_range<plain_type>{std::move(matches), std::move(index), std::move(charge)};
+  }
+  // Require a declared exact unique key; missing values return an empty optional.
+  template <typename Descriptor>
+    requires requires { Descriptor::unique; } && Descriptor::unique
+  auto find_unique(const Descriptor& descriptor, const typename Descriptor::value_type& key) const {
+    using plain_type = typename Descriptor::plain_type;
+    auto index = declared_index(descriptor);
+    const auto found = index->find(key);
+    if (found == index->end()) { return std::optional<entity_read<plain_type>>{}; }
+    return std::optional<entity_read<plain_type>>{find<plain_type>(found->second.front())};
+  }
+  // Test equality membership without allocating a match range or exposing mutable entities.
+  template <typename Descriptor>
+    requires requires { Descriptor::method; Descriptor::unique; }
+  bool contains_by(const Descriptor& descriptor, const typename Descriptor::value_type& key) const {
+    const auto index = declared_index(descriptor);
+    return index->find(key) != index->end();
   }
   // Read a statically selected exact field through generated descriptor access.
   template <typename Plain, typename Storage, typename Value>

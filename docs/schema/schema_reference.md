@@ -25,6 +25,14 @@ Language `1.24.0` adds class-local `xml(ordered("items"))` and
 contracts without adding model fields. Each declaring file, including an
 included file, must select `1.24.0` to use these settings.
 
+Language `1.24.0` adds [standalone C++ managed scalar indexes](indexes.md):
+`index`, `index(ordered)` and `index(unordered, unique)` field declarations,
+automatic uniqueness validation and typed snapshot lookup. The supported sites
+are `local` and `inherit`; database placement and composite indexes remain proposals.
+
+Language `1.23.0` adds [named managed generic self references](named_managed_references.md).
+Language `1.22.0` adds [rebuildable C++ cache fields](../design/cache_attributes.md).
+
 Language `1.21.0` adds [package policies and scalar application keys/references](../serialization/package_application_contracts.md).
 Each declaring file selects its own required language version, including includes.
 

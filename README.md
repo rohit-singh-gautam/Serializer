@@ -46,6 +46,11 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Language 1.24 adds [local managed scalar indexes](docs/schema/indexes.md):
+ordered/hash lookup and optional type-scoped uniqueness. Queries pin their source
+snapshot; uniqueness validates complete candidates before publication. Database
+placement, composite keys and lazy authoritative storage remain separate work.
+
 The [bounded eager native database](docs/managed/native_database.md) owns one
 managed root, durable exact retries and a prepared acceptance boundary. Native
 migration publishes a validated new epoch while retaining a recoverable source

@@ -1415,6 +1415,26 @@ class managed_writer {
             "  static void visit_references(auto& storage, auto&& visitor) {\n"
             "    detail::visit_entity_references(storage, visitor);\n  }\n");
       }
+      std::set<const class_node*> indexed_types;
+      const auto has_unique_indexes = [&](auto&& self, const class_node* source) -> bool {
+        if (!indexed_types.insert(source).second) { return false; }
+        for (const auto& base : source->parents) {
+          if (base.managed && self(self, base.parent_class)) { return true; }
+        }
+        for (const auto& field : source->member_list) {
+          if (field.index_unique) { return true; }
+          if (!field.managed) { continue; }
+          for (const auto& type : field.type_name_list) {
+            const auto* child = child_node(type);
+            if (child && child->type == object_type::class_type &&
+                self(self, static_cast<const class_node*>(child))) { return true; }
+          }
+        }
+        return false;
+      };
+      write_managed_text(unit_output,
+          "  // Skip constraint traversal entirely for models without declared unique keys.\n"
+          "  static constexpr bool has_unique_indexes = ", has_unique_indexes(has_unique_indexes, item.source) ? "true" : "false", ";\n");
       write_managed_text(unit_output,
           "  // Select an explicitly negotiated nested-path collaboration wire contract when required.\n"
           "  static constexpr bool has_inherited_field_paths = ", inherited_paths ? "true" : "false", ";\n");
@@ -1542,11 +1562,19 @@ class managed_writer {
       names.push_back(accessor);
       const auto member = field_name(field.name);
       const auto writable = !field.version && !field.transient;
+      const auto indexed = !ordinary && field.indexing != member::index_method::none;
+      const auto descriptor_type = indexed ? "indexed_member_descriptor" : "member_descriptor";
       write_managed_text(unit_output, "  // Select this stable schema field without an ABI offset.\n"
           "  static constexpr auto ", accessor, "() {\n    using storage_type = ", storage,
           ";\n    using value_type = ::std::remove_cvref_t<decltype(::std::declval<storage_type&>().",
           wrapped ? "value." : "", member, ")>;\n"
-          "    return member_descriptor<", plain, ", storage_type, value_type>{{", field.id,
+          "    return ", descriptor_type, "<", plain, ", storage_type, value_type");
+      if (indexed) {
+        write_managed_text(unit_output, ", index_method::",
+            field.indexing == member::index_method::ordered ? "ordered" : "unordered",
+            ", ", field.index_unique ? "true" : "false", ", index_site::", field.index_local ? "local" : "inherit");
+      }
+      write_managed_text(unit_output, ">{{", field.id,
           "u, \"", field.display_name, "\", ", writable ? "true" : "false", "},\n"
           "      +[](const storage_type& input) -> const value_type& { ",
           lifetime_guard(source, field, wrapped ? "input.value" : "input"),

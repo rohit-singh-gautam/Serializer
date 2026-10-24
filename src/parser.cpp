@@ -1481,6 +1481,60 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   }
   auto access = parse_access_type_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
+  auto indexing = member::index_method::none;
+  bool index_unique{};
+  bool index_local{};
+  bool index_head = behavior_modifier_head(in_stream, "index");
+  if (next_keyword(in_stream, "index")) {
+    const auto lookahead = make_constant_full_stream(in_stream.curr(), in_stream.remaining_buffer());
+    parse_identifier_impl(lookahead);
+    skip_whitespace_and_comment(lookahead);
+    index_head = index_head || (!lookahead.full() && *lookahead == '(');
+  }
+  if (index_head) {
+    if (active_language_version < language_version{1u, 24u, 0u}) {
+      throw exception::bad_member_spec{in_stream, "Schema indexes require serializer version 1.24.0"};
+    }
+    parse_identifier_impl(in_stream);
+    skip_whitespace_and_comment(in_stream);
+    indexing = member::index_method::ordered;
+    if (!in_stream.full() && *in_stream == '(') {
+      ++in_stream;
+      skip_whitespace_and_comment(in_stream);
+      bool method_seen{};
+      bool site_seen{};
+      do {
+        const auto option = parse_identifier_impl(in_stream);
+        skip_whitespace_and_comment(in_stream);
+        if (option == "ordered" || option == "unordered") {
+          if (method_seen) { throw exception::bad_member_spec{in_stream, "Repeated index method"}; }
+          method_seen = true;
+          indexing = option == "ordered" ? member::index_method::ordered : member::index_method::unordered;
+        } else if (option == "unique") {
+          if (index_unique) { throw exception::bad_member_spec{in_stream, "Repeated index unique option"}; }
+          index_unique = true;
+        } else if (option == "on") {
+          if (site_seen) { throw exception::bad_member_spec{in_stream, "Repeated index placement"}; }
+          site_seen = true;
+          check_and_increase(in_stream, '=');
+          skip_whitespace_and_comment(in_stream);
+          const auto site = parse_identifier_impl(in_stream);
+          if (site != "local" && site != "inherit") {
+            throw exception::bad_member_spec{in_stream, "Standalone schema indexes support only local or inherit placement"};
+          }
+          index_local = site == "local";
+          skip_whitespace_and_comment(in_stream);
+        } else {
+          throw exception::bad_member_spec{in_stream, "Unsupported schema index option; expected ordered, unordered, unique or on = local/inherit"};
+        }
+        if (in_stream.full() || *in_stream != ',') { break; }
+        ++in_stream;
+        skip_whitespace_and_comment(in_stream);
+      } while (true);
+      check_and_increase(in_stream, ')');
+      skip_whitespace_and_comment(in_stream);
+    }
+  }
   bool wire_only{};
   if (behavior_modifier_head(in_stream, "wire_only")) {
     if (active_language_version < language_version{1u, 9u, 0u}) {
@@ -2031,6 +2085,9 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
     }
   }
   result.transient = transient;
+  result.indexing = indexing;
+  result.index_unique = index_unique;
+  result.index_local = index_local;
   result.cached = cached;
   result.cache_priority = cache_priority;
   result.empty_layout = empty_layout;
@@ -2092,6 +2149,16 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   result.created_version = std::move(lifecycle.created_version);
   result.obsolete_version = std::move(lifecycle.obsolete_version);
   result.replaced_member = std::move(lifecycle.replaced_member);
+  if (indexing != member::index_method::none &&
+      (result.transient || result.managed || result.version || result.wire_only ||
+       result.value_reference || value_reference || result.magic ||
+       result.modifier != member::modifier_type::none || result.type_name_list.size() != 1 ||
+       !result.auto_size_formats.empty() || result.obsolete || !result.created_version.empty() ||
+       !result.obsolete_version.empty() || !result.replaced_member.empty() ||
+       !result.omitted_formats.empty())) {
+    throw exception::bad_member_spec{in_stream,
+        "Schema indexes require an ordinary durable scalar field without lifecycle or format exclusions"};
+  }
   if (value_reference) {
     if (result.managed || result.version || result.wire_only || result.compact != compact_encoding::none ||
         !result.auto_size_formats.empty() || !result.default_value.empty() || result.initializer ||
@@ -3926,6 +3993,21 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
           validate_compact_member(in_stream, member, false);
           validate_digest_member(in_stream, *class_ptr, member);
           validate_optional_member(in_stream, *class_ptr, member);
+          if (member.indexing != member::index_method::none) {
+            const auto& key = member.type_name_list.front();
+            const bool scalar = key.type == object_type::enum_type ||
+                (key.type == object_type::primitive &&
+                 (key.name == "bool" || key.name == "string" || key.name == "int8" ||
+                  key.name == "int16" || key.name == "int32" || key.name == "int64" ||
+                  key.name == "uint8" || key.name == "uint16" || key.name == "uint32" || key.name == "uint64"));
+            if (!class_ptr->supports_managed() || !scalar || key.application ||
+                class_ptr->storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+                (class_ptr->attributes & class_attributes::packed) != class_attributes::none ||
+                class_ptr->reference) {
+              throw exception::bad_member_spec{in_stream,
+                  "Schema indexes require an unpacked owning managed class and a bool, integer, string or enum field"};
+            }
+          }
           validate_factory_default(in_stream, member, *class_ptr);
           validate_portable_default(in_stream, member, *class_ptr);
           validate_empty_layout(in_stream, *class_ptr, member);

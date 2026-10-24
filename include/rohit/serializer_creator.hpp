@@ -476,6 +476,10 @@ struct member {
   bool transient{false}; // Excluded from durable traversal; cached distinguishes optional cache persistence.
   bool cached{false}; // Rebuildable runtime projection with independent optional persistence.
   std::uint8_t cache_priority{}; // Lowest retention by default; never a payload wire value.
+  enum class index_method { none, ordered, unordered };
+  index_method indexing{index_method::none}; // Derived native access path, never payload storage.
+  bool index_unique{false}; // Type-scoped constraint independent of query materialization.
+  bool index_local{false}; // False means inherit the standalone native store's local site.
   bool empty_layout{false}; // Portable hint: overlap only a stateless transient generated value.
   std::string default_factory{}; // Typed zero-argument factory on the field's generated record.
   std::vector<std::string> auto_size_formats{}; // Selected native formats derive the containing record's byte length.
@@ -514,7 +518,9 @@ struct member {
            extent_expression == rhs.extent_expression && fixed_extent == rhs.fixed_extent &&
            inferred_extent == rhs.inferred_extent && owning_variant == rhs.owning_variant &&
            transient == rhs.transient && cached == rhs.cached &&
-           cache_priority == rhs.cache_priority && empty_layout == rhs.empty_layout &&
+           cache_priority == rhs.cache_priority && indexing == rhs.indexing &&
+           index_unique == rhs.index_unique && index_local == rhs.index_local &&
+           empty_layout == rhs.empty_layout &&
            default_factory == rhs.default_factory &&
            readonly_getter == rhs.readonly_getter &&
            readonly_getter_access == rhs.readonly_getter_access &&
@@ -955,6 +961,10 @@ inline void require_unmanaged_backend(const std::vector<std::unique_ptr<syntax_n
       }
     } else if (node->type == object_type::class_type || node->type == object_type::generic_definition) {
       const auto& object = static_cast<const class_node&>(*node);
+      if (std::any_of(object.member_list.begin(), object.member_list.end(),
+          [](const auto& field) { return field.indexing != member::index_method::none; })) {
+        throw std::invalid_argument{"Schema indexes currently require the native C++ managed backend"};
+      }
       if (std::any_of(object.member_list.begin(), object.member_list.end(),
           [](const auto& field) { return field.cached; })) {
         throw std::invalid_argument{"Cache fields currently require the C++ owning backend"};

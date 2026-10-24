@@ -1,0 +1,24 @@
+serializer version 1.24.0;
+
+namespace indexed_example {
+  enum category { fiction, reference }
+
+  class entry managed stable_ids {
+    public index(unordered, unique) uint64 key (1);
+    public index(ordered, on = local) string title (2);
+    public index(unordered) category kind (3);
+    private index(ordered, unique) int64 sequence (4);
+    public index bool available (5);
+    public string note (6);
+  }
+
+  class other managed stable_ids {
+    public index(unordered, unique) uint64 key (1);
+  }
+
+  class document stable_ids {
+    public managed array entry entries (1);
+    public managed array entry archive (2);
+    public managed array other others (3);
+  }
+}

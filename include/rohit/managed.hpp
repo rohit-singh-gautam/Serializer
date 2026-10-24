@@ -1480,6 +1480,11 @@ private:
         }
       }
       Traits::validate(value);
+      if constexpr (requires { Traits::has_unique_indexes; }) {
+        if constexpr (Traits::has_unique_indexes) {
+          detail::validate_declared_unique_indexes<Traits>(value, options_.decode, resident_ledger_);
+        }
+      }
       if constexpr (requires { Traits::has_entity_references; }) {
         if constexpr (Traits::has_entity_references) {
           detail::validate_entity_references<Traits>(value,
