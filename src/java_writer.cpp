@@ -1,5 +1,6 @@
 #include "default_diagnostic.hpp"
 #include "literal_syntax.hpp"
+#include "native_schema.hpp"
 #include "schema_projection.hpp"
 #include "version_writer.hpp"
 #include "behavior_writer.hpp"
@@ -41,6 +42,9 @@ namespace rohit::serializer::writer::java {
 namespace {
 constexpr std::string_view runtime_source =
 #include "java_runtime.inc"
+    ;
+constexpr std::string_view stream_runtime_source =
+#include "java_stream_runtime.inc"
     ;
 constexpr std::string_view xml_declarations_runtime_source =
 #include "xml_java_declarations_runtime.inc"
@@ -1827,6 +1831,38 @@ class emitter {
     line("}");
   }
 
+  // Preflight native codecs, then stream without retaining the complete encoded message.
+  void stream_codec() {
+    if (!options.stream_output) { return; }
+    const auto counter = outer == "CountBuffer" ? "CountBuffer_2" : "CountBuffer";
+    const auto stream = outer == "StreamBuffer" ? "StreamBuffer_2" : "StreamBuffer";
+    line("/** Encode synchronously; borrow but never close/flush the sink. Keep the model unchanged during both traversals. */");
+    line("public int encode(Protocol protocol, java.io.OutputStream destination) throws java.io.IOException {");
+    ++level;
+    native_protocol_guard();
+    line("java.util.Objects.requireNonNull(destination);");
+    line("Writer." + std::string{counter} + " measured = new Writer." + counter + "(); write(new Writer(protocol, measured));");
+    line("Writer." + std::string{stream} + " stream = new Writer." + stream + "(destination, measured);");
+    line("try { write(new Writer(protocol, stream)); stream.finish(); }");
+    line("catch (java.io.UncheckedIOException error) { throw error.getCause(); }");
+    line("return stream.size();");
+    --level; line("}");
+    line("/** Encode to a progress-making channel; partial/zero writes and I/O failures never close the channel. */");
+    line("public int encode(Protocol protocol, java.nio.channels.WritableByteChannel destination) throws java.io.IOException {");
+    ++level;
+    line("java.util.Objects.requireNonNull(destination);");
+    line("return encode(protocol, new java.io.OutputStream() {");
+    ++level;
+    line("@Override public void write(int value) throws java.io.IOException { write(new byte[]{(byte)value}, 0, 1); }");
+    line("@Override public void write(byte[] value, int offset, int length) throws java.io.IOException {");
+    ++level;
+    line("java.nio.ByteBuffer bytes = java.nio.ByteBuffer.wrap(value, offset, length);");
+    line("while (bytes.hasRemaining()) { if (destination.write(bytes) <= 0) { throw new java.io.IOException(\"Output channel made no progress\"); } }");
+    --level; line("}");
+    --level; line("});");
+    --level; line("}");
+  }
+
   // Emit a directly encoded owning class; schema parents are explicit composed fields.
   // Reuse the owning target codec with readonly getter expressions and no target allocation.
   std::string translator_codecs(const conversion_declaration& method, std::string_view) {
@@ -1846,6 +1882,7 @@ class emitter {
     --level; line("}");
     output_buffer_codec();
     nio_output_buffer_codec();
+    stream_codec();
     line("/** Traverse the target's keys and readonly field projections. */");
     line("private void write(Writer out) {"); ++level;
     projection_fields_ = std::move(projected);
@@ -2039,14 +2076,35 @@ class emitter {
   }
 
   void object(const class_node& value) {
-    if (value.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
-        (value.attributes & class_attributes::packed) != class_attributes::none) {
-      throw std::invalid_argument{"Java output supports owning classes only; remove view/packed: " +
+    if (value.storage_modes != static_cast<std::uint8_t>(storage_mode::owning)) {
+      throw std::invalid_argument{"Java output supports owning classes only; remove view: " +
                                   value.name};
+    }
+    const bool packed = (value.attributes & class_attributes::packed) != class_attributes::none;
+    std::size_t packed_size_bytes{};
+    if (packed) {
+      if (!value.parents.empty() || value.has_magic() || !value.functions.empty() ||
+          !value.constructions.empty() || !value.conversions.empty()) {
+        throw std::invalid_argument{"Java packed output requires a fixed scalar record without parents, magic or callables"};
+      }
+      for (const auto& item : value.member_list) {
+        const auto& scalar = item.type_name_list.front();
+        const auto bytes = native::width(scalar);
+        if (item.modifier != member::modifier_type::none || scalar.application || scalar.is_digest() ||
+            scalar.type != object_type::primitive || bytes <= 0 || item.transient || item.version ||
+            item.compact != compact_encoding::none || !item.omitted_formats.empty() || !item.auto_size_formats.empty()) {
+          throw std::invalid_argument{"Java packed fields require stored fixed-width primitive scalars: " + item.name};
+        }
+        constexpr auto maximum_packed_bytes = static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max());
+        if (packed_size_bytes > maximum_packed_bytes - static_cast<std::size_t>(bytes)) {
+          throw std::length_error{"Java packed layout exceeds the JVM buffer limit"};
+        }
+        packed_size_bytes += static_cast<std::size_t>(bytes);
+      }
     }
     std::set<std::string> fields{};
     const auto add_field = [&](const std::string& name) {
-      if (!fields.insert(name).second || name == "ReadPolicy" || name == "Protocol" ||
+      if ((packed && name == "PACKED_SIZE_BYTES") || !fields.insert(name).second || name == "ReadPolicy" || name == "Protocol" ||
           name == "Limits" || name == outer) {
         throw std::invalid_argument{"Java field name collision: " + name};
       }
@@ -2105,6 +2163,21 @@ class emitter {
     }
     line("public static final class " + name + " {");
     ++level;
+    if (packed) {
+      line("/** Exact dense positional byte count; this does not specify JVM object layout. */");
+      line("public static final int PACKED_SIZE_BYTES = " + std::to_string(packed_size_bytes) + ";");
+      line("/** Pack fixed-width scalars without padding; borrow a writable window and advance only on success. */");
+      line("public int pack(java.nio.ByteBuffer destination) {"); ++level;
+      line("if (destination.remaining() < PACKED_SIZE_BYTES) { throw new java.nio.BufferOverflowException(); }");
+      line("int start = destination.position(); Writer out = new Writer(Protocol.BINARY_NONE, destination, start);");
+      line("write(out); destination.position(out.bytes.size()); return out.bytes.size() - start;");
+      --level; line("}");
+      line("/** Copy one exact packed record into fresh owning fields; preserve the input cursor on failure. */");
+      line("public static " + name + " unpack(java.nio.ByteBuffer source) {"); ++level;
+      line("java.nio.ByteBuffer cursor = source.duplicate(); byte[] bytes = new byte[PACKED_SIZE_BYTES]; cursor.get(bytes);");
+      line(name + " result = decode(bytes, Protocol.BINARY_NONE); source.position(cursor.position()); return result;");
+      --level; line("}");
+    }
     if (value.magic_field) {
       const auto& magic = *value.magic_field;
       const auto visibility = value.magic_access == access_type::public_access ? "public " :
@@ -2166,6 +2239,7 @@ class emitter {
     line("}");
     output_buffer_codec();
     nio_output_buffer_codec();
+    stream_codec();
     line("/** Decode one exact message using default resource limits. */");
     line("public static " + name + " decode(byte[] bytes, Protocol protocol) {");
     ++level;
@@ -2604,11 +2678,20 @@ public:
     line("// Serializer runtime support begins.");
     // A private nested helper must not repeat the enclosing output class's name.
     // Keep previously valid enclosing filenames usable without reserving another schema name.
+    std::string combined_runtime{runtime_source};
+    if (options.stream_output) {
+      const auto reader = combined_runtime.find("/** Bounded cursor shared by all nested generated readers");
+      const auto writer_end = combined_runtime.rfind("\n}", reader);
+      if (reader == std::string::npos || writer_end == std::string::npos) {
+        throw std::logic_error{"Missing Java writer boundary"};
+      }
+      combined_runtime.insert(writer_end, stream_runtime_source);
+    }
     std::string renamed_runtime;
-    auto native_runtime = runtime_source;
-    for (const std::string_view helper : {"FixedBuffer", "NioBuffer"}) {
+    std::string_view native_runtime = combined_runtime;
+    for (const std::string_view helper : {"FixedBuffer", "NioBuffer", "CountBuffer", "StreamBuffer"}) {
       if (outer == helper) {
-        renamed_runtime = std::regex_replace(std::string{runtime_source},
+        renamed_runtime = std::regex_replace(combined_runtime,
             std::regex{"\\b" + std::string{helper} + "\\b"}, std::string{helper} + "_2");
         native_runtime = renamed_runtime;
         break;

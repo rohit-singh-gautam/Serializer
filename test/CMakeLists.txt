@@ -2442,6 +2442,13 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/native_file_layout_test.py"
       --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_file_layout"
       --languages python)
+  find_package(Java 17 COMPONENTS Development QUIET)
+  if(Java_FOUND)
+    add_test(NAME java_stream_output
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/java_stream_output_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/java_stream_output"
+        --javac "${Java_JAVAC_EXECUTABLE}" --java "${Java_JAVA_EXECUTABLE}")
+  endif()
 endif()
 
 if(WIN32)

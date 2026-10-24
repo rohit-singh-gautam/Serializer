@@ -101,6 +101,7 @@ struct java_options {
   output_protocols protocols{output_protocols::all};
   bool output_buffer_reuse{false}; // Opt in to caller-owned output-window encode overloads.
   bool nio_output_buffer_reuse{false}; // Opt in to caller-owned heap/direct ByteBuffer windows.
+  bool stream_output{false}; // Opt in to bounded, synchronous native stream/channel output.
 };
 
 // Native naming and module configuration for portable owning backends.

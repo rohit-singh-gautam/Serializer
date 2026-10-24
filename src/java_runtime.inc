@@ -235,6 +235,12 @@ R"java(  /** Bound output to an exclusive caller-owned window; failed writes may
     this.limits = null;
     this.bytes = new NioBuffer(destination, start);
   }
+  /** Select a generated count/stream sink without changing ordinary buffer construction. */
+  Writer(Protocol protocol, SizeBuffer destination) {
+    this.protocol = java.util.Objects.requireNonNull(protocol);
+    this.limits = null;
+    this.bytes = java.util.Objects.requireNonNull(destination);
+  }
   /** Admit traversal and temporary storage before a generated native encoder owns it. */
   void consume(String resource,long amount){if(limits!=null&&limits.xmlOperation!=null)limits.xmlOperation.consume(resource,amount,"");}
 
