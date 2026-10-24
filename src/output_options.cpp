@@ -579,6 +579,8 @@ output_options read_output_options(const std::filesystem::path& file) {
         result.java.standard = parse_java_coding_standard(value);
       } else if (section == "java" && key == "package") {
         result.java.package_name = value;
+      } else if (section == "java" && key == "output_buffer_reuse") {
+        result.java.output_buffer_reuse = read_bool(value);
       } else if (section == "java" && key == "naming") {
         if (value != "profile" && value != "preserve") {
           throw std::invalid_argument{"Expected naming = profile or preserve"};

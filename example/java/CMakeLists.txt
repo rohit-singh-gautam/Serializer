@@ -29,6 +29,7 @@ function(serializer_java_example target folder config)
 endfunction()
 
 serializer_java_example(serializer_java_round_trip round_trip java.ini)
+serializer_java_example(serializer_java_output_buffer output_buffer java.ini)
 foreach(profile IN ITEMS serializer google oracle)
   serializer_java_example("serializer_java_style_${profile}" "coding_styles/${profile}" java.ini)
 endforeach()

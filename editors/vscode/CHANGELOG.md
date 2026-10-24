@@ -1,3 +1,8 @@
+# 2.0.17
+
+- Document compiler/runtime 2.32.0's opt-in Java caller-owned output windows with unchanged schema language 1.23.0.
+- Verify generated Java output-window parameters do not replace field navigation destinations; synchronize both packages and current listings.
+
 # 2.0.16
 
 - Bound generated C++ navigation work with a declaration index, exact field-candidate matching and reusable block-depth lookup; preserve namespace/template offsets and authored C++ behavior.

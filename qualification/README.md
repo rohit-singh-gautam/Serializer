@@ -6,6 +6,25 @@ checks to a source revision and configurations, and lists outstanding work.
 
 ## Eleven-output native codec baselines
 
+`java_output_buffer.py` measures the opt-in Java encoding window against a retained
+compiler's ordinary encoder. It runs each mode in a fresh JVM with a fixed heap,
+explicit warmup and five samples, recording per-thread JVM allocation, elapsed
+nanoseconds and encoded size. Retained caller storage, JVM/process peaks and native
+allocations are excluded from the allocation counter.
+
+```powershell
+python -B qualification/java_output_buffer.py `
+  --compiler out/build/ReleaseWindows/serializer.exe `
+  --baseline-compiler path/to/retained/serializer.exe `
+  --java path/to/java.exe --javac path/to/javac.exe `
+  --build out/java-output-buffer-measurements
+```
+
+Use the [API regression driver](../test/java_output_buffer_test.py) first for
+bounds, failure/reuse, metadata, projection, option and baseline-wire checks.
+Measurements qualify one workload/JVM profile, not a universal throughput or
+hard-allocation promise; see the [dated record](../docs/verification/verification-java-output-buffer-2026-10-24.md).
+
 `compiler_literals.py` qualifies compiler literal handling against independently
 checked default values and the maintained SDK consumers. Its common workload uses
 1,024 string bytes and 128 fraction digits, then round-trips all four protocols:

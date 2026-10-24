@@ -18,6 +18,10 @@ async function verify(entry, directory, options = [], selectedOutputs = outputs,
   memberDeclarations = false) {
   const args = ['--input', entry, '--language', Object.keys(selectedOutputs).join(','), '--include-mode', 'inline', '--cpp.format', 'false',
     '--depfile', path.join(directory, 'all.d'), ...options];
+  if ('java' in selectedOutputs) {
+    // Qualify field/type destinations with the optional caller-window overloads present.
+    args.push('--java.output_buffer_reuse', 'true');
+  }
   fs.mkdirSync(directory, { recursive: true });
   for (const [language, name] of Object.entries(selectedOutputs)) {
     args.push(`--${language}.output`, path.join(directory, name));

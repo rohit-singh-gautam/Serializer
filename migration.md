@@ -1,5 +1,24 @@
 # Migrating to the snake_case Serializer API
 
+## Opt-in Java output windows in 2.32.0
+
+Enable `[java] output_buffer_reuse = true` or
+`--java.output_buffer_reuse true` when regenerating Java to add
+`int encode(Protocol, byte[], int offset, int length)` on owning codecs and readonly
+projections. The default remains false, retaining existing method sets and native
+application overloads. Existing `byte[] encode(Protocol)` keeps its owning result.
+
+The caller grants exclusive access to the destination window, which must not
+alias mutable model payloads. Use only the returned byte count after success.
+Capacity/model failures may leave partial data inside the window; bytes outside
+it remain unchanged. Null/range/protocol admission occurs before codec writes.
+This reuses primary output storage; temporary codec allocations remain.
+
+All four wire formats and Java 17 prerequisites retain their contracts. Schema
+language remains 1.23.0; no payload migration is required. Matching editor packages
+are 2.0.17. See the [Java API](docs/languages/java.md#caller-owned-output-windows)
+and [executed qualification](docs/verification/verification-java-output-buffer-2026-10-24.md).
+
 ## Portable literal resource repair in 2.31.2
 
 Compiler/runtime 2.31.2 replaces recursive backend literal/identifier regexes

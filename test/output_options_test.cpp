@@ -352,6 +352,17 @@ TEST(output_options, formatter_mappings) {
             std::string::npos);
 }
 
+// Caller-owned Java encoding remains an explicit strict-Boolean backend opt-in.
+TEST(output_options, java_output_buffer_reuse_configuration) {
+  configuration_file file;
+  EXPECT_FALSE(writer::java_options{}.output_buffer_reuse);
+  EXPECT_TRUE(writer::read_output_options(file.write("[java]\noutput_buffer_reuse = true\n")).java.output_buffer_reuse);
+  EXPECT_FALSE(writer::read_output_options(file.write("[java]\noutput_buffer_reuse = false\n")).java.output_buffer_reuse);
+  EXPECT_THROW(writer::read_output_options(file.write("[java]\noutput_buffer_reuse = yes\n")), std::invalid_argument);
+  EXPECT_THROW(writer::read_output_options(file.write("[java]\noutput_buffer_reuse = true\noutput_buffer_reuse = false\n")),
+      std::invalid_argument);
+}
+
 // Central managed identity width is strict and independent of C++ presentation settings.
 TEST(output_options, managed_identity_configuration) {
   configuration_file file;

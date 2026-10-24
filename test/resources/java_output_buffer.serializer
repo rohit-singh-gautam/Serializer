@@ -1,0 +1,29 @@
+serializer version 1.20.0;
+
+include translator.serializer;
+include ../../example/schemas/derived_sizes/model.serializer;
+
+class buffer_empty {}
+
+class buffer_child stable_ids {
+  public uint64 identity (1);
+  public string label (2);
+}
+
+class buffer_record stable_ids {
+  public array uint8 payload (1);
+  public string text (2);
+  public array buffer_child elements (3);
+  public map(string) uint32 by_name (4);
+  public optional<buffer_child> selected (5);
+  public variant(uint32 = code, string = text) choice (6);
+  public double number (7) {1.25};
+}
+
+class buffer_tree {
+  public array buffer_tree children;
+}
+
+// These valid sibling names must remain independent of private writer helpers.
+class fixed_buffer { public uint32 value; }
+class size_buffer { public uint32 value; }

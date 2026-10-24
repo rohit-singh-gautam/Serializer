@@ -3,11 +3,12 @@
 Each example can also be configured and built directly with CMake 4.0+; see
 [individual CMake builds](../README.md#build-an-individual-example-with-cmake).
 
-Four standard examples and a generic example live directly under `example/java`:
+The examples under `example/java` cover native codecs and selected backend APIs:
 
 | Folder | What it demonstrates |
 | --- | --- |
 | [generics](generics/) | Nested schema applications, typed payload edits, and all four protocols |
+| [output_buffer](output_buffer/) | Compiler 2.32+ opt-in caller-owned output windows, reuse, exact byte counts and outside-window preservation |
 | [basic](basic/) | Scalars, full-width IDs, a wire-name override, defaults, and payload version validation |
 | [collections](collections/) | Typed arrays, maps, enums, Unicode, embedded NUL, and integer boundaries |
 | [complex](complex/) | An order archive spanning 13 shared schema files, nested/diamond includes, parent composition, orders, customers, inventory, payments, shipments, audit unions, and aggregate maps |

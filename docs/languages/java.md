@@ -1,5 +1,9 @@
 # Java output
 
+Compiler/runtime **2.32.0** adds opt-in [caller-owned output windows](#caller-owned-output-windows)
+for ordinary native codecs and readonly projections. Schema language remains
+**1.23.0** and the minimum SDK remains Java 17.
+
 Language `1.3.0` [digest fields](../schema/digest.md) provide variable and exact-length
 byte collections, including named-algorithm lengths, in all four native codecs.
 Compute hashes through the application's provider; generated Java does not
@@ -139,7 +143,61 @@ String keys sort by UTF-8 bytes, and unsigned integer keys use unsigned ordering
 Binary strings require valid UTF-8 in both Java and C++; use `array uint8` for
 arbitrary binary payloads. JSON `char` is restricted to one ASCII byte. Null field values
 have no wire representation. Big-endian output, borrowed views, explicit SIMD,
-native acceleration, and configurable output-buffer reuse are not implemented.
+and native acceleration are not implemented. Caller-owned output storage is an
+explicit opt-in described below.
+
+## Caller-owned output windows
+
+Enable the generation option in an INI file:
+
+```ini
+[java]
+output_buffer_reuse = true
+```
+
+The equivalent CLI override is `--java.output_buffer_reuse true`. The default is
+`false`, preserving existing generated method sets and application-defined
+overloads. Regeneration with the option adds:
+
+```java
+public int encode(Protocol protocol, byte[] destination, int offset, int length)
+```
+
+Owning codecs and readonly translator projections support all four enabled native
+protocols. A `binary_none` generation profile retains its existing protocol gate.
+The method writes directly into `[offset, offset + length)` and returns the byte
+count actually written, without retaining the destination. For example, with an
+application-owned `OutputStream output`:
+
+```java
+byte[] encodedStorage = new byte[64 * 1024];
+int written = account.encode(AccountSchema.Protocol.BINARY_INTEGER,
+    encodedStorage, 0, encodedStorage.length);
+output.write(encodedStorage, 0, written);
+```
+
+The caller owns and keeps the array alive. Give the codec exclusive access to the
+window for the entire call, avoid concurrent model mutation, and ensure the window
+does not alias mutable model payloads. Each call has independent writer state;
+the array can be reused immediately after the call returns. Read/send only the
+returned byte count after success; an earlier longer message can remain beyond it.
+
+Invalid ranges, including arithmetic overflow, reject with
+`IndexOutOfBoundsException`. Null/range/protocol admission occurs before writes.
+Insufficient capacity throws `IllegalArgumentException`; model/depth errors retain
+their existing categories. These failures may leave partial bytes **inside** the
+window. Bytes **outside** it are preserved, including during auto-size backpatches.
+No successful byte count is returned on failure. An empty positional record may
+successfully return zero for a zero-length window.
+
+The existing `byte[] encode(Protocol)` returns independent exact-size storage.
+The window overload reuses primary output storage and avoids the final owning
+copy. Writer objects, UTF-8 temporaries, collection iteration and other codec work
+can still allocate. This API does not provide a whole-process peak bound or an
+allocation-free guarantee. XML/package/stream/channel APIs retain their separate
+contracts. See the [Windows/Linux checks and scoped measurements](../verification/verification-java-output-buffer-2026-10-24.md).
+The [runnable output-buffer example](../../example/java/output_buffer/README.md)
+includes its schema, opt-in INI, strict Java consumer and standalone CMake build.
 
 ## Decoding limits and errors
 

@@ -99,6 +99,7 @@ struct java_options {
   std::map<std::string, class_auto_size_options> class_auto_sizes{};
   xml_options xml{};
   output_protocols protocols{output_protocols::all};
+  bool output_buffer_reuse{false}; // Opt in to caller-owned output-window encode overloads.
 };
 
 // Native naming and module configuration for portable owning backends.

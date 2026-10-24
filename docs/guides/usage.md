@@ -1,5 +1,10 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.32.0** adds opt-in Java caller-owned output windows. Enable
+`java.output_buffer_reuse = true` when regenerating, give the codec an exclusive
+non-aliased array window and use the returned byte count after success. See the
+[ownership and failure contract](../languages/java.md#caller-owned-output-windows).
+
 Compiler/runtime **2.31.2** applies constant-stack literal recognition to portable
 backends and typed aggregate binding. Existing grammar, range errors and SDK
 boundaries are preserved; see the [resource qualification](../verification/verification-portable-literals-2026-10-24.md).

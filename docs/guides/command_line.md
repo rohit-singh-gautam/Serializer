@@ -267,6 +267,7 @@ values, and repeated non-repeatable options are errors.
 | `--kotlin.output` | | Standalone Kotlin/JVM `.kt` destination |
 | `--c.output` | | Standalone C11 `.h` destination |
 | `--kotlin.package` | | Optional JVM package; empty clears it |
+| `--java.output_buffer_reuse` | | `true` or `false` (default); add [Java caller-owned output windows](../languages/java.md#caller-owned-output-windows) |
 | `--js.naming`, `--go.naming`, `--csharp.naming` | | `profile` or `preserve` |
 | `--go.package` | | Go package name, default `generated` |
 | `--csharp.namespace` | | C# namespace, default `SerializerGenerated`; empty clears it |

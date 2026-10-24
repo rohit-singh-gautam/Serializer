@@ -91,12 +91,19 @@ private static int compareText(java.lang.String first, java.lang.String second) 
 /** Per-call writer; generated codecs access fields directly without reflection. */
 private static final class Writer {
   /** Keep the buffer helper inside the already reserved writer scope. */
-  private static final class SizeBuffer extends java.io.ByteArrayOutputStream {
+  private static class SizeBuffer extends java.io.ByteArrayOutputStream {
     private final Limits limits;
     /** Preserve the ordinary native encoder's existing buffer behavior. */
     SizeBuffer(){super();limits=null;}
     /** Delay package-owned buffer allocation until its operation admits the actual growth. */
     SizeBuffer(Limits limits){super(0);this.limits=limits;}
+    /** Wrap caller storage without allocating a message-sized array or mutating its contents. */
+    SizeBuffer(byte[] destination, int offset) {
+      super(0);
+      limits = null;
+      buf = java.util.Objects.requireNonNull(destination);
+      count = offset;
+    }
     /** Admit complete output growth before mutating the private buffer. */
     private void reserve(int amount){if(limits==null)return;if(amount<0||amount>limits.maxBytes-count)throw new IllegalArgumentException("Native output byte limit");if(limits.xmlOperation!=null)limits.xmlOperation.consume("work",amount,"");int needed=count+amount;if(needed<=buf.length)return;int capacity=buf.length==0?Math.min(256,limits.maxBytes):buf.length;while(capacity<needed){if(capacity>limits.maxBytes/2){capacity=needed;break;}capacity*=2;}if(limits.xmlOperation!=null)limits.xmlOperation.consume("allocation",capacity,"");buf=java.util.Arrays.copyOf(buf,capacity);}
     /** Write one already validated byte after operation admission. */
@@ -110,17 +117,55 @@ private static final class Writer {
     /** Backpatch already-written fixed-width bytes without copying the surrounding message. */
     void patchInteger(int position, long value, int width) {
       if (position < 0 || width > count - position) {
-        throw new java.lang.IllegalArgumentException("Invalid size patch");
+        throw new java.lang.IllegalArgumentException(INVALID_SIZE_PATCH);
       }
       for (int index = 0; index < width; ++index) {
         buf[position + index] = (byte) (value >>> (index * java.lang.Byte.SIZE));
       }
     }
   }
+  /** Bound output to an exclusive caller-owned window; failed writes may leave its prefix changed. */
+  private static final class FixedBuffer extends SizeBuffer {
+    private final int start;
+    private final int end;
+    /** Check the whole destination window before the first codec write. */
+    FixedBuffer(byte[] destination, int offset, int length) {
+      super(destination, offset);
+      java.util.Objects.checkFromIndexSize(offset, length, destination.length);
+      start = offset;
+      end = offset + length;
+    }
+    /** Reject insufficient capacity before changing the next byte or byte range. */
+    private void requireCapacity(int amount) {
+      if (amount < 0 || amount > end - count) {
+        throw new java.lang.IllegalArgumentException("Output buffer capacity exceeded");
+      }
+    }
+    /** Append one byte within the admitted destination window. */
+    @Override public synchronized void write(int value) {
+      requireCapacity(1);
+      buf[count++] = (byte) value;
+    }
+    /** Copy a complete checked source range without growing or replacing caller storage. */
+    @Override public synchronized void write(byte[] value, int offset, int length) {
+      java.util.Objects.checkFromIndexSize(offset, length, value.length);
+      requireCapacity(length);
+      java.lang.System.arraycopy(value, offset, buf, count, length);
+      count += length;
+    }
+    /** Keep generated fixed-size backpatches inside this window's already-written bytes. */
+    @Override void patchInteger(int position, long value, int width) {
+      if (position < start || position > count || width < 0 || width > count - position) {
+        throw new java.lang.IllegalArgumentException(INVALID_SIZE_PATCH);
+      }
+      super.patchInteger(position, value, width);
+    }
+  }
   /** Write count-free binary components or the canonical JSON text. */
   void version(String value, int count) { int[] parts = srlVersionParts(value, count); if (json()) text(value); else for (int part : parts) integer(part, 2, true); }
 
   private static final int COMPACT_MAX = 0x3fffffff;
+  private static final java.lang.String INVALID_SIZE_PATCH = "Invalid size patch";
   final Protocol protocol;
   final SizeBuffer bytes;
   final Limits limits;
@@ -133,6 +178,12 @@ private static final class Writer {
   }
   /** Share one package-owned native operation without changing ordinary public encode APIs. */
   Writer(Protocol protocol,Limits limits){this.protocol=java.util.Objects.requireNonNull(protocol);this.limits=java.util.Objects.requireNonNull(limits);this.bytes=new SizeBuffer(limits);}
+  /** Encode directly into one checked caller-owned window without changing ordinary buffer policy. */
+  Writer(Protocol protocol, byte[] destination, int offset, int length) {
+    this.protocol = java.util.Objects.requireNonNull(protocol);
+    this.limits = null;
+    this.bytes = new FixedBuffer(destination, offset, length);
+  }
   /** Admit traversal and temporary storage before a generated native encoder owns it. */
   void consume(String resource,long amount){if(limits!=null&&limits.xmlOperation!=null)limits.xmlOperation.consume(resource,amount,"");}
 

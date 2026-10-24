@@ -1,8 +1,13 @@
 # Rohit Serializer for Visual Studio Code
 
-Compiler/runtime **2.31.0** requires a C++23 compiler and matching standard
-library for generated C++ applications. Both local packages are **2.0.16**.
+Compiler/runtime **2.32.0** requires a C++23 compiler and matching standard
+library for generated C++ applications. Both local packages are **2.0.17**.
 They support schema language **1.23.0** and earlier compatible headers.
+
+Compiler/runtime **2.32.0** also provides opt-in Java caller-owned output
+windows through `java.output_buffer_reuse = true`. Both packages retain type/field
+navigation around the additional generated overloads; method parameters remain
+ordinary Java symbols. See the [Java ownership and failure contract](../../docs/languages/java.md#caller-owned-output-windows).
 
 Language **1.23.0** binds direct self-token fields in a named managed generic
 instantiation to that named C++ record. The instantiate declaration selects the
@@ -11,18 +16,18 @@ the named declaration and copied generic field provenance. See the
 [binding contract](../../docs/schema/named_managed_references.md) and
 [qualification status](../../docs/verification/verification-named-managed-references-2026-10-24.md).
 
-Version **2.0.16** also prepares namespace/tag and brace indexes for generated
+Version **2.0.17** also prepares namespace/tag and brace indexes for generated
 C++ and limits field searches to complete candidate names. The native adapter
 passes direct and separate-values named-reference navigation within its original
 256 MiB budget; authored C++ retains its existing indexing behavior. See the
 [allocation qualification](../../docs/verification/verification-native-cpp-navigation-2026-10-24.md).
 
-Version **2.0.16** indexes generated C declarations without tokenizing bundled
+Version **2.0.17** indexes generated C declarations without tokenizing bundled
 runtime implementation bodies. Type, enum, package and field destinations retain
 their source offsets; the Visual Studio interpreter keeps its existing resource limits.
 See the [native navigation qualification](../../docs/verification/verification-native-c-navigation-2026-10-24.md).
 
-Version **2.0.16** supports schema language **1.22.0** cache declarations for
+Version **2.0.17** supports schema language **1.22.0** cache declarations for
 compiler/runtime **2.30.0**: bare `cache` defaults to priority `0`, and
 `cache(priority = 200)` gives a higher retention preference within `0..255`.
 Owning cache values and native persistence services currently require C++; other
@@ -33,7 +38,7 @@ journals, retained caches and required state. See the
 [cache contract](../../docs/design/cache_attributes.md). Building packages does
 not install them or publish Marketplace listings.
 
-Both local packages share version **2.0.16**. Building and validating these files
+Both local packages share version **2.0.17**. Building and validating these files
 does not install the extensions or update live Marketplace listings.
 
 The existing schema language **1.20.0** authoring support includes XML defaults, field overrides,
@@ -46,7 +51,7 @@ remain prerequisites; editor support does not establish format conformance.
 Typed C++ `managed_ref<T>` tokens navigate to the managed target, including forward
 and included declarations. `class_id(decimal)` preserves explicit class identity;
 its numeric metadata does not become a type reference. VS Code supplies token and
-class-identity snippets. Both local packages share version 2.0.16; building them does
+class-identity snippets. Both local packages share version 2.0.17; building them does
 not install or publish them.
 
 

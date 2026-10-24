@@ -1776,6 +1776,26 @@ class emitter {
     }
   }
 
+  // Add the same bounded caller-storage overload to owning and projected native codecs.
+  void output_buffer_codec() {
+    if (!options.output_buffer_reuse) { return; }
+    line("/**");
+    line(" * Encode into an exclusive caller-owned window; return the number of bytes written.");
+    line(" * The window must not alias mutable model storage. It may change on failure;");
+    line(" * bytes outside it are preserved. This method does not retain the buffer.");
+    line(" */");
+    line("public int encode(Protocol protocol, byte[] destination, int offset, int length) {");
+    ++level;
+    if (options.protocols == output_protocols::binary_none) {
+      line("if (protocol != Protocol.BINARY_NONE) throw new IllegalArgumentException(\"Protocol disabled during generation\");");
+    }
+    line("Writer out = new Writer(protocol, destination, offset, length);");
+    line("write(out);");
+    line("return out.bytes.size() - offset;");
+    --level;
+    line("}");
+  }
+
   // Emit a directly encoded owning class; schema parents are explicit composed fields.
   // Reuse the owning target codec with readonly getter expressions and no target allocation.
   std::string translator_codecs(const conversion_declaration& method, std::string_view) {
@@ -1795,6 +1815,7 @@ class emitter {
     }
     line("Writer out = new Writer(protocol); write(out); return out.bytes.toByteArray();");
     --level; line("}");
+    output_buffer_codec();
     line("/** Traverse the target's keys and readonly field projections. */");
     line("private void write(Writer out) {"); ++level;
     projection_fields_ = std::move(projected);
@@ -2115,6 +2136,7 @@ class emitter {
     line("return out.bytes.toByteArray();");
     --level;
     line("}");
+    output_buffer_codec();
     line("/** Decode one exact message using default resource limits. */");
     line("public static " + name + " decode(byte[] bytes, Protocol protocol) {");
     ++level;
@@ -2553,14 +2575,24 @@ public:
     line("private " + outer + "() {}");
     source += behavior::helpers("java", arithmetic_helpers);
     line("// Serializer runtime support begins.");
+    // A private nested helper must not repeat the enclosing output class's name.
+    // Keep previously valid FixedBuffer.java outputs usable without reserving another schema name.
+    constexpr std::string_view fixed_buffer_name = "FixedBuffer";
+    std::string renamed_runtime;
+    auto native_runtime = runtime_source;
+    if (outer == fixed_buffer_name) {
+      renamed_runtime = std::regex_replace(std::string{runtime_source},
+          std::regex{"\\b" + std::string{fixed_buffer_name} + "\\b"}, std::string{fixed_buffer_name} + "_2");
+      native_runtime = renamed_runtime;
+    }
     // Runtime source uses two-space nesting; reindent for the selected profile.
     std::size_t start{};
-    while (start < runtime_source.size()) {
-      auto end = runtime_source.find('\n', start);
+    while (start < native_runtime.size()) {
+      auto end = native_runtime.find('\n', start);
       if (end == std::string_view::npos) {
-        end = runtime_source.size();
+        end = native_runtime.size();
       }
-      const auto current = runtime_source.substr(start, end - start);
+      const auto current = std::string_view{native_runtime}.substr(start, end - start);
       auto leading = current.find_first_not_of(' ');
       if (leading == std::string_view::npos) {
         leading = 0;

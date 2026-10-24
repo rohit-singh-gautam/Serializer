@@ -125,6 +125,7 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'\0', "java.coding_standard", "profile", "serializer|google|oracle"},
     {'\0', "java.naming", "profile|preserve", "Java identifier naming policy."},
     {'\0', "java.package", "package.name", "Java package; --java.package= clears it.", false, true},
+    {'\0', "java.output_buffer_reuse", "true|false", "Add caller-owned Java output windows (default false)."},
 };
 
 // Apply global command-line values independently to each configuration.
@@ -183,6 +184,13 @@ void apply_output_overrides(rohit::serializer::writer::output_options& options,
   }
   if (arguments.contains("java.package")) {
     options.java.package_name = cli::first(arguments, "java.package");
+  }
+  if (arguments.contains("java.output_buffer_reuse")) {
+    const auto& value = cli::first(arguments, "java.output_buffer_reuse");
+    if (value != "true" && value != "false") {
+      throw std::invalid_argument{"java.output_buffer_reuse must be true or false"};
+    }
+    options.java.output_buffer_reuse = value == "true";
   }
   if (arguments.contains("java.naming")) {
     const auto& value = cli::first(arguments, "java.naming");

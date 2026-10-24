@@ -1,0 +1,9 @@
+serializer version 1;
+
+namespace demo {
+  class account stable_ids {
+    public uint64 account_id (1);
+    public string display_name (2);
+    public array uint32 samples (3);
+  }
+}

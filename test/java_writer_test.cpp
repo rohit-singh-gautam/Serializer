@@ -31,6 +31,25 @@ TEST(java_writer, large_literal_defaults_preserve_backend_contracts) {
       std::string(literal_bytes, '9') + " }; }"), std::invalid_argument);
 }
 
+// Additive output-window codecs preserve ordinary encoding and private helper/name boundaries.
+TEST(java_writer, caller_owned_output_overloads_and_helper_names) {
+  constexpr std::string_view schema =
+      "class fixed_buffer { public uint32 value; } class account { public string label; }";
+  EXPECT_EQ(emit_java(schema).find("public int encode(Protocol protocol, byte[] destination"), std::string::npos);
+  rohit::serializer::writer::java_options options{};
+  options.output_buffer_reuse = true;
+  const auto output = emit_java(schema, options);
+  EXPECT_NE(output.find("public byte[] encode(Protocol protocol)"), std::string::npos);
+  EXPECT_NE(output.find("public int encode(Protocol protocol, byte[] destination, int offset, int length)"),
+      std::string::npos);
+  EXPECT_NE(output.find("class FixedBuffer {"), std::string::npos);
+  EXPECT_NE(output.find("window must not alias mutable model storage"), std::string::npos);
+  EXPECT_NE(output.find("private static final class FixedBuffer extends SizeBuffer"), std::string::npos);
+  const auto renamed = emit_java("class account { public uint32 value; }", options, "FixedBuffer");
+  EXPECT_NE(renamed.find("private static final class FixedBuffer_2 extends SizeBuffer"), std::string::npos);
+  EXPECT_NE(renamed.find("new FixedBuffer_2(destination, offset, length)"), std::string::npos);
+}
+
 // Profile renaming must preserve serialized names and explicit identifiers.
 TEST(java_writer, naming_profiles_and_wire_contract) {
   const auto schema = "namespace wire_api { enum state { ReadyNow, Waiting } "

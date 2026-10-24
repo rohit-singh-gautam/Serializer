@@ -1404,6 +1404,23 @@ test('generated indices ignore multiline literals and keep Rust lifetimes and Ty
   assert.deepEqual(outputNames('HTTPModels::ID2Record', 'schema.rs', ''), ['HTTPModelsID2Record']);
 });
 
+test('Java output-window parameters and method bodies never replace real field destinations', () => {
+  const source = banner + 'public final class Schema { public static class Record {\n' +
+    'public byte[] destination; public int offset; public int length;\n' +
+    'public int encode(Protocol protocol, byte[] destination, int offset, int length) {\n' +
+    'return offset + length + destination.length;\n}\n} }';
+  const index = indexGeneratedSource(source, 'Schema.java');
+  for (const name of ['destination', 'offset', 'length']) {
+    const declaration = source.indexOf(` ${name};`) + 1;
+    assert.equal(generatedMember(source, 'Schema.java', index, declaration)?.name, name);
+    let occurrence = source.indexOf(name, source.indexOf('public int encode'));
+    while (occurrence >= 0) {
+      assert.equal(generatedMember(source, 'Schema.java', index, occurrence), undefined);
+      occurrence = source.indexOf(name, occurrence + name.length);
+    }
+  }
+});
+
 test('generated C++ declaration indexing preserves namespace, template and enum offsets around large bodies', () => {
   const source = banner + 'namespace models::detail {\r\n' +
     'template<class T, unsigned N = 2> class box;\r\n' +

@@ -656,6 +656,10 @@ if(Python3_Interpreter_FOUND)
   endif()
   find_package(Java 17 COMPONENTS Runtime Development QUIET)
   if(Java_FOUND)
+    add_test(NAME serializer_java_output_buffer
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/java_output_buffer_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/java_output_buffer"
+        --java "${Java_JAVA_EXECUTABLE}" --javac "${Java_JAVAC_EXECUTABLE}")
     add_test(NAME serializer_compression_java
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/java_compression_test.py"
         --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/java_compression"
