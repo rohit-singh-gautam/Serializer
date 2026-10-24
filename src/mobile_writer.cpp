@@ -105,6 +105,9 @@ class mobile_emitter {
   bool variable_first{};
   // Select syntax for the current native language.
   std::string select(std::string_view apple, std::string_view jvm) const {
+    if (swift && !model.source_files.empty() && apple.starts_with("fileprivate ")) {
+      return "internal " + std::string{apple.substr(std::string_view{"fileprivate "}.size())};
+    }
     return std::string{swift ? apple : jvm};
   }
   // Emit an indented source line.
@@ -1851,6 +1854,7 @@ public:
     line(select("]", ")"));
     if (!swift) { line("// Serializer schema declarations begin."); }
     for (const auto* node : model.nodes) {
+      output += model.file_marker(node);
       if (swift && model.names.at(node) == "SrlReferenceOwner" &&
           std::any_of(model.nodes.begin(), model.nodes.end(), [](const auto* item) {
             return item->type == object_type::class_type && static_cast<const class_node&>(*item).reference.has_value();
@@ -1897,6 +1901,7 @@ public:
       }
       close();
     }
+    output += model.file_marker(nullptr);
     if (!swift) {
       for (const auto* package : model.packages) {
         output += package_codegen::kotlin(*package, model.names.at(package), kotlin_package_helper_,

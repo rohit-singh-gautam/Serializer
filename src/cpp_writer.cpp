@@ -36,6 +36,8 @@
 #include "package_writer.hpp"
 
 #include <rohit/serializer_creator.hpp>
+#include "schema_projection.hpp"
+#include "native_schema.hpp"
 #include <rohit/xml_pattern.hpp>
 
 #include <algorithm>
@@ -1299,7 +1301,9 @@ public:
       out_stream.write("  static_assert(std::is_empty_v<", get_cpp_type(member), ">, \"layout(empty) requires a stateless type\");\n"
                        "#if defined(_MSC_VER)\n  [[msvc::no_unique_address]]\n#else\n  [[no_unique_address]]\n#endif\n");
     }
-    out_stream.write("  ", get_cpp_type(member), ' ', member_name(member), "{");
+    out_stream.write("  ", get_cpp_type(member), ' ', member_name(member));
+    if (member.bit_width != 0) { out_stream.write(" : ", static_cast<unsigned>(member.bit_width)); }
+    out_stream.write("{");
     if (!member.default_value.empty() || !member.default_factory.empty()) {
       // Initialize the backing array explicitly so generic elements may also be aggregates.
       const bool aggregate_elements = member.inferred_extent && !member.initializer;
@@ -1420,6 +1424,15 @@ public:
       out_stream.write(std::string_view{key_type == serialize_key_type::none ? ");" : "));"});
       return;
     }
+    if (member.bit_width != 0) {
+      const auto value = "static_cast<" + get_cpp_type(member) + ">(this->" + member_name(member) + ")";
+      if (key_type == serialize_key_type::string) {
+        out_stream.write("::std::make_pair(", constant_output_name(member.display_name), ", ", value, "));");
+      } else if (key_type == serialize_key_type::integer) {
+        out_stream.write("::std::make_pair(static_cast<::std::uint32_t>(", member.id, "), ", value, "));");
+      } else { out_stream.write(value, ");"); }
+      return;
+    }
     if (key_type == rohit::serializer::serialize_key_type::string) {
       if (member.modifier != member::modifier_type::none ||
           member.type_name_list[0].type != object_type::enum_type) {
@@ -1478,7 +1491,7 @@ public:
 
   // Identify fixed-width schema scalars; collections, enums, unions, and objects end a run.
   bool is_fixed_field(const member& field) {
-    return field.modifier == member::modifier_type::none &&
+    return field.bit_width == 0 && field.modifier == member::modifier_type::none &&
            field.auto_size_formats.empty() &&
            field.compact == compact_encoding::none &&
            !field.persistent_identity &&
@@ -1909,6 +1922,23 @@ public:
   void write_field_input(rohit::type_check::output_buffer auto& output, const member& field,
                          std::string_view indent, bool explicit_type = true,
                          bool named_optional = false) {
+    if (field.bit_width != 0) {
+      if (!field.omitted_formats.empty()) {
+        output.write(indent, "if constexpr (", omission_condition(field.omitted_formats, "SerializeInProtocol"),
+            ") { throw ::std::invalid_argument{\"Field omitted from selected format\"}; } else {\n");
+      }
+      const auto maximum = std::numeric_limits<std::uint64_t>::max() >>
+          (std::numeric_limits<std::uint64_t>::digits - field.bit_width);
+      output.write(indent, "{ ", get_cpp_type(field), " bit_value{}; ", local_name("serializer_protocol"),
+          ".serialize_in(bit_value); ");
+      if (field.bit_width < native::width(field.type_name_list.front()) * std::numeric_limits<std::uint8_t>::digits) {
+        output.write("if (bit_value > ", maximum,
+            "ULL) { throw ::std::invalid_argument{\"Bit-field value exceeds declared width\"}; } ");
+      }
+      output.write("this->", member_name(field), " = bit_value; }\n");
+      if (!field.omitted_formats.empty()) { output.write(indent, "}\n"); }
+      return;
+    }
     if (!field.omitted_formats.empty()) {
       output.write(indent, "if constexpr (", omission_condition(field.omitted_formats, "SerializeInProtocol"),
                    ") { throw ::std::invalid_argument{\"Field omitted from selected format\"}; } else {\n");
@@ -6027,6 +6057,8 @@ std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements
   auto options = requested;
   options.xml = xml_binding::effective_options(statements, options.xml);
   xml_binding::validate_options(statements, options.xml);
+  validate_bit_field_output(statements, !options.protobuf && !options.xml.enabled &&
+      !options.emission_only && !options.constant_evaluation);
   static_cast<void>(coding_standard_name(options.standard));
   static_cast<void>(cpp_protocols_name(options.protocols));
   full_stream_auto_alloc raw{};
@@ -6049,6 +6081,8 @@ std::vector<generated_file> generate_files(const parser::parsed_schema& schema,
     const std::filesystem::path& destination, const cpp_options& requested, include_mode mode) {
   auto options = requested;
   options.xml = xml_binding::effective_options(schema.statements, options.xml);
+  validate_bit_field_output(schema.statements, !options.protobuf && !options.xml.enabled &&
+      !options.emission_only && !options.constant_evaluation);
   if (mode != include_mode::separate && mode != include_mode::inline_output) {
     throw std::invalid_argument{"Invalid include mode"};
   }

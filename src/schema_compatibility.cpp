@@ -343,6 +343,7 @@ struct field_contract {
   std::string default_value{};
   std::vector<std::pair<std::string, std::string>> alternatives{};
   std::uint64_t fixed_extent{};
+  std::uint8_t bit_width{};
   compact_encoding compact{compact_encoding::none};
   bool derived_size{};
   auto_size_scope size_scope{auto_size_scope::record};
@@ -367,6 +368,13 @@ std::vector<field_contract> fields(const class_node& type, std::string_view form
     field_contract contract{field.id, field.display_name, {}, fixed_array_default(*payload), {}};
     contract.export_only = payload != &field;
     contract.fixed_extent = payload->fixed_extent;
+    contract.bit_width = payload->bit_width;
+    if (contract.bit_width == 0 && payload->modifier == member::modifier_type::none &&
+        payload->type_name_list.front().type == object_type::primitive &&
+        payload->type_name_list.front().name.starts_with("uint")) {
+      contract.bit_width = static_cast<std::uint8_t>(writer::native::width(payload->type_name_list.front()) *
+          std::numeric_limits<std::uint8_t>::digits);
+    }
     contract.compact = field.compact;
     contract.derived_size = !format.empty() && field.auto_sizes(format);
     contract.size_scope = contract.derived_size ? field.size_scope : auto_size_scope::record;
@@ -645,6 +653,10 @@ void check_class(std::vector<compatibility_issue>& result, const class_node& pre
     if (before.fixed_extent != found->fixed_extent) {
       issue(result, field_path, "Fixed array cardinality changed", before.fixed_extent != 0,
             found->fixed_extent != 0);
+    }
+    if (before.bit_width != found->bit_width) {
+      issue(result, field_path, "Bit-field value range changed",
+          found->bit_width > before.bit_width, found->bit_width < before.bit_width);
     }
     if (!protobuf && !before.export_only && !found->export_only &&
         before.default_value != found->default_value) {

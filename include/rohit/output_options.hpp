@@ -101,6 +101,7 @@ struct java_options {
   output_protocols protocols{output_protocols::all};
   bool output_buffer_reuse{false}; // Opt in to caller-owned output-window encode overloads.
   bool nio_output_buffer_reuse{false}; // Opt in to caller-owned heap/direct ByteBuffer windows.
+  bool stream_output{false}; // Opt in to bounded, synchronous native stream/channel output.
 };
 
 // Native naming and module configuration for portable owning backends.
@@ -128,6 +129,7 @@ struct output_options {
   std::map<std::string, std::map<std::string, class_auto_size_options>> class_auto_sizes{};
   include_mode includes{include_mode::separate};
   output_protocols protocols{output_protocols::all};
+  include_mode native_includes{include_mode::inline_output}; // Preserve established native CLI defaults.
 };
 
 // Apply a common native codec selection to all output backends; XML remains independent.

@@ -333,6 +333,19 @@ void validate_portable_default(const rohit::type_check::schema_input_buffer auto
       validate_integer_default(field);
       validate_floating_default(field);
       validate_qualified_enum_default(field);
+      if (field.strict_default_enabled) {
+        static_cast<void>(writer::native::literal(field));
+        if (field.bit_width != 0) {
+          const auto literal = writer::native::literal(field);
+          std::uint64_t number{};
+          const auto parsed = std::from_chars(literal.data(), literal.data() + literal.size(), number);
+          const auto maximum = std::numeric_limits<std::uint64_t>::max() >>
+              (std::numeric_limits<std::uint64_t>::digits - field.bit_width);
+          if (parsed.ec != std::errc{} || parsed.ptr != literal.data() + literal.size() || number > maximum) {
+            throw std::invalid_argument{"Default exceeds the declared bit-field width"};
+          }
+        }
+      }
       return;
     }
     field.initializer = bind_value_initializer(input, field, owner, text, 0, nullptr,

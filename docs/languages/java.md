@@ -136,7 +136,8 @@ emitted as literals, with no per-object parsing. Arbitrary C++ expressions,
 collection/union defaults, and direct self-containing owning fields are rejected.
 
 This backend supports owning classes only: `view`, `readonly`, `mutable`, and
-`packed` output are not implemented for Java and are rejected. Map keys support
+variable-layout `packed` output are not implemented for Java and are rejected.
+Fixed-scalar `packed` output follows the [2.34 buffer contract](../guides/compiler_backend_updates.md#java-streams-channels-and-packed-buffers). Map keys support
 integral primitives, booleans, strings, and enums; object and floating-point map
 keys are rejected. Preserve the generated map comparator when replacing a map.
 String keys sort by UTF-8 bytes, and unsigned integer keys use unsigned ordering.
@@ -458,3 +459,9 @@ nested presence, record payloads, optional arrays/maps, and collections of
 optionals. See the [optional contract](../schema/optional.md) for the standard target
 representations, exact JSON/binary framing, defaults, and limits. Runnable
 [optional examples](../../example/README.md#optional-values) exercise every output.
+
+## Native sinks and packed buffers in 2.34
+
+See the [compiler/backend contract](../guides/compiler_backend_updates.md) for exact syntax, native source layouts,
+Java sink/buffer ownership, mapped-view boundaries and signature provider policy.
+The [qualification record](../verification/verification-compiler-backends-2026-10-24.md) identifies executed SDK checks and remaining limits.

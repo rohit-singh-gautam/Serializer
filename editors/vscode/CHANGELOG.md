@@ -4,6 +4,10 @@
 - Highlight ordered child mappings, target modes, required types and vocabulary inventories.
 - Document the closed HTML fragment profile with subscript/superscript phrasing support.
 
+- Support language 1.24 unsigned bit-field qualifiers and generic calls/defaults; refresh the schema snippet.
+- Follow compiler-owned dependency links for C, Rust, Python, Swift and Kotlin separate output. Preserve Python banners, exact source identities and native C fragment classification.
+- Document compiler/runtime 2.34.0 Java streaming and packed buffers; synchronize both packages and listing payloads.
+
 # 2.0.18
 
 - Document compiler/runtime 2.33.0's independent opt-in heap/direct Java ByteBuffer output with unchanged schema language 1.23.0.
@@ -311,7 +315,7 @@
 
 # 1.1.21
 
-- Refresh the packaged extension logo from the updated canonical 128×128 artwork.
+- Refresh the packaged extension logo from the updated canonical 128Ã—128 artwork.
 - Keep both editor packages at the same release version.
 - Refresh the Serializer file and editor-tab icon variants from the updated source artwork.
 
@@ -348,6 +352,10 @@
 - Retain optional `instantiate` and concrete-field contracts for cross-language generation; C++ templates no longer require them.
 
 # Changelog
+
+## 2.0.20
+
+- Combine the compiler/backend and XML/package language 1.24 editor profiles.
 
 ## 2.0.19
 
@@ -498,7 +506,7 @@
 - Prepare the Marketplace release under publisher `rohitjairajsingh`.
 - Include Rohit Jairaj Singh's author profile and documentation/support links.
 - Include the Serializer logo as the extension and Marketplace icon.
-- Register the dedicated 32×32 icon for `.serializer` files in Explorer and editor tabs,
+- Register the dedicated 32Ã—32 icon for `.serializer` files in Explorer and editor tabs,
   where the selected file icon theme supports language icons.
 - Update the VSIX filename and installation instructions for version 1.0.0.
 

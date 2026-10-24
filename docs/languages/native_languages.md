@@ -45,8 +45,8 @@ serializer --input example/interoperability/message.serializer \
 Append `cpp,java,js,typescript,go,csharp` and their destination options to produce
 all outputs in that same invocation. Repeating `--language` also works.
 `--output` accepts one target. These five backends emit included declarations
-together in the entry output; separate-file generation is not implemented for
-them. C++ emits separate dependency headers by default and accepts
+together by default. Select `--include-mode separate` for their
+[dependency bundles](../guides/compiler_backend_updates.md#native-separate-sources). C++ emits separate dependency headers by default and accepts
 `--include-mode inline` for a combined header. Depfile tracking and publication
 validation apply to every backend. With CMake,
 `serializer_generate_source(... LANGUAGE rust OUTPUT .../schema.rs)` and the
@@ -246,3 +246,9 @@ nested presence, record payloads, optional arrays/maps, and collections of
 optionals. See the [optional contract](../schema/optional.md) for the standard target
 representations, exact JSON/binary framing, defaults, and limits. Runnable
 [optional examples](../../example/README.md#optional-values) exercise every output.
+
+## Explicit native dependency bundles in 2.34
+
+See the [compiler/backend contract](../guides/compiler_backend_updates.md) for exact syntax, native source layouts,
+Java sink/buffer ownership, mapped-view boundaries and signature provider policy.
+The [qualification record](../verification/verification-compiler-backends-2026-10-24.md) identifies executed SDK checks and remaining limits.

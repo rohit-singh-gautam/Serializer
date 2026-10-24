@@ -17,6 +17,16 @@ test('language 1.24 ordered XML and package profile settings retain metadata sco
   for (const word of ['ordered', 'ordered_child']) assert.equal(scope(1, word), 'storage.modifier.serializer');
   for (const word of ['target_mode', 'requires_type', 'vocabularies']) assert.equal(scope(4, word), 'storage.modifier.serializer');
   for (const word of ['both', 'true']) assert.equal(scope(4, word), 'constant.other.package.serializer');
+});
+
+test('language 1.24 bit-field qualifiers retain the field declaration and following tokens', async () => {
+  const grammar = await loadGrammar();
+  let state = INITIAL;
+  const lines = ['serializer version 1.24.0;', 'class flags {', 'public uint8 value (1) bits(3) {5};', '}'];
+  const results = lines.map(line => { const result = grammar.tokenizeLine(line, state); state = result.ruleStack; return result.tokens; });
+  const scope = word => results[2].find(token => token.startIndex <= lines[2].indexOf(word) && token.endIndex > lines[2].indexOf(word)).scopes.at(-1);
+  assert.equal(scope('bits'), 'storage.modifier.serializer');
+  assert.equal(scope('3'), 'constant.numeric.serializer');
   assert.equal(state.depth, 1);
 });
 

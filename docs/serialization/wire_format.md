@@ -1326,3 +1326,9 @@ Changing `T` to `optional<T>`, changing nesting, or changing the payload type
 is a wire contract change. Missing keyed fields retain the reader's initial
 value; freshly initialized optionals are absent. See [optionals](../schema/optional.md)
 for bounded decoding and managed integration.
+
+## Bit-field storage and packed Java buffers
+
+See the [compiler/backend contract](../guides/compiler_backend_updates.md) for exact syntax, native source layouts,
+Java sink/buffer ownership, mapped-view boundaries and signature provider policy.
+The [qualification record](../verification/verification-compiler-backends-2026-10-24.md) identifies executed SDK checks and remaining limits.

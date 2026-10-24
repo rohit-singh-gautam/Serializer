@@ -95,7 +95,7 @@ void validate_reference(const rohit::type_check::schema_input_buffer auto& input
       if (!reference.value_projection) { reference.field_path.push_back(base.id); }
       current = conversion::base_type(base, current);
     }
-    if ((!reference.value_projection && (!field.explicit_id || field.transient)) || field.wire_only || field.managed ||
+    if (field.bit_width != 0 || (!reference.value_projection && (!field.explicit_id || field.transient)) || field.wire_only || field.managed ||
         field.modifier != member::modifier_type::none || field.type_name_list.size() != 1) {
       throw exception::bad_member_type{input,
           reference.value_projection ?

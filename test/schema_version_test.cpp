@@ -25,6 +25,7 @@ TEST(schema_version, preserves_declarations) {
     "serializer version 1.22.0; class account stable_ids { public uint32 id (7); }",
     "serializer version 1.22.1; class account stable_ids { public uint32 id (7); }",
     "serializer version 1.23.0; class account stable_ids { public uint32 id (7); }",
+    "serializer version 1.23.1; class account stable_ids { public uint32 id (7); }",
     "serializer version 1.24.0; class account stable_ids { public uint32 id (7); }"};
   for (const auto source : sources) {
     SCOPED_TRACE(source);

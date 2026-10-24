@@ -544,6 +544,7 @@ output_options read_output_options(const std::filesystem::path& file) {
         parse_output_languages(value);
       } else if (section == "output" && key == "include_mode") {
         result.includes = parse_include_mode(value);
+        result.native_includes = result.includes;
       } else if (section == "output" && key == "protocols") {
         result.protocols = parse_output_protocols(value);
       } else if ((section == "js" || section == "go" || section == "csharp") && key == "naming") {
@@ -583,6 +584,8 @@ output_options read_output_options(const std::filesystem::path& file) {
         result.java.output_buffer_reuse = read_bool(value);
       } else if (section == "java" && key == "nio_output_buffer_reuse") {
         result.java.nio_output_buffer_reuse = read_bool(value);
+      } else if (section == "java" && key == "stream_output") {
+        result.java.stream_output = read_bool(value);
       } else if (section == "java" && key == "naming") {
         if (value != "profile" && value != "preserve") {
           throw std::invalid_argument{"Expected naming = profile or preserve"};

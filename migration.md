@@ -2774,3 +2774,9 @@ changes. Schema optional JSON is `[]`/`[value]`, preserving nested absence.
 Legacy standalone C++ JSON optional generic arguments retain `null`/value
 semantics. Direct Protobuf mappings and view/packed profiles reject the new
 built-in type. See the [full contract](docs/schema/optional.md).
+
+## Compiler/runtime 2.34.0 and language 1.24.0
+
+See the [compiler/backend contract](docs/guides/compiler_backend_updates.md) for exact syntax, native source layouts,
+Java sink/buffer ownership, mapped-view boundaries and signature provider policy.
+The [qualification record](docs/verification/verification-compiler-backends-2026-10-24.md) identifies executed SDK checks and remaining limits.

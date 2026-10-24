@@ -30,7 +30,7 @@ require `2.6` for transparent value references and record translators;
 require `2.5` when using field references or scoped translators, or `2.3` for
 the XML/package APIs.
 The `SameMajorVersion` discovery policy rejects 1.x requests even without
-`EXACT`. The compiler supports schema language 1.23.0 and older compatible
+`EXACT`. The compiler supports schema language 1.24.0 and older compatible
 1.x headers, including the original `version 1;` alias. Release 2.0.0 adds the
 default separate C++ header bundle without changing supported schema meanings,
 model names, runtime APIs or wire contracts. See [migration](../../migration.md#compilerruntime-200)
@@ -59,7 +59,7 @@ class account stable_ids {
 The statement must precede every declaration. Whitespace and `//` or `/* ... */`
 comments may precede it or separate its keywords. The version has exactly three
 unsigned decimal components separated by dots, without whitespace or comments
-inside the version. The supported language is **1.23.0**, accepting older contracts
+inside the version. The supported language is **1.24.0**, accepting older contracts
 in the same major version. The original
 `serializer version 1;` is an exact alias for `serializer version 1.0.0;`, exclusive
 to version 1; future integer majors such as `2;` are not aliases for `2.0.0;`.
@@ -80,8 +80,10 @@ without an extension resolves to `.serializer`. Explicit `include common.seriali
 also works. CLI input filenames still require `.serializer`. Each
 dependency has its own version header; repeated files are loaded once and their
 declarations join the parsed model. C++ generation emits separate dependency headers
-by default; `--include-mode inline` retains a combined header. Other backends retain
-their combined entry output. See [schema includes](usage.md#share-declarations-with-includes)
+by default; `--include-mode inline` retains a combined header. Native C/Rust/Python/
+Swift/Kotlin outputs default to inline and accept explicit `--include-mode separate`
+for [dependency bundles](compiler_backend_updates.md#native-separate-sources).
+See [schema includes](usage.md#share-declarations-with-includes)
 for path restrictions, namespace handling, duplicate detection, and output limitations.
 Library callers use `parser::parse_file(path)` for includes; its result owns the
 combined `statements` and records canonical `dependencies` (including the entry).
@@ -100,8 +102,8 @@ the complete parsed result. See [licensing and notice rules](../project/licensin
 The repository's [schema language versioning policy](../../AGENTS.md#schema-language-versioning)
 uses `major.minor.patch` for language releases, independently of the compiler
 release. `serializer_schema_language_version` in the root CMake file defines the
-language release separately from `project(... VERSION ...)`. Compiler **2.31.0**
-currently supports language **1.23.0**; `serializer --version` reports both.
+language release separately from `project(... VERSION ...)`. Compiler **2.34.0**
+currently supports language **1.24.0**; `serializer --version` reports both.
 
 Language `1.23.0` binds copied direct self-token fields in a named managed generic
 to that named record. The instantiate declaration's own file selects the contract;
@@ -254,7 +256,7 @@ values, and repeated non-repeatable options are errors.
 | `--depfile` | | Optional Make-style dependency file for all selected outputs and their transitive schema/configuration inputs |
 | `--config` | `-c` | Optional generator INI configuration; repeat for independent variants from one schema parse |
 | `--language` | `-l` | `cpp`, `java`, `js`, `typescript`, `go`, `csharp`, `rust`, `python`, `swift`, `kotlin`, `c`, or a comma-separated list; repeatable |
-| `--include-mode` | | `separate` (default) or `inline`; selects separate dependency headers or a combined entry header for C++ |
+| `--include-mode` | | `separate` or `inline`; C++ defaults to separate dependency headers; C/Rust/Python/Swift/Kotlin default to inline and accept explicit dependency bundles |
 | `--cpp.output` | | C++ `.h`, `.hpp`, or `.hxx` destination |
 | `--java.output` | | Java `.java` destination; filename supplies the outer class |
 | `--js.output` | | JavaScript ES module `.js` or `.mjs` destination |
@@ -269,6 +271,7 @@ values, and repeated non-repeatable options are errors.
 | `--kotlin.package` | | Optional JVM package; empty clears it |
 | `--java.output_buffer_reuse` | | `true` or `false` (default); add [Java caller-owned output windows](../languages/java.md#caller-owned-output-windows) |
 | `--java.nio_output_buffer_reuse` | | `true` or `false` (default); independently add [heap/direct Java NIO windows](../languages/java.md#caller-owned-nio-buffers) |
+| `--java.stream_output` | | `true` or `false` (default); add [synchronous native stream/channel output](compiler_backend_updates.md#java-streams-channels-and-packed-buffers) |
 | `--js.naming`, `--go.naming`, `--csharp.naming` | | `profile` or `preserve` |
 | `--go.package` | | Go package name, default `generated` |
 | `--csharp.namespace` | | C# namespace, default `SerializerGenerated`; empty clears it |

@@ -1,6 +1,6 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction scalar_defaults extended_construction overloaded_construction readonly_behavior derived_sizes conversion reference_fields stateless_layout generic_constraints readonly_function_calls readonly_function_overloads numeric_values)
+    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction scalar_defaults extended_construction overloaded_construction readonly_behavior derived_sizes conversion reference_fields stateless_layout generic_constraints readonly_function_calls readonly_function_overloads numeric_values generic_calls bit_fields)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
@@ -10,6 +10,8 @@ add_executable(core_serializer_test
   numeric_test.cpp
   readonly_behavior_test.cpp
   readonly_function_calls_test.cpp
+  generic_calls_test.cpp
+  bit_fields_test.cpp
   construction_test.cpp
   scalar_default_test.cpp
   extended_construction_test.cpp
@@ -1404,6 +1406,19 @@ serializer_generate(TARGET protobuf_codec_test SCHEMAS resources/protobuf.serial
 # Schema-validation tests call the compiler parser and writer in addition to generated runtime codecs.
 target_link_libraries(protobuf_codec_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
 add_test(NAME protobuf_codec_test COMMAND protobuf_codec_test)
+add_executable(protobuf_sdk_probe protobuf_sdk_probe.cpp)
+add_dependencies(protobuf_sdk_probe protobuf_codec_test)
+target_include_directories(protobuf_sdk_probe PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/protobuf")
+target_link_libraries(protobuf_sdk_probe PRIVATE Serializer::runtime)
+if(Python3_Interpreter_FOUND)
+  execute_process(COMMAND "${Python3_EXECUTABLE}" -c "import google.protobuf"
+    RESULT_VARIABLE serializer_protobuf_python_sdk OUTPUT_QUIET ERROR_QUIET)
+  if(serializer_protobuf_python_sdk EQUAL 0)
+    add_test(NAME protobuf_independent_sdk
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/protobuf_sdk_test.py"
+        --probe "$<TARGET_FILE:protobuf_sdk_probe>" --build "${CMAKE_CURRENT_BINARY_DIR}/protobuf_sdk")
+  endif()
+endif()
 add_executable(protobuf_allocation_test protobuf_allocation_test.cpp)
 target_link_libraries(protobuf_allocation_test PRIVATE Serializer::runtime)
 add_test(NAME protobuf_allocation_test COMMAND protobuf_allocation_test)
@@ -2516,6 +2531,33 @@ if(SERIALIZER_WITH_XML)
     target_compile_options(xml_shapes_cpp PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME xml_shapes_cpp COMMAND xml_shapes_cpp)
+endif()
+
+add_executable(mapped_view_platform_test mapped_view_platform_test.cpp)
+serializer_generate(TARGET mapped_view_platform_test SCHEMAS resources/mapped_view_platform.serializer
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mapped_view_platform")
+target_link_libraries(mapped_view_platform_test PRIVATE Serializer::runtime)
+add_test(NAME mapped_view_platform_test COMMAND mapped_view_platform_test)
+
+if(Python3_Interpreter_FOUND)
+  add_test(NAME native_file_layout_python
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/native_file_layout_test.py"
+      --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_file_layout"
+      --languages python)
+  find_package(Java 17 COMPONENTS Development QUIET)
+  if(Java_FOUND)
+    add_test(NAME java_stream_output
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/java_stream_output_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/java_stream_output"
+        --javac "${Java_JAVAC_EXECUTABLE}" --java "${Java_JAVA_EXECUTABLE}")
+  endif()
+  if(WIN32 AND SERIALIZER_WITH_XML)
+    add_executable(opc_signature_probe opc_signature_probe.cpp)
+    target_link_libraries(opc_signature_probe PRIVATE Serializer::runtime)
+    add_test(NAME opc_signatures
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/opc_signatures_test.py"
+        --probe "$<TARGET_FILE:opc_signature_probe>" --build "${CMAKE_CURRENT_BINARY_DIR}/opc_signatures")
+  endif()
 endif()
 
 if(WIN32)

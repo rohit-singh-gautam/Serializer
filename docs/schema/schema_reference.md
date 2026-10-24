@@ -582,3 +582,9 @@ presence, language 1.7.0 adds `optional<T>` with canonical zero/one-element JSON
 framing; see [generic optionals](optional.md). Evolving JSON readers can explicitly select
 `read_policy::flexible`; regenerate classes for the unknown-member hook.
 See [JSON compatibility](../guides/usage.md#json-compatibility).
+
+## Language 1.24 additions
+
+See the [compiler/backend contract](../guides/compiler_backend_updates.md) for exact syntax, native source layouts,
+Java sink/buffer ownership, mapped-view boundaries and signature provider policy.
+The [qualification record](../verification/verification-compiler-backends-2026-10-24.md) identifies executed SDK checks and remaining limits.

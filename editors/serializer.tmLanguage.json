@@ -308,6 +308,23 @@
           }
         },
         {
+          "match": "\\b(bits)\\s*(\\()\\s*([0-9]+)\\s*(\\))",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.serializer"
+            },
+            "2": {
+              "name": "punctuation.section.group.serializer"
+            },
+            "3": {
+              "name": "constant.numeric.serializer"
+            },
+            "4": {
+              "name": "punctuation.section.group.serializer"
+            }
+          }
+        },
+        {
           "begin": "\\b(auto_size)\\s*(\\()(?=\\s*(?:[A-Za-z_]|$))",
           "beginCaptures": {
             "1": {

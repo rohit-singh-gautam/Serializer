@@ -2260,6 +2260,7 @@ public:
       if (code.language == "c") { output += behavior::source_marker(code, "c") + code.text + "\n"; }
     }
     for (const auto* node : model.nodes) {
+      output += model.file_marker(node);
       if (node->type != object_type::class_type) { continue; }
       const auto& object_value = static_cast<const class_node&>(*node);
       construction::validate_extended_backend(object_value, "c");
@@ -2291,6 +2292,7 @@ public:
       }
     }
     for (const auto* node : model.nodes) {
+      output += model.file_marker(node);
       if (node->type == object_type::class_type) {
         for (const auto& method : static_cast<const class_node&>(*node).functions) {
           symbols.insert(name(node) + "_" + field(method.name));
@@ -2329,6 +2331,7 @@ public:
     --indent;
     line("};");
     for (const auto* node : model.nodes) {
+      output += model.file_marker(node);
       validate_identifier(name(node), keywords);
       if (node->type == object_type::class_type) {
         line("typedef struct " + name(node) + " " + name(node) + ";");
@@ -2348,11 +2351,13 @@ public:
     }
     generic_collection_declarations();
     for (const auto* node : model.nodes) {
+      output += model.file_marker(node);
       if (node->type == object_type::class_type) { define_class(static_cast<const class_node&>(*node)); }
     }
     for (const auto& [n, value] : generic_types) { (void)n; define_type(value); }
     generic_map_declarations();
     for (const auto* node : model.nodes) {
+      output += model.file_marker(node);
       if (node->type == object_type::function_type) {
         behavior_declarations(*node, static_cast<const function_node&>(*node).function);
       } else if (node->type == object_type::class_type) {
@@ -2360,12 +2365,15 @@ public:
       }
     }
     for (const auto* node : model.nodes) {
+      output += model.file_marker(node);
       if (node->type == object_type::function_type) { free_function(static_cast<const function_node&>(*node)); }
     }
     for (const auto* node : model.nodes) {
+      output += model.file_marker(node);
       if (node->type == object_type::class_type) { map_declarations(static_cast<const class_node&>(*node)); }
     }
     for (const auto* node : model.nodes) {
+      output += model.file_marker(node);
       if (node->type != object_type::class_type) {
         continue;
       }
@@ -2408,11 +2416,13 @@ public:
     }
     for (const auto& [n, value] : generic_types) { (void)n; generic_codecs(value); }
     for (const auto* node : model.nodes) {
+      output += model.file_marker(node);
       if (node->type == object_type::class_type) {
         object(static_cast<const class_node&>(*node));
       }
     }
     for (const auto* node : model.nodes) {
+      output += model.file_marker(node);
       if (node->type == object_type::class_type) {
         compression_helpers(static_cast<const class_node&>(*node));
       }
@@ -2420,6 +2430,7 @@ public:
     if (!model.packages.empty()) {
       std::map<std::string, std::string> operation_initializers{};
       for (const auto* node : model.nodes) {
+      output += model.file_marker(node);
         if (node->type == object_type::class_type) {
           operation_initializers.emplace(name(node) + "_init", "srl_xml_operation_init_" + name(node));
         }

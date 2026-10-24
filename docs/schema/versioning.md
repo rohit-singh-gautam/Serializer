@@ -1,8 +1,10 @@
 # Schema revisions and compatibility
 
 Every schema begins with a supported schema-language header. Use
-`serializer version 1.23.0;` for new schemas; older compatible 1.x
-headers remain supported. Language 1.23 adds the versioned
+`serializer version 1.24.0;` for new schemas; older compatible 1.x
+headers remain supported. Language 1.24 adds the
+[compiler/backend contracts](../guides/compiler_backend_updates.md).
+Language 1.23 retains the versioned
 [named managed self-binding contract](named_managed_references.md).
 The original `serializer version 1;` is an exact alias
 for `1.0.0`, not the latest language version. See the

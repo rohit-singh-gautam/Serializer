@@ -1460,6 +1460,7 @@ public:
     --indent;
     line("];");
     for (const auto* node : model.nodes) {
+      output += model.file_marker(node);
       if (node->type != object_type::native_code && model.names.at(node) == "SrlReferenceBinding" &&
           std::any_of(model.nodes.begin(), model.nodes.end(), [](const auto* item) {
             return item->type == object_type::class_type && static_cast<const class_node&>(*item).reference.has_value();
@@ -1513,6 +1514,7 @@ public:
       close();
       close();
     }
+    output += model.file_marker(nullptr);
     if (model.xml.enabled) {
       const xml_binding::schema bindings{model.xml, model.xml_inventories};
       output += xml_codegen::rust_declaration_dispatch(model, bindings, xml_operation_module_);

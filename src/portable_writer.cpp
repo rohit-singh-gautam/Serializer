@@ -2,6 +2,7 @@
 #include "literal_syntax.hpp"
 #include "schema_projection.hpp"
 #include "native_schema.hpp"
+#include "native_file_layout.hpp"
 #include "xml_schema.hpp"
 #include "xml_js_writer.hpp"
 #include "xml_csharp_writer.hpp"
@@ -3383,12 +3384,14 @@ public:
 } // namespace
 
 // Dispatch native owning output while preserving the compiler's C++-only implementation.
-std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
+static std::string generate_impl(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view language, std::string_view unit_name,
-                     const portable_options& requested) {
+                     const portable_options& requested,
+                     const std::map<std::string, std::size_t>& source_files = {}) {
   auto options = requested;
   options.xml = xml_binding::effective_options(statements, options.xml);
   xml_binding::validate_options(statements, options.xml, language);
+  validate_bit_field_output(statements, false);
   behavior::require_callable_backend(statements, language);
   require_unmanaged_backend(statements);
   auto_size::validate(statements, options.class_auto_sizes);
@@ -3396,6 +3399,7 @@ std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements
   if (language == "c" || language == "swift" || language == "kotlin" ||
       language == "rust" || language == "python") {
     native::schema comparison_schema{statements};
+    comparison_schema.source_files = source_files;
     comparison_schema.class_comparisons = options.class_comparisons;
     comparison_schema.class_auto_sizes = options.class_auto_sizes;
     comparison_schema.xml = options.xml;
@@ -3430,6 +3434,12 @@ std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements
   return behavior::finalize_mappings(emitter{selected, options, unit_name}.generate(statements));
 }
 
+// Preserve the existing independently owning single-source library API.
+std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
+    std::string_view language, std::string_view unit_name, const portable_options& options) {
+  return generate_impl(statements, language, unit_name, options);
+}
+
 // Preserve declaration-free source notices without changing the established vector API.
 std::string generate_schema(const parser::parsed_schema& schema, std::string_view language,
                             std::string_view unit_name, const portable_options& options) {
@@ -3437,5 +3447,21 @@ std::string generate_schema(const parser::parsed_schema& schema, std::string_vie
   return schema.statements.empty()
       ? generated_source_notices(schema.source_notices, language == "python" ? "#" : "//") + source
       : source;
+}
+// Keep older backends' single-file contract while providing native dependency source bundles.
+std::vector<cpp::generated_file> generate_files(const parser::parsed_schema& schema,
+    std::string_view language, const std::filesystem::path& destination,
+    const portable_options& options, include_mode mode) {
+  if (mode != include_mode::separate && mode != include_mode::inline_output) {
+    throw std::invalid_argument{"Invalid include mode"};
+  }
+  const bool native = language == "c" || language == "rust" || language == "python" ||
+      language == "swift" || language == "kotlin";
+  if (!native || mode == include_mode::inline_output || schema.source_files.size() <= 1) {
+    return {{destination, generate_schema(schema, language, destination.stem().string(), options)}};
+  }
+  return detail::native_files(schema, language, destination, options, [&](const auto& sources) {
+    return generate_impl(schema.statements, language, destination.stem().string(), options, sources);
+  });
 }
 } // namespace rohit::serializer::writer::portable

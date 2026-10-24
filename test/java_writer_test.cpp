@@ -117,7 +117,7 @@ TEST(java_writer, preserves_spaces_in_string_defaults) {
 // Invalid Java output must be rejected before a destination can be overwritten.
 TEST(java_writer, rejects_unsupported_and_colliding_declarations) {
   for (const auto schema :
-       {"class record view { public int32 value; }", "class record packed { public int32 value; }",
+       {"class record view { public int32 value; }", "class record packed { public string value; }",
         "class account { public int32 account_id; public int32 accountId; }",
         "class account { public int32 class; }", "class reader {}", "namespace a { class a {} }",
         "enum state { ready_now, ReadyNow }",

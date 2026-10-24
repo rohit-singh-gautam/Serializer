@@ -20,7 +20,7 @@ async function verify(entry, directory, options = [], selectedOutputs = outputs,
     '--depfile', path.join(directory, 'all.d'), ...options];
   if ('java' in selectedOutputs) {
     // Qualify field/type destinations with the optional caller-window overloads present.
-    args.push('--java.output_buffer_reuse', 'true', '--java.nio_output_buffer_reuse', 'true');
+    args.push('--java.output_buffer_reuse', 'true', '--java.nio_output_buffer_reuse', 'true', '--java.stream_output', 'true');
   }
   fs.mkdirSync(directory, { recursive: true });
   for (const [language, name] of Object.entries(selectedOutputs)) {
@@ -208,13 +208,62 @@ async function verifySeparate(entry, directory, options = [], extension = '.hpp'
   return checks;
 }
 
+/** Check real five-language bundles through transitive schema ownership and both cursor boundaries. */
+async function verifyNativeBundles(directory) {
+  const dependency = path.join(directory, 'common.serializer');
+  const middle = path.join(directory, 'middle.serializer');
+  const entry = path.join(directory, 'entry.serializer');
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(dependency, 'serializer version 1.24.0; namespace bundle { class item { public uint32 number; } }');
+  fs.writeFileSync(middle, 'serializer version 1.24.0; include common;');
+  fs.writeFileSync(entry, 'serializer version 1.24.0; include middle; namespace bundle { class root { public bundle::item value; } }');
+  const selected = Object.fromEntries(['c', 'rust', 'python', 'swift', 'kotlin'].map(language => [language, outputs[language]]));
+  const args = ['--input', entry, '--language', Object.keys(selected).join(','), '--include-mode', 'separate'];
+  const roots = [];
+  for (const [language, name] of Object.entries(selected)) {
+    const output = path.join(directory, language, name);
+    fs.mkdirSync(path.dirname(output), { recursive: true });
+    roots.push(output);
+    args.push(`--${language}.output`, output);
+  }
+  execFileSync(compiler, args, { stdio: 'pipe' });
+  const resolver = new Navigator({ read: async file => {
+    try { return fs.readFileSync(file, 'utf8'); } catch { return undefined; }
+  }, files: async () => ({ schemas: [entry, middle, dependency], headers: [], outputs: roots }),
+  cancelled: () => false, includeDirectories: [] });
+  let checks = 0;
+  for (const file of [entry, dependency]) {
+    const schema = indexSource(fs.readFileSync(file, 'utf8'), true);
+    for (const symbol of [...schema.symbols, ...schema.members]) {
+      for (const cursor of [symbol.start, symbol.end]) {
+        const definitions = await resolver.schema(file, cursor, true);
+        assert.equal(definitions.length, 5, `${symbol.name}: each native bundle must supply exactly one definition`);
+        for (const target of definitions) {
+          for (const endpoint of [target.start, target.end]) {
+            const back = await resolver.generatedDeclaration(target.file, endpoint);
+            assert.deepEqual(back.map(origin => [fileKey(origin.file), origin.start, origin.end]),
+              [[fileKey(file), symbol.start, symbol.end]], `${symbol.name}: exact bundle source ownership`);
+            ++checks;
+          }
+        }
+      }
+    }
+  }
+  console.log(`Fresh native bundle navigation passed: ${checks} type/field boundaries across five languages and transitive includes.`);
+}
+
 /** Generate into an isolated directory; no language SDK, build or modification of existing output is needed. */
 async function main() {
   assert.ok(compiler, 'Set SERIALIZER_COMPILER to the current built Serializer executable.');
   const parent = path.join(repository, 'out/extension-tests');
   fs.mkdirSync(parent, { recursive: true });
   const directory = fs.mkdtempSync(path.join(parent, 'generated-navigation-'));
+  await verifyNativeBundles(path.join(directory, 'native-bundles'));
   let checks = await verify(path.join(repository, 'example/schemas/complex/model.serializer'), path.join(directory, 'complex'));
+  if (process.argv.includes('--compiler-backends-only')) {
+    console.log(`Compiler/backend navigation passed: ${checks} ordinary type/field checks across all 11 languages; generated files: ${directory}`);
+    return;
+  }
   checks += await verify(path.join(repository, 'test/resources/opc_profile.serializer'),
     path.join(directory, 'opc-packages'), [], outputs, true, true);
   checks += await verify(path.join(repository, 'test/resources/package_application_contract.serializer'),

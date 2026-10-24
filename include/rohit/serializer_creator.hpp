@@ -499,6 +499,9 @@ struct member {
   std::size_t source_column{};
   std::string source_path{};
 
+  bool strict_default_enabled{false}; // Language 1.24 scalar defaults use the portable literal contract.
+  std::uint8_t bit_width{}; // Nonzero selects native unsigned C++ bit-field storage, not a wire width.
+
   // Select a computed fixed-width size without storing per-instance codec policy.
   bool auto_sizes(std::string_view format) const {
     return std::find(auto_size_formats.begin(), auto_size_formats.end(), format) != auto_size_formats.end();
@@ -579,6 +582,7 @@ struct behavior_expression {
   bool numeric_contract_enabled{false}; // New arithmetic retains its declaring file's contract.
   bool call_constructor{false}; // An explicitly typed owning call, never an inferred record conversion.
   bool constructor_calls_enabled{false}; // Owning expressions retain their declaring language contract.
+  bool generic_calls_enabled{false}; // Independent call deduction requires language 1.24.
 };
 
 // A bounded compile-time condition controlling one callable's availability.
@@ -1169,6 +1173,10 @@ inline void write(rohit::type_check::output_stream auto& output,
 }
 } // namespace writer::java
 namespace writer::portable {
+// Plan complete native source bundles; callers publish every returned artifact together.
+std::vector<cpp::generated_file> generate_files(const parser::parsed_schema& schema,
+    std::string_view language, const std::filesystem::path& destination,
+    const portable_options& options = {}, include_mode mode = include_mode::separate);
 // Generate standalone JS, Go, C#, Rust, Python, Swift, Kotlin, C, or TypeScript declarations.
 // unit_name supplies the C# outer class; unsupported features fail before publication.
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,

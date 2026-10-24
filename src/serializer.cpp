@@ -127,6 +127,7 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'\0', "java.package", "package.name", "Java package; --java.package= clears it.", false, true},
     {'\0', "java.output_buffer_reuse", "true|false", "Add caller-owned Java output windows (default false)."},
     {'\0', "java.nio_output_buffer_reuse", "true|false", "Add caller-owned Java ByteBuffer output windows (default false)."},
+    {'\0', "java.stream_output", "true|false", "Add synchronous Java native stream/channel output (default false)."},
 };
 
 // Apply global command-line values independently to each configuration.
@@ -169,6 +170,7 @@ void apply_output_overrides(rohit::serializer::writer::output_options& options,
   }
   if (arguments.contains("include-mode")) {
     options.includes = writer::parse_include_mode(cli::first(arguments, "include-mode"));
+    options.native_includes = options.includes;
   }
   if (arguments.contains("language")) {
     options.language.clear();
@@ -192,6 +194,13 @@ void apply_output_overrides(rohit::serializer::writer::output_options& options,
       throw std::invalid_argument{"java.output_buffer_reuse must be true or false"};
     }
     options.java.output_buffer_reuse = value == "true";
+  }
+  if (arguments.contains("java.stream_output")) {
+    const auto& value = cli::first(arguments, "java.stream_output");
+    if (value != "true" && value != "false") {
+      throw std::invalid_argument{"java.stream_output must be true or false"};
+    }
+    options.java.stream_output = value == "true";
   }
   if (arguments.contains("java.nio_output_buffer_reuse")) {
     const auto& value = cli::first(arguments, "java.nio_output_buffer_reuse");
@@ -805,8 +814,11 @@ int main(const int argc, const char* argv[]) {
               found != options.class_auto_sizes.end()) {
             settings.class_auto_sizes = found->second;
           }
-          contents = writer::portable::generate_schema(schema, language,
-              request.destination.stem().string(), settings);
+          for (auto& file : writer::portable::generate_files(schema, language,
+              request.destination, settings, options.native_includes)) {
+            artifacts.push_back({request.configuration_index, request.language, std::move(file)});
+          }
+          continue;
         }
         artifacts.push_back({request.configuration_index, request.language,
                              {request.destination, std::move(contents)}});
