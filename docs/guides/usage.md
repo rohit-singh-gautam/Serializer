@@ -318,6 +318,12 @@ outputs qualify the selected mixed/map/variant/inherited mappings, singleton
 fragment adapters. Python and JavaScript/TypeScript also expose incremental
 byte-chunk input. Use each backend's documented token subset and independent
 resource policies; broader mapping combinations retain their capability gates.
+Compiler/runtime **2.33.1** restores Python's supported whole-document Core 1.4
+repeated-choice/wildcard route through the bounded owning-tree adapter. Regenerate
+affected Python XML codecs. Complete-graph admission keeps token-only contracts
+from entering a weaker tree decoder; chunked input still requires its supported
+token graph. Native field identities and JSON/binary values are unchanged. See
+the [migration notes](../../migration.md#python-core-xml-routing-repair-in-2331).
 The [OPC example](../../example/opc/README.md) demonstrates filling typed XML and
 opaque attachment roles with generated C++/Python Save/load facades. Require
 `find_package(Serializer 2.12 CONFIG REQUIRED)` for the new C++ APIs; retain
@@ -895,13 +901,15 @@ partial-failure behavior.
 Link `Serializer::runtime` even when using pre-generated headers.
 
 The examples below describe the current source API. The
-[latest four-toolchain verification](../verification/verification-toolchains-2026-10-07.md) records
-full default C++ builds and tests on Windows x64 (MSVC and clang-cl) and Ubuntu
-WSL2 x64 (GCC and Clang), using Release with a C++20 baseline and managed records,
-SIMD, and all compression backends enabled. See the
-[earlier verification record](../verification/verification-2026-09-17.md) for its generated fixtures,
-examples, and configurations. Documentation snippets are not all separate executable
-tests. [Qualification](../../qualification/README.md) describes how to reproduce and
+[current qualification record](../verification/verification-qualification-distribution-2026-10-24.md)
+records Release C++23 builds on Windows x64 (MSVC and clang-cl) and Ubuntu WSL2
+x64 (GCC and Clang), installed consumers, provider combinations and actual SDK
+exchanges. Its full-suite results, focused patch replays and outstanding strict-C
+failure are listed separately. The
+[7 October record](../verification/verification-toolchains-2026-10-07.md) retains
+the earlier C++20 profile; it does not describe the current minimum.
+Documentation snippets are not all separate executable tests.
+[Qualification](../../qualification/README.md) describes how to reproduce and
 extend validation.
 
 ## 1. Define a schema

@@ -363,11 +363,38 @@ test('all generated languages register declarations and honor multi-output depen
 test('manifest uses native declaration menus and activates every supported language', () => {
   const manifest = require('../package.json');
   const state = harness();
-  for (const { language } of state.providers.selector) {
+  for (const { language, pattern } of state.providers.selector) {
+    if (language === 'plaintext') {
+      assert.equal(pattern, require('../out/generated_navigation').outputPattern);
+      assert.ok(manifest.activationEvents.includes('workspaceContains:**/*.serializer'));
+      continue;
+    }
     if (language !== 'serializer') { assert.ok(manifest.activationEvents.includes(`onLanguage:${language}`), language); }
   }
   assert.ok(!manifest.contributes.menus['editor/context'].some(item => item.command === 'serializer.goToSchemaDeclaration'));
   assert.ok(manifest.contributes.commands.some(item => item.command === 'serializer.goToSchemaDeclaration'));
+});
+
+test('plain-text generated outputs navigate without a grammar while authored files stay untouched', async () => {
+  const state = harness({ trusted: false });
+  state.put('model.serializer', 'serializer version 1; namespace demo { class order {} }');
+  state.put('build/Model.kt', banner + 'class DemoOrder {}');
+  const output = state.document('build/Model.kt', 'plaintext');
+  const position = output.positionAt(output.getText().indexOf('DemoOrder'));
+  const targets = await state.providers.declaration.provideDeclaration(output, position, state.cancellation);
+  assert.equal(targets.length, 1);
+  assert.equal(targets[0].uri.fsPath, path.join(root, 'model.serializer'));
+  state.vscode.window.activeTextEditor = { document: output, selection: { start: position } };
+  await state.commands.get('serializer.goToSchemaDeclaration')();
+  assert.ok(state.calls.includes('open:model.serializer'));
+  for (const file of ['authored.kt', 'notes.txt']) {
+    state.put(file, file.endsWith('.kt') ? 'class DemoOrder {}' : banner + 'class DemoOrder {}');
+    const document = state.document(file, 'plaintext');
+    const before = state.calls.length;
+    assert.deepEqual(await state.providers.declaration.provideDeclaration(document,
+      document.positionAt(0), state.cancellation), []);
+    assert.equal(state.calls.length, before, 'unmarked files never query another provider or project');
+  }
 });
 
 test('caller mappings use the resolved header owner despite duplicate qualified names and aliases', async () => {

@@ -268,12 +268,22 @@ Definition may return the current class; VS Code may then invoke its configured
 alternative command (commonly references). Equal destinations for these commands
 on a class are valid; three unrelated caller aliases for a qualified type are not.
 
-Run `npm test`, `npm run test:navigation:generated`, `npm run test:navigation` and
+Run `npm test`, `npm run test:navigation:generated`, `npm run test:host:generated`, `npm run test:navigation` and
 `npm run test:navigation:project` in `editors/vscode`. The last command requires
 `SERIALIZER_COMPILER`, `SERIALIZER_CMAKE_TOOLS_PATH` and `SERIALIZER_CPP_TOOLS_PATH`;
 set `VSCODE_EXECUTABLE_PATH` to reuse the installed editor and
 `SERIALIZER_TEST_CMAKE_GENERATOR` if the default Ninja generator is unsuitable.
 It creates its own workspace with spaces and does not change the user's project.
+
+The generated-host command requires `SERIALIZER_COMPILER` and exercises native
+Go to Declaration in all eleven actual outputs, qualified included types, cursor
+endpoints, reversed selections and live unsaved UTF-16 source offsets. It uses an
+isolated editor profile without optional language extensions. In 2.0.19, marked
+generated declarations also navigate when their optional grammar is absent and
+VS Code opens them as plain text. Workspace schema discovery, opening a schema,
+or invoking the Serializer declaration command activates this support. Unmarked
+plain-text files retain their ordinary navigation. This fallback does not resolve
+caller expressions without a native language service.
 
 This matrix covers implemented behavior, not full semantic language servers.
 Native C++ and TypeScript are verified separately from the compiler-format checks.

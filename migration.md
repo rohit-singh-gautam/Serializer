@@ -69,6 +69,17 @@ types. Default schemas keep existing APIs and bytes. See [payload allocation](do
 for supported binary/direct owning profiles, resource-domain bounds and pending
 qualification. Language 1.24 guarded [edit dispatch](docs/managed/edit_dispatch_and_notifications.md)
 adds checked behavior adapters without making persisted payloads polymorphic.
+## Python Core XML routing repair in 2.33.1
+
+Regenerate Python XML codecs for the restored bounded owning-tree route used by
+the supported Core 1.4 repeated-choice/wildcard graph. The repair backports the
+Core routing portion of main
+commit `60468b0248fbcc096969ded0d936e1a008a6a22e`. Complete-graph admission keeps
+token-only nil/presence, map, variant, mixed, identity, inheritance and lifecycle
+contracts from entering a weaker tree decoder. This focused backport keeps the
+existing namespace-token behavior. Schema headers, public native APIs, field
+identities and JSON/binary wire values are unchanged. Existing 2.0.19 editor
+packages remain compatible; schema language stays 1.23.0.
 
 ## Opt-in Java NIO output in 2.33.0
 

@@ -291,10 +291,26 @@ with `std::byteswap` and `std::span`. Source builds reject an explicit standard
 below 23; public CMake targets propagate `cxx_std_23` to generated and managed
 consumers. Direct compiler invocations must select C++23 or later. Regenerate C++ headers
 for the `if consteval` checked-arithmetic helper; retain runtime nonfinite-value errors. Both editor
-packages are 2.0.22. Existing valid schemas retain their headers and payload revisions;
+packages are 2.0.23. Existing valid schemas retain their headers and payload revisions;
 use language 1.23 for new named managed self bindings. See the
 [named binding contract](../../../docs/schema/named_managed_references.md) and
 [runnable example](../../../example/managed/named_references/README.md).
+
+Regenerate Python XML codecs with 2.33.1 for the restored bounded Core
+repeated-choice/wildcard owning-tree route. Complete graph admission keeps
+nil/presence, maps, variants, mixed, identity, inheritance and lifecycle contracts
+from silently entering an unsupported tree path. Existing namespace-token
+behavior is unchanged. Native fields, APIs and JSON/binary identities stay
+unchanged; see the [migration notes](../../../migration.md#python-core-xml-routing-repair-in-2331).
+Consult the [current platform and SDK record](../../../docs/verification/verification-qualification-distribution-2026-10-24.md)
+before relying on a host/provider combination; strict generated-C failures and
+diagnostic SDK subsets retain their explicit scope.
+For editor qualification, use the [current execution record](../../../docs/verification/verification-editor-hosts-2026-10-24.md).
+Editor 2.0.19 maps marked generated declarations even without an optional VS Code
+language grammar. Open a schema, use a workspace containing schema sources, or
+invoke the Serializer declaration command to activate it. Caller expressions
+still require their native language provider; resolver checks alone do not
+establish real IDE-host qualification.
 Patch 2.32.1 preserves embedded Java source-token bounds on older MSVC hosts;
 emitted Java remains byte-identical and existing generated files need no migration.
 See the [build qualification](../../../docs/verification/verification-java-runtime-literals-2026-10-24.md).

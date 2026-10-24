@@ -1,3 +1,9 @@
+# 2.0.23
+
+- Synchronize with VS Code's marked generated-file declaration fallback when optional language grammars are absent.
+- Integrate real editor-host qualification for all eleven outputs while retaining the current managed, compiler/backend and XML/package profiles.
+- Preserve native adapter and generated-host verification tools in the merged packages.
+
 # 2.0.22
 
 - Correct native managed engine scope in the README and Marketplace payload.

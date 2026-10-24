@@ -264,6 +264,13 @@ async function main() {
     console.log(`Compiler/backend navigation passed: ${checks} ordinary type/field checks across all 11 languages; generated files: ${directory}`);
     return;
   }
+  // Index declarations belong to the storage branch; qualify them when its fixture is present.
+  const indexes = path.join(repository, 'test/resources/schema_indexes.serializer');
+  for (const separate of fs.existsSync(indexes) ? [false, true] : []) {
+    checks += await verify(indexes,
+      path.join(directory, `scalar-indexes-${separate ? 'separate' : 'direct'}`),
+      ['--managed.separate_values', String(separate)], { cpp: 'model.hpp' }, true, true);
+  }
   checks += await verify(path.join(repository, 'test/resources/opc_profile.serializer'),
     path.join(directory, 'opc-packages'), [], outputs, true, true);
   checks += await verify(path.join(repository, 'test/resources/package_application_contract.serializer'),

@@ -1151,10 +1151,11 @@ if(SERIALIZER_BUILD_MANAGED)
       target_compile_options(managed_reference_crash_${registry_profile} PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     if(Python3_Interpreter_FOUND)
+      # Unix helpers have no executable suffix; keep report directories distinct.
       add_test(NAME managed_reference_crash_${registry_profile}_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/managed_reference_crash_test.py"
           --helper "$<TARGET_FILE:managed_reference_crash_${registry_profile}>"
-          --directory "${CMAKE_CURRENT_BINARY_DIR}/managed_reference_crash_${registry_profile}"
+          --directory "${CMAKE_CURRENT_BINARY_DIR}/managed_reference_crash_${registry_profile}_oracle"
           --profile "${registry_profile}")
     endif()
 

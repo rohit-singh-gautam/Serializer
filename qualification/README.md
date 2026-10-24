@@ -1,5 +1,21 @@
 # Codec validation tools
 
+The [current qualification/distribution record](../docs/verification/verification-qualification-distribution-2026-10-24.md)
+tracks QA01–QA04 against the frozen compiler/runtime 2.33.0 baseline, the focused
+2.33.1 Python Core repair and editor packages 2.0.19.
+Use the root wrappers for native builds and the maintained corpus/measurement
+drivers below with explicit SDK/provider paths. Keep independent SDK matrices
+serial (`--jobs 1`, and `--interop-jobs 1` where offered) when sharing the machine.
+Source snapshots, initial failures and full/subset dispositions remain distinct.
+Actual editor-host commands are documented in the
+[navigation guide](../docs/editors/editor_navigation.md); shared resolver checks
+alone cannot close an editor-host gate.
+
+The [native provider matrix](provider_matrix/README.md) compiles all sixteen
+Zstandard/LZ4/zlib/XML combinations against actual native libraries, with bounded
+worker counts, disabled-provider controls and deterministic ordinary-byte checks.
+Diagnostic subsets cannot produce its complete qualification result.
+
 These tools separate regression tests, performance measurements, and fuzzing.
 The dated [verification record](../docs/verification/verification-2026-09-17.md) ties executed
 checks to a source revision and configurations, and lists outstanding work.
@@ -73,6 +89,12 @@ process residency includes startup and setup; Python's traced allocation peak
 excludes native workspace. These categories do not denote interchangeable heap
 peaks. No speed threshold, earlier-release regression claim, hard memory cap,
 streaming or larger-than-RAM guarantee follows from this measurement profile.
+
+The [ZIP/OPC process baseline](package_reproducibility/PERFORMANCE.md) reuses a
+complete independently checked eleven-SDK package inventory. It measures five
+fresh processes per stored/deflated ZIP/OPC profile, retains wall time, process
+CPU/peak working set and generated/encoded sizes, and independently inspects
+every timed archive. Startup and file I/O remain explicit measurement costs.
 
 ## XSD export, comparison and local bundles
 

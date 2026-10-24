@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import type { CMakeToolsExtensionExports, CodeModel } from 'vscode-cmake-tools';
 import { activeConfiguration, fileKey, generatedHeaders, sourceIncludes } from './model';
 import { cppIncludeAt, dependencyFiles } from './navigation_model';
-import { generatedBanner, generatedIncludes, navigationLanguages, outputLanguage } from './generated_navigation';
+import { generatedBanner, generatedIncludes, navigationLanguages, outputLanguage, outputPattern } from './generated_navigation';
 import { NavigationFiles, NavigationTarget, Navigator } from './navigator';
 
 const excludedDirectories = /(?:^|[\\/])(?:\.git|node_modules|\.venv|\.vscode-test)(?:[\\/]|$)/;
@@ -191,6 +191,11 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
   /** Resolve generated types through their language service instead of guessing from caller text. */
   async function declarations(document: vscode.TextDocument, position: vscode.Position,
     token: vscode.CancellationToken, resolveType = false): Promise<vscode.Location[]> {
+    // Optional language grammars must not be required to navigate marked generated declarations.
+    if (document.languageId === 'plaintext' &&
+        (!outputLanguage(sourceUri(document.uri).fsPath) || !generatedBanner(document.getText()))) {
+      return [];
+    }
     const offset = document.offsetAt(position);
     const include = ['cpp', 'c'].includes(document.languageId) && cppIncludeAt(document.getText(), offset);
     const resolver = await navigator(document, token, !include);
@@ -243,10 +248,12 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
 
   const selector = navigationLanguages.flatMap(language =>
     ['file', 'git'].map(scheme => ({ language, scheme })));
+  const declarationSelector = [...selector, ...['file', 'git'].map(scheme =>
+    ({ language: 'plaintext', scheme, pattern: outputPattern }))];
   const declarationProvider = provider(declarations);
   // Explicit schema lookup may follow aliases/variables; native declarations retain their own meaning.
   const typeDeclarationProvider = provider((document, position, token) => declarations(document, position, token, true));
-  context.subscriptions.push(vscode.languages.registerDeclarationProvider(selector, {
+  context.subscriptions.push(vscode.languages.registerDeclarationProvider(declarationSelector, {
     provideDeclaration: declarationProvider
   }), vscode.languages.registerDefinitionProvider(
     selector.filter(item => ['serializer', 'cpp', 'c'].includes(item.language)),
@@ -282,7 +289,9 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(vscode.commands.registerCommand('serializer.goToSchemaDeclaration', async () => {
     const editor = vscode.window.activeTextEditor;
-    if (!editor || !navigationLanguages.includes(editor.document.languageId)) { return; }
+    if (!editor || (!navigationLanguages.includes(editor.document.languageId) &&
+        !(editor.document.languageId === 'plaintext' && outputLanguage(sourceUri(editor.document.uri).fsPath) &&
+          generatedBanner(editor.document.getText())))) { return; }
     const cancellation = new vscode.CancellationTokenSource();
     try {
       const position = editor.selection.start ?? editor.selection.active;

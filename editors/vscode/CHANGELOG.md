@@ -1,3 +1,9 @@
+# 2.0.23
+
+- Register marked generated-file declaration navigation when optional language grammars are absent; preserve normal authored-file providers.
+- Integrate real editor-host qualification for all eleven outputs while retaining the current managed, compiler/backend and XML/package profiles.
+- Add the generated-host runner and retain both branches' navigation checks.
+
 # 2.0.22
 
 - Correct native managed engine scope in the README and Marketplace payload.

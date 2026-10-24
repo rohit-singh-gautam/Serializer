@@ -1,0 +1,2 @@
+# Keep reviewable qualification data hashes stable across Windows/Linux checkouts.
+/docs/verification/data/*.csv text eol=lf

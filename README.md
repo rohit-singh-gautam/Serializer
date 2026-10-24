@@ -49,7 +49,7 @@ Selected compression framing, errors and byte/history admission now pass one sha
 ## Releases and supported outputs
 
 Compiler/runtime **2.34.0**, schema language **1.24.0**, includes the following
-managed additions. Both editor packages are **2.0.22**.
+managed additions. Both editor packages are **2.0.23**.
 
 [MG07 and MG08 acceptance](docs/verification/verification-managed-completions-2026-10-24.md)
 closes allocator-aware payload hooks and the supported managed representation contract.
@@ -137,7 +137,7 @@ XML selection and package vocabulary/type/target-mode settings in all eleven
 owning outputs. XSD declaration import now retains named/inline/union list-item
 constraints and imports supported grouped/repeated complex choices into one
 ordered variant array. Existing imports retain their layout and language header
-unless they use the new ordered storage. Both editor packages are **2.0.22**.
+unless they use the new ordered storage. Both editor packages are **2.0.23**.
 See [ordered XML](docs/serialization/ordered_xml.md),
 [XSD import](docs/serialization/xsd_tooling.md#import-declarations-from-xsd)
 and [package profiles](docs/serialization/xml_packages.md#generated-package-pipelines).
@@ -157,8 +157,13 @@ stream/channel output and fixed-scalar packed buffers. C++ OPC signatures use a
 Windows provider with explicitly pinned signing certificates and reported coverage.
 See the [compiler/backend contracts](docs/guides/compiler_backend_updates.md) and
 [qualification status](docs/verification/verification-compiler-backends-2026-10-24.md).
-Both editor packages are **2.0.22**. Existing declared language contracts and wire
+Both editor packages are **2.0.23**. Existing declared language contracts and wire
 formats remain independent of these additions.
+
+Editor packages **2.0.23** include the declaration fallback qualified in a real
+VS Code host across all eleven outputs and repair navigation when an optional
+language grammar is absent. See the [current qualification record](docs/verification/verification-editor-hosts-2026-10-24.md)
+for the original 2.0.19 host results, package hashes and qualification limits.
 
 Compiler/runtime **2.33.0** adds independently opt-in Java heap/direct
 `ByteBuffer` output with `java.nio_output_buffer_reuse = true`. A successful encode
@@ -381,8 +386,16 @@ reports `publication_uncertain` with the complete new archive retained.
 The current compiler and runtime release is **2.34.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
-compatibility across major releases. The schema language version is **1.23.0**;
+compatibility across major releases. The schema language version is **1.24.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.33.1** backports the established Python Core owning-tree routing
+repair from main. Regenerate affected XML codecs; complete-graph checks keep
+token-only contracts on their required path. Native APIs, schema versions and
+JSON/binary identities are unchanged. See the [migration notes](migration.md#python-core-xml-routing-repair-in-2331).
+The [current qualification record](docs/verification/verification-qualification-distribution-2026-10-24.md)
+separates four-toolchain builds, provider and SDK results, current patch replays,
+measurements and outstanding bugs.
 
 Release **2.21.0** adds [C++ OPC core-property adapters](docs/serialization/core_properties.md),
 [complete-candidate managed authorization](docs/managed/authorization.md), explicit
@@ -457,7 +470,7 @@ Release **2.17.0** adds [generated package policies and application references](
 Generated [C](docs/languages/c_packages.md), [Rust](docs/languages/rust_packages.md)
 and [Swift](docs/languages/swift_packages.md) outputs now provide bounded owning
 ZIP/OPC facades, typed loading, preservation and staged Save. Both editor packages
-are **2.0.22** and recognize language **1.24.0** bit fields and generic calls,
+are **2.0.23** and recognize language **1.24.0** bit fields and generic calls,
 **1.23.0** named self-reference contracts,
 **1.22.0** cache fields and earlier package declarations.
 Version 2.28 composes C/Rust XML document companions with typed package roles.

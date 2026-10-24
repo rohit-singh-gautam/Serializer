@@ -152,7 +152,7 @@ def shared_corpus(directory, config, environment):
             'decisions': len(rows), 'cpp_producers': producers}
 
 
-def prepare(language, directory, compiler, sdk, config, environment):
+def prepare(language, directory, compiler, sdk, config, environment, jobs=2):
     """Build one real emitted owning model and its thin explicit-provider adapter with the actual SDK."""
     directory.mkdir(parents=True, exist_ok=True)
     logs = directory/'logs'; logs.mkdir(exist_ok=True)
@@ -168,7 +168,7 @@ def prepare(language, directory, compiler, sdk, config, environment):
                  '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_MAKE_PROGRAM='+sdk['ninja'], '-DCMAKE_CXX_COMPILER='+sdk['cxx'],
                  '-DCMAKE_PREFIX_PATH='+';'.join(map(str,prefixes)), '-DSerializer_DIR='+str(prefixes[0]/'lib/cmake/Serializer'),
                  '-DSERIALIZER_GENERATOR_EXECUTABLE='+str(compiler)], 'configure')
-        execute([sdk['cmake'], '--build', directory/'build', '--target', 'compression_parity_cpp', '--parallel', '4'], 'build')
+        execute([sdk['cmake'], '--build', directory/'build', '--target', 'compression_parity_cpp', '--parallel', str(jobs)], 'build')
         return [directory/'build'/('compression_parity_cpp.exe' if os.name == 'nt' else 'compression_parity_cpp')]
     if language == 'c':
         execute(command+['--language', 'c', '--output', directory/'schema.h'], 'generate')
@@ -250,17 +250,17 @@ def prepare(language, directory, compiler, sdk, config, environment):
     raise ValueError('Undeclared language '+language)
 
 
-def lifecycle_checks(build, compiler, sdk, config, environment):
+def lifecycle_checks(build, compiler, sdk, config, environment, jobs=2):
     """Replay maintained actual-SDK cancellation, failure-fencing, ownership and deployment controls."""
     native = ['--cpp-helper', required_path(config,'cpp_helper'), '--cpp-linked-helper', required_path(config,'cpp_linked_helper'),
               '--provider-path', required_path(config,'python_provider',directory=True)]
-    jobs = []
+    cases = []
 
     def add(language, script, extra=(), profile='core'):
         """Give each maintained runner an isolated output directory and explicit SDK/provider selection."""
         case = build/'lifecycle'/language/profile
         command = [sys.executable,'-B',ROOT/'test'/script,'--compiler',compiler,'--build',case,*extra]
-        jobs.append((language+'-'+profile,case,command))
+        cases.append((language+'-'+profile,case,command))
 
     add('python','python_compression_test.py',['--provider-path',required_path(config,'python_provider',directory=True)])
     add('java','java_compression_test.py',['--java',sdk['java'],'--javac',sdk['javac']])
@@ -303,8 +303,8 @@ def lifecycle_checks(build, compiler, sdk, config, environment):
                       for path in sorted(case.rglob('verification.json'))}}
 
     # These independent SDK builds own disjoint outputs; cap host contention while native qualification runs.
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = {executor.submit(execute,job):job[0] for job in jobs}
+    with ThreadPoolExecutor(max_workers=jobs) as executor:
+        futures = {executor.submit(execute,job):job[0] for job in cases}
         for future in as_completed(futures):
             name = futures[future]
             try:
@@ -321,6 +321,8 @@ def main():
     parser.add_argument('--config', required=True, type=Path, help='Explicit local SDK/provider deployment paths; see configuration documentation')
     parser.add_argument('--build', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--jobs', type=int, choices=(1, 2), default=2,
+                        help='Maximum native build and independent lifecycle workers; use 1 on a shared host')
     parser.add_argument('--prepare-only', action='store_true', help='Diagnostic build phase only; never writes a successful qualification report')
     parser.add_argument('--languages', nargs='+', choices=LANGUAGES, help='Diagnostic subset only; final qualification always requires the full manifest')
     parser.add_argument('--skip-lifecycle',action='store_true',help='Diagnostic framing/exchange pass only; never writes a successful full qualification report')
@@ -347,7 +349,7 @@ def main():
     compiler_hash = sha(compiler)
     runners = {}
     for language in args.languages or LANGUAGES:
-        runners[language] = prepare(language, build/language, compiler, sdk, config, environment)
+        runners[language] = prepare(language, build/language, compiler, sdk, config, environment, args.jobs)
     if args.prepare_only or args.languages:
         print('Diagnostic SDK preparation complete; no full parity qualification asserted.'); return
     versions = sdk_versions(build,sdk,environment)
@@ -401,7 +403,7 @@ def main():
             failures['cpp-'+mode] = str(failure)
     lifecycle = {}
     if not args.skip_lifecycle:
-        lifecycle, lifecycle_failures = lifecycle_checks(build,compiler,sdk,config,environment)
+        lifecycle, lifecycle_failures = lifecycle_checks(build,compiler,sdk,config,environment,args.jobs)
         failures.update(lifecycle_failures)
     else:
         failures['lifecycle'] = 'Diagnostic invocation intentionally omitted mandatory maintained lifecycle/deployment runners'
@@ -414,7 +416,7 @@ def main():
     runtime_prefix = required_path(config,'runtime_prefix',directory=True)
     report = {'qualification':manifest['id'],'utc':datetime.now(timezone.utc).isoformat(),'platform':platform.platform(),
               'manifest':manifest,'compiler_sha256':compiler_hash,'configuration_sha256':sha(args.config),
-              'sdk_versions':versions,'sdk_paths':sdk,
+              'sdk_versions':versions,'sdk_paths':sdk,'maximum_workers':args.jobs,
               'fixture_counts':counts,'results':results,'model_exchanges':2904,'independent_producer_frames':independent,
               'encode_bound_decisions':72*len(LANGUAGES),
               'cpp_lifecycle_controls':25,'maintained_lifecycle_runners':lifecycle,
