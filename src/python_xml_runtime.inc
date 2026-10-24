@@ -465,6 +465,18 @@ R"xmlpython(def _xml_token_capable(model, active=None):
                    model._xml_mixed is None or all(_xml_token_capable(item['model'](), active) for item in model._xml_mixed['children']))
 
 
+def _xml_tree_capable(model, active=None):
+    """Admit only complete graphs implemented by the established bounded owning-tree adapter."""
+    if not getattr(model, '_xml_tree_supported', False):
+        return False
+    active = set() if active is None else active
+    if model in active:
+        return True
+    active.add(model)
+    return all(_xml_tree_capable(selected(), active)
+               for item in model._xml_token_fields for selected in _xml_token_models(item))
+
+
 def _xml_token_models(item):
     """Enumerate the complete owning child graph, including mapped container payloads."""
     if item['map'] is not None:

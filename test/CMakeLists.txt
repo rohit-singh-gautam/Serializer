@@ -2281,6 +2281,9 @@ if(SERIALIZER_WITH_XML)
     add_test(NAME xsd_import_cli_test
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xsd_import_cli_test.py"
         "$<TARGET_FILE:serializer>" "${CMAKE_CURRENT_BINARY_DIR}")
+    add_test(NAME xml_core_python_regression
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_3mf_core_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/core_python_regression")
     add_test(NAME xml_schema_tools_test
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_schema_tools_test.py"
         "$<TARGET_FILE:serializer>")

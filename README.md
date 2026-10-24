@@ -268,11 +268,16 @@ Regenerate Python package facades for cancellation checks after Save hooks:
 pre-publication cancellation preserves the old file; a failure after replacement
 reports `publication_uncertain` with the complete new archive retained.
 
-The current compiler and runtime release is **2.33.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.33.1**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.23.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.33.1** backports the established Python Core owning-tree routing
+repair from main. Regenerate affected XML codecs; complete-graph checks keep
+token-only contracts on their required path. Native APIs, schema versions and
+JSON/binary identities are unchanged. See the [migration notes](migration.md#python-core-xml-routing-repair-in-2331).
 
 Release **2.21.0** adds [C++ OPC core-property adapters](docs/serialization/core_properties.md),
 [complete-candidate managed authorization](docs/managed/authorization.md), explicit

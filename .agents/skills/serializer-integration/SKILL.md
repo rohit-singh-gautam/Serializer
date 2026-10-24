@@ -97,7 +97,7 @@ remain unavailable for that storage representation. Use a supported explicit
 ordered mapping when direct token traversal is required. Follow the
 [legacy tree checks](../../../docs/verification/verification-legacy-cpp-wildcards-2026-10-22.md).
 
-The current compiler/runtime release is **2.33.0**, with schema language
+The current compiler/runtime release is **2.33.1**, with schema language
 **1.23.0**. Release 2.31.0 requires a C++23 compiler and matching standard library
 with `std::byteswap` and `std::span`. Source builds reject an explicit standard
 below 23; public CMake targets propagate `cxx_std_23` to generated and managed
@@ -107,6 +107,13 @@ packages are 2.0.19. Existing valid schemas retain their headers and payload rev
 use language 1.23 for new named managed self bindings. See the
 [named binding contract](../../../docs/schema/named_managed_references.md) and
 [runnable example](../../../example/managed/named_references/README.md).
+
+Regenerate Python XML codecs with 2.33.1 for the restored bounded Core
+repeated-choice/wildcard owning-tree route. Complete graph admission keeps
+nil/presence, maps, variants, mixed, identity, inheritance and lifecycle contracts
+from silently entering an unsupported tree path. Existing namespace-token
+behavior is unchanged. Native fields, APIs and JSON/binary identities stay
+unchanged; see the [migration notes](../../../migration.md#python-core-xml-routing-repair-in-2331).
 For editor qualification, use the [current execution record](../../../docs/verification/verification-editor-hosts-2026-10-24.md).
 Editor 2.0.19 maps marked generated declarations even without an optional VS Code
 language grammar. Open a schema, use a workspace containing schema sources, or

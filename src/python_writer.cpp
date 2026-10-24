@@ -240,6 +240,7 @@ class python_emitter {
           selected == "_srl_xml_state" || selected == "xml_bind_namespace" || selected == "_xml_rules" ||
           selected == "_xml_record" || selected == "_xml_choices" || selected == "decode_xml_chunks" ||
           selected == "_xml_token_fields" || selected == "_xml_token_supported" || selected == "_xml_token_all" ||
+          selected == "_xml_tree_supported" ||
           selected == "_xml_identity" || selected == "_xml_token_inherited" || selected == "_xml_mixed" ||
           selected == "_xml_model" || selected == "_xml_extensions" || selected == "_xml_export_only") {
         throw std::invalid_argument{"Python XML method collides with declared member: " + selected};
@@ -363,6 +364,14 @@ class python_emitter {
       }
     }
     line("_xml_extensions = " + extension_metadata);
+    // Keep the established owning tree adapter available for its complete legacy contract.
+    // Token-only presence, containers, identities and model metadata must never enter it.
+    const bool tree_supported = !contract.mixed && !contract.identity && contract.all_groups.empty() &&
+        !contract.model.inherited && !contract.model.revision && !contract.model.magic && !contract.model.digest &&
+        std::all_of(contract.fields.begin(), contract.fields.end(), [](const auto& item) {
+          return !item.presence.explicit_policy && !item.map_binding && !item.variant_binding;
+        });
+    line("_xml_tree_supported = " + std::string{tree_supported ? "True" : "False"});
     line("_xml_token_supported = " + std::string{token_supported ? "True" : "False"});
     std::string all_groups{"_xml_token_all = ("};
     for (const auto& group : contract.all_groups) {
@@ -408,7 +417,7 @@ class python_emitter {
     line("\"\"\"Encode one complete XML document with fixed generated mapping.\"\"\"");
     line("budget = _XmlBudget(limits, context)");
     line("context = budget.context");
-    line("if not _xml_token_capable(type(self)) and _xml_token_required(type(self)): raise ValueError('This XML mapping requires a token-compatible owning graph')");
+    line("if not _xml_token_capable(type(self)) and _xml_token_required(type(self)) and not _xml_tree_capable(type(self)): raise ValueError('This XML mapping requires a token-compatible owning graph')");
     line("data = _xml_token_encode(self, " + expanded(contract.root) + ", budget.limits, context) if _xml_token_capable(type(self)) else _xml_write(self._xml_node(" + expanded(contract.root) + ", budget, 1), budget.limits, context)");
     if (!model.xml.runtime_xsd) { line("if schema is not None: raise ValueError('Runtime XSD was not enabled during generation')"); }
     else if (model.xml.validation_scope != "input") {
@@ -430,7 +439,7 @@ class python_emitter {
       line("schema.validate(data, limits, context)");
       line("if context is not None: context.check()"); --indent;
     }
-    line("if not _xml_token_capable(cls) and _xml_token_required(cls): raise ValueError('This XML mapping requires a token-compatible owning graph')");
+    line("if not _xml_token_capable(cls) and _xml_token_required(cls) and not _xml_tree_capable(cls): raise ValueError('This XML mapping requires a token-compatible owning graph')");
     line("if _xml_token_capable(cls): return _xml_token_decode(cls, " + expanded(contract.root) + ", (data,), limits, context)");
     line("context = _xml_namespace_context(limits, context)");
     line("node = _xml_parse(data, limits, context)");
