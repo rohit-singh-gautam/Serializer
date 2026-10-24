@@ -1,3 +1,9 @@
+# 2.0.19
+
+- Support language 1.24 unsigned bit-field qualifiers and generic calls/defaults; refresh the schema snippet.
+- Follow compiler-owned dependency links for C, Rust, Python, Swift and Kotlin separate output. Preserve Python banners, exact source identities and native C fragment classification.
+- Document compiler/runtime 2.34.0 Java streaming and packed buffers; synchronize both packages and listing payloads.
+
 # 2.0.18
 
 - Document compiler/runtime 2.33.0's independent opt-in heap/direct Java ByteBuffer output with unchanged schema language 1.23.0.
@@ -305,7 +311,7 @@
 
 # 1.1.21
 
-- Refresh the packaged extension logo from the updated canonical 128×128 artwork.
+- Refresh the packaged extension logo from the updated canonical 128Ã—128 artwork.
 - Keep both editor packages at the same release version.
 
 # 1.1.20

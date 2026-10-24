@@ -184,12 +184,12 @@ export class Navigator {
     }
     // A separate included schema owns a different header, but belongs to the selected entry's
     // generated include tree. Keep that tree alongside its root instead of switching profiles.
-    const linked = new Set<string>();
-    for (const header of preferred) {
-      for (const output of await this.outputTree(header)) { linked.add(fileKey(output)); }
+    const selected = preferred.length ? preferred : available;
+    const linked: string[] = [];
+    for (const header of selected) {
+      linked.push(...await this.outputTree(header));
     }
-    preferred.push(...available.filter(output => linked.has(fileKey(output))));
-    return [...new Set(preferred.length ? preferred : available)];
+    return [...new Set([...selected, ...linked])];
   }
 
   /** Find generated field definitions through the same dependency and owner identity as reverse navigation. */

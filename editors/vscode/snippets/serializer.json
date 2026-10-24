@@ -29,7 +29,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1.23.0;",
+      "serializer version 1.24.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",
@@ -462,5 +462,12 @@
     "prefix": "opcreference",
     "body": "reference(\"${1:identities}\", ${2:target_id}, ${3:targets});",
     "description": "Require a scoped key with the target role model type; requires language 1.21.0"
+  },
+  "Unsigned bit field": {
+    "prefix": "bitfield",
+    "body": [
+      "public uint8 ${1:flags} (${2:1}) bits(${3:3}) {0};"
+    ],
+    "description": "Unsigned C++ owning native bit-field storage; requires schema language 1.24.0; wire width remains uint8."
   }
 }
