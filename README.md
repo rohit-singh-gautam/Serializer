@@ -46,6 +46,11 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Select [`store_options::compact_history`](docs/managed/compact_history.md) to
+share unchanged retained history blocks. Generated Windows profiles preserve
+default Save bytes; [measured retention and latency](docs/verification/verification-compact-history-2026-10-24.md)
+keep resident admission, routed allocations and process memory distinct.
+
 Opt-in [bounded dependency notifications](docs/managed/edit_dispatch_and_notifications.md)
 prepare stable field paths and immutable before/after pins before acceptance.
 Projection filters can select affected identities and paths while preserving

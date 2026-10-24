@@ -118,6 +118,26 @@ endif()
 add_test(NAME payload_allocator_test COMMAND payload_allocator_test)
 
 if(SERIALIZER_BUILD_MANAGED)
+  foreach(compact_profile IN ITEMS direct32 direct64 separate32 separate64)
+    set(compact_config)
+    if(NOT compact_profile STREQUAL "direct32")
+      set(compact_config CONFIG "resources/cache_${compact_profile}.ini")
+    endif()
+    add_executable(managed_compact_history_${compact_profile}_test managed_compact_history_test.cpp)
+    serializer_generate(TARGET managed_compact_history_${compact_profile}_test
+      SCHEMAS resources/compact_history.serializer ${compact_config}
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_compact_history_${compact_profile}")
+    target_link_libraries(managed_compact_history_${compact_profile}_test PRIVATE
+      Serializer::managed GTest::gtest_main)
+    if(MSVC)
+      target_compile_options(managed_compact_history_${compact_profile}_test PRIVATE /W4 /WX)
+    else()
+      target_compile_options(managed_compact_history_${compact_profile}_test PRIVATE
+        -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME managed_compact_history_${compact_profile}_test
+      COMMAND managed_compact_history_${compact_profile}_test)
+  endforeach()
   foreach(managed_contract_profile IN ITEMS direct32 direct64 separate32 separate64)
     set(managed_contract_config)
     if(NOT managed_contract_profile STREQUAL "direct32")

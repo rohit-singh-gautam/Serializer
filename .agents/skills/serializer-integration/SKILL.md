@@ -7,6 +7,12 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 
 [Documentation index](../../../docs/README.md)
 
+For repeated C++ history, consider explicit
+[`compact_history`](../../../docs/managed/compact_history.md) retention. It
+shares exact immutable byte blocks while keeping existing Save formats and
+logical history limits. Review measured retention, full-root CPU/export costs,
+resource lifetime and the selected platform qualification before adoption.
+
 For dependency-aware C++ projections, opt into bounded `.field_paths = true`
 [publication metadata](../../../docs/managed/edit_dispatch_and_notifications.md).
 Retain event namespace and immutable roots with stable IDs/paths. Preparation

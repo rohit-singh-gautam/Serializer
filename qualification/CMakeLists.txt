@@ -23,6 +23,23 @@ if(SERIALIZER_BUILD_BENCHMARKS)
   endforeach()
   target_sources(codec_allocation_profile PRIVATE allocation_metrics.cpp)
   target_compile_definitions(codec_allocation_profile PRIVATE SERIALIZER_ALLOCATION_PROFILE)
+  if(SERIALIZER_BUILD_MANAGED)
+    add_executable(managed_history_benchmark managed_history_benchmark.cpp allocation_metrics.cpp)
+    serializer_generate(TARGET managed_history_benchmark
+      SCHEMAS ../example/managed/ledger/ledger.serializer
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_history")
+    target_link_libraries(managed_history_benchmark PRIVATE Serializer::managed)
+    target_compile_definitions(managed_history_benchmark PRIVATE
+      SERIALIZER_BENCHMARK_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}"
+      SERIALIZER_BENCHMARK_CONFIGURATION="$<CONFIG>")
+    set_property(TARGET managed_history_benchmark PROPERTY INTERPROCEDURAL_OPTIMIZATION FALSE)
+    if(MSVC)
+      target_compile_options(managed_history_benchmark PRIVATE /GL- /W4 /WX)
+    else()
+      target_compile_options(managed_history_benchmark PRIVATE -fno-lto -Wall -Wextra -Wpedantic -Werror)
+      target_link_options(managed_history_benchmark PRIVATE -fno-lto)
+    endif()
+  endif()
 endif()
 
 if(SERIALIZER_BUILD_FUZZERS)

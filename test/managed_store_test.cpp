@@ -785,7 +785,7 @@ concept contains_label = requires(Entry entry) { entry.label; };
 static_assert(!contains_label<managed::detail::history_entry<>>);
 static_assert(!contains_label<managed::records::unlabeled_history_entry>);
 static_assert(!contains_label<managed::records::unlabeled_revision>);
-static_assert(sizeof(managed::detail::history_entry<>) == sizeof(std::vector<std::uint8_t>));
+static_assert(sizeof(managed::detail::history_entry<>) == sizeof(managed::detail::retained_snapshot));
 static_assert(contains_label<managed::detail::history_entry<managed::history_labels::enabled>>);
 
 // Naming APIs are unavailable unless the store's label policy enables them.

@@ -1,0 +1,17 @@
+serializer version 1.20.0;
+
+namespace compact_history_example {
+  class leaf managed stable_ids class_id(501) {
+    public string label (1);
+    public int64 count (2);
+  }
+  class section managed stable_ids class_id(502) {
+    public string title (1);
+    public managed array leaf leaves (2);
+  }
+  class graph managed stable_ids class_id(503) {
+    public string title (1);
+    public managed array section sections (2);
+    public transient optional<string> runtime_note;
+  }
+}

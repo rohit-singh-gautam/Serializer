@@ -1901,6 +1901,21 @@ to a worker is useful only with immutable input, bounded queues, lifecycle clean
 and publication/durability rules; a background queue cannot silently drop required
 undo or turn an acknowledged durable save into an eventual promise.
 
+The maintained `managed_history_benchmark` target provides a reproducible
+comparison of default and [compact retained blocks](compact_history.md). Configure `SERIALIZER_BUILD_BENCHMARKS=ON`
+with managed support enabled, then build and run that target. It emits CSV for
+64, 512 and 4,096 entities with 256-byte payloads and 32 committed edits, comparing
+live history, one deleted entity, history reset and a retained pre-deletion reader
+pin. It verifies that Undo restores the original persistent ID and that pins keep
+their immutable source. Results include encoded envelope size, conservative
+resident admission, intercepted C++ allocation requests and median/p95 complete
+edit latency. Its allocation counters exclude malloc-backed codec buffers,
+allocator bookkeeping and process RSS. Timing thresholds are not correctness
+tests. The [Windows comparison](../verification/verification-compact-history-2026-10-24.md)
+records all 24 workloads, including pruning and immutable reader pins. Complete
+candidate decoding, validation and exported snapshots retain their whole-root
+costs even when retained history shares unchanged blocks.
+
 ## Persistence and schema evolution
 
 A separate versioned envelope should store the document ID, allocation metadata,

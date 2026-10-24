@@ -9,6 +9,7 @@
 #include <rohit/managed_changes.hpp>
 #include <rohit/managed_notifications.hpp>
 #include <rohit/managed_resident.hpp>
+#include <rohit/managed_retained_snapshot.hpp>
 #include <rohit/managed_registry.hpp>
 
 #include <rohit/managed_collaboration_hooks.hpp>
@@ -20,6 +21,7 @@
 #include <rohit/managed_journal.hpp>
 #include <rohit/managed_records.hpp>
 #include <rohit/serializer.hpp>
+#include <rohit/payload_decode.hpp>
 
 #include <algorithm>
 #include <array>
@@ -151,6 +153,9 @@ struct store_options {
   // Opt-in deltas preserve default full-state frames; full states bound replay depth.
   bool delta_journal{};
   std::size_t max_delta_chain{32};
+  // Share unchanged immutable history byte blocks; persistent Save/journal formats remain unchanged.
+  // The logical history limits still bound complete encoded revisions, independently of sharing.
+  bool compact_history{};
 };
 
 // Specialize for an ordinary generated payload and its explicit generated ID-bearing storage.
@@ -313,7 +318,7 @@ std::size_t label_bytes(const Entry& entry) noexcept {
 // Linear ancestry is implicit in deque order; no per-revision parent or shared ownership is needed.
 template <history_labels Labels = history_labels::disabled>
 struct history_entry : label_storage<Labels> {
-  std::vector<std::uint8_t> snapshot{};
+  retained_snapshot snapshot{};
 
   // Return retained byte cost; append/load validate the sum before admitting a revision.
   std::size_t bytes() const noexcept {
@@ -381,8 +386,32 @@ struct linear_history {
 };
 
 template <history_labels Labels>
-using tree_revision = std::conditional_t<Labels == history_labels::enabled, records::revision,
-                                         records::unlabeled_revision>;
+struct tree_revision : label_storage<Labels> {
+  std::uint64_t number{};
+  std::uint64_t parent{};
+  retained_snapshot snapshot{};
+  // Compare every persisted coordinate without allocating an exported wire-record copy.
+  bool operator==(const tree_revision& other) const {
+    if (number != other.number || parent != other.parent || snapshot != other.snapshot) { return false; }
+    if constexpr (Labels == history_labels::enabled) {
+      return this->label == other.label;
+    } else {
+      return true;
+    }
+  }
+};
+
+// Materialize existing wire records only at export/recovery comparison boundaries.
+template <history_labels Labels>
+auto wire_revision(const tree_revision<Labels>& revision) {
+  std::conditional_t<Labels == history_labels::enabled, records::revision,
+                     records::unlabeled_revision> result;
+  result.number = revision.number;
+  result.parent = revision.parent;
+  result.snapshot = revision.snapshot.materialize();
+  if constexpr (Labels == history_labels::enabled) { result.label = revision.label; }
+  return result;
+}
 
 template <history_labels Labels>
 using tree_history = std::map<std::uint64_t, std::shared_ptr<const tree_revision<Labels>>>;
@@ -583,6 +612,68 @@ private:
     return result;
   }
 
+  // Select a payload domain only for generated opt-in records; ordinary schemas incur no scope.
+  template <typename Callable>
+  decltype(auto) with_payload_scope(Callable&& callback) const {
+    if constexpr (requires(const storage_type& value) { value.serializer_payload_resource(); }) {
+      serializer::payload_allocation_scope scope{options_.allocation_resource};
+      return std::invoke(std::forward<Callable>(callback));
+    } else {
+      return std::invoke(std::forward<Callable>(callback));
+    }
+  }
+
+  // Decode all candidate/history payload allocations in the store's retained resource domain.
+  storage_type decode_storage(std::span<const std::uint8_t> bytes) const {
+    return with_payload_scope([&] { return detail::decode<storage_type>(bytes, options_.decode); });
+  }
+
+  // Decode default history without a copy; compact temporary bytes never become retained caches.
+  storage_type decode_storage(const detail::retained_snapshot& snapshot) const {
+    return snapshot.with_bytes([&](const auto& bytes) { return decode_storage(bytes); });
+  }
+
+  // Select only a still-retained exact revision; recovery may already have evicted its old prefix.
+  const detail::retained_snapshot* retained_base() const
+    requires(has_history)
+  {
+    if constexpr (Mode == history_mode::linear) {
+      if (history_.entries.empty()) { return nullptr; }
+      const auto index = std::min(history_.cursor, history_.entries.size() - 1);
+      return &history_.entries[index].snapshot;
+    } else {
+      const auto found = history_.revisions.find(history_.current_revision);
+      return found == history_.revisions.end() ? nullptr : &found->second->snapshot;
+    }
+  }
+
+  // Stage complete independent history before journal I/O; sharing preserves every identity byte.
+  template <typename Bytes>
+    requires(has_history && std::same_as<std::remove_cvref_t<Bytes>, std::vector<std::uint8_t>>)
+  detail::retained_snapshot retain_snapshot(Bytes&& bytes,
+      const detail::retained_snapshot* previous = nullptr) const {
+    if (!options_.compact_history) {
+      return detail::retained_snapshot{std::forward<Bytes>(bytes)};
+    }
+    if (!previous) { previous = retained_base(); }
+    constexpr auto chunk_bytes = detail::compact_snapshot::chunk_bytes;
+    const auto max_chunks = options_.max_snapshot_bytes / chunk_bytes +
+        (options_.max_snapshot_bytes % chunk_bytes != 0 ? 1U : 0U);
+    return detail::retained_snapshot{detail::compact_snapshot::prepare(bytes,
+        previous ? previous->compact() : nullptr,
+        {options_.max_snapshot_bytes, max_chunks}, resident_ledger_, options_.allocation_resource)};
+  }
+
+  // Rebind a foreign graph before admission; failure preserves the supplied source and live state.
+  storage_type bind_payload(storage_type value) const {
+    if constexpr (requires { value.serializer_payload_resource(); }) {
+      if (!serializer::payload_resources_match(value, options_.allocation_resource)) {
+        return serializer::clone_payload(value, options_.allocation_resource);
+      }
+    }
+    return value;
+  }
+
   // Shared holders keep the conservative charge alive as long as any immutable reader pin.
   auto make_storage_candidate(storage_type value) const {
     const auto estimate = estimate_storage(value);
@@ -635,11 +726,11 @@ private:
     auto result = estimate_auxiliary(snapshot, identities, history_);
     if constexpr (Mode == history_mode::linear) {
       detail::add_memory_estimate(result, sizeof(entry_type) + 512 + 2 * sizeof(void*));
-      detail::add_memory_estimate(result, snapshot.size());
+      if (!options_.compact_history) { detail::add_memory_estimate(result, snapshot.size()); }
     } else if constexpr (Mode == history_mode::tree) {
       detail::add_memory_estimate(result, sizeof(typename decltype(history_.revisions)::value_type) +
                                              sizeof(revision_type) + 14 * sizeof(void*));
-      detail::add_memory_estimate(result, snapshot.size());
+      if (!options_.compact_history) { detail::add_memory_estimate(result, snapshot.size()); }
     }
     if constexpr (has_labels) {
       // Copies may retain capacity; admit the caller's capacity rather than only serialized length.
@@ -796,7 +887,7 @@ private:
         if constexpr (has_labels) {
           entry.label = node.label;
         }
-        entry.snapshot = node.snapshot;
+        entry.snapshot = node.snapshot.materialize();
         envelope.entries.push_back(std::move(entry));
       }
     } else if constexpr (Mode == history_mode::tree) {
@@ -804,7 +895,7 @@ private:
       envelope.current_revision = history.current_revision;
       for (const auto& [number, node] : history.revisions) {
         static_cast<void>(number);
-        envelope.revisions.push_back(*node);
+        envelope.revisions.push_back(detail::wire_revision(*node));
       }
     }
     auto bytes = detail::encode(envelope, options_.decode.max_input_bytes);
@@ -840,9 +931,9 @@ private:
   // Build the data-only dictionary for an external document; IDs stay in managed sidecar metadata.
   std::vector<std::uint8_t> journal_document_snapshot() const {
     // Decode durable bytes instead of copying potentially large memory-only caches.
-    auto value = detail::decode<storage_type>(snapshot_, options_.decode);
+    auto value = decode_storage(snapshot_);
     Traits::visit_entities(value, [](id_type& id, std::string_view) { id = 0; });
-    detail::reset_runtime_fields<Traits>(value);
+    with_payload_scope([&] { detail::reset_runtime_fields<Traits>(value); });
     return detail::encode(value, options_.max_snapshot_bytes);
   }
 
@@ -1018,8 +1109,7 @@ private:
         for (const auto& [number, node] : history_.revisions) {
           const auto found = receiver.history_.revisions.find(number);
           if (found == receiver.history_.revisions.end() ||
-              detail::encode(*node, options_.decode.max_input_bytes) !=
-              detail::encode(*found->second, options_.decode.max_input_bytes)) {
+              *node != *found->second) {
             throw std::invalid_argument{"Managed merge journal changes retained history"};
           }
         }
@@ -1140,8 +1230,8 @@ private:
       auto patch = detail::decode<records::snapshot_patch>(snapshot, options_.decode);
       snapshot = apply_snapshot_patch(snapshot_, patch, options_.max_snapshot_bytes);
     }
-    auto value = detail::decode<storage_type>(snapshot, options_.decode);
-    detail::reset_runtime_fields<Traits>(value);
+    auto value = decode_storage(snapshot);
+    with_payload_scope([&] { detail::reset_runtime_fields<Traits>(value); });
     auto identities = inspect(value, allocated_id_);
     if (value.persistent_id != current_->persistent_id || snapshot == snapshot_) {
       throw std::invalid_argument{"Journal edit changes root identity or records no change"};
@@ -1180,7 +1270,7 @@ private:
         history_.entries.pop_front();
       }
       entry_type entry;
-      entry.snapshot = snapshot;
+      entry.snapshot = retain_snapshot(snapshot);
       if constexpr (has_labels) {
         entry.label = std::move(action.label);
       }
@@ -1199,7 +1289,7 @@ private:
         auto node = std::make_shared<revision_type>();
         node->number = next_revision();
         node->parent = history_.current_revision;
-        node->snapshot = snapshot;
+        node->snapshot = retain_snapshot(snapshot);
         if constexpr (has_labels) {
           node->label = std::move(action.label);
         }
@@ -1384,6 +1474,11 @@ private:
     }
     callback_active_ = true;
     try {
+      if constexpr (requires { value.serializer_payload_resource(); }) {
+        if (!serializer::payload_resources_match(value, options_.allocation_resource)) {
+          throw std::invalid_argument{"Managed payload contains a foreign allocation domain"};
+        }
+      }
       Traits::validate(value);
       if constexpr (requires { Traits::has_entity_references; }) {
         if constexpr (Traits::has_entity_references) {
@@ -1442,14 +1537,14 @@ private:
     detail::history_storage<Mode, Labels> result;
     if constexpr (Mode == history_mode::linear) {
       entry_type entry;
-      entry.snapshot = snapshot;
+      entry.snapshot = retain_snapshot(snapshot);
       result.append(std::move(entry), options_);
     } else if constexpr (Mode == history_mode::tree) {
       result.current_revision = history_.current_revision;
       result.revision_high_water = history_.revision_high_water;
       auto node = std::make_shared<revision_type>();
       node->number = history_.current_revision;
-      node->snapshot = snapshot;
+      node->snapshot = retain_snapshot(snapshot);
       result.bytes = tree_append_bytes(result, *node);
       result.revisions.emplace(history_.current_revision, std::move(node));
     }
@@ -1462,13 +1557,13 @@ private:
   }
 
   // Decode and validate a retained state before publishing; failure leaves the cursor unchanged.
-  event_type restore_snapshot(const std::vector<std::uint8_t>& bytes, std::uint64_t selection) {
-    auto value = detail::decode<storage_type>(bytes, options_.decode);
+  event_type restore_snapshot(std::vector<std::uint8_t> bytes, std::uint64_t selection) {
+    auto value = decode_storage(bytes);
     auto identities = inspect(value, allocated_id_);
-    detail::reset_runtime_fields<Traits>(value);
+    with_payload_scope([&] { detail::reset_runtime_fields<Traits>(value); });
     validate(value);
     auto published = make_published_storage(std::move(value));
-    auto snapshot = bytes;
+    auto snapshot = std::move(bytes);
     auto event = prepare_publication(publication_kind::history_navigation, identities, published.get());
     detail::resident_admission admission{
         resident_auxiliary_, estimate_auxiliary(snapshot, identities, history_)};
@@ -1485,7 +1580,7 @@ private:
     requires(Mode == history_mode::linear)
   {
     const auto& node = history_.entries[index];
-    auto event = restore_snapshot(node.snapshot, index);
+    auto event = restore_snapshot(node.snapshot.materialize(), index);
     history_.cursor = index;
     publish_notification(std::move(event));
   }
@@ -1560,10 +1655,10 @@ public:
         throw std::logic_error{"Cannot begin a transaction during stack unwinding"};
       }
       auto candidate = store.make_storage_candidate(
-          detail::decode<storage_type>(store.snapshot_, store.options_.decode));
+          store.decode_storage(store.snapshot_));
       candidate_ = std::move(candidate.first);
       candidate_charge_ = std::move(candidate.second);
-      detail::reset_runtime_fields<Traits>(*candidate_);
+      store_->with_payload_scope([&] { detail::reset_runtime_fields<Traits>(*candidate_); });
       outcome = {};
       store.writer_active_ = true;
     }
@@ -1722,7 +1817,7 @@ public:
       }
       editing_ = true;
       try {
-        std::invoke(std::forward<Callable>(callback), *candidate_);
+        store_->with_payload_scope([&] { std::invoke(std::forward<Callable>(callback), *candidate_); });
         if constexpr (requires { Traits::type_key; }) {
           if (channel_ && channel_->registry_reservations && !channel_->registry_reservations->empty()) {
             // A trusted raw insertion also consumes the reservation once, even if later erased.
@@ -1833,7 +1928,7 @@ public:
           close(transaction_status::no_change);
           return;
         }
-        detail::reset_runtime_fields<Traits>(*candidate_);
+        store_->with_payload_scope([&] { detail::reset_runtime_fields<Traits>(*candidate_); });
         auto event = store.prepare_publication(publication_kind::durable_edit, identities, candidate_.get());
         candidate_charge_->resize(store.estimate_storage(*candidate_));
         auto published = std::shared_ptr<const storage_type>{std::move(candidate_)};
@@ -1843,7 +1938,7 @@ public:
         if constexpr (has_history) {
           if constexpr (Mode == history_mode::linear) {
             entry_type entry;
-            entry.snapshot = snapshot;
+            entry.snapshot = store.retain_snapshot(snapshot);
             if constexpr (has_labels) {
               entry.label = this->label;
             }
@@ -1866,7 +1961,7 @@ public:
             if constexpr (has_labels) {
               node->label = this->label;
             }
-            node->snapshot = snapshot;
+            node->snapshot = store.retain_snapshot(snapshot);
             const auto bytes = store.tree_append_bytes(store.history_, *node);
             const auto inserted = store.history_.revisions.emplace(revision, std::move(node)).first;
             try {
@@ -1927,10 +2022,10 @@ public:
       store.require_idle();
       if (store.authorization_required_ && !store.authorization_callback_) { throw authorization_error{}; }
       auto candidate = store.make_storage_candidate(
-          detail::decode<storage_type>(store.snapshot_, store.options_.decode));
+          store.decode_storage(store.snapshot_));
       candidate_ = std::move(candidate.first);
       candidate_charge_ = std::move(candidate.second);
-      detail::copy_runtime_fields<Traits>(*candidate_, *store.current_);
+      store.with_payload_scope([&] { detail::copy_runtime_fields<Traits>(*candidate_, *store.current_); });
       candidate_charge_->resize(store.estimate_storage(*candidate_));
       store.writer_active_ = true;
     }
@@ -1977,7 +2072,7 @@ public:
       }
       editing_ = true;
       try {
-        std::invoke(std::forward<Callable>(callback), *candidate_);
+        store_->with_payload_scope([&] { std::invoke(std::forward<Callable>(callback), *candidate_); });
         editing_ = false;
         candidate_charge_->resize(store_->estimate_storage(*candidate_));
         if (error_) {
@@ -2024,7 +2119,7 @@ public:
     transaction_outcome outcome;
     try {
       runtime_edit edit{*this};
-      std::invoke(std::forward<Callable>(callback), edit);
+      with_payload_scope([&] { std::invoke(std::forward<Callable>(callback), edit); });
       edit.require_active();
       const auto snapshot = detail::encode(*edit.candidate_, options_.max_snapshot_bytes);
       if (snapshot != snapshot_ || inspect(*edit.candidate_, allocated_id_) != identities_) {
@@ -2066,7 +2161,7 @@ public:
     if ((document.high == 0 && document.low == 0) || Traits::schema_id.empty()) {
       throw std::invalid_argument{"A nonzero document namespace is required"};
     }
-    auto storage = Traits::make_storage(std::move(value));
+    auto storage = bind_payload(Traits::make_storage(std::move(value)));
     Traits::visit_entities(storage, [&](id_type& id, std::string_view) {
       if (id != 0) {
         throw std::invalid_argument{"New managed storage must have unassigned IDs"};
@@ -2078,7 +2173,7 @@ public:
         const reference_builder<Root, Traits> references{storage, document_,
             {options_.decode.max_collection_elements, options_.decode.max_allocation_bytes},
             resident_ledger_};
-        initialize(storage, references);
+        with_payload_scope([&] { initialize(storage, references); });
       } else {
         throw std::logic_error{"Reference initialization requires generated managed type metadata"};
       }
@@ -2110,8 +2205,8 @@ public:
     auto snapshot = detail::encode(value,
         std::min(options_.max_snapshot_bytes, options_.decode.max_input_bytes));
     check_snapshot(snapshot);
-    auto storage = detail::decode<storage_type>(snapshot, options_.decode);
-    detail::reset_runtime_fields<Traits>(storage);
+    auto storage = decode_storage(snapshot);
+    with_payload_scope([&] { detail::reset_runtime_fields<Traits>(storage); });
     // Admission uses the actual native storage codec; it must preserve every durable wire value.
     if (detail::encode(storage, options_.max_snapshot_bytes) != snapshot) {
       throw std::invalid_argument{"Native validation changes the identified managed baseline"};
@@ -2265,12 +2360,12 @@ public:
       // A new invariant must permit every retained future/past before it becomes active.
       if constexpr (Mode == history_mode::linear) {
         for (const auto& entry : history_.entries) {
-          invariant(detail::decode<storage_type>(entry.snapshot, options_.decode));
+          invariant(decode_storage(entry.snapshot));
         }
       } else if constexpr (Mode == history_mode::tree) {
         for (const auto& [number, revision] : history_.revisions) {
           static_cast<void>(number);
-          invariant(detail::decode<storage_type>(revision->snapshot, options_.decode));
+          invariant(decode_storage(revision->snapshot));
         }
       }
       callback_active_ = false;
@@ -2290,14 +2385,17 @@ public:
   std::size_t resident_bytes() const noexcept { return resident_ledger_->bytes(); }
 
   // Materialize an independent value; only the opt-in separate-values representation removes IDs.
+  // Allocation-profile copies retain the store domain; use clone_payload for an explicit transfer.
   Root clone_value(clone_options options = {}) const {
     check_thread();
-    if (options.runtime_fields == runtime_copy_policy::preserve) {
-      return Traits::clone_value(*current_);
-    }
-    auto value = *current_;
-    detail::reset_runtime_fields<Traits>(value);
-    return Traits::clone_value(value);
+    return with_payload_scope([&] {
+      if (options.runtime_fields == runtime_copy_policy::preserve) {
+        return Traits::clone_value(*current_);
+      }
+      auto value = *current_;
+      detail::reset_runtime_fields<Traits>(value);
+      return Traits::clone_value(value);
+    });
   }
 
   // Own an isolated history-free workspace; its source store outlives this owner-thread scope.
@@ -2763,14 +2861,14 @@ private:
         outcome.revision = history_.current_revision;
         return outcome;
       }
-      const auto base = detail::decode<storage_type>(
-          history_.revisions.at(base_number)->snapshot, options_.decode);
-      const auto incoming = detail::decode<storage_type>(
-          history_.revisions.at(source)->snapshot, options_.decode);
-      auto [candidate, candidate_charge] = make_storage_candidate(*current_);
+      const auto base = decode_storage(
+          history_.revisions.at(base_number)->snapshot);
+      const auto incoming = decode_storage(
+          history_.revisions.at(source)->snapshot);
+      auto [candidate, candidate_charge] = with_payload_scope([&] { return make_storage_candidate(*current_); });
       detail::branch_merger merger{options, options_.max_snapshot_bytes};
       callback_active_ = true;
-      try { Traits::merge_collaboration(*candidate, base, incoming, merger); }
+      try { with_payload_scope([&] { Traits::merge_collaboration(*candidate, base, incoming, merger); }); }
       catch (...) { callback_active_ = false; throw; }
       callback_active_ = false;
       auto identities = inspect(*candidate, allocated_id_);
@@ -2787,7 +2885,7 @@ private:
           throw std::invalid_argument{"Managed merge reuses or retypes an identity"};
         }
       }
-      detail::reset_runtime_fields<Traits>(*candidate);
+      with_payload_scope([&] { detail::reset_runtime_fields<Traits>(*candidate); });
       validate(*candidate);
       auto snapshot = detail::encode(*candidate, options_.max_snapshot_bytes);
       check_snapshot(snapshot);
@@ -2807,7 +2905,7 @@ private:
       auto node = std::make_shared<revision_type>();
       node->number = next_revision();
       node->parent = history_.current_revision;
-      node->snapshot = snapshot;
+      node->snapshot = retain_snapshot(snapshot);
       if constexpr (has_labels) { node->label = std::move(action.label); }
       history.bytes = tree_append_bytes(history, *node);
       if (history.bytes > options_.max_history_bytes ||
@@ -2870,7 +2968,7 @@ private:
       auto scope = transaction{*this, outcome, std::move(label)};
       transaction_edit edit{scope};
       try {
-        std::invoke(std::forward<Callable>(callback), edit);
+        with_payload_scope([&] { std::invoke(std::forward<Callable>(callback), edit); });
       } catch (...) {
         scope.fail(std::current_exception());
         outcome.status = failure_status();
@@ -3022,7 +3120,7 @@ public:
     if (found == history_.revisions.end()) {
       throw std::out_of_range{"Managed revision is unavailable"};
     }
-    auto event = restore_snapshot(found->second->snapshot, revision);
+    auto event = restore_snapshot(found->second->snapshot.materialize(), revision);
     history_.current_revision = revision;
     publish_notification(std::move(event));
   }
@@ -3517,9 +3615,9 @@ public:
           snapshot = found->second;
           return;
         }
-        auto old_value = detail::decode<typename SourceTraits::storage_type>(snapshot, options_.decode);
-        auto value = std::invoke(converter, std::as_const(old_value));
-        detail::reset_runtime_fields<Traits>(value);
+        auto old_value = source.decode_storage(snapshot);
+        auto value = with_payload_scope([&] { return std::invoke(converter, std::as_const(old_value)); });
+        with_payload_scope([&] { detail::reset_runtime_fields<Traits>(value); });
         if (source.inspect(old_value, envelope.allocated_id) != inspect(value, envelope.allocated_id)) {
           throw std::invalid_argument{"Managed migration changes entity identities or type keys"};
         }
@@ -3686,7 +3784,7 @@ public:
       }
     }
     check_snapshot(envelope.current_snapshot);
-    auto value = detail::decode<storage_type>(envelope.current_snapshot, options_.decode);
+    auto value = decode_storage(envelope.current_snapshot);
     auto identities = inspect(value, envelope.allocated_id);
     const bool same_document =
         document_.high == envelope.document_high && document_.low == envelope.document_low;
@@ -3719,7 +3817,7 @@ public:
         }
       }
     }
-    detail::reset_runtime_fields<Traits>(value);
+    with_payload_scope([&] { detail::reset_runtime_fields<Traits>(value); });
     const document_id imported_document{envelope.document_high, envelope.document_low};
     validate(value, true, &imported_document);
     auto event = prepare_publication(publication_kind::load, identities, &value, !same_document);
@@ -3730,7 +3828,7 @@ public:
       auto historical_identities = identities;
       // Both storage policies validate every historical model before replacing the live state.
       const auto validate_entry = [&](const auto& node) {
-        auto historical = detail::decode<storage_type>(node.snapshot, options_.decode);
+        auto historical = decode_storage(node.snapshot);
         validate(historical, false, &imported_document);
         const auto node_identities = inspect(historical, envelope.allocated_id);
         for (const auto& [id, type] : node_identities) {
@@ -3747,7 +3845,8 @@ public:
         for (auto& node : envelope.entries) {
           validate_entry(node);
           entry_type entry;
-          entry.snapshot = std::move(node.snapshot);
+          entry.snapshot = retain_snapshot(std::move(node.snapshot),
+              history.entries.empty() ? nullptr : &history.entries.back().snapshot);
           if constexpr (has_labels) {
             entry.label = std::move(node.label);
           }
@@ -3775,7 +3874,12 @@ public:
             found_current = true;
           }
           validate_entry(node);
-          auto entry = std::make_shared<const revision_type>(std::move(node));
+          auto entry = std::make_shared<revision_type>();
+          entry->number = node.number;
+          entry->parent = node.parent;
+          entry->snapshot = retain_snapshot(std::move(node.snapshot),
+              node.parent == 0 ? nullptr : &history.revisions.at(node.parent)->snapshot);
+          if constexpr (has_labels) { entry->label = std::move(node.label); }
           history.revisions.emplace(entry->number, std::move(entry));
         }
         if (roots != 1 || !found_current) {
