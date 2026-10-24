@@ -12,6 +12,8 @@ import shutil
 FIXTURES = Path(__file__).resolve().parent / 'export_fixtures'
 XSD = '{http://www.w3.org/2001/XMLSchema}'
 FAMILIES = {
+    'union': {'mode': 'single', 'roots': ['{urn:tooling:union}entry'],
+              'models': {'ToolingEntry': [('value', 37)]}},
     'text_enum': {'mode': 'single', 'roots': ['{urn:tooling:text}status'],
                   'models': {'ToolingStatus': [('value', 37), ('id', 11)]}},
     'wrapper': {'mode': 'single', 'roots': ['{urn:tooling:wrapper}collection'],
@@ -36,9 +38,8 @@ FAMILIES = {
 }
 UNSUPPORTED = {
     'native_enum_list': 'Unsupported XML list scalar type',
-    'union': 'XSD export requires explicit union/inherited-pattern/QName value identities',
     'choice': 'XSD choice/wildcard export requires ordered content-model storage',
-    'prefix_list': 'XSD export requires explicit namespace contexts for QName defaults/fixed values and prefix lists',
+    'prefix_list': 'XSD export of bound prefix-list namespaces requires an explicit external capability contract',
     'ambiguous': 'Ambiguous XSD record; configure its namespace or unique root',
     'native_enum_token': 'XSD native enum bindings require xs:string with preserve whitespace',
     'native_enum_normalized': 'XSD native enum bindings require xs:string with preserve whitespace',
