@@ -1,6 +1,6 @@
 # Features and implementation status
 
-The [implemented requirement catalog](completed_requirements.md) records **824
+The [implemented requirement catalog](completed_requirements.md) records **825
 completed capability and qualification IDs**, with their backend/profile limits
 and verification links. Historical completed sections were archived there.
 The [requirement tracker](../pending.md) retains **34 requirements: one completed

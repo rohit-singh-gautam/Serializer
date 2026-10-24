@@ -1,3 +1,9 @@
+# 2.0.19
+
+- Synchronize the package with VS Code's marked generated-file declaration fallback for absent optional language grammars.
+- Add real editor-host qualification for freshly generated owning outputs in all eleven languages, live includes and unsaved source offsets.
+- Preserve recovered storage-branch navigation probes and run compiler fixtures only when that branch supplies them. Synchronize both local packages and listing payloads.
+
 # 2.0.18
 
 - Document compiler/runtime 2.33.0's independent opt-in heap/direct Java ByteBuffer output with unchanged schema language 1.23.0.

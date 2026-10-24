@@ -3,7 +3,7 @@
 [Feature list](feature_status.md) · [Pending work](../pending.md) ·
 [Ownership decisions](application_responsibilities.md#disposed-requirements)
 
-This feature catalog contains **824 implemented requirement records**, including
+This feature catalog contains **825 implemented requirement records**, including
 the 816 records moved out of the pending backlog on 2026-10-23. Each stable ID retains its capability scope,
 dependencies and original verification links. Completion applies to the stated
 backend, profile and dated checks; it does not close a broader parent requirement
@@ -17,6 +17,12 @@ policy remain here.
 The three closed application/maintainer ownership decisions remain in their
 separate reference; they are not implemented product features. Historical work-unit
 estimates are omitted here because this is a feature/evidence catalog.
+
+## Editor host qualification
+
+| ID | Implemented capability and recorded verification | Dependencies |
+| --- | --- | --- |
+| <a id="qa04"></a>QA04 | Matching 2.0.19 packages build and validate. Current Windows VS Code and installed Visual Studio hosts exercise all eleven actual generated outputs, native declaration/definition/type-definition actions, reversed selections, transitive includes and unsaved source offsets. Real CMake/C++ caller navigation passes 117 checks; fresh compiler mapping passes 50,713 checks, unit/providers 166 and the .NET resolver 1,548. Marked generated declarations remain navigable without optional VS Code grammars while authored plain-text navigation stays untouched. Installed assembly identity, package hashes, initial failures, deployment/cache refresh and exact platform limits are in the [execution record](../verification/verification-editor-hosts-2026-10-24.md#qa04-actual-editor-hosts-and-matching-distribution-payloads). | — |
 
 ## C++ build minimum
 

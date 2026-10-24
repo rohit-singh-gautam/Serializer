@@ -1,3 +1,9 @@
+# 2.0.19
+
+- Register marked generated-file declaration navigation even when an optional language grammar is absent; keep authored plain-text files with their normal providers.
+- Add real editor-host qualification for freshly generated owning outputs in all eleven languages, live includes and unsaved source offsets.
+- Preserve recovered storage-branch navigation probes and run compiler fixtures only when that branch supplies them. Synchronize both local packages and listing payloads.
+
 # 2.0.18
 
 - Document compiler/runtime 2.33.0's independent opt-in heap/direct Java ByteBuffer output with unchanged schema language 1.23.0.

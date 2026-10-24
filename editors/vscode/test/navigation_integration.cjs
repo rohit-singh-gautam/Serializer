@@ -110,6 +110,49 @@ async function runSuite() {
     }
   }
 
+  // Preserve optional storage-branch probes without importing its unimplemented language contract.
+  if (fs.existsSync(path.resolve(__dirname, '../../../test/resources/schema_indexes.serializer'))) {
+    // Type definition resolves the live source type even when it has no generated representation.
+    const indexedSchema = path.join(workspace, 'indexed.serializer');
+    const indexedTypes = path.join(workspace, 'types/index_keys.serializer');
+    const indexedHeader = path.join(workspace, 'build/indexed.hpp');
+    fs.writeFileSync(indexedTypes, 'serializer version 1.24.0; namespace indexed { enum category { first, second } class index {} class unique {} class local {} }');
+    fs.writeFileSync(indexedSchema, 'serializer version 1.24.0; include types/index_keys;\n' +
+      'class indexed_book managed { public index(unordered, unique, on = local) indexed::category kind (1); }\n' +
+      'class holder { public indexed::index ordinary (1); }\n');
+    fs.writeFileSync(indexedHeader, banner + 'namespace indexed { enum class category { first, second }; class index {}; }\n' +
+      'class indexed_book { indexed::category kind; };\nclass holder { indexed::index ordinary; };\n');
+    fs.writeFileSync(`${indexedHeader}.d`, `${escape(indexedHeader)}: ${escape(indexedSchema)} ${escape(indexedTypes)}\n`);
+    const indexedDocument = await vscode.workspace.openTextDocument(indexedSchema);
+    const indexedEdit = new vscode.WorkspaceEdit();
+    indexedEdit.insert(indexedDocument.uri, new vscode.Position(0, 0), '// unsaved index navigation\n');
+    await vscode.workspace.applyEdit(indexedEdit);
+    for (const token of ['indexed::category', 'indexed::index']) {
+      const offset = indexedDocument.getText().indexOf(token);
+      for (const endpoint of [offset, offset + token.length]) {
+        const declarations = await vscode.commands.executeCommand('vscode.executeDeclarationProvider',
+          indexedDocument.uri, indexedDocument.positionAt(endpoint));
+        assert.equal(declarations.length, 1, `indexed type declaration at ${endpoint}`);
+        assert.equal((declarations[0].uri ?? declarations[0].targetUri).fsPath, indexedTypes);
+      }
+      for (const reversed of [false, true]) {
+        const editor = await vscode.window.showTextDocument(indexedDocument);
+        const start = indexedDocument.positionAt(offset);
+        const end = indexedDocument.positionAt(offset + token.length);
+        editor.selection = reversed ? new vscode.Selection(end, start) : new vscode.Selection(start, end);
+        await vscode.commands.executeCommand('editor.action.revealDeclaration');
+        assert.equal(vscode.window.activeTextEditor.document.uri.fsPath, indexedTypes);
+      }
+    }
+    for (const metadata of ['unordered', 'unique,', 'on =', 'local)']) {
+      assert.equal((await navigate(indexedDocument, metadata, false)).length, 0,
+        `index option ${metadata} must not navigate to an ordinary type`);
+    }
+    assert.ok(indexedDocument.isDirty && !fs.readFileSync(indexedSchema, 'utf8').includes('unsaved'),
+      'index navigation retains the live unsaved buffer');
+
+  }
+
   // Type definition resolves the live source type even when it has no generated representation.
   const renamed = new vscode.WorkspaceEdit();
   const ledgerName = classOffset + 'class '.length;

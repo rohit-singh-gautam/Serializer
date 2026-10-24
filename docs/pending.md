@@ -1,10 +1,10 @@
 # Pending requirements across Serializer
 
-This list tracks **34 requirements: one completed and 33 unfinished
-(29 active and four deferred)**. Keep completed items in this file and mark their
+This list tracks **34 requirements: two completed and 32 unfinished
+(28 active and four deferred)**. Keep completed items in this file and mark their
 state `[x]`; do not delete their rows or sections when they are completed.
 The [implemented feature catalog](project/completed_requirements.md) retains
-**824 IDs and verification records**, including historical items archived before
+**825 IDs and verification records**, including historical items archived before
 this tracking policy. The [feature list](project/feature_status.md)
 summarizes supported capabilities. The three closed ownership decisions live in
 [application responsibilities](project/application_responsibilities.md#disposed-requirements),
@@ -76,7 +76,7 @@ qualification does not close the broader SC02 requirement below.
 | [ ] | QA01 | — | Replay changed contracts on other supported platforms and remaining provider combinations with real SDKs; retain exact versions, configurations and failures; [2.14 checkpoint](verification/verification-backlog-2026-10-20.md). WSL Windows-mounted appended-journal discard failures remain outside the passing native Windows/Linux filesystem profile; [recorded controls](verification/verification-document-origin-2026-10-22.md#toolchains-and-limits). | — |
 | [ ] | QA02 | — | Execute the independent XML/XSD/ZIP/OPC/3MF corpus, malformed-input/fault/resource cases and cross-language exchanges for each newly implemented slice. | — |
 | [ ] | QA03 | — | Measure throughput, allocations/peak memory, encoded size and generated-code size against reproducible workloads/baselines; preserve ordinary non-OPC paths; [Python compression measurements](verification/verification-python-compression-performance-2026-10-20.md). | — |
-| [ ] | QA04 | — | Qualify current editor-host behavior where a dated record identifies only shared/provider/native-interpreter checks; keep packaged/listing versions and all supported navigation synchronized when changed. Editors 2.0.14/2.0.16 repair generated C/C++ indexing within the existing native interpreter budget; [native adapter checks](verification/verification-native-cpp-navigation-2026-10-24.md) do not close interactive-host qualification. See [Editor navigation](editors/editor_navigation.md), [qualification records](verification/README.md). | — |
+| [x] | QA04 | — | **Completed for the current Windows host profile.** Matching 2.0.19 packages build and validate; the installed Visual Studio assembly matches the local build. Actual VS Code and Visual Studio hosts qualify all eleven generated declaration outputs, reversed selections, live unsaved sources, includes and native command dispatch; real CMake/C++ caller checks and complete shared/native resolver checks pass. Repair the absent-grammar declaration fallback without intercepting authored plain-text files. [Executed hosts, exact versions and limits](verification/verification-editor-hosts-2026-10-24.md#qa04-actual-editor-hosts-and-matching-distribution-payloads); [catalog](project/completed_requirements.md#qa04). No Marketplace publication is claimed. | — |
 
 ## XML and package backlog
 
