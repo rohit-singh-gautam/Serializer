@@ -1,0 +1,35 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.24.0;
+
+namespace generic_calls {
+  function Input identity<Input: integral && !bool>(Input input) readonly expression(input);
+  function uint64 exact(uint64 input) readonly expression(identity(input));
+  function bool equal<Input: integral && !bool>(Input left, Input right) readonly
+    expression(left == right);
+  function bool matches(uint64 left, uint64 right) readonly expression(equal(left, right));
+  function common_type<Left, Right> add<Left: (integral || floating_point) && !bool,
+      Right: (integral || floating_point) && !bool>(Left left, Right right) readonly
+    expression(checked<common_type<Left, Right>>(left) + checked<common_type<Left, Right>>(right));
+  function double added(double left, uint32 right) readonly expression(add(left, right));
+
+  class token {
+    public uint32 marker;
+    public factory origin() { marker = 9; }
+  }
+
+  class value {
+    public uint64 number (1);
+    public constructor<Input: integral && !bool>(Input input = {}) {
+      number = checked<uint64>(input);
+    }
+    public function Input echo<Input: integral && !bool>(Input input) readonly expression(input);
+    public function uint64 read() readonly expression(echo(number));
+    public factory seven<Input: integral && !bool>(Input input = 7) {
+      number = checked<uint64>(input);
+    }
+    public factory from_factory<Input: factory(origin)>(Input input = default(origin)) {
+      number = 7;
+    }
+  }
+}

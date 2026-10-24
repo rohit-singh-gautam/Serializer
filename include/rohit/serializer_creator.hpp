@@ -576,6 +576,7 @@ struct behavior_expression {
   bool numeric_contract_enabled{false}; // New arithmetic retains its declaring file's contract.
   bool call_constructor{false}; // An explicitly typed owning call, never an inferred record conversion.
   bool constructor_calls_enabled{false}; // Owning expressions retain their declaring language contract.
+  bool generic_calls_enabled{false}; // Independent call deduction requires language 1.24.
 };
 
 // A bounded compile-time condition controlling one callable's availability.

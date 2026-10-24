@@ -230,6 +230,7 @@ template <typename Input> struct behavior_expression_parser {
     result.record_selection_enabled = active_language_version >= language_version{1u, 11u, 0u};
     result.numeric_contract_enabled = active_language_version >= language_version{1u, 11u, 0u};
     result.constructor_calls_enabled = active_language_version >= language_version{1u, 14u, 0u};
+    result.generic_calls_enabled = active_language_version >= language_version{1u, 24u, 0u};
     return result;
   }
   // Parse bounded positional arguments while preserving their left-to-right source order.
@@ -819,6 +820,48 @@ bool matching_behavior_type(const type_name& left, const type_name& right) {
   return true;
 }
 
+// Evaluate concrete deduction constraints; dependent native types remain checked by C++ requires.
+std::optional<bool> deduced_constraint(const generic_constraint& constraint, const type_name& type) {
+  using operation = generic_constraint::operation;
+  if (constraint.kind == operation::logical_not) {
+    const auto result = deduced_constraint(constraint.operands.at(0), type);
+    return result ? std::optional<bool>{!*result} : std::nullopt;
+  }
+  if (constraint.kind == operation::logical_and || constraint.kind == operation::logical_or) {
+    const auto left = deduced_constraint(constraint.operands.at(0), type);
+    const auto right = deduced_constraint(constraint.operands.at(1), type);
+    if (constraint.kind == operation::logical_and) {
+      if ((left && !*left) || (right && !*right)) { return false; }
+      return left && right ? std::optional<bool>{*left && *right} : std::nullopt;
+    }
+    if ((left && *left) || (right && *right)) { return true; }
+    return left && right ? std::optional<bool>{*left || *right} : std::nullopt;
+  }
+  if (type.type == object_type::unresolved && !type.resolved_node) { return std::nullopt; }
+  if (constraint.kind == operation::exact_type) {
+    return matching_behavior_type(type, *constraint.type);
+  }
+  if (constraint.kind == operation::stateless) {
+    return type.resolved_node && type.resolved_node->type == object_type::class_type &&
+        is_stateless_record(static_cast<const class_node&>(*type.resolved_node));
+  }
+  if (constraint.kind == operation::factory) {
+    if (!type.resolved_node || type.resolved_node->type != object_type::class_type) { return false; }
+    const auto& record = static_cast<const class_node&>(*type.resolved_node);
+    return !record.supports_managed() &&
+        record.storage_modes == static_cast<std::uint8_t>(storage_mode::owning) &&
+        std::any_of(record.constructions.begin(), record.constructions.end(), [&](const auto& factory) {
+          return !factory.constructor && factory.name == constraint.factory_name &&
+              factory.parameters.empty() && factory.access == access_type::public_access;
+        });
+  }
+  if (type.type != object_type::primitive || type.application) { return false; }
+  if (constraint.kind == operation::floating_point) { return type.name == "float" || type.name == "double"; }
+  return type.name == "bool" || type.name == "char" || type.name == "int8" || type.name == "uint8" ||
+      type.name == "int16" || type.name == "uint16" || type.name == "int32" || type.name == "uint32" ||
+      type.name == "int64" || type.name == "uint64";
+}
+
 // Bind scalar identities, lexical reduction items and readonly projections without numeric narrowing.
 std::string validate_behavior_expression(behavior_expression& value, const class_node& owner,
     const function_declaration& method,
@@ -1056,6 +1099,7 @@ std::string validate_behavior_expression(behavior_expression& value, const class
       std::size_t index{};
       std::vector<std::size_t> base_path{};
       std::vector<behavior_expression> arguments{};
+      std::map<std::string, type_name> inputs{};
     };
     // Rebind the selected receiver's template arguments along its exact inherited method path.
     const auto receiver_type = [&](type_name type, const candidate& selected) {
@@ -1143,20 +1187,100 @@ std::string validate_behavior_expression(behavior_expression& value, const class
       }
       return argument.result_type == parameter.name;
     };
+    // Infer exact phantom-independent input types from typed arguments, never from an integer width guess.
+    const auto deduce_inputs = [&](candidate& selected) {
+      const auto& declaration = *selected.declaration;
+      const auto infer = [&](const auto& self, const type_name& pattern, const type_name& actual) -> bool {
+        if (!pattern.application && std::any_of(declaration.generic_parameters.begin(),
+            declaration.generic_parameters.end(), [&](const auto& parameter) { return parameter.name == pattern.name; })) {
+          const auto [found, inserted] = selected.inputs.emplace(pattern.name, actual);
+          return inserted || matching_behavior_type(found->second, actual);
+        }
+        if (pattern.arguments.empty()) { return true; }
+        auto arguments = actual.arguments;
+        if (arguments.empty() && actual.resolved_node && actual.resolved_node->type == object_type::class_type) {
+          arguments = static_cast<const class_node&>(*actual.resolved_node).generic_arguments;
+        }
+        if (pattern.arguments.size() != arguments.size()) { return false; }
+        for (std::size_t index{}; index < arguments.size(); ++index) {
+          if (!self(self, pattern.arguments[index], arguments[index])) { return false; }
+        }
+        return true;
+      };
+      for (std::size_t index{argument_begin}; index < value.operands.size(); ++index) {
+        const auto& argument = value.operands[index];
+        if (argument.collection_modifier != member::modifier_type::none) { return false; }
+        if (argument.resolved_type && !infer(infer,
+            receiver_type(declaration.parameters[index - argument_begin].type, selected), *argument.resolved_type)) {
+          return false;
+        }
+      }
+      for (const auto& parameter : declaration.generic_parameters) {
+        const auto found = selected.inputs.find(parameter.name);
+        if (found == selected.inputs.end()) { return false; }
+        if (parameter.constraint) {
+          const auto accepted = deduced_constraint(*parameter.constraint, found->second);
+          if (accepted && !*accepted) { return false; }
+        }
+      }
+      return true;
+    };
+    // Substitute method inputs after receiver arguments, retaining complete nested type identities.
+    const auto parameter_type = [&](type_name type, const candidate& selected) {
+      type = receiver_type(std::move(type), selected);
+      const auto substitute = [&](const auto& self, type_name item) -> type_name {
+        if (!item.application && item.arguments.empty()) {
+          if (const auto found = selected.inputs.find(item.name); found != selected.inputs.end()) { return found->second; }
+        }
+        for (auto& argument : item.arguments) { argument = self(self, std::move(argument)); }
+        if (item.common_numeric && item.arguments.size() == 2 &&
+            std::all_of(item.arguments.begin(), item.arguments.end(), [](const auto& argument) {
+              return argument.type == object_type::primitive && !argument.application &&
+                  (argument.name == "char" || argument.name == "float" || argument.name == "double" ||
+                   argument.name.starts_with("int") || argument.name.starts_with("uint"));
+            })) {
+          // Match C++ conditional-expression arithmetic conversions, preserving identical small types.
+          const auto& left = item.arguments[0];
+          const auto& right = item.arguments[1];
+          if (matching_behavior_type(left, right)) { return left; }
+          std::string name;
+          if (left.name == "double" || right.name == "double") { name = "double"; }
+          else if (left.name == "float" || right.name == "float") { name = "float"; }
+          else {
+            constexpr auto promoted_bytes = static_cast<int>(sizeof(int));
+            const auto left_bytes = std::max<std::size_t>(promoted_bytes, writer::native::width(left));
+            const auto right_bytes = std::max<std::size_t>(promoted_bytes, writer::native::width(right));
+            const bool left_unsigned = left.name.starts_with("uint") && writer::native::width(left) >= promoted_bytes;
+            const bool right_unsigned = right.name.starts_with("uint") && writer::native::width(right) >= promoted_bytes;
+            const auto bytes = std::max(left_bytes, right_bytes);
+            const bool unsigned_result = (left_unsigned && left_bytes >= right_bytes) ||
+                (right_unsigned && right_bytes >= left_bytes);
+            name = std::string{unsigned_result ? "uint" : "int"} +
+                std::to_string(bytes * std::numeric_limits<std::uint8_t>::digits);
+          }
+          type_name result{std::move(name), owner.parent_namespace};
+          result.type = object_type::primitive;
+          return result;
+        }
+        return item;
+      };
+      return substitute(substitute, std::move(type));
+    };
     std::vector<candidate> matches;
     const bool has_generic_candidate = std::any_of(candidates.begin(), candidates.end(),
         [](const auto& candidate) { return !candidate.declaration->generic_parameters.empty(); });
     // Resolve exact arguments before binding an untyped numeric literal to a parameter width.
     for (const bool bind_literals : {false, true}) {
       for (auto candidate : candidates) {
-        if (!candidate.declaration->generic_parameters.empty()) { continue; }
+        if (!candidate.declaration->generic_parameters.empty() && !value.generic_calls_enabled) { continue; }
         if (candidate.declaration->has_native_signature()) { continue; }
         if (candidate.declaration->parameters.size() != value.operands.size() - argument_begin) { continue; }
+        if (!candidate.declaration->generic_parameters.empty() && !deduce_inputs(candidate)) { continue; }
         candidate.arguments = value.operands;
         bool matched = true;
         for (std::size_t index{argument_begin}; index < candidate.arguments.size(); ++index) {
           auto& argument = candidate.arguments[index];
-          const auto parameter = receiver_type(candidate.declaration->parameters[index - argument_begin].type, candidate);
+          const auto parameter = parameter_type(candidate.declaration->parameters[index - argument_begin].type, candidate);
           if (exact(argument, parameter)) { continue; }
           try {
             if (!bind_literals || !literal(argument, parameter.name)) { matched = false; break; }
@@ -1169,8 +1293,13 @@ std::string validate_behavior_expression(behavior_expression& value, const class
       }
       if (!matches.empty()) { break; }
     }
+    if (std::any_of(matches.begin(), matches.end(), [](const auto& selected) {
+          return selected.declaration->generic_parameters.empty();
+        })) {
+      std::erase_if(matches, [](const auto& selected) { return !selected.declaration->generic_parameters.empty(); });
+    }
     if (matches.empty()) {
-      if (has_generic_candidate) {
+      if (has_generic_candidate && !value.generic_calls_enabled) {
         throw std::invalid_argument{"Schema expression calls to independently generic functions are unsupported: " + value.value};
       }
       throw std::invalid_argument{"No matching readonly function: " + value.value};
@@ -1185,7 +1314,7 @@ std::string validate_behavior_expression(behavior_expression& value, const class
     value.call_method_index = selected.index;
     value.call_base_path = selected.base_path;
     value.operands = selected.arguments;
-    return bind(receiver_type(selected.declaration->return_type, selected));
+    return bind(parameter_type(selected.declaration->return_type, selected));
   }
   if (value.kind == operation::literal || value.kind == operation::pi) {
     return typed(value.result_type == "float" ? "float" : "double");

@@ -115,6 +115,12 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
             });
     parameter.owner_parameter_default_enabled = owner_type_parameter &&
         active_language_version >= language_version{1u, 16u, 0u};
+    if (parameter.modifier == member::modifier_type::none && !parameter.type.application &&
+        active_language_version >= language_version{1u, 24u, 0u} &&
+        std::any_of(result.generic_parameters.begin(), result.generic_parameters.end(),
+            [&](const auto& item) { return item.name == parameter.type.name; })) {
+      parameter.owner_parameter_default_enabled = true;
+    }
     parameter.name = parse_identifier_impl(input);
     if (!parameters.insert(parameter.name).second || result.parameters.size() >= maximum_parameters) {
       throw exception::bad_member_spec{input, "Duplicate or excessive construction parameters"};

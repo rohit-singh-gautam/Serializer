@@ -3648,6 +3648,14 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
         throw exception::bad_member_spec{input, "Construction input types must be independently constrained and cannot shadow their owner"};
       }
     }
+    class_node parameter_scope{object_type::class_type, std::string{}, owner.parent_namespace,
+        class_attributes::none, {}};
+    parameter_scope.type_parameters = owner.type_parameters;
+    parameter_scope.generic_parameters = owner.generic_parameters;
+    for (const auto& generic : factory.generic_parameters) {
+      parameter_scope.type_parameters.push_back(generic.name);
+      parameter_scope.generic_parameters.push_back(generic);
+    }
     for (auto& parameter : factory.parameters) {
       if (parameter.portable_default_enabled && !parameter.fixed_extent && parameter.extent_expression.size() == 1 &&
           parameter.extent_expression.front().kind == dimension_expression::operation::literal) {
@@ -3675,13 +3683,15 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
         throw exception::bad_member_spec{input, "Portable constructors cannot take their owning record by value"};
       }
       if (!parameter.default_value.empty() || !parameter.default_factory.empty()) {
-        const auto generic = std::find_if(owner.generic_parameters.begin(), owner.generic_parameters.end(),
+        const auto generic = std::find_if(parameter_scope.generic_parameters.begin(), parameter_scope.generic_parameters.end(),
             [&](const auto& item) { return item.name == parameter.type.name; });
-        const bool factory_contract = owner_type && factory.overload_contract_enabled && !parameter.default_factory.empty() &&
-            generic != owner.generic_parameters.end() && generic->constraint &&
+        const bool factory_contract = (owner_type || (input_type && parameter.owner_parameter_default_enabled)) &&
+            factory.overload_contract_enabled && !parameter.default_factory.empty() &&
+            generic != parameter_scope.generic_parameters.end() && generic->constraint &&
             guarantees_factory(*generic->constraint, parameter.default_factory);
         const bool portable_default = parameter.portable_default_enabled && !parameter.default_value.empty();
-        if ((parameter.modifier != member::modifier_type::none && !portable_default) || input_type ||
+        if ((parameter.modifier != member::modifier_type::none && !portable_default) ||
+            (input_type && !parameter.owner_parameter_default_enabled) ||
             (owner_type && !factory_contract && !portable_default)) {
           throw exception::bad_member_spec{input, "Construction parameter defaults require a concrete scalar or owning record"};
         }
@@ -3696,7 +3706,7 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
             value.default_value.starts_with('{') && value.default_value.ends_with('}')) {
           value.default_value = value.default_value.substr(1, value.default_value.size() - 2);
         }
-        validate_portable_default(input, value, owner, parameter.empty_record_default_enabled,
+        validate_portable_default(input, value, parameter_scope, parameter.empty_record_default_enabled,
             parameter.owner_parameter_default_enabled);
         parameter.initializer = value.initializer;
         if (!value.default_factory.empty() && !factory_contract) { validate_factory_default(input, value, owner); }
