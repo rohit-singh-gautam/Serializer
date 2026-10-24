@@ -61,6 +61,8 @@ endif()
 
 # Application support is permissively licensed and contains no schema compiler code.
 add_library(serializer_runtime
+  src/native_database.cpp
+  include/rohit/native_database_file.hpp
   src/cache.cpp
   include/rohit/cache.hpp
   include/rohit/cache_codec.hpp
