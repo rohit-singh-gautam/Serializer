@@ -7,6 +7,11 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 
 [Documentation index](../../../docs/README.md)
 
+For dependency-aware C++ projections, opt into bounded `.field_paths = true`
+[publication metadata](../../../docs/managed/edit_dispatch_and_notifications.md).
+Retain event namespace and immutable roots with stable IDs/paths. Preparation
+limits reject before acceptance; observers run only after publication.
+
 Use the [payload allocation primitives](../../../docs/managed/payload_allocation_runtime.md)
 when manually binding owned C++ containers and exact native decoding to a shared
 resource. Retain the domain for every allocation's lifetime and distinguish

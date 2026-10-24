@@ -46,6 +46,11 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Opt-in [bounded dependency notifications](docs/managed/edit_dispatch_and_notifications.md)
+prepare stable field paths and immutable before/after pins before acceptance.
+Projection filters can select affected identities and paths while preserving
+the default publication callback contract.
+
 The [resource-owning payload runtime](docs/managed/payload_allocation_runtime.md)
 provides allocator-bound strings, vectors, maps and exact native decoding.
 Resource limits measure routed allocation requests; process RSS has a separate

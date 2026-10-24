@@ -118,6 +118,29 @@ endif()
 add_test(NAME payload_allocator_test COMMAND payload_allocator_test)
 
 if(SERIALIZER_BUILD_MANAGED)
+  foreach(managed_contract_profile IN ITEMS direct32 direct64 separate32 separate64)
+    set(managed_contract_config)
+    if(NOT managed_contract_profile STREQUAL "direct32")
+      set(managed_contract_config CONFIG "resources/cache_${managed_contract_profile}.ini")
+    endif()
+    foreach(managed_contract IN ITEMS managed_notifications)
+      add_executable(${managed_contract}_${managed_contract_profile}_test ${managed_contract}_test.cpp)
+      set(managed_contract_selected_config ${managed_contract_config})
+      set(managed_contract_schema resources/managed_registry.serializer)
+      serializer_generate(TARGET ${managed_contract}_${managed_contract_profile}_test
+        SCHEMAS ${managed_contract_schema} ${managed_contract_selected_config}
+        OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${managed_contract}_${managed_contract_profile}")
+      target_link_libraries(${managed_contract}_${managed_contract_profile}_test PRIVATE
+        Serializer::serializer_lib Serializer::managed GTest::gtest_main)
+      if(MSVC)
+        target_compile_options(${managed_contract}_${managed_contract_profile}_test PRIVATE /W4 /WX)
+      else()
+        target_compile_options(${managed_contract}_${managed_contract_profile}_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+      endif()
+      add_test(NAME ${managed_contract}_${managed_contract_profile}_test
+        COMMAND ${managed_contract}_${managed_contract_profile}_test)
+    endforeach()
+  endforeach()
   foreach(managed_protobuf_profile IN ITEMS separate32_fixed separate32_compact separate64_fixed separate64_compact)
     add_executable(managed_protobuf_${managed_protobuf_profile}_test managed_protobuf_test.cpp)
     serializer_generate(TARGET managed_protobuf_${managed_protobuf_profile}_test

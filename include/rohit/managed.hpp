@@ -7,6 +7,7 @@
 #include <rohit/managed_authorization.hpp>
 #include <rohit/managed_capabilities.hpp>
 #include <rohit/managed_changes.hpp>
+#include <rohit/managed_notifications.hpp>
 #include <rohit/managed_resident.hpp>
 #include <rohit/managed_registry.hpp>
 
@@ -79,6 +80,11 @@ struct publication_event {
   std::vector<Id> changed_ids{};
   // Handwritten legacy traits lacking generated field traversal expose a conservative fallback.
   bool changed_ids_precise{true};
+  std::vector<field_change> changed_fields{};
+  std::vector<Id> created_ids{};
+  std::vector<Id> deleted_ids{};
+  bool namespace_replaced{};
+  bool field_paths_precise{};
 };
 
 #if defined(_MSC_VER)
@@ -535,6 +541,7 @@ private:
   state_stamp stamp_{};
   using event_type = publication_event<storage_type, id_type>;
   std::function<void(const event_type&)> publication_callback_{};
+  notification_options publication_options_{};
   authorization_callback authorization_callback_{};
   bool authorization_required_{};
   bool authorization_enabled_{true};
@@ -675,6 +682,7 @@ private:
     event_type event;
     event.kind = kind;
     event.before = current_;
+    event.namespace_replaced = replaced_namespace;
     if (kind != publication_kind::runtime_update && publication_callback_) {
       event.invalidated_ids.reserve(identities_.size() + identities.size());
       for (const auto& [id, type] : identities_) {
@@ -688,7 +696,16 @@ private:
         }
       }
       std::sort(event.invalidated_ids.begin(), event.invalidated_ids.end());
-      if constexpr (requires(const storage_type& value, detail::publication_field_collector& visitor) {
+      if (publication_options_.field_paths && next) {
+        auto changes = detail::prepare_change_set<Traits>(current_.get(), *next,
+            identities_, identities, options_.max_snapshot_bytes, publication_options_, replaced_namespace);
+        event.changed_ids = std::move(changes.changed_ids);
+        event.created_ids = std::move(changes.created_ids);
+        event.deleted_ids = std::move(changes.deleted_ids);
+        event.changed_fields = std::move(changes.changed_fields);
+        event.field_paths_precise = changes.field_paths_precise;
+        event.changed_ids_precise = changes.field_paths_precise;
+      } else if constexpr (requires(const storage_type& value, detail::publication_field_collector& visitor) {
                       Traits::visit_collaboration_fields(value, visitor);
                     }) {
         if (next) {
@@ -2486,8 +2503,14 @@ public:
 
   // Install one owner-thread observer; callbacks may read pins but must not reenter mutation.
   void set_publication_callback(std::function<void(const event_type&)> callback) {
+    set_publication_callback(std::move(callback), {});
+  }
+
+  // Opt into bounded prepared field metadata; preparation failure precedes durable acceptance.
+  void set_publication_callback(std::function<void(const event_type&)> callback, notification_options options) {
     require_idle();
     publication_callback_ = std::move(callback);
+    publication_options_ = options;
   }
 
   // Install a host-owned, owner-thread gate on complete candidates before journal I/O/publication.
