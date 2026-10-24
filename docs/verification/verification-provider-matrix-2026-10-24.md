@@ -61,3 +61,14 @@ It does not claim arbitrary caller adapters, another architecture, equal compres
 bytes across different provider versions, provider-internal memory caps or a
 performance threshold. README and the integration skill were reviewed; production
 APIs, usage, wire formats and release versions are unchanged.
+
+## Native Linux replay
+
+The native Linux execution also passes **all 16 masks and 576 checks**, using
+GCC 15.2, libxml2 2.15.2, zlib 1.3.1, Zstandard 1.5.7, LZ4 1.10.0 and the
+explicit extracted xxHash 0.8.3 link dependency. The actual run uses two workers
+and takes **1,802.074 seconds**. The complete report is
+`linux-provider-matrix/verification.json`, SHA-256
+`6376ce5dc41ffe75a007fd7a83c83ae52c62472d5826cf15329145dde329fc80`.
+This is a separate native provider execution; generated-C strict compilation
+failures elsewhere remain [QA-B02](verification-qualification-bugs-2026-10-24.md#qa-b02-strict-generated-c-scalar-rule-initialization).
