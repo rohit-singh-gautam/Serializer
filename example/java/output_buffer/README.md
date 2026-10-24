@@ -1,14 +1,16 @@
 # Java caller-owned output storage
 
-Requires Serializer compiler **2.32+**, CMake 4.0+ and Java 17+. The schema keeps
+Requires Serializer compiler **2.33+**, CMake 4.0+ and Java 17+. The schema keeps
 the original language-1 header; this is a backend generation option rather than
 a language or payload revision.
 
-The [configuration](java.ini) enables `output_buffer_reuse = true`. The
-[consumer](Main.java) reuses one array with a nonzero-offset window for all four
-protocols, checks prefix/suffix preservation and independently decodes the exact
-returned byte count. Its copy is used for validation; an application can send
-`storage, offset, written` directly to its own `OutputStream`.
+The [configuration](java.ini) independently enables `output_buffer_reuse = true`
+and `nio_output_buffer_reuse = true`. The [consumer](Main.java) reuses an array,
+a heap `ByteBuffer` and a direct `ByteBuffer` with nonzero-offset windows for all
+four protocols. It checks prefix/suffix bytes, cursor advancement and identical
+wire output, then independently decodes the exact returned byte count. Its copy
+is used for validation. An application can send `storage, offset, written` to an
+`OutputStream`, or flip/drain its own NIO buffer through its channel I/O policy.
 
 Configure with an installed compiler package:
 

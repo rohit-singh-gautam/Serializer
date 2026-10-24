@@ -1,5 +1,17 @@
 # Migrating to the snake_case Serializer API
 
+## Opt-in Java NIO output in 2.33.0
+
+Enable `[java] nio_output_buffer_reuse = true` or its CLI override when generating
+the new `int encode(Protocol, java.nio.ByteBuffer)` overload. Default false keeps
+existing method sets and native overloads. The array-window option is independent.
+Prepare a writable heap/direct buffer's position and limit; success advances the
+position, while failures preserve cursor metadata but may leave inside bytes
+partially changed. Keep exclusive, non-aliased storage and consume only after
+success. No schema header, wire identity or payload revision changes. Both editor
+packages are 2.0.18. See the [full contract](docs/languages/java.md#caller-owned-nio-buffers)
+and [qualification](docs/verification/verification-java-nio-output-2026-10-24.md).
+
 ## Backend field-default locations in 2.32.2
 
 Rejected portable field defaults now prefix the existing error with the original

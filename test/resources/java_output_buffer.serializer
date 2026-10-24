@@ -27,3 +27,8 @@ class buffer_tree {
 // These valid sibling names must remain independent of private writer helpers.
 class fixed_buffer { public uint32 value; }
 class size_buffer { public uint32 value; }
+
+// Public schema names remain independent of private NIO writer helpers.
+class nio_buffer {
+  public uint32 value;
+}

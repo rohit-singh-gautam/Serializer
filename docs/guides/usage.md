@@ -1,5 +1,10 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.33.0** adds an independent Java `nio_output_buffer_reuse`
+option for heap/direct ByteBuffer output. Read the [cursor, storage and failure
+contract](../languages/java.md#caller-owned-nio-buffers) before reusing buffers;
+this backend option requires no schema-header or payload change.
+
 Compiler/runtime **2.32.2** reports portable field-default failures at the original
 `file:line:column: member name:` declaration, including older included files and
 concrete generic definitions. Existing reasons and native C++ generation acceptance

@@ -1421,6 +1421,23 @@ test('Java output-window parameters and method bodies never replace real field d
   }
 });
 
+test('Java NIO overload parameters and cursor locals preserve real field destinations', () => {
+  const source = banner + 'public final class Schema { public static class Record {\n' +
+    'public int destination; public int start;\n' +
+    'public int encode(Protocol protocol, java.nio.ByteBuffer destination) {\n' +
+    'int start = destination.position(); destination.position(start); return start;\n}\n} }';
+  const index = indexGeneratedSource(source, 'Schema.java');
+  for (const name of ['destination', 'start']) {
+    const declaration = source.indexOf(` ${name};`) + 1;
+    assert.equal(generatedMember(source, 'Schema.java', index, declaration)?.name, name);
+    let occurrence = source.indexOf(name, source.indexOf('public int encode'));
+    while (occurrence >= 0) {
+      assert.equal(generatedMember(source, 'Schema.java', index, occurrence), undefined);
+      occurrence = source.indexOf(name, occurrence + name.length);
+    }
+  }
+});
+
 test('generated C++ declaration indexing preserves namespace, template and enum offsets around large bodies', () => {
   const source = banner + 'namespace models::detail {\r\n' +
     'template<class T, unsigned N = 2> class box;\r\n' +

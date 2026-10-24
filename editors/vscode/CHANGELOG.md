@@ -1,3 +1,8 @@
+# 2.0.18
+
+- Document compiler/runtime 2.33.0's independent opt-in heap/direct Java ByteBuffer output with unchanged schema language 1.23.0.
+- Verify fully qualified NIO parameters/cursor locals preserve real field destinations and qualify actual generated overloads; synchronize both packages and current listing payloads.
+
 # 2.0.17
 
 - Document compiler/runtime 2.32.0's opt-in Java caller-owned output windows with unchanged schema language 1.23.0.

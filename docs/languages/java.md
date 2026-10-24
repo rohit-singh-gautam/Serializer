@@ -199,6 +199,60 @@ contracts. See the [Windows/Linux checks and scoped measurements](../verificatio
 The [runnable output-buffer example](../../example/java/output_buffer/README.md)
 includes its schema, opt-in INI, strict Java consumer and standalone CMake build.
 
+## Caller-owned NIO buffers
+
+Compiler/runtime **2.33+** independently supports writable heap and direct
+`java.nio.ByteBuffer` output. Enable the generation option:
+
+```ini
+[java]
+nio_output_buffer_reuse = true
+```
+
+The CLI override is `--java.nio_output_buffer_reuse true`. Default `false`
+preserves existing method sets and application-native overloads. It is independent
+of `output_buffer_reuse`: enable either or both. Regeneration adds this overload
+to owning codecs and readonly translator projections:
+
+```java
+public int encode(Protocol protocol, java.nio.ByteBuffer destination)
+```
+
+All four enabled native protocols retain their bytes. A restricted `binary_none`
+profile keeps its existing protocol gate. The method writes into the buffer's
+initial `[position(), limit())` window and returns the number of bytes written.
+On success, it advances the caller's position by that count. Limit, capacity,
+byte order and mark stay unchanged; wire byte order is independent of the
+buffer's order. Heap/direct slices use their own logical window coordinates.
+
+```java
+java.nio.ByteBuffer storage = java.nio.ByteBuffer.allocateDirect(64 * 1024);
+int written = account.encode(AccountSchema.Protocol.BINARY_INTEGER, storage);
+storage.flip(); // The application can now drain the encoded bytes through its own channel policy.
+```
+
+Reuse storage by setting its position and limit before the next call. Grant
+exclusive access to the buffer's cursor and window, keep it alive, avoid concurrent
+model mutation, and ensure its underlying storage does not alias mutable model
+payloads. The codec uses an independent private view and retains no buffer
+reference after return.
+
+Read-only buffers throw `ReadOnlyBufferException` before writes, even for an empty
+record. Null arguments throw `NullPointerException`; disabled protocols retain
+their existing error. Insufficient remaining capacity throws
+`IllegalArgumentException`. Admission and model failures leave the caller's
+position, limit, order and mark unchanged. They may leave partial bytes inside
+the initial window; outside bytes are preserved, including during size
+backpatches. No successful count is returned on failure. Empty positional records
+may return zero with no remaining capacity on a writable buffer.
+
+The existing owning and array-window APIs retain their behavior. This API reuses
+primary storage and avoids an owning message array; writer/view/UTF-8 and other
+temporaries can still allocate. It does not establish a whole-process peak bound,
+allocation-free encoding, native/SIMD acceleration, direct codec streaming or a
+channel API. See the [qualification and scoped measurements](../verification/verification-java-nio-output-2026-10-24.md)
+and [installed-package example](../../example/java/output_buffer/README.md).
+
 ## Decoding limits and errors
 
 `decode` returns a fresh object only after consuming the entire message; trailing

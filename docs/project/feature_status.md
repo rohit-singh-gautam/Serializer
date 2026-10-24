@@ -1,11 +1,17 @@
 # Features and implementation status
 
-The [implemented requirement catalog](completed_requirements.md) records **823
+The [implemented requirement catalog](completed_requirements.md) records **824
 completed capability and qualification IDs**, with their backend/profile limits
 and verification links. Completed sections have moved there from the pending
 list. [Pending work](../pending.md) contains only **33 unfinished requirements**;
 closed [ownership decisions](application_responsibilities.md#disposed-requirements)
 are recorded separately. Original records retain their dated qualification scope.
+
+Compiler/runtime **2.33.0** independently adds Java heap/direct/sliced
+[ByteBuffer output](../languages/java.md#caller-owned-nio-buffers). Defaults retain
+existing APIs; successful calls advance position and failures preserve cursor
+metadata while confining partial writes. [Focused qualification](../verification/verification-java-nio-output-2026-10-24.md)
+completes BE02b. Packed/stream/channel/native acceleration remains within BE02.
 
 Compiler/runtime **2.32.2** repairs original declaration locations for portable
 field-default errors, including older included files and generic definitions.

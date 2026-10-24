@@ -20,7 +20,7 @@ async function verify(entry, directory, options = [], selectedOutputs = outputs,
     '--depfile', path.join(directory, 'all.d'), ...options];
   if ('java' in selectedOutputs) {
     // Qualify field/type destinations with the optional caller-window overloads present.
-    args.push('--java.output_buffer_reuse', 'true');
+    args.push('--java.output_buffer_reuse', 'true', '--java.nio_output_buffer_reuse', 'true');
   }
   fs.mkdirSync(directory, { recursive: true });
   for (const [language, name] of Object.entries(selectedOutputs)) {

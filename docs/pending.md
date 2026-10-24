@@ -3,7 +3,7 @@
 This list contains **33 unfinished requirements: 29 active and four deferred**.
 Completed items and fully completed sections have moved to the
 [implemented feature catalog](project/completed_requirements.md), with all
-**823 IDs and verification records** retained. The [feature list](project/feature_status.md)
+**824 IDs and verification records** retained. The [feature list](project/feature_status.md)
 summarizes supported capabilities. The three closed ownership decisions live in
 [application responsibilities](project/application_responsibilities.md#disposed-requirements),
 not in this unfinished-work inventory.
@@ -53,7 +53,7 @@ qualification does not close the broader SC02 requirement below.
 | [ ] | SC02 | — | Broaden default-value validation and define bit-field support with wire/compatibility tests. SC02c/SC02d qualify constant-stack parser/backend recognition; [SC02e](project/completed_requirements.md#sc02e) adds declaration locations to legacy/backend field-default errors while preserving acceptance and atomic output; [resource scope](verification/verification-portable-literals-2026-10-24.md). See [Feature roadmap](project/feature_status.md#other-roadmap-items). | — |
 | [ ] | SC03 | — | The 2.23.0 worktree adds generated C++ fixed-array Protobuf mapping, exact packed/unpacked/text cardinality and format-specific default retention; [mapping boundary](serialization/protobuf.md#mapping-contract). Complete generic-function calls/defaults and final SDK qualification; [Generics](schema/generics.md). | — |
 | [ ] | BE01 | — | Implement native-backend separate-file layout where currently unavailable; preserve naming, dependency includes/modules and editor navigation; [Native languages](languages/native_languages.md). | — |
-| [ ] | BE02 | — | Define and implement Java packed output and direct native-codec stream/channel or native-acceleration APIs. Opt-in caller-owned output windows are qualified as [BE02a](project/completed_requirements.md#be02a), with ownership/failure/resource tests; [Java output](languages/java.md#defaults-and-unsupported-schema-features). | — |
+| [ ] | BE02 | — | Define and implement Java packed output and direct native-codec stream/channel or native-acceleration APIs. Opt-in caller-owned array windows and heap/direct NIO buffers are qualified as [BE02a](project/completed_requirements.md#be02a) / [BE02b](project/completed_requirements.md#be02b), with ownership/failure/resource tests; [Java output](languages/java.md#defaults-and-unsupported-schema-features). | — |
 | [ ] | BE03 | — | Qualify borrowed/mapped-view platform, lifetime, allocation and performance boundaries; broader formats require their own mapping contract; [Views](serialization/views.md). | — |
 | [ ] | OPC-OPT02 | — | Define a signature/canonicalization/trust provider and independently qualify editing/signed-package behavior before claiming signature support; [OPC design](design/opc_3mf_support.md). | — |
 

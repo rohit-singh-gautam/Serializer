@@ -598,3 +598,10 @@ Use `--entries-per-registry 10` for the quick Python replay registered under
 profile. The [combined-operation record](../docs/verification/verification-large-package-operations-2026-10-21.md)
 contains executed scope, exact commands, per-backend policy/API boundaries and
 the Python publication regression's counterfactual and corrected provenance.
+
+The Java output-buffer driver also measures independently opted-in heap/direct
+NIO output from compiler 2.33.0. It retains the existing owning/array modes and
+adds NIO view costs and generated-source byte counts. Caller direct memory is
+allocated before measurement and excluded from the per-thread JVM counter; this
+is not a process-peak or native-acceleration claim. See the
+[dated NIO observations](../docs/verification/verification-java-nio-output-2026-10-24.md).

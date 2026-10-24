@@ -363,6 +363,19 @@ TEST(output_options, java_output_buffer_reuse_configuration) {
       std::invalid_argument);
 }
 
+// NIO windows have an independent strict opt-in and cannot silently enable array overloads.
+TEST(output_options, java_nio_output_buffer_reuse_configuration) {
+  configuration_file file;
+  EXPECT_FALSE(writer::java_options{}.nio_output_buffer_reuse);
+  const auto enabled = writer::read_output_options(file.write("[java]\nnio_output_buffer_reuse = true\n"));
+  EXPECT_TRUE(enabled.java.nio_output_buffer_reuse);
+  EXPECT_FALSE(enabled.java.output_buffer_reuse);
+  EXPECT_FALSE(writer::read_output_options(file.write("[java]\nnio_output_buffer_reuse = false\n")).java.nio_output_buffer_reuse);
+  EXPECT_THROW(writer::read_output_options(file.write("[java]\nnio_output_buffer_reuse = yes\n")), std::invalid_argument);
+  EXPECT_THROW(writer::read_output_options(file.write("[java]\nnio_output_buffer_reuse = true\nnio_output_buffer_reuse = false\n")),
+      std::invalid_argument);
+}
+
 // Central managed identity width is strict and independent of C++ presentation settings.
 TEST(output_options, managed_identity_configuration) {
   configuration_file file;

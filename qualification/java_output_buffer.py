@@ -20,9 +20,10 @@ JAVA = 'package ' + tests.PACKAGE + r''';
 public final class Benchmark {
 ''' + tests.COMMON + r'''
   private static volatile byte[] published;
+  private static volatile java.nio.ByteBuffer publishedNio;
   private static volatile long checksum;
   /** Execute real encoding with an observable result and a changing payload byte. */
-  private static void repeat(Schema.BufferRecord value, byte[] storage, int count) {
+  private static void repeat(Schema.BufferRecord value, byte[] storage, java.nio.ByteBuffer nio, int count) {
     for (int index = 0; index < count; ++index) {
       value.payload[0] = (byte)index;
       __ENCODE__
@@ -32,19 +33,20 @@ public final class Benchmark {
   public static void main(String[] args) {
     var value = sample(); value.payload = new byte[__PAYLOAD_BYTES__];
     int messageBytes = value.encode(Schema.Protocol.BINARY_NONE).length;
-    byte[] storage = new byte[messageBytes];
+    byte[] storage = __ARRAY_STORAGE__;
+    java.nio.ByteBuffer nio = __NIO_STORAGE__;
     int iterations = Integer.parseInt(args[0]), warmup = Integer.parseInt(args[1]), samples = Integer.parseInt(args[2]);
     var management = java.lang.management.ManagementFactory.getThreadMXBean();
     if (!(management instanceof com.sun.management.ThreadMXBean bean) || !bean.isThreadAllocatedMemorySupported()) {
       throw new IllegalStateException("Thread allocation measurement unavailable");
     }
     if (!bean.isThreadAllocatedMemoryEnabled()) bean.setThreadAllocatedMemoryEnabled(true);
-    repeat(value, storage, warmup);
+    repeat(value, storage, nio, warmup);
     long thread = Thread.currentThread().getId();
     double[] nanos = new double[samples], allocations = new double[samples];
     for (int sample = 0; sample < samples; ++sample) {
       long beforeBytes = bean.getThreadAllocatedBytes(thread), beforeTime = System.nanoTime();
-      repeat(value, storage, iterations);
+      repeat(value, storage, nio, iterations);
       long elapsed = System.nanoTime() - beforeTime;
       long allocated = bean.getThreadAllocatedBytes(thread) - beforeBytes;
       nanos[sample] = (double)elapsed / iterations;
@@ -82,14 +84,26 @@ def main():
         parser.error('Iteration, warmup and sample counts must be positive')
     args.build.mkdir(parents=True, exist_ok=True)
     records = []
-    for mode, compiler in [('baseline-owning', args.baseline_compiler), ('current-owning', args.compiler), ('current-window', args.compiler)]:
+    for mode, compiler in [('baseline-owning', args.baseline_compiler), ('current-owning', args.compiler),
+                           ('current-window', args.compiler), ('current-nio-heap', args.compiler),
+                           ('current-nio-direct', args.compiler)]:
         directory = args.build / mode
-        tests.generate(args, directory, compiler=compiler, reuse=mode.endswith('window'))
-        body = ('int written = value.encode(Schema.Protocol.BINARY_NONE, storage, 0, storage.length); '
-                'published = storage; checksum += written + storage[written-1];' if mode.endswith('window') else
-                'byte[] message = value.encode(Schema.Protocol.BINARY_NONE); published = message; '
-                'checksum += message.length + message[message.length-1];')
-        source = JAVA.replace('__ENCODE__', body).replace('__PAYLOAD_BYTES__', str(PAYLOAD_BYTES))
+        nio_mode = mode.startswith('current-nio')
+        tests.generate(args, directory, compiler=compiler, reuse=mode == 'current-window', nio=nio_mode)
+        if nio_mode:
+            body = ('nio.position(0); int written = value.encode(Schema.Protocol.BINARY_NONE, nio); '
+                    'publishedNio = nio; checksum += written + nio.get(written-1);')
+        elif mode == 'current-window':
+            body = ('int written = value.encode(Schema.Protocol.BINARY_NONE, storage, 0, storage.length); '
+                    'published = storage; checksum += written + storage[written-1];')
+        else:
+            body = ('byte[] message = value.encode(Schema.Protocol.BINARY_NONE); published = message; '
+                    'checksum += message.length + message[message.length-1];')
+        array_storage = 'null' if mode == 'current-nio-direct' else 'new byte[messageBytes]'
+        nio_storage = ('java.nio.ByteBuffer.allocateDirect(messageBytes)' if mode == 'current-nio-direct' else
+                       'java.nio.ByteBuffer.wrap(storage)' if nio_mode else 'null')
+        source = (JAVA.replace('__ENCODE__', body).replace('__PAYLOAD_BYTES__', str(PAYLOAD_BYTES))
+                  .replace('__ARRAY_STORAGE__', array_storage).replace('__NIO_STORAGE__', nio_storage))
         path, classes = directory / 'Benchmark.java', directory / 'classes'
         path.write_text(source, encoding='utf-8')
         classes.mkdir(exist_ok=True)
@@ -100,6 +114,7 @@ def main():
         (directory / 'stdout.log').write_text(result.stdout, encoding='utf-8')
         report = json.loads([line for line in result.stdout.splitlines() if line.startswith('{')][-1])
         report['mode'] = mode
+        report['generated_source_bytes'] = (directory / 'Schema.java').stat().st_size
         records.append(report)
     if len({item['message_bytes'] for item in records}) != 1:
         raise AssertionError('Measured modes produced different message sizes')

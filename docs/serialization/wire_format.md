@@ -1,5 +1,10 @@
 # Wire format and decoding contract
 
+Compiler/runtime 2.33's opt-in Java NIO output API is a caller-storage transport
+for the same native wire bytes. Position/limit windows, direct storage and size
+backpatches do not add framing or change byte order, IDs or payload revisions.
+See the [NIO API](../languages/java.md#caller-owned-nio-buffers).
+
 Compiler/runtime **2.32.0** adds opt-in Java output-window encoding using the
 same four native protocol bytes and schema language 1.23.0. Buffer ownership and
 partial-failure behavior are API contracts, without new wire framing; see the

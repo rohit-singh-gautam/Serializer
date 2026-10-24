@@ -1,6 +1,6 @@
 interface:
   display_name: "Serializer Integration"
-  short_description: "Use Serializer schemas, codecs, Java buffers and managed state"
+  short_description: "Use Serializer schemas, codecs, Java array/NIO buffers and managed state"
 
 policy:
   allow_implicit_invocation: true

@@ -67,6 +67,25 @@ TEST(java_writer, caller_owned_output_overloads_and_helper_names) {
   EXPECT_NE(renamed.find("new FixedBuffer_2(destination, offset, length)"), std::string::npos);
 }
 
+// NIO emission is independent of array windows and retains older public/enclosing helper names.
+TEST(java_writer, caller_owned_nio_overloads_and_helper_names) {
+  constexpr std::string_view schema =
+      "class nio_buffer { public uint32 value; } class account { public string label; }";
+  constexpr std::string_view signature = "public int encode(Protocol protocol, java.nio.ByteBuffer destination)";
+  EXPECT_EQ(emit_java(schema).find(signature), std::string::npos);
+  rohit::serializer::writer::java_options options{};
+  options.nio_output_buffer_reuse = true;
+  const auto output = emit_java(schema, options);
+  EXPECT_NE(output.find(signature), std::string::npos);
+  EXPECT_EQ(output.find("public int encode(Protocol protocol, byte[] destination"), std::string::npos);
+  EXPECT_NE(output.find("class NioBuffer {"), std::string::npos);
+  EXPECT_NE(output.find("private static final class NioBuffer extends SizeBuffer"), std::string::npos);
+  EXPECT_NE(output.find("destination.position(out.bytes.size())"), std::string::npos);
+  const auto renamed = emit_java("class account { public uint32 value; }", options, "NioBuffer");
+  EXPECT_NE(renamed.find("private static final class NioBuffer_2 extends SizeBuffer"), std::string::npos);
+  EXPECT_NE(renamed.find("new NioBuffer_2(destination, start)"), std::string::npos);
+}
+
 // Profile renaming must preserve serialized names and explicit identifiers.
 TEST(java_writer, naming_profiles_and_wire_contract) {
   const auto schema = "namespace wire_api { enum state { ReadyNow, Waiting } "

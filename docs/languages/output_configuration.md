@@ -54,6 +54,7 @@ and the [CMake variants helper](../guides/cmake_integration.md#generate-several-
 | `[cpp] naming` | `profile` | Rename target identifiers; `preserve` retains schema spellings. |
 | `[cpp] protobuf` | `false` | Generate direct Protobuf binary, ProtoJSON, and TextProto codecs; validate the [compatible schema subset](../serialization/protobuf.md). |
 | `[java] output_buffer_reuse` | `false` | Add [caller-owned output-window encoding](java.md#caller-owned-output-windows); preserve existing method sets unless opted in. |
+| `[java] nio_output_buffer_reuse` | `false` | Independently add [heap/direct NIO output](java.md#caller-owned-nio-buffers); default method sets remain unchanged. |
 | `[xml] enabled` | `false` | Generate the optional typed XML mapping for every selected output. |
 | `[xml] xsd` | Unset | Fixed standalone XSD build input, relative to this INI file; unsupported constructs fail generation. |
 | `[xml] runtime_xsd` | `false` | Permit an explicitly supplied prepared runtime validator. |

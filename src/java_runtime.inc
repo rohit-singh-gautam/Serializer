@@ -97,12 +97,12 @@ private static final class Writer {
     SizeBuffer(){super();limits=null;}
     /** Delay package-owned buffer allocation until its operation admits the actual growth. */
     SizeBuffer(Limits limits){super(0);this.limits=limits;}
+    /** Establish an absolute output origin without allocating message-sized storage. */
+    SizeBuffer(int start) { super(0); limits = null; count = start; }
     /** Wrap caller storage without allocating a message-sized array or mutating its contents. */
     SizeBuffer(byte[] destination, int offset) {
-      super(0);
-      limits = null;
+      this(offset);
       buf = java.util.Objects.requireNonNull(destination);
-      count = offset;
     }
     /** Admit complete output growth before mutating the private buffer. */
     private void reserve(int amount){if(limits==null)return;if(amount<0||amount>limits.maxBytes-count)throw new IllegalArgumentException("Native output byte limit");if(limits.xmlOperation!=null)limits.xmlOperation.consume("work",amount,"");int needed=count+amount;if(needed<=buf.length)return;int capacity=buf.length==0?Math.min(256,limits.maxBytes):buf.length;while(capacity<needed){if(capacity>limits.maxBytes/2){capacity=needed;break;}capacity*=2;}if(limits.xmlOperation!=null)limits.xmlOperation.consume("allocation",capacity,"");buf=java.util.Arrays.copyOf(buf,capacity);}
@@ -139,7 +139,7 @@ R"java(  /** Bound output to an exclusive caller-owned window; failed writes may
     /** Reject insufficient capacity before changing the next byte or byte range. */
     private void requireCapacity(int amount) {
       if (amount < 0 || amount > end - count) {
-        throw new java.lang.IllegalArgumentException("Output buffer capacity exceeded");
+        throw new java.lang.IllegalArgumentException(OUTPUT_BUFFER_CAPACITY_EXCEEDED);
       }
     }
     /** Append one byte within the admitted destination window. */
@@ -162,11 +162,55 @@ R"java(  /** Bound output to an exclusive caller-owned window; failed writes may
       super.patchInteger(position, value, width);
     }
   }
+  /** Bound heap/direct NIO writes without exposing the private view or changing caller cursor state. */
+  private static final class NioBuffer extends SizeBuffer {
+    private final java.nio.ByteBuffer window;
+    private final int start;
+    private final int end;
+    /** Admit writability and retain an independent position/limit view of the caller's window. */
+    NioBuffer(java.nio.ByteBuffer destination, int start) {
+      super(start);
+      if (destination.isReadOnly()) { throw new java.nio.ReadOnlyBufferException(); }
+      window = destination.duplicate();
+      this.start = start;
+      end = window.limit();
+    }
+    /** Reject the next complete write before it can cross the caller's limit. */
+    private void requireCapacity(int amount) {
+      if (amount < 0 || amount > end - count) {
+        throw new java.lang.IllegalArgumentException(OUTPUT_BUFFER_CAPACITY_EXCEEDED);
+      }
+    }
+    /** Append one byte while advancing only the codec's private cursor. */
+    @Override public synchronized void write(int value) {
+      requireCapacity(1);
+      window.put(count, (byte) value);
+      ++count;
+    }
+    /** Copy a checked source range through the independent view without replacing caller storage. */
+    @Override public synchronized void write(byte[] value, int offset, int length) {
+      java.util.Objects.checkFromIndexSize(offset, length, value.length);
+      requireCapacity(length);
+      window.position(count);
+      window.put(value, offset, length);
+      count += length;
+    }
+    /** Backpatch already-written bytes in logical buffer coordinates, including sliced/direct windows. */
+    @Override void patchInteger(int position, long value, int width) {
+      if (position < start || position > count || width < 0 || width > count - position) {
+        throw new java.lang.IllegalArgumentException(INVALID_SIZE_PATCH);
+      }
+      for (int index = 0; index < width; ++index) {
+        window.put(position + index, (byte) (value >>> (index * java.lang.Byte.SIZE)));
+      }
+    }
+  }
   /** Write count-free binary components or the canonical JSON text. */
   void version(String value, int count) { int[] parts = srlVersionParts(value, count); if (json()) text(value); else for (int part : parts) integer(part, 2, true); }
 
   private static final int COMPACT_MAX = 0x3fffffff;
   private static final java.lang.String INVALID_SIZE_PATCH = "Invalid size patch";
+  private static final java.lang.String OUTPUT_BUFFER_CAPACITY_EXCEEDED = "Output buffer capacity exceeded";
   final Protocol protocol;
   final SizeBuffer bytes;
   final Limits limits;
@@ -184,6 +228,12 @@ R"java(  /** Bound output to an exclusive caller-owned window; failed writes may
     this.protocol = java.util.Objects.requireNonNull(protocol);
     this.limits = null;
     this.bytes = new FixedBuffer(destination, offset, length);
+  }
+  /** Capture a writable NIO window with its absolute origin; public callers advance only after success. */
+  Writer(Protocol protocol, java.nio.ByteBuffer destination, int start) {
+    this.protocol = java.util.Objects.requireNonNull(protocol);
+    this.limits = null;
+    this.bytes = new NioBuffer(destination, start);
   }
   /** Admit traversal and temporary storage before a generated native encoder owns it. */
   void consume(String resource,long amount){if(limits!=null&&limits.xmlOperation!=null)limits.xmlOperation.consume(resource,amount,"");}

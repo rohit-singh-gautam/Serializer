@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer's schema compiler and generated runtimes into applications. Use for schemas and release migration, CMake generation, native codecs, caller-owned Java output windows, portable behavior, owner-bound defaults and bindings, callable availability, arrays/generics, borrowed/shared/weak references and typed field addresses, XML/XSD and identity contracts, restricted HTML, document profiles, bounded compression, ZIP/OPC packages, rebuildable caches, or C++ managed identity, transactions, registries, indexes, history, journals, collaboration and persistence. Review the installed version's complete supported feature set and apply every capability relevant to the user's contract; preserve APIs and wire identities, and qualify unsupported combinations."
+description: "Integrate Serializer's schema compiler and generated runtimes into applications. Use for schemas and release migration, CMake generation, native codecs, caller-owned Java array/NIO output windows, portable behavior, owner-bound defaults and bindings, callable availability, arrays/generics, borrowed/shared/weak references and typed field addresses, XML/XSD and identity contracts, restricted HTML, document profiles, bounded compression, ZIP/OPC packages, rebuildable caches, or C++ managed identity, transactions, registries, indexes, history, journals, collaboration and persistence. Review the installed version's complete supported feature set and apply every capability relevant to the user's contract; preserve APIs and wire identities, and qualify unsupported combinations."
 ---
 
 # Serializer Integration
@@ -97,13 +97,13 @@ remain unavailable for that storage representation. Use a supported explicit
 ordered mapping when direct token traversal is required. Follow the
 [legacy tree checks](../../../docs/verification/verification-legacy-cpp-wildcards-2026-10-22.md).
 
-The current compiler/runtime release is **2.32.2**, with schema language
+The current compiler/runtime release is **2.33.0**, with schema language
 **1.23.0**. Release 2.31.0 requires a C++23 compiler and matching standard library
 with `std::byteswap` and `std::span`. Source builds reject an explicit standard
 below 23; public CMake targets propagate `cxx_std_23` to generated and managed
 consumers. Direct compiler invocations must select C++23 or later. Regenerate C++ headers
 for the `if consteval` checked-arithmetic helper; retain runtime nonfinite-value errors. Both editor
-packages are 2.0.17. Existing valid schemas retain their headers and payload revisions;
+packages are 2.0.18. Existing valid schemas retain their headers and payload revisions;
 use language 1.23 for new named managed self bindings. See the
 [named binding contract](../../../docs/schema/named_managed_references.md) and
 [runnable example](../../../example/managed/named_references/README.md).
@@ -2729,6 +2729,17 @@ user instruction to defer generation/builds/tests and report what remains unveri
   reject invalid UTF-8 byte sequences, matching C++ binary codecs and all other
   backends. Use `array uint8` for arbitrary payload bytes. See the Java guide
   before mapping unusual defaults or union payloads.
+- For compiler 2.33+, independently opt into `[java] nio_output_buffer_reuse = true`
+  or `--java.nio_output_buffer_reuse true` to add `int encode(Protocol, java.nio.ByteBuffer)`
+  on owning codecs and readonly projections. Writable heap/direct/sliced windows
+  use position through limit; success advances position, while failures preserve
+  cursor metadata and may partially change only inside bytes. Preserve limit,
+  order and mark; keep exclusive/non-aliased storage and avoid concurrent model
+  mutation. Read-only buffers reject before writes, including empty records.
+  Default false preserves native overloads; the array option remains independent.
+  Writer/view/UTF-8 temporaries remain; this does not imply streaming, native
+  acceleration or a whole-process allocation bound. Follow the
+  [NIO contract](../../../docs/languages/java.md#caller-owned-nio-buffers).
 - For compiler 2.32+, opt into `[java] output_buffer_reuse = true` or
   `--java.output_buffer_reuse true` to add `int encode(Protocol, byte[], offset, length)`
   to owning codecs and readonly projections. Default false preserves existing

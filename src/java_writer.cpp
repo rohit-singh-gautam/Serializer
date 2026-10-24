@@ -1781,6 +1781,13 @@ class emitter {
     }
   }
 
+  // Emit the selected native-protocol admission consistently for every public codec entry.
+  void native_protocol_guard() {
+    if (options.protocols == output_protocols::binary_none) {
+      line("if (protocol != Protocol.BINARY_NONE) throw new IllegalArgumentException(\"Protocol disabled during generation\");");
+    }
+  }
+
   // Add the same bounded caller-storage overload to owning and projected native codecs.
   void output_buffer_codec() {
     if (!options.output_buffer_reuse) { return; }
@@ -1791,12 +1798,31 @@ class emitter {
     line(" */");
     line("public int encode(Protocol protocol, byte[] destination, int offset, int length) {");
     ++level;
-    if (options.protocols == output_protocols::binary_none) {
-      line("if (protocol != Protocol.BINARY_NONE) throw new IllegalArgumentException(\"Protocol disabled during generation\");");
-    }
+    native_protocol_guard();
     line("Writer out = new Writer(protocol, destination, offset, length);");
     line("write(out);");
     line("return out.bytes.size() - offset;");
+    --level;
+    line("}");
+  }
+
+  // Add an independent opt-in overload for writable heap/direct NIO windows.
+  void nio_output_buffer_codec() {
+    if (!options.nio_output_buffer_reuse) { return; }
+    line("/**");
+    line(" * Encode into the destination's exclusive position-to-limit window; return bytes written.");
+    line(" * Advance its position only on success; preserve its limit, order and mark.");
+    line(" * Failures may change bytes inside the window while leaving its position unchanged.");
+    line(" * Require writable storage that does not alias mutable model payloads; retain no reference.");
+    line(" */");
+    line("public int encode(Protocol protocol, java.nio.ByteBuffer destination) {");
+    ++level;
+    native_protocol_guard();
+    line("int start = destination.position();");
+    line("Writer out = new Writer(protocol, destination, start);");
+    line("write(out);");
+    line("destination.position(out.bytes.size());");
+    line("return out.bytes.size() - start;");
     --level;
     line("}");
   }
@@ -1815,12 +1841,11 @@ class emitter {
     }
     line("/** Encode projected fields without constructing the target model. */");
     line("public byte[] encode(Protocol protocol) {"); ++level;
-    if (options.protocols == output_protocols::binary_none) {
-      line("if (protocol != Protocol.BINARY_NONE) throw new IllegalArgumentException(\"Protocol disabled during generation\");");
-    }
+    native_protocol_guard();
     line("Writer out = new Writer(protocol); write(out); return out.bytes.toByteArray();");
     --level; line("}");
     output_buffer_codec();
+    nio_output_buffer_codec();
     line("/** Traverse the target's keys and readonly field projections. */");
     line("private void write(Writer out) {"); ++level;
     projection_fields_ = std::move(projected);
@@ -2133,15 +2158,14 @@ class emitter {
     line("/** Encode this value into an independent exact-size message. */");
     line("public byte[] encode(Protocol protocol) {");
     ++level;
-    if (options.protocols == output_protocols::binary_none) {
-      line("if (protocol != Protocol.BINARY_NONE) throw new IllegalArgumentException(\"Protocol disabled during generation\");");
-    }
+    native_protocol_guard();
     line("Writer out = new Writer(protocol);");
     line("write(out);");
     line("return out.bytes.toByteArray();");
     --level;
     line("}");
     output_buffer_codec();
+    nio_output_buffer_codec();
     line("/** Decode one exact message using default resource limits. */");
     line("public static " + name + " decode(byte[] bytes, Protocol protocol) {");
     ++level;
@@ -2151,9 +2175,7 @@ class emitter {
     line("/** Decode transactionally into a fresh value; malformed input throws. */");
     line("public static " + name + " decode(byte[] bytes, Protocol protocol, Limits limits) {");
     ++level;
-    if (options.protocols == output_protocols::binary_none) {
-      line("if (protocol != Protocol.BINARY_NONE) throw new IllegalArgumentException(\"Protocol disabled during generation\");");
-    }
+    native_protocol_guard();
     line("Reader in = new Reader(bytes, protocol, limits);");
     line(name + " result = read(in);");
     line("in.finish();");
@@ -2581,14 +2603,16 @@ public:
     source += behavior::helpers("java", arithmetic_helpers);
     line("// Serializer runtime support begins.");
     // A private nested helper must not repeat the enclosing output class's name.
-    // Keep previously valid FixedBuffer.java outputs usable without reserving another schema name.
-    constexpr std::string_view fixed_buffer_name = "FixedBuffer";
+    // Keep previously valid enclosing filenames usable without reserving another schema name.
     std::string renamed_runtime;
     auto native_runtime = runtime_source;
-    if (outer == fixed_buffer_name) {
-      renamed_runtime = std::regex_replace(std::string{runtime_source},
-          std::regex{"\\b" + std::string{fixed_buffer_name} + "\\b"}, std::string{fixed_buffer_name} + "_2");
-      native_runtime = renamed_runtime;
+    for (const std::string_view helper : {"FixedBuffer", "NioBuffer"}) {
+      if (outer == helper) {
+        renamed_runtime = std::regex_replace(std::string{runtime_source},
+            std::regex{"\\b" + std::string{helper} + "\\b"}, std::string{helper} + "_2");
+        native_runtime = renamed_runtime;
+        break;
+      }
     }
     // Runtime source uses two-space nesting; reindent for the selected profile.
     std::size_t start{};
