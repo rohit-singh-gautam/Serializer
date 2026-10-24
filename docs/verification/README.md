@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [Crash-oracle path repair](verification-crash-oracle-paths-2026-10-24.md) | QA01 test-harness slice: deep Windows build paths, 474 semantic checks and 942 fresh crash-helper processes; native storage code unchanged. |
 | [Current XSD export corpus](verification-xsd-export-corpus-2026-10-24.md) | QA02 compiler-tooling slice: 321 complete decisions, independently validated scalar-union exports, unchanged native field identities and protected publication; broader runtime/corpus gates remain open. |
 | [Current editor hosts](verification-editor-hosts-2026-10-24.md) | QA04: actual eleven-output VS Code/Visual Studio hosts, current installed assembly, native CMake/C++ commands and synchronized validated 2.0.19 packages. |
 | [Java heap/direct NIO output](verification-java-nio-output-2026-10-24.md) | BE02b: compiler/runtime 2.33.0 independent opt-in, Windows/Linux SDKs, cursor/ownership/failure bounds, allocation measurements and matching editors. |

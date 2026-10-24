@@ -53,7 +53,9 @@ def main():
             assert verify_container(path, mode) == sequence, (path.name, 'independent framing sequence')
             checks += 1
 
-    with tempfile.TemporaryDirectory(prefix='reference-crash-', dir=directory) as temporary:
+    # Keep independent Python framing/cleanup paths below Windows' legacy limit in deep build trees.
+    # Reports remain in the requested build directory; crash data belongs to this private OS-temp scope.
+    with tempfile.TemporaryDirectory(prefix='reference-crash-') as temporary:
         fixtures = Path(temporary)
         for mode in modes:
             for operation in ('edit', 'delete', 'reserve', 'reject_import', 'import', 'undo', 'redo'):
