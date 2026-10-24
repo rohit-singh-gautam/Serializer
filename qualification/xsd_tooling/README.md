@@ -5,6 +5,9 @@ native-enum export/binding addition. It keeps compiler contract checks separate
 from generated runtime qualification. The
 [dated verification record](../../docs/verification/verification-xsd-tooling-2026-10-21.md)
 identifies the executed versions, profiles and results.
+The [current 2.33.0 corpus replay](../../docs/verification/verification-xsd-export-corpus-2026-10-24.md)
+promotes the implemented scalar-union export to a positive family and passes
+321 complete compiler-tooling decisions; broader QA02 runtime gates stay separate.
 
 Run from the repository root with a built compiler, Python and the independent
 lxml XMLSchema provider. Use a fresh directory under ignored `out/build`:
@@ -49,7 +52,7 @@ all three native protocols. The singleton-`all` model and repeated-storage model
 remain separate profiles, so their different particle capabilities do not imply
 a native-layout migration.
 
-`export_cases.py` contains eight rich fixture families: string text/facets,
+`export_cases.py` contains nine rich fixture families: scalar union, string text/facets,
 wrappers, cross-namespace records, singleton `all`, chameleon schemas, cyclic
 includes, native enums and native-enum default/fixed/text constraints. It checks
 real exports, independent XSD validation, rebinds, reviewed fresh imports,
@@ -57,6 +60,14 @@ native model syntax and publication failures. Unsupported combinations must
 reject without replacing existing output. These rich cases establish compiler,
 AST and independent-XSD contracts; they do not assert every rich graph executes
 in all eleven generated runtimes.
+
+The current union fixture qualifies the implemented `xs:int | xs:string` export
+with numeric, whitespace-preserving text and empty-string positives and missing,
+excess and namespace-negative instances. Both the original and exported XSDs must
+agree with independently specified decisions. Rebind, fresh declaration import,
+native field identity and publication protections use the same complete family
+workflow. A former rejection expectation is retained in the dated qualification
+record; it must not reject a feature already implemented by the current compiler.
 
 The new native-enum profile exports the exact authored enum wire names into an
 `xs:string` enumeration. Binding permits empty or `preserve` whitespace behavior;
