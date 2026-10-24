@@ -86,9 +86,11 @@ TEST(file_generation, replacement_preserves_predecessor_writer_until_transfer) {
 TEST(file_generation, repeated_unicode_names_select_exact_replacement_paths) {
   generation_directory directory;
   constexpr std::size_t name_variants = 32;
+  const std::filesystem::path unicode_symbol{u8"\u03a9"};
   for (std::size_t count = 1; count <= name_variants; ++count) {
     auto target = directory.file("current-");
-    target += std::wstring(count, L'\u03a9');
+    // UTF-8 construction avoids depending on a POSIX process's wide-character locale.
+    for (std::size_t index = 0; index < count; ++index) { target += unicode_symbol; }
     auto staged = target;
     staged += ".staged";
     {

@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <limits>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <system_error>
