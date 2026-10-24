@@ -264,6 +264,12 @@ outputs qualify the selected mixed/map/variant/inherited mappings, singleton
 fragment adapters. Python and JavaScript/TypeScript also expose incremental
 byte-chunk input. Use each backend's documented token subset and independent
 resource policies; broader mapping combinations retain their capability gates.
+Compiler/runtime **2.33.1** restores Python's supported whole-document Core 1.4
+repeated-choice/wildcard route through the bounded owning-tree adapter. Regenerate
+affected Python XML codecs. Complete-graph admission keeps token-only contracts
+from entering a weaker tree decoder; chunked input still requires its supported
+token graph. Native field identities and JSON/binary values are unchanged. See
+the [migration notes](../../migration.md#python-core-xml-routing-repair-in-2331).
 The [OPC example](../../example/opc/README.md) demonstrates filling typed XML and
 opaque attachment roles with generated C++/Python Save/load facades. Require
 `find_package(Serializer 2.12 CONFIG REQUIRED)` for the new C++ APIs; retain

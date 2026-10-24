@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [Python Core routing repair](verification-python-core-repair-2026-10-24.md) | 2.33.1 focused main backport, projection/token/tree gates, all175 official Core models and independent156+156 output validation; namespace-token feature and its pending bug remain separate. |
 | [Additional qualification bugs](verification-qualification-bugs-2026-10-24.md) | QA-B01 main Python namespace-token projection metadata and QA-B02 strict GCC generated-C scalar-rule initializers; failures retained and separately tracked at the user's instruction. |
 | [Current compression parity](verification-compression-parity-2026-10-24.md) | QA02 compression slice: eleven real SDKs, 15,400 decisions, 2,904 owning exchanges, 264 independent frames, 792 encode bounds, 17 lifecycle suites and one worker. |
 | [ZIP/OPC process measurements](verification-package-baselines-2026-10-24.md) | QA03: 1,056 independent functional archives and 220 timed archives across eleven SDKs, ordinary ZIP/OPC controls, reviewable wall/CPU/peak/encoded/generated measurements and explicit startup costs. |

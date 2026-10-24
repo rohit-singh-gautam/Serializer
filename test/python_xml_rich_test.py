@@ -83,7 +83,7 @@ class python_xml_rich_test(unittest.TestCase):
         with self.assertRaises(ValueError): model.encode_xml()
 
     def test_real_xsd_patterns_unions_and_missing_provider(self):
-        """Use libxml2 XSD regex semantics, inherited pattern groups and exact union branches."""
+        """Preserve native XSD pattern lowering and require lxml only for prepared validation."""
         for value in ('BBB', 'CCC', '4294967295'):
             data = ('<sample xmlns="urn:pattern" code="' + value + '"/>').encode()
             self.assertEqual(self.patterns.PatternsSample.decode_xml(data).code, value)
@@ -94,8 +94,12 @@ class python_xml_rich_test(unittest.TestCase):
         with mock.patch.dict(sys.modules, {'lxml': None}):
             self.assertEqual(self.patterns.PatternsSample.decode_xml(
                 b'<sample xmlns="urn:pattern" code="BBB"/>').code, 'BBB')
+            self.assertEqual(self.patterns.PatternsProvider.decode_xml(
+                b'<provider xmlns="urn:pattern" value="AAA"/>').value, 'AAA')
+            with self.assertRaises(ValueError):
+                self.patterns.PatternsProvider.decode_xml(b'<provider xmlns="urn:pattern" value="123"/>')
             with self.assertRaisesRegex(RuntimeError, 'lxml'):
-                self.patterns.PatternsProvider.decode_xml(b'<provider xmlns="urn:pattern" value="AAA"/>')
+                self.patterns.XmlSchema(b'<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"/>')
 
     def test_core_lexical_kinds_match_independent_xsd_provider(self):
         """Check XML Name character rules and the Core language-or-empty union independently."""
@@ -305,7 +309,7 @@ class python_xml_rich_test(unittest.TestCase):
         model = model_type.decode_xml(data)
         original = model.encode_xml()
         model._srl_xml_state[3][(0, 0)][0]['p'] = ''
-        with self.assertRaisesRegex(ValueError, 'namespace binding'):
+        with self.assertRaisesRegex(ValueError, 'XML value matches no XSD union member'):
             model.encode_xml()
         model._srl_xml_state[3][(0, 0)][0]['p'] = 'urn:child'
         self.assertEqual(model.encode_xml(), original)
@@ -395,13 +399,11 @@ class python_xml_rich_test(unittest.TestCase):
         output = provider.fromstring(value.encode_xml())
         self.assertEqual(module._xml_resolve_qname(output[0].text, output[0].nsmap), ('urn:default', 'item'))
         exported = self.directory / 'protected_qname_list_export.xsd'
-        sentinel = b'previous reviewed schema\n'
-        exported.write_bytes(sentinel)
         result = subprocess.run([str(self.compiler), '--language', 'python', '--input', str(source),
                                  '--xml.export-xsd', str(exported)], capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('explicit namespace contexts', result.stdout + result.stderr)
-        self.assertEqual(exported.read_bytes(), sentinel)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        oracle = provider.XMLSchema(provider.parse(str(exported)))
+        self.assertTrue(oracle.validate(output), oracle.error_log)
 
     def test_qname_list_enumeration_fixed_defaults_and_union_members(self):
         """Compare expanded ordered items across aliases, local shadows, empty lists and native protocols."""

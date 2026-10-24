@@ -35,7 +35,10 @@ replay directory and the dependency directory. Its phases are:
    It writes `oracle.json` with hashes, diagnostics and secondary-provider agreement.
 2. `--phase generate --compiler <serializer>` imports the actual local Core/XML
    bundle and attempts all eleven backend bindings. C++ and Python are admitted;
-   the other nine must reject precisely for unsupported rich XML shapes. Generated
+   the other nine must reject precisely for unsupported rich XML shapes or the
+   declared occurrence bounds exceeding native counters. C#/Java/Kotlin/Go reach
+   the counter-range gate; C/Rust/Swift/JavaScript/TypeScript retain the unsupported
+   rich-shape gate. Diagnostics are checked exactly for each backend. Generated
    C++ formatting is explicitly disabled; schema and codec validation remain active.
 3. `--phase python` runs the actual generated Python model on every original part
    within the explicit common 16 MiB input policy, edits metadata when present,

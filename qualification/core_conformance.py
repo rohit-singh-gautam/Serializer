@@ -172,8 +172,18 @@ def generate(compiler, build):
     (build / 'generation.json').write_text(json.dumps(generation, indent=2), encoding='utf-8')
     if {language for language, row in results.items() if row['accepted']} != {'cpp', 'python'}:
         raise ValueError('Actual Core binding matrix changed; qualify newly admitted SDKs explicitly')
-    if any('XML choices, wildcards and extension policies are not implemented' not in row['diagnostic']
-           for language, row in results.items() if not row['accepted']):
+    # Implemented portable wildcard emitters now reach their finite native-counter admission gate.
+    # Freeze that narrower rejection per backend instead of accepting arbitrary generation errors.
+    counter_limited = {'csharp', 'java', 'kotlin', 'go'}
+    expected_rejections = {
+        language: ('Serializer: XML extension occurrence/position exceeds native counter range for ' + language
+                   if language in counter_limited else
+                   'Serializer: XML choices, wildcards and extension policies are not implemented for '
+                   + ('js' if language in ('javascript', 'typescript') else language))
+        for language in OUTPUTS if language not in ('cpp', 'python')
+    }
+    if any(results[language]['diagnostic'].strip() != diagnostic
+           for language, diagnostic in expected_rejections.items()):
         raise ValueError('Unsupported Core backend failed for an unrelated reason')
     return results
 

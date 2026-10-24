@@ -56,6 +56,15 @@ unavailable for that representation; select explicit ordered native storage for
 the supported direct path. See the
 [legacy tree qualification](../verification/verification-legacy-cpp-wildcards-2026-10-22.md).
 
+Python **2.33.1** restores its supported Core 1.4 repeated-choice/wildcard
+whole-document owning-tree route. `encode_xml`/`decode_xml` select it only when the
+complete graph has a legacy implementation. Nil/presence, maps, variants, mixed,
+identity, inheritance and lifecycle contracts that require tokens cannot enter
+that tree path. `decode_xml_chunks` retains its direct-token capability gate.
+Regenerate affected Python XML output; native fields and JSON/binary values are
+unchanged. The [migration notes](../../migration.md#python-core-xml-routing-repair-in-2331)
+identify the focused main-branch repair and its unchanged namespace-token scope.
+
 Compiler/runtime **2.28.0** preserves QName, QName-list and selected union value
 identities in all eleven owning outputs. Enumeration, default and fixed values
 compare ordered expanded names or the first successful union member's primitive
