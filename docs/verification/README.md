@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [Additional qualification bugs](verification-qualification-bugs-2026-10-24.md) | QA-B01 main Python namespace-token projection metadata and QA-B02 strict GCC generated-C scalar-rule initializers; failures retained and separately tracked at the user's instruction. |
 | [Current compression parity](verification-compression-parity-2026-10-24.md) | QA02 compression slice: eleven real SDKs, 15,400 decisions, 2,904 owning exchanges, 264 independent frames, 792 encode bounds, 17 lifecycle suites and one worker. |
 | [ZIP/OPC process measurements](verification-package-baselines-2026-10-24.md) | QA03: 1,056 independent functional archives and 220 timed archives across eleven SDKs, ordinary ZIP/OPC controls, reviewable wall/CPU/peak/encoded/generated measurements and explicit startup costs. |
 | [Native provider combinations](verification-provider-matrix-2026-10-24.md) | QA01 Windows provider slice: 16 independently built combinations, 576 semantic checks, exact availability/byte/bound controls and one worker; Linux replay tracked separately. |

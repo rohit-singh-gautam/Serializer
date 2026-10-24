@@ -1,7 +1,7 @@
 # Pending requirements across Serializer
 
-This list tracks **34 requirements: three completed and 31 unfinished
-(27 active and four deferred)**. Keep completed items in this file and mark their
+This list tracks **36 requirements: three completed and 33 unfinished
+(29 active and four deferred)**. Keep completed items in this file and mark their
 state `[x]`; do not delete their rows or sections when they are completed.
 The [implemented feature catalog](project/completed_requirements.md) retains
 **826 IDs and verification records**, including historical items archived before
@@ -77,6 +77,8 @@ qualification does not close the broader SC02 requirement below.
 | [ ] | QA02 | — | Execute the independent XML/XSD/ZIP/OPC/3MF corpus, malformed-input/fault/resource cases and cross-language exchanges for each newly implemented slice. | — |
 | [x] | QA03 | — | **Completed for the documented reproducible Windows workloads.** All eleven SDKs pass 132 native operation profiles/660 wall samples and 220 independently checked timed ZIP/OPC archives, with generated/encoded sizes, wall/CPU and separately identified memory peaks. C++ retains 80 ordinary timing and 80 requested-allocation profiles; Python compares all six compression formats with independent provider baselines. Ordinary native/XML-disabled and plain ZIP controls pass. [Native measurements](verification/verification-native-baselines-2026-10-24.md), [package measurements and limits](verification/verification-package-baselines-2026-10-24.md), [catalog](project/completed_requirements.md#qa03). | — |
 | [x] | QA04 | — | **Completed for the current Windows host profile.** Matching 2.0.19 packages build and validate; the installed Visual Studio assembly matches the local build. Actual VS Code and Visual Studio hosts qualify all eleven generated declaration outputs, reversed selections, live unsaved sources, includes and native command dispatch; real CMake/C++ caller checks and complete shared/native resolver checks pass. Repair the absent-grammar declaration fallback without intercepting authored plain-text files. [Executed hosts, exact versions and limits](verification/verification-editor-hosts-2026-10-24.md#qa04-actual-editor-hosts-and-matching-distribution-payloads); [catalog](project/completed_requirements.md#qa04). No Marketplace publication is claimed. | — |
+| [ ] | QA-B01 | — | **New bug, main's namespace-token feature:** `_xml_token_has_namespace(type(model))` cannot inspect `_XmlProjectionAccess` wrapper-class metadata. Restore actual readonly/scoped Python XML projection and namespace/limit behavior; retain all eight projection tests. Main `60468b0` introduces four errors versus the passing 2.33.0 profile; no follow-up repair is present at inspected main `650b5ea`. The focused Core-only backport excludes this unrelated feature. [Reproduction and scope](verification/verification-qualification-bugs-2026-10-24.md#qa-b01-main-namespace-token-projection-metadata). | — |
+| [ ] | QA-B02 | — | **New bug, generated C strict build:** initialize the complete `srl_xml_scalar_rule` contract in both identity helpers. GCC 15.2 strict C11 rejects omitted namespace/identity fields under `-Wextra -Werror`, blocking four Linux CTests and C SDK matrices. Preserve field defaults, validation and wire bytes; require actual strict C package/resource/XML replays without warning suppression. No existing main repair was found. [Failure and acceptance scope](verification/verification-qualification-bugs-2026-10-24.md#qa-b02-strict-generated-c-scalar-rule-initialization). | — |
 
 ## XML and package backlog
 
