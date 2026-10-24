@@ -1,6 +1,6 @@
 # Pending requirements across Serializer
 
-**10 pending requirements: 7 active and 3 deferred database items.**
+**8 pending requirements: 5 active and 3 deferred database items.**
 Database work is only part of the remaining backlog. Completed requirements
 are documented in the [closed-task ledger](project/completed_backlog.md) and
 [feature catalog](project/completed_requirements.md).
@@ -13,7 +13,6 @@ are documented in the [closed-task ledger](project/completed_backlog.md) and
 | Native managed engines | MG01 | Go, C#, Rust, Swift, Kotlin and C engines; broader capability contracts for the implemented Python, Java and JavaScript/TypeScript profiles. | Active |
 | Native migration | MIG03 | Broader journal/history format upgrades and rebaseline beyond the qualified bounded native schema converter. | Active; database profiles depend on DB02 |
 | Managed behavior and history | MG09, MG10 | Remaining portable method/lifetime/error contracts, notification policies and normalized nested identity/history records. | Active |
-| Reported bugs | QA-B01, QA-B02 | Python XML projection metadata and strict generated-C scalar-rule initialization. | Active |
 | Database and paging | PG01, PG02, DB02 | Authoritative page mutation/recovery, lazy values, data/index placement and integrated persistent queries. | Deferred |
 
 The database remainder was deferred at the maintainer's direction on 24 October
@@ -59,12 +58,8 @@ paging, lazy values and placement/query integration below are deferred.
 
 ## Qualification and distribution
 
-These two reported bugs are independent of database work and each other.
-Their Python and generated-C repairs can be implemented in parallel, with
-separate build/test outputs. Original qualification results remain in the
-[completed-task documentation](project/completed_backlog.md#qualification-and-distribution).
-
-| State | ID | Remaining requirement and acceptance gate | Dependencies |
-| --- | --- | --- | --- |
-| [ ] | QA-B01 | **Python XML projection bug:** `_xml_token_has_namespace(type(model))` cannot inspect `_XmlProjectionAccess` wrapper-class metadata. Restore readonly/scoped projection output while preserving namespace retention, limits and native bytes; require all eight projection tests. [Original four-error reproduction and scope](verification/verification-qualification-bugs-2026-10-24.md#qa-b01-main-namespace-token-projection-metadata). | — |
-| [ ] | QA-B02 | **Strict generated-C build bug:** initialize the complete `srl_xml_scalar_rule` in both identity helpers. GCC 15.2 strict C11 rejects omitted namespace/identity fields under `-Wextra -Werror`. Preserve defaults, validation and wire bytes; require actual strict C package/resource/XML replays without warning suppression. [Failure and acceptance scope](verification/verification-qualification-bugs-2026-10-24.md#qa-b02-strict-generated-c-scalar-rule-initialization). | — |
+QA-B01 and QA-B02 are completed in compiler/runtime **2.34.1**. Their contracts
+and verification are recorded in the
+[closed-task ledger](project/completed_backlog.md#qualification-and-distribution)
+and [repair record](verification/verification-qualification-bugs-2026-10-24.md).
+No qualification/distribution tasks remain pending.

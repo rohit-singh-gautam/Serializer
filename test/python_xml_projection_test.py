@@ -46,6 +46,25 @@ class python_xml_projection_test(unittest.TestCase):
         self.assertEqual((root.nsmap[prefix],local),('urn:borrowed','borrowed'))
         self.assertEqual([source.current.encode(protocol) for protocol in module.Protocol],native)
 
+        # Combine a scoped translator with token-only nil presence and a root QName attribute.
+        extra=self.extra;owner=extra.ProjectionExtraQualifiedSource();owner.name='p:borrowed'
+        native=[owner.encode(protocol) for protocol in extra.Protocol]
+        def token_export(view):
+            """Keep root lexical scope and admission active through the borrowed token adapter."""
+            with self.assertRaises(ValueError):view.encode_xml()
+            view.xml_bind_namespace('p','urn:borrowed')
+            output=view.encode_xml()
+            with self.assertRaises(ValueError):view.encode_xml(extra.Limits(max_string_bytes=1))
+            self.assertEqual(view.encode_xml(),output)
+            return output
+        with mock.patch.object(extra.ProjectionExtraQualifiedTarget,'__init__',side_effect=AssertionError('token target constructed')):
+            with mock.patch.object(extra,'_xml_write',side_effect=AssertionError('token projection retained a tree')):
+                output=owner.with_project(token_export)
+        root=self.provider.fromstring(output);prefix,local=root.attrib['name'].split(':')
+        self.assertEqual((root.nsmap[prefix],local),('urn:borrowed','borrowed'))
+        self.assertEqual(root[0].attrib['{http://www.w3.org/2001/XMLSchema-instance}nil'],'true')
+        self.assertEqual([owner.encode(protocol) for protocol in extra.Protocol],native)
+
     def test_live_record_and_scalar_reference_exports_preserve_native_storage(self):
         """Borrow selected original values, including false/zero/escaped text, while target construction is forbidden."""
         module=self.module;source=module.XmlProjectionSource();source.current.number=7;source.current.label='A<&"'
@@ -260,8 +279,13 @@ def main():
           class child { public uint32 number(1); }
           class target { public array<uint32> values(1); public child nested(2); public string fallback(3) { "default" }; }
           class source { public array<uint32> values(1); public child nested(2);
-            public translator target as project { values=values; nested=nested; }; }}''',encoding='utf-8')
-        subprocess.run([str(args.compiler.resolve()),'--language','python','--input',str(extra),'--xml.enabled','true','--python.output',str(extra_output)],check=True)
+            public translator target as project { values=values; nested=nested; }; }
+          class qualified_target { public string name xml(attribute,qname); public optional<uint32> number; }
+          class qualified_source { public string name; public optional<uint32> number;
+            public translator qualified_target as project { name=name; number=number; }; }}''',encoding='utf-8')
+        extra_config=directory/'extra.ini'
+        extra_config.write_text('[xml.class.projection_extra::qualified_target]\npresence.number=nil\n',encoding='utf-8')
+        subprocess.run([str(args.compiler.resolve()),'--language','python','--input',str(extra),'--config',str(extra_config),'--xml.enabled','true','--python.output',str(extra_output)],check=True)
         python_xml_projection_test.module=load_module(output,'serializer_python_xml_projection')
         python_xml_projection_test.native=load_module(native,'serializer_python_xml_projection_native')
         python_xml_projection_test.extra=load_module(extra_output,'serializer_python_xml_projection_extra')

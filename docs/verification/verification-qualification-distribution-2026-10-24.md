@@ -11,8 +11,10 @@ Checks below qualify implemented contracts; they do not implement proposals on
 the storage, compiler/backend or XML/package branches.
 
 The original **QA01–QA04 execution and triage are complete** for the documented
-contracts and host profiles. QA-B01 and QA-B02 remain pending at the user's
-instruction to record unfixed findings separately. This is not an all-green
+contracts and host profiles. At that capture QA-B01 and QA-B02 were pending at the
+user's instruction to record unfixed findings separately. Both are now repaired in
+the [focused 2.34.1 qualification](verification-qualification-bugs-2026-10-24.md).
+The original inventories below are unchanged. This is not an all-green
 release certification: full Linux inventories retain their strict-C failure.
 A historical pass, interrupted command, missing SDK or diagnostic subset does
 not admit a failed full inventory. Raw logs and useful build artifacts remain

@@ -3105,6 +3105,10 @@ class emitter {
 #include "javascript_managed_writer.hpp"
 
 public:
+  // Keep borrowed lowering metadata and accumulated output in one generation session.
+  emitter(const emitter&) = delete;
+  // Prevent rebinding a generation session to another session's borrowed metadata.
+  emitter& operator=(const emitter&) = delete;
   // Bind immutable generation policy for one compilation unit.
   emitter(target language, const portable_options& options, std::string_view unit_name,
           const managed_lowering* lowered = nullptr)

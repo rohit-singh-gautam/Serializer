@@ -705,7 +705,9 @@ def _xml_token_values(model, item):
 )xmlpython"
 R"xmlpython(def _xml_token_encode(model, name, limits=None, context=None):
     """Traverse generated members directly into bounded escaped output tokens."""
-    if _xml_token_has_namespace(type(model)):
+    # Projection instances forward metadata; their wrapper class has none of the target graph.
+    metadata = model._target if isinstance(model, _XmlProjectionAccess) else type(model)
+    if _xml_token_has_namespace(metadata):
         context = _xml_namespace_context(limits, context)
     writer = _XmlTokenOutput(limits, context)
     context = writer.budget.context
@@ -814,7 +816,7 @@ R"xmlpython(def _xml_token_encode(model, name, limits=None, context=None):
         cursor = [0]
         attributes.extend(foreign_attributes)
         scope = dict(foreign_bindings)
-        if getattr(type(value), '_xml_token_root_namespace', False):
+        if getattr(value, '_xml_token_root_namespace', False):
             state = getattr(value, '_srl_xml_state', None)
             scope = dict(writer.scopes[-1]) if writer.scopes else {'xml': 'http://www.w3.org/XML/1998/namespace'}
             if state is not None:

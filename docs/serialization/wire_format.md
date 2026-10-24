@@ -1,5 +1,9 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.34.1** repairs XML projection metadata lookup and explicitly
+initializes generated-C identity scalar-rule defaults. It changes no schema IDs,
+native payload layout, protocol revision or identity canonicalization rules.
+
 Compiler/runtime 2.34 and language 1.24 add schema-local XML/package selections.
 Existing native model layouts and all native codec bytes are unchanged. A new
 ordered XSD import uses an explicit variant-array model; converting an existing

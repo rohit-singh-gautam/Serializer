@@ -2459,8 +2459,6 @@ public:
               "*,srl_buffer*,const srl_limits*" + validator + ");");
           line("static inline srl_status " + native + "_decode_xml(" + native +
               "*,const uint8_t*,size_t,const srl_limits*" + validator + ");");
-          line("static inline srl_status " + native + "_srl_xml_decode_package(" + native +
-              "*,const uint8_t*,size_t,const srl_limits*);");
         }
       }
       std::string support{

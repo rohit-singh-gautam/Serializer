@@ -51,6 +51,11 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Compiler/runtime **2.34.1**, schema language **1.24.0**, repairs Python readonly/scoped
+XML projection metadata and complete generated-C identity scalar-rule initialization.
+Regenerate affected SDKs with this compiler; public APIs and native wire bytes retain
+their contracts. See the [qualification repairs](docs/verification/verification-qualification-bugs-2026-10-24.md).
+
 Compiler/runtime **2.34.0**, schema language **1.24.0**, includes the following
 managed additions. Both editor packages are **2.0.23**.
 
@@ -386,7 +391,7 @@ Regenerate Python package facades for cancellation checks after Save hooks:
 pre-publication cancellation preserves the old file; a failure after replacement
 reports `publication_uncertain` with the complete new archive retained.
 
-The current compiler and runtime release is **2.34.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.34.1**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.24.0**;

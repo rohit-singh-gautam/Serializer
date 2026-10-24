@@ -2759,6 +2759,10 @@ class emitter {
   }
 
 public:
+  // Keep borrowed lowering metadata and accumulated output in one generation session.
+  emitter(const emitter&) = delete;
+  // Prevent rebinding a generation session to another session's borrowed metadata.
+  emitter& operator=(const emitter&) = delete;
   // Retain generation settings for this compilation unit only.
   emitter(const java_options& options, std::string_view outer_class,
           const std::map<const class_node*, std::uint64_t>& class_ids = no_managed_class_ids,

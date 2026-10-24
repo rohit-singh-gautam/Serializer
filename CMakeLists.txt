@@ -6,7 +6,7 @@ if(DEFINED CMAKE_CXX_STANDARD AND
   message(FATAL_ERROR "Serializer requires C++23 or later; remove or raise CMAKE_CXX_STANDARD")
 endif()
 
-project(serializer VERSION 2.34.0 LANGUAGES CXX)
+project(serializer VERSION 2.34.1 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.24.0)

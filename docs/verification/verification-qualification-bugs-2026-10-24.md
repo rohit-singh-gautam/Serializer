@@ -1,9 +1,70 @@
-# Additional qualification findings — 24 October 2026
+# Qualification bug repairs — 24 October 2026
 
-[Pending bugs](../pending.md#qualification-and-distribution) ·
+[Task status](../pending.md#qualification-and-distribution) ·
 [Verification index](README.md)
 
-These are new tracked findings, retained at the user's instruction rather than
+Compiler/runtime **2.34.1** repairs both findings below. Schema language remains
+**1.24.0** and editor packages remain **2.0.23**. Regenerate affected Python and C
+outputs; existing APIs, schemas, validation defaults and native bytes retain their
+contracts. The original failures below describe the earlier qualification capture.
+
+## Repair scope
+
+QA-B01 now selects the generated target class when inspecting a scoped projection's
+namespace graph, while record output reads forwarded instance metadata for root
+QName scopes. Metadata traversal does not invoke translator getters, construct an
+owning target or copy borrowed source values. The projection regression also covers
+a token-only nil field combined with a root QName attribute, byte/string limits,
+fresh output after failure and native protocol controls.
+
+QA-B02 explicitly initializes all namespace/identity, nested-rule and schema-default
+members of `srl_xml_scalar_rule` in both ordinary and operation-aware identity
+helpers. The added values are the same false/zero/null defaults previously supplied
+implicitly by C11. Scalar kind, whitespace, unspecified length bounds and identity
+canonicalization remain unchanged. Strict compiler warnings remain enabled.
+The current companion-graph package replay also exposed an unused private decoder
+forward declaration for a graph whose companion codec supplies decoding instead.
+The package emitter no longer emits that unnecessary declaration; implemented
+decoder definitions and document-companion behavior remain unchanged.
+
+The current-source native GCC build also exposed `-Weffc++` failures in Java and
+portable generator emitters holding borrowed managed-lowering pointers. Those
+internal generation sessions now explicitly delete copying and copy assignment.
+This build prerequisite changes no generated APIs or output, and no native or
+generated-C warning is disabled to complete qualification.
+
+## Executed acceptance
+
+The final compiler/runtime **2.34.1**, language **1.24.0**, builds with native
+GCC **15.2.0** in WSL using the root `make configure` wrapper and CMake's compiler
+target. Python **3.14.4** uses the existing lxml provider; the scalar suite also
+uses the existing independent JAXP oracle. The final replay passes:
+
+- **8/8 projection tests**, including the added token-only QName/nil combination,
+  25,000 borrowed array values, namespace/byte/depth limits, callback failures,
+  fresh recovery and native-protocol byte controls.
+- **55/55 Python XML tests** across projection, rich, token, identity and scalar
+  suites. These five scripts run directly because the broad all-language CMake
+  option is disabled in this focused build.
+- **4/4 strict generated-C CTests**: `serializer_package_c`,
+  `serializer_package_shared_codec_budget_c`, `serializer_c_xml_operation_policy`
+  and `serializer_package_relocation_c`. Actual generated consumers compile with
+  `-std=c11 -Wall -Wextra -Wpedantic -Werror`; package, identity, resource,
+  default/validation and independent XML/archive oracles pass.
+- **6/6 selected CTests** overall, including the three-test Python Core regression
+  and aggregate package-version check. CLI version output and separate aggregate,
+  runtime and compiler CMake package-version compatibility checks also pass.
+
+Both QA-B01 and QA-B02 are closed. Exact commands and successful results remain in
+ignored `out/qa-bugs-2026-10-24/verification.json`; per-suite logs and initial
+failure/setup records remain beside it. The useful native build remains under
+`out/build/qa-bugs-linux/`. The final six-CTest replay takes 52.37 seconds.
+This is focused repair acceptance, not a repeat of all platform/provider/SDK
+inventories. Original failed inventories below retain their historical results.
+
+## Original findings
+
+These were tracked findings, retained at the user's instruction rather than
 repaired as unrelated XML implementation work. Neither has a committed repair in
 the inspected main HEAD `650b5ea`; relevant main working-tree files are unchanged.
 The existing Core repair from main `60468b0` is integrated independently of its

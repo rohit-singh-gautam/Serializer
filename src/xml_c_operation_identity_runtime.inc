@@ -71,7 +71,8 @@ static inline srl_status srl_xml_operation_identity_key(srl_xml_operation_identi
     const srl_xml_identity_field* field,xmlTextReaderPtr reader,srl_string* result) {
   if(size>state->limits.max_tuple_bytes){return srl_xml_operation_fail(state->operation,srl_limit);}srl_status status=srl_xml_operation_identity_spend(state,size+1u);if(status!=srl_ok){return status;}
   const char* whitespace=strcmp(field->kind,"string")==0?"preserve":strcmp(field->kind,"normalizedString")==0?"replace":"collapse";
-  const srl_xml_scalar_rule rule={field->kind,whitespace,{"","","",""},SIZE_MAX,SIZE_MAX,SIZE_MAX,NULL,0,false,NULL,0,"",NULL,0,NULL};
+  const srl_xml_scalar_rule rule={field->kind,whitespace,{"","","",""},SIZE_MAX,SIZE_MAX,SIZE_MAX,
+    NULL,0,false,NULL,0,"",NULL,0,NULL,false,NULL,0,NULL,NULL,NULL};
   srl_string text={0};status=srl_xml_operation_scalar_check(state->operation,&rule,raw,size,state->limits.max_tuple_bytes,&text);if(status!=srl_ok){return status;}srl_buffer key={0};
   if(strcmp(field->kind,"QName")==0){srl_string uri={0},local={0};status=srl_xml_identity_qname(reader,text.data,&uri,&local);
     if(status==srl_ok){status=srl_xml_operation_identity_put(state->operation,&key,"q",1u);}if(status==srl_ok){status=srl_xml_operation_identity_put(state->operation,&key,uri.data,uri.size);}if(status==srl_ok){status=srl_xml_operation_identity_put(state->operation,&key,"",1u);}if(status==srl_ok){status=srl_xml_operation_identity_put(state->operation,&key,local.data,local.size);}srl_string_free(&uri);srl_string_free(&local);

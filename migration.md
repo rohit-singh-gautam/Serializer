@@ -1,5 +1,16 @@
 # Migrating to the snake_case Serializer API
 
+## XML qualification repairs in 2.34.1
+
+Regenerate Python XML outputs to repair readonly/scoped projection exports,
+including token graphs that retain root QName namespaces. Regenerate C XML/package
+outputs to obtain complete scalar-rule initializers in ordinary and operation-aware
+identity helpers for strict C11 builds. No warning suppression is required.
+Existing schemas, public APIs, validation defaults and native payload bytes retain
+their contracts; no stored-data conversion is needed. Schema language remains
+1.24.0 and editor packages remain 2.0.23. See the
+[repair qualification](docs/verification/verification-qualification-bugs-2026-10-24.md).
+
 ## JavaScript and TypeScript managed SDKs in 2.34.0
 
 Ordinary output and existing schema headers remain compatible. Select

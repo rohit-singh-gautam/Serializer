@@ -9,8 +9,8 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 
 Check the [remaining-work summary](../../../docs/pending.md#remaining-work-at-a-glance)
 before selecting a managed backend. Qualified Python, Java and JavaScript/TypeScript
-profiles have explicit limits; six other native engines, broader managed contracts
-and two reported bugs remain active alongside deferred database work.
+profiles have explicit limits; six other native engines and broader managed contracts
+remain active alongside deferred database work.
 The pending tracker contains only unfinished tasks; use the
 [closed-task ledger](../../../docs/project/completed_backlog.md) for completed
 parent requirements and their original qualification limits.
@@ -207,6 +207,12 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
+Compiler/runtime **2.34.1** repairs Python readonly/scoped XML projection metadata
+and strict C11 generated-C identity scalar-rule initialization. Regenerate affected
+SDKs, preserving existing namespace scopes, resource limits and validation defaults;
+no schema or stored-data migration is required. See the
+[QA-B01/QA-B02 repair evidence](../../../docs/verification/verification-qualification-bugs-2026-10-24.md).
+
 Compiler/runtime **2.34.0** also extends the closed HTML fragment adapter to
 thirty tags, including explicitly balanced `sub` and `sup` phrasing containers.
 Use only their ordinary global attributes and the existing byte/event/depth/text
@@ -293,7 +299,7 @@ remain unavailable for that storage representation. Use a supported explicit
 ordered mapping when direct token traversal is required. Follow the
 [legacy tree checks](../../../docs/verification/verification-legacy-cpp-wildcards-2026-10-22.md).
 
-The current compiler/runtime release is **2.34.0**, with schema language
+The current compiler/runtime release is **2.34.1**, with schema language
 **1.24.0**. Release 2.31.0 requires a C++23 compiler and matching standard library
 with `std::byteswap` and `std::span`. Source builds reject an explicit standard
 below 23; public CMake targets propagate `cxx_std_23` to generated and managed

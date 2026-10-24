@@ -1,13 +1,18 @@
 # Features and implementation status
 
-The [implemented requirement catalog](completed_requirements.md) records **838
+The [implemented requirement catalog](completed_requirements.md) records **840
 completed capability and qualification IDs**, with their backend/profile limits
 and verification links. Historical completed sections were archived there.
-The [pending tracker](../pending.md) contains **10 unfinished requirements:
-7 active and three with deferred database work**. The
+The [pending tracker](../pending.md) contains **8 unfinished requirements:
+5 active and three with deferred database work**. The
 [closed-task ledger](completed_backlog.md) preserves the other 26 parent requirements;
 closed [ownership decisions](application_responsibilities.md#disposed-requirements)
 are recorded separately. Original records retain their dated qualification scope.
+
+Compiler/runtime **2.34.1** closes QA-B01 and QA-B02: readonly/scoped Python XML
+projections retain their target metadata and namespace scopes, and generated C
+identity helpers initialize the complete scalar rule for strict C11 builds.
+See the [focused repair qualification](../verification/verification-qualification-bugs-2026-10-24.md).
 
 The managed acceptance audit completes **MG07** allocator-aware payloads/hard
 resource-domain hooks and **MG08** supported representation/editor/Protobuf

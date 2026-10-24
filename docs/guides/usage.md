@@ -1,5 +1,11 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.34.1** repairs Python readonly/scoped XML projection metadata
+and strict C11 compilation of generated XML identity helpers. Regenerate affected
+SDKs to obtain the repairs; no schema or application-data migration is required.
+See [QA-B01 and QA-B02](../verification/verification-qualification-bugs-2026-10-24.md)
+for the acceptance scope. Language remains **1.24.0**.
+
 Compiler/runtime **2.34.0**, language **1.24.0**, permits ordered XML and package
 profile selection directly in schemas. Use
 [ordered variant storage](../serialization/ordered_xml.md) for heterogeneous
