@@ -26,9 +26,11 @@ JDK 21), including the previous-compiler wire oracle. **26 generated files per
 host** match 2.32.0 byte for byte: all eleven outputs and five additional Java
 option/profile controls. The repair changes C++ token boundaries only.
 
-This record does not yet claim a passing full-suite replay. The initial failed
-run remains recorded above; a later full replay must identify its actual source
-snapshot. Actual older-MSVC execution is separate from the token-bound inventory.
+The subsequent full Windows replay passes **316/316** in **1,448.30 seconds** at
+compiler 2.32.2 source `5f63e01`, including the corrected literal inventory and
+the later field-default diagnostic regression. The initial failed run remains
+recorded above. Actual older-MSVC execution is separate from the token-bound
+inventory.
 
 Baseline compilers, token inventories, comparison controls and verification logs
 remain under ignored `out/build/java-literal-bound-overnight/`. The original

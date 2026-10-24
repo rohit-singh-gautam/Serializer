@@ -44,6 +44,7 @@ BE02 packed/stream/channel/native-acceleration requirement remains open.
 | Native Visual Studio adapter | **1,600** checks pass under the unchanged 256 MiB interpreter limit; interactive-host qualification remains separate |
 | Matching 2.0.17 packages | Both VSIX packages rebuild and validate through `./make.ps1 extension`; no installation or publication |
 | Initial full Windows release suite | **314/315 pass** in **1,645.70 s** against 2.32.0 (`dfa8b46`); the runtime-literal inventory fails because its first Java token is 69 bytes over the older-MSVC bound. [The 2.32.1 source repair](verification-java-runtime-literals-2026-10-24.md) preserves emitted bytes; the original run remains a failed gate. |
+| Repaired full Windows release suite | **316/316 pass** in **1,448.30 s** against compiler 2.32.2 source `5f63e01`, including the Java SDK matrix, runtime-literal repair and subsequent diagnostic regression |
 
 The native-body compatibility fixture initially used profile naming, which is
 unsupported for opaque Java code. Its corrected `naming = preserve` case passes;
