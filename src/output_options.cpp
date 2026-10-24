@@ -437,7 +437,7 @@ output_options read_output_options(const std::filesystem::path& file) {
           class_section = languages.size() == 1;
         }
         if ((section != "output" && section != "cpp" && section != "java" && section != "js" &&
-             section != "go" && section != "csharp" && section != "kotlin" && section != "managed" && section != "xml" &&
+             section != "go" && section != "csharp" && section != "kotlin" && section != "managed" && section != "python" && section != "xml" &&
              !class_section && !(section.starts_with("package.") && source_class_name(std::string_view{section}.substr(8U)))) ||
             !sections.insert(section).second) {
           throw std::invalid_argument{"Unknown or repeated section: " + section};
@@ -559,6 +559,10 @@ output_options read_output_options(const std::filesystem::path& file) {
         result.go.package_name = value;
       } else if (section == "csharp" && key == "namespace") {
         result.csharp.namespace_name = value;
+      } else if (section == "python" && key == "managed_token_codecs") {
+        result.python_managed_token_codecs = read_bool(value);
+      } else if (section == "python" && key == "managed_engine") {
+        result.python_managed_engine = read_bool(value);
       } else if (section == "managed" && key == "id_type") {
         if (value != "uint32" && value != "uint64") {
           throw std::invalid_argument{"managed.id_type must be uint32 or uint64"};

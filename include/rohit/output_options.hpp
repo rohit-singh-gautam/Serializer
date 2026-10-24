@@ -114,6 +114,11 @@ struct portable_options {
   std::map<std::string, class_auto_size_options> class_auto_sizes{};
   xml_options xml{};
   output_protocols protocols{output_protocols::all};
+  bool managed_token_codecs{false}; // Python codec records only; no native managed engine.
+  std::string managed_id_type{"uint32"};
+  persistent_id_encoding managed_id_encoding{persistent_id_encoding::compact_varint};
+  bool managed_separate_values{false};
+  bool managed_engine{false}; // Python native owning snapshot profile, requiring generated metadata.
 };
 
 struct output_options {
@@ -131,6 +136,8 @@ struct output_options {
   include_mode includes{include_mode::separate};
   output_protocols protocols{output_protocols::all};
   include_mode native_includes{include_mode::inline_output}; // Preserve established native CLI defaults.
+  bool python_managed_token_codecs{false};
+  bool python_managed_engine{false};
 };
 
 // Apply a common native codec selection to all output backends; XML remains independent.

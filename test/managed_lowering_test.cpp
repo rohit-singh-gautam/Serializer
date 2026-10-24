@@ -108,3 +108,56 @@ TEST(managed_lowering, preserves_private_fields_and_public_bases) {
   EXPECT_EQ(document.parents.front().display_name, "metadata");
   EXPECT_EQ(document.member_list.front().access, serializer::access_type::private_access);
 }
+
+// Python wire records are explicit and cannot be mistaken for native managed engines.
+TEST(managed_lowering, python_token_codecs_require_explicit_selection) {
+  const auto source = parse("serializer version 1.20.0; class item managed class_id(101) { "
+      "public optional<managed_ref<item>> next (1); } class envelope { public managed_ref<item> target (1); }");
+  EXPECT_THROW(writer::portable::generate(source, "python", "Schema"), std::invalid_argument);
+  writer::portable_options options;
+  options.managed_token_codecs = true;
+  const auto generated = writer::portable::generate(source, "python", "Schema", options);
+  EXPECT_NE(generated.find("class ManagedReference:"), std::string::npos);
+  EXPECT_NE(generated.find("managed_class_id = 101"), std::string::npos);
+  EXPECT_NE(generated.find("ManagedReference._read(input, 101, 4, True)"), std::string::npos);
+  EXPECT_THROW(writer::portable::generate(source, "js", "Schema", options), std::invalid_argument);
+  // Lowering never modifies declarations reused by another backend.
+  EXPECT_TRUE(static_cast<const serializer::class_node&>(*source.front()).supports_managed());
+}
+
+// Unsupported wire-record contracts fail before source emission rather than losing behavior.
+TEST(managed_lowering, python_token_codecs_reject_unsupported_contracts) {
+  writer::portable_options options;
+  options.managed_token_codecs = true;
+  for (const auto text : {
+      "serializer version 1.20.0; class item managed class_id(7) {} class other managed class_id(7) {}",
+      "serializer version 1.23.0; class item<T> managed { public T value; } instantiate named = item<uint32>;",
+      "serializer version 1.20.0; class item managed { public constructor() {} }",
+      "serializer version 1.20.0; class item managed {} class nested { public managed_ref<item> ref; } "
+      "class root { public nested required omit(json); }",
+      "serializer version 1.20.0; class ManagedReference managed {}",
+      "serializer version 1.20.0; class item managed { public uint32 managed_class_id; }"}) {
+    const auto source = parse(text);
+    EXPECT_THROW(writer::portable::generate(source, "python", "Schema", options), std::invalid_argument) << text;
+  }
+}
+
+// Native Python lifetime engines require generated descriptors and cannot be inferred from codecs.
+TEST(managed_lowering, python_native_engine_emits_exact_descriptors_and_rejects_unsupported_profiles) {
+  writer::portable_options options;
+  options.managed_engine = true;
+  const auto source = parse("serializer version 1.20.0; class item managed class_id(101) { public string label (1); } "
+      "class model managed { public managed array item children (1); }");
+  const auto generated = writer::portable::generate(source, "python", "Schema", options);
+  EXPECT_NE(generated.find("class ManagedStore:"), std::string::npos);
+  EXPECT_NE(generated.find("ManagedField(\"children\", ('array', Item), True)"), std::string::npos);
+  EXPECT_NE(generated.find("def managed_schema(root_type, **options):"), std::string::npos);
+  EXPECT_EQ(writer::portable::generate(source, "python", "Schema", writer::portable_options{
+      .managed_token_codecs = true}).find("class ManagedStore:"), std::string::npos);
+  for (const auto text : {"class ManagedStore managed {}", "class ManagedField managed {}",
+                         "class base {} class item managed : public base {}",
+                         "class item managed { public transient uint32 cache; }"}) {
+    EXPECT_THROW(writer::portable::generate(parse("serializer version 1.20.0; " + std::string{text}), "python", "Schema", options), std::invalid_argument) << text;
+  }
+  EXPECT_THROW(writer::portable::generate(source, "js", "Schema", options), std::invalid_argument);
+}

@@ -85,6 +85,8 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
      "C# source output; filename supplies outer class; repeat per configuration.", true},
     {'\0', "rust.output", "schema.rs", "Rust source output; repeat per configuration.", true},
     {'\0', "python.output", "schema.py", "Python source output; repeat per configuration.", true},
+    {'\0', "python.managed_token_codecs", "true|false", "Opt in to Python managed wire records without native engines."},
+    {'\0', "python.managed_engine", "true|false", "Opt in to the native Python owning snapshot engine."},
     {'\0', "swift.output", "Schema.swift", "Swift source output; repeat per configuration.", true},
     {'\0', "kotlin.output", "Schema.kt", "Kotlin source output; repeat per configuration.", true},
     {'\0', "c.output", "schema.h", "C11 source output; repeat per configuration.", true},
@@ -233,6 +235,15 @@ void apply_output_overrides(rohit::serializer::writer::output_options& options,
     if (options.cpp.managed_id_type != "uint32" && options.cpp.managed_id_type != "uint64") {
       throw std::invalid_argument{"managed.id_type must be uint32 or uint64"};
     }
+  }
+  for (const auto* key : {"python.managed_token_codecs", "python.managed_engine"}) {
+    if (!arguments.contains(key)) { continue; }
+    const auto& value = cli::first(arguments, key);
+    if (value != "true" && value != "false") {
+      throw std::invalid_argument{std::string{key} + " must be true or false"};
+    }
+    if (std::string_view{key} == "python.managed_token_codecs") { options.python_managed_token_codecs = value == "true"; }
+    else { options.python_managed_engine = value == "true"; }
   }
   if (arguments.contains("managed.id_encoding")) {
     options.cpp.managed_id_encoding = writer::parse_managed_id_encoding(cli::first(arguments, "managed.id_encoding"));
@@ -814,6 +825,13 @@ int main(const int argc, const char* argv[]) {
           const auto& language = request.language;
           auto settings = language == "go" ? options.go : language == "csharp" ? options.csharp :
                           language == "kotlin" ? options.kotlin : options.js;
+          if (language == "python") {
+            settings.managed_token_codecs = options.python_managed_token_codecs;
+            settings.managed_engine = options.python_managed_engine;
+            settings.managed_id_type = options.cpp.managed_id_type;
+            settings.managed_id_encoding = options.cpp.managed_id_encoding;
+            settings.managed_separate_values = options.cpp.managed_separate_values;
+          }
           if (const auto found = options.class_comparisons.find(language);
               found != options.class_comparisons.end()) {
             settings.class_comparisons = found->second;

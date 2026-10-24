@@ -1,0 +1,16 @@
+serializer version 1.20.0;
+
+namespace token_wire {
+  class item managed stable_ids class_id(101) {
+    public optional<managed_ref<item>> next (1);
+  }
+  class other managed stable_ids class_id(102) {}
+  class envelope stable_ids {
+    public managed_ref<item> target (7);
+  }
+  class containers stable_ids {
+    public optional<managed_ref<item>> selected (1);
+    public array managed_ref<item> links (2);
+    public map(uint32) managed_ref<item> lookup (3);
+  }
+}

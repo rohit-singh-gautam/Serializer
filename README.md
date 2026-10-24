@@ -46,6 +46,12 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Python has explicit [managed token codecs](docs/managed/token_codecs.md) and
+a separate [native owning engine](docs/managed/python_native_runtime.md).
+Select `python.managed_engine = true` for qualified generated metadata, immutable
+reads, transactions, identities, linear history, journals and exact receipts.
+Both inline and dependency-file layouts have actual generated SDK replay.
+
 Select `cpp.payload_allocator = true` for supported direct owning native
 binary [payload graphs](docs/managed/payload_allocation.md). Generated records,
 decode temporaries and managed callbacks retain their selected allocation domain;

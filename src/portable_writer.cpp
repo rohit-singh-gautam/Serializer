@@ -3,6 +3,8 @@
 #include "schema_projection.hpp"
 #include "native_schema.hpp"
 #include "native_file_layout.hpp"
+
+#include "managed_lowering.hpp"
 #include "xml_schema.hpp"
 #include "xml_js_writer.hpp"
 #include "xml_csharp_writer.hpp"
@@ -3393,6 +3395,24 @@ static std::string generate_impl(const std::vector<std::unique_ptr<syntax_node>>
   xml_binding::validate_options(statements, options.xml, language);
   validate_bit_field_output(statements, false);
   behavior::require_callable_backend(statements, language);
+  if (options.managed_token_codecs || options.managed_engine) {
+    if (language != "python" || options.managed_separate_values || options.xml.enabled || !options.class_comparisons.empty() ||
+        !options.class_auto_sizes.empty()) {
+      throw std::invalid_argument{"Managed token codecs currently support Python native codecs without XML or computed helpers"};
+    }
+    managed_lowering lowered{statements, options.managed_id_type, true, options.managed_id_encoding};
+    native::schema model{lowered.statements};
+    model.source_files = source_files;
+    model.protocols = options.protocols;
+    model.managed_class_ids = lowered.class_ids;
+    model.managed_engine = options.managed_engine;
+    model.managed_schema_ids = lowered.bindings;
+    model.managed_field_names = lowered.managed_fields;
+    model.managed_id_bytes = options.managed_id_type == "uint64" ? sizeof(std::uint64_t) : sizeof(std::uint32_t);
+    model.managed_compact_ids = options.managed_id_encoding == persistent_id_encoding::compact_varint;
+    for (const auto key : {"document_high", "document_low", "class_id", "object_id"}) { model.add_key(key); }
+    return behavior::finalize_mappings(generated_license_notice(statements, "#", false, false) + native::python(model));
+  }
   require_unmanaged_backend(statements);
   auto_size::validate(statements, options.class_auto_sizes);
   comparison::validate(statements, options.class_comparisons, true);

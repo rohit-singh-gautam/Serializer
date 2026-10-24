@@ -136,6 +136,40 @@ if(SERIALIZER_BUILD_MANAGED)
     target_compile_options(payload_allocation_generated_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME payload_allocation_generated_test COMMAND payload_allocation_generated_test)
+  set(managed_token_exchange_arguments)
+  foreach(token_width IN ITEMS 32 64)
+    math(EXPR token_bytes "${token_width} / 8")
+    foreach(token_encoding IN ITEMS fixed compact_varint)
+      set(token_target "managed_token_uint${token_width}_${token_encoding}")
+      add_executable(${token_target} managed_token_exchange.cpp)
+      serializer_generate(TARGET ${token_target}
+        SCHEMAS resources/managed_token_codecs.serializer
+        CONFIG "resources/managed_token_uint${token_width}_${token_encoding}.ini"
+        OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${token_target}")
+      target_link_libraries(${token_target} PRIVATE Serializer::managed)
+      if(MSVC)
+        target_compile_options(${token_target} PRIVATE /W4 /WX)
+      else()
+        target_compile_options(${token_target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+      endif()
+      list(APPEND managed_token_exchange_arguments
+        --exchange "${token_bytes}:${token_encoding}:$<TARGET_FILE:${token_target}>")
+    endforeach()
+  endforeach()
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME python_managed_engine_generated_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_managed_engine_generated_test.py"
+        --compiler "$<TARGET_FILE:serializer>"
+        --build "${CMAKE_CURRENT_BINARY_DIR}/python_managed_engine")
+    set_tests_properties(python_managed_engine_generated_test PROPERTIES TIMEOUT 300)
+    add_test(NAME managed_token_codecs_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/managed_token_codecs_test.py"
+        --compiler "$<TARGET_FILE:serializer>"
+        --build "${CMAKE_CURRENT_BINARY_DIR}/managed_token_codecs"
+        ${managed_token_exchange_arguments})
+    set_tests_properties(managed_token_codecs_test PROPERTIES TIMEOUT 300)
+  endif()
   foreach(index_profile IN ITEMS direct32 direct64 separate32 separate64)
     add_executable(schema_indexes_${index_profile}_test schema_indexes_test.cpp paged_index_test.cpp)
     set(index_config)

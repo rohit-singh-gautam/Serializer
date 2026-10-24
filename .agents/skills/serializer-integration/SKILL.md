@@ -7,6 +7,13 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 
 [Documentation index](../../../docs/README.md)
 
+For native Python managed state, select `python.managed_engine = true` and
+bind the generated `managed_schema(Root)` to `ManagedStore`. Follow the
+[Python profile](../../../docs/managed/python_native_runtime.md) for detached
+ownership, synchronous edits, identity initialization, bounded history/journals
+and exact authority receipts. Explicit token-only mode exchanges wire records
+without activating an engine. Keep unsupported graph/metadata gates intact.
+
 For generated C++ allocation domains, select `cpp.payload_allocator = true`
 and follow [payload allocation](../../../docs/managed/payload_allocation.md).
 Use a retained shared resource for every supported concrete owning binary graph.

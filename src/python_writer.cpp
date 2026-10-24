@@ -33,6 +33,12 @@ namespace {
 constexpr std::string_view runtime =
 #include "python_runtime.inc"
     ;
+constexpr std::string_view managed_reference_runtime =
+#include "python_managed_reference_runtime.inc"
+    ;
+constexpr std::string_view managed_engine_runtime =
+#include "python_managed_engine_runtime.inc"
+    ;
 constexpr std::string_view compression_runtime =
 #include "python_compression_runtime.inc"
     ;
@@ -680,6 +686,7 @@ class python_emitter {
   }
   // Resolve a default without sharing mutable objects between instances.
   std::string initial(const type_name& value, const std::string& literal_value = {}) const {
+    if (value.is_managed_reference()) { return "ManagedReference()"; }
     if (value.is_optional()) { return "()"; }
     if (value.is_sequence()) { return "[]"; }
     if (value.is_associative()) { return "{}"; }
@@ -714,6 +721,7 @@ class python_emitter {
   }
   // Map schema scalars to public Python type annotations.
   std::string type(const type_name& value) const {
+    if (value.is_managed_reference()) { return "ManagedReference"; }
     if (value.is_optional()) { return "tuple[()] | tuple[" + type(value.arguments.front()) + "]"; }
     if (value.is_sequence()) { return "list[" + type(value.arguments.front()) + "]"; }
     if (value.is_associative()) { return "dict[" + type(value.arguments[0]) + ", " + type(value.arguments[1]) + "]"; }
@@ -728,6 +736,9 @@ class python_emitter {
   }
   // Build a scalar decoding expression; ordinary nested fields merge in order.
   std::string read(const type_name& value, bool collection, const std::string& old = {}) const {
+    if (value.is_managed_reference()) {
+      return "ManagedReference._read(input, " + managed_arguments(value) + ")";
+    }
     if (value.is_optional()) {
       return "_read_optional(input, lambda: " + read(value.arguments.front(), collection) + ")";
     }
@@ -770,7 +781,13 @@ class python_emitter {
   }
   // Write one typed scalar directly to the output buffer.
   void write(const type_name& value, const std::string& expression, bool collection) {
-    if (value.is_optional()) {
+    if (value.is_managed_reference()) {
+      std::string keys{"("};
+      for (const auto name : {"document_high", "document_low", "class_id", "object_id"}) {
+        keys += std::to_string(model.keys.at(name)) + ",";
+      }
+      line(expression + "._write(out, " + managed_arguments(value) + ", " + keys + "))");
+    } else if (value.is_optional()) {
       line("if not isinstance(" + expression + ", tuple) or len(" + expression + ") > 1: raise ValueError('Invalid optional')");
       line("out.begin_optional(bool(" + expression + "))");
       open("if " + expression);
@@ -816,6 +833,12 @@ class python_emitter {
       line("out.integer(" + expression + ", " + std::to_string(width(value)) + ", " +
            (value.name.starts_with('u') ? "True" : "False") + ")");
     }
+  }
+  // Bind each phantom target to the same concrete class tag and object-ID policy as C++.
+  std::string managed_arguments(const type_name& value) const {
+    const auto* target = static_cast<const class_node*>(value.arguments.front().resolved_node);
+    return std::to_string(model.managed_class_ids.at(target)) + ", " +
+        std::to_string(model.managed_id_bytes) + ", " + (model.managed_compact_ids ? "True" : "False");
   }
   // Emit a wire key reference without allocating key bytes per message.
   void key(std::uint32_t id, const std::string& text, bool first) {
@@ -1474,6 +1497,9 @@ class python_emitter {
     const auto name = model.names.at(&value);
     open("class " + name);
     line("\"\"\"Owning schema model; do not mutate during encoding.\"\"\"");
+    if (const auto found = model.managed_class_ids.find(&value); found != model.managed_class_ids.end()) {
+      line("managed_class_id = " + std::to_string(found->second));
+    }
     if (value.magic_field) {
       const auto& magic = *value.magic_field;
       line(field("magic", value.magic_access) + " = " +
@@ -1722,9 +1748,87 @@ class python_emitter {
     indent -= 2;
   }
 
+  // Describe the exact generated owning representation without runtime reflection or business names.
+  std::string managed_shape(const type_name& value) const {
+    if (value.is_digest()) { return "('array', int, " + std::to_string(value.digest_extent) + ")"; }
+    if (value.is_managed_reference()) { return "('token', " + model.names.at(value.arguments.front().resolved_node) + ")"; }
+    if (value.is_optional()) { return "('optional', " + managed_shape(value.arguments.front()) + ")"; }
+    if (value.is_sequence()) { return "('array', " + managed_shape(value.arguments.front()) + ")"; }
+    if (value.is_associative()) { return "('map', " + managed_shape(value.arguments[0]) + ", " + managed_shape(value.arguments[1]) + ")"; }
+    return type(value);
+  }
+
+  // Publish descriptors and a bounded native factory only after every referenced Python type exists.
+  void managed_engine_metadata() {
+    if (!model.managed_engine) { return; }
+    line("_MANAGED_RECORDS = {"); ++indent;
+    for (const auto* node : model.nodes) {
+      if (node->type != object_type::class_type) { continue; }
+      const auto& record = static_cast<const class_node&>(*node);
+      if (!record.parents.empty()) { throw std::invalid_argument{"Python native managed inheritance requires separate qualification"}; }
+      const auto tag = model.managed_class_ids.find(&record);
+      line(model.names.at(node) + ": ManagedRecord(" + (tag == model.managed_class_ids.end() ? "0" : std::to_string(tag->second)) + ", (");
+      ++indent;
+      for (std::size_t index = 0; index < record.parents.size(); ++index) {
+        const auto& base = record.parents[index];
+        line("ManagedField(" + quote(field("base" + std::to_string(index), base.access)) + ", " + model.names.at(base.parent_class) + ", " + (base.managed ? "True" : "False") + "),");
+      }
+      for (const auto& member : record.member_list) {
+        if (tag != model.managed_class_ids.end() && member.display_name == "persistent_id") { continue; }
+        if (member.transient || member.wire_only || member.modifier == member::modifier_type::variant || member.version ||
+            !member.omitted_formats.empty() || !member.created_version.empty() || !member.obsolete_version.empty()) {
+          throw std::invalid_argument{"Python native managed engines require concrete unversioned owning fields without variants, transient or omitted storage"};
+        }
+        auto shape = managed_shape(member.type_name_list.front());
+        if (member.modifier == member::modifier_type::array) {
+          shape = "('array', " + shape + (member.fixed_extent ? ", " + std::to_string(member.fixed_extent) : "") + ")";
+        } else if (member.modifier == member::modifier_type::map) {
+          shape = "('map', " + managed_shape(map_key(member)) + ", " + shape + ")";
+        }
+        const auto occurrences = model.managed_field_names.find(&record);
+        const bool managed = occurrences != model.managed_field_names.end() && occurrences->second.contains(member.name);
+        line("ManagedField(" + quote(field(member.name, member.access)) + ", " + shape + ", " + (managed ? "True" : "False") + "),");
+      }
+      --indent; line(")),");
+    }
+    --indent; line("}");
+    line("_MANAGED_SCHEMA_IDS = {"); ++indent;
+    std::map<std::string, std::uint64_t> class_tags;
+    for (const auto& [record, identity] : model.managed_class_ids) { class_tags.emplace(record->get_full_name(), identity); }
+    std::string metadata_binding = model.protocols == output_protocols::binary_none ? ":binary_none" : ":binary_integer";
+    for (const auto& [name, identity] : class_tags) { metadata_binding += ":" + name + "=" + std::to_string(identity); }
+    for (const auto& [record, binding] : model.managed_schema_ids) {
+      line(model.names.at(record) + ": " + quote("python.native.v1:" + binding +
+          (model.managed_compact_ids ? ":compact_varint" : ":fixed") + metadata_binding) + ",");
+    }
+    --indent; line("}");
+    open("def managed_schema(root_type, **options)");
+    line("\"\"\"Bind generated native ownership metadata; token codecs alone never create a store.\"\"\"");
+    line("if root_type not in _MANAGED_SCHEMA_IDS: raise ValueError('Root is not an explicitly managed generated class')");
+    line("return ManagedSchema(root_type, Protocol." + std::string{model.protocols == output_protocols::binary_none ? "BINARY_NONE" : "BINARY_INTEGER"} +
+        ", _MANAGED_SCHEMA_IDS[root_type], _MANAGED_RECORDS, reference_type=ManagedReference, id_bytes=" + std::to_string(model.managed_id_bytes) + ", **options)");
+    --indent;
+  }
+
 public:
   // Bind the validated schema for one output module.
   explicit python_emitter(const schema& value) : model{value}, xml_contract{value.xml, value.xml_inventories} {
+    if (!model.managed_class_ids.empty()) {
+      output += managed_reference_runtime;
+      for (const auto* node : model.nodes) {
+        if (model.names.at(node) == "ManagedReference") {
+          throw std::invalid_argument{"Python managed record collides with ManagedReference"};
+        }
+        if (node->type == object_type::class_type) {
+          const auto& record = static_cast<const class_node&>(*node);
+          for (const auto& item : record.member_list) {
+            if (field(item.name, item.access) == "managed_class_id") {
+              throw std::invalid_argument{"Python managed record collides with managed_class_id"};
+            }
+          }
+        }
+      }
+    }
     if (model.xml.enabled) {
       for (const auto* node : model.nodes) {
         if (node->type != object_type::class_type) { continue; }
@@ -1743,6 +1847,19 @@ public:
   }
   // Generate a complete module with pre-encoded field keys and typed models.
   std::string generate() {
+    if (model.managed_engine) {
+      for (const auto& [node, name] : model.names) {
+        static_cast<void>(node);
+        if (name.starts_with("_MANAGED_") || name.starts_with("_mg_") || name.starts_with("_Managed") || name == "managed_schema" ||
+            name == "ManagedSchema" || name == "ManagedStore" || name == "ManagedField" || name == "ManagedRecord" ||
+            name == "ManagedToken" || name == "ManagedSnapshot" || name == "ManagedProposal" || name == "ManagedReceipt" ||
+            name == "ManagedError" || name == "ManagedConflict" || name == "ManagedIndeterminate" || name == "ManagedEdit" ||
+            name == "ManagedAuthority" || name == "ManagedClient") {
+          throw std::invalid_argument{"Python generated declaration collides with native managed runtime: " + name};
+        }
+      }
+      output += managed_engine_runtime;
+    }
     behavior::require_unique_free_names(model.nodes, "python", [&](const auto& node) { return snake(model.names.at(&node)); });
     output += compression_runtime;
     if (model.protocols == output_protocols::binary_none) {
@@ -1883,6 +2000,7 @@ public:
         line("_XML_TYPES[" + quote(root.namespace_uri.empty() ? root.local : "{" + root.namespace_uri + "}" + root.local) + "] = " + model.names.at(node));
       }
     }
+    managed_engine_metadata();
     for (const auto* package : model.packages) {
       output += package_codegen::python(*package, model.names.at(package),
           [&](const auto& selected) { return type(selected); },
