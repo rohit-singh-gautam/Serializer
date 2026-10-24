@@ -1,12 +1,14 @@
 # Pending requirements across Serializer
 
-This list contains **33 unfinished requirements: 29 active and four deferred**.
-Completed items and fully completed sections have moved to the
-[implemented feature catalog](project/completed_requirements.md), with all
-**824 IDs and verification records** retained. The [feature list](project/feature_status.md)
+This list tracks **34 requirements: one completed and 33 unfinished
+(29 active and four deferred)**. Keep completed items in this file and mark their
+state `[x]`; do not delete their rows or sections when they are completed.
+The [implemented feature catalog](project/completed_requirements.md) retains
+**824 IDs and verification records**, including historical items archived before
+this tracking policy. The [feature list](project/feature_status.md)
 summarizes supported capabilities. The three closed ownership decisions live in
 [application responsibilities](project/application_responsibilities.md#disposed-requirements),
-not in this unfinished-work inventory.
+not in this requirement inventory.
 
 Deferred requirements are `MG01`, `PG01`, `PG02` and native `MIG03`, linked to
 their issues below. Deferral means unimplemented and outside the active batch.
@@ -14,6 +16,16 @@ Native storage support is active `DB02`; third-party database engines and sink
 adapters are outside scope. Dependencies may refer to completed IDs in the
 feature catalog. Keep partial parent requirements open even when a narrower
 implementation or qualification record is complete.
+
+## First priority: C++23 minimum
+
+C++23 is mandatory for Serializer itself, including standalone use. The migration
+is complete within the recorded Windows/Linux toolchain and installed-consumer
+scope; new schema-index and database implementation may build on this minimum.
+
+| State | ID | Estimate | Requirement and acceptance gate | Dependencies |
+| --- | --- | --- | --- | --- |
+| [x] | CPP01 | — | **Completed.** Adopt the [C++23 minimum](design/database_storage_requirements.md#c23-minimum-and-one-qualified-dependency-source) for compiler, runtime, managed runtime, generated C++, provider/object targets and installed/exported targets. Synchronize build defaults, consumer guidance and toolchain checks; qualify supported Windows/Linux builds and installed consumers. Preserve schemas, public APIs and wire formats; no C++20 fallback is required. [Qualification and platform limits](verification/verification-cpp23-2026-10-23.md); [catalog record](project/completed_requirements.md#cpp01). | — |
 
 ## Managed references and migration
 

@@ -11,7 +11,9 @@ or establish qualification on every platform. New records link their executed
 implementation or qualification evidence. A completed design or qualification gate
 is cataloged as such; it does not by itself claim a runtime feature.
 
-Only unfinished requirements belong in [the pending list](../pending.md).
+The [pending list](../pending.md) retains its tracked requirements after completion,
+marked `[x]` and linked to their evidence. Historical records archived before this
+policy remain here.
 The three closed application/maintainer ownership decisions remain in their
 separate reference; they are not implemented product features. Historical work-unit
 estimates are omitted here because this is a feature/evidence catalog.

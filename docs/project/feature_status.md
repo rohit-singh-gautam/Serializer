@@ -2,8 +2,9 @@
 
 The [implemented requirement catalog](completed_requirements.md) records **824
 completed capability and qualification IDs**, with their backend/profile limits
-and verification links. Completed sections have moved there from the pending
-list. [Pending work](../pending.md) contains only **33 unfinished requirements**;
+and verification links. Historical completed sections were archived there.
+The [requirement tracker](../pending.md) retains **34 requirements: one completed
+and 33 unfinished**, marking completed items `[x]` in place;
 closed [ownership decisions](application_responsibilities.md#disposed-requirements)
 are recorded separately. Original records retain their dated qualification scope.
 
