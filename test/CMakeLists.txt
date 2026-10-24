@@ -2449,6 +2449,13 @@ if(Python3_Interpreter_FOUND)
         --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/java_stream_output"
         --javac "${Java_JAVAC_EXECUTABLE}" --java "${Java_JAVA_EXECUTABLE}")
   endif()
+  if(WIN32 AND SERIALIZER_WITH_XML)
+    add_executable(opc_signature_probe opc_signature_probe.cpp)
+    target_link_libraries(opc_signature_probe PRIVATE Serializer::runtime)
+    add_test(NAME opc_signatures
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/opc_signatures_test.py"
+        --probe "$<TARGET_FILE:opc_signature_probe>" --build "${CMAKE_CURRENT_BINARY_DIR}/opc_signatures")
+  endif()
 endif()
 
 if(WIN32)

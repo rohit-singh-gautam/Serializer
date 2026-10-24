@@ -106,6 +106,8 @@ add_library(serializer_runtime
   include/rohit/xml_choice_contract.hpp
   src/package.cpp
   src/package_opc.cpp
+  src/opc_signatures.cpp
+  include/rohit/opc_signatures.hpp
   src/core_properties.cpp
   include/rohit/core_properties.hpp
   include/rohit/package.hpp
@@ -134,6 +136,9 @@ add_library(serializer_runtime
 # Keep installed headers ahead of older copies supplied by dependency include paths.
 set_target_properties(serializer_runtime PROPERTIES EXPORT_NAME runtime EXPORT_NO_SYSTEM TRUE)
 add_library(Serializer::runtime ALIAS serializer_runtime)
+if(WIN32)
+  target_link_libraries(serializer_runtime PRIVATE ole32 oleaut32 crypt32 ncrypt shlwapi)
+endif()
 
 # Retain the original compiler-library API and target for existing compiler clients.
 add_library(serializer_lib
