@@ -68,7 +68,7 @@ JSON: `out/build/managed-completion-audit`. Earlier merged native controls pass
 
 The two managed sections retain **eight unfinished parents**. MR03 still needs
 other-output/reference-selection work; MIG03 needs broader native schema/journal
-migration; MG01 still requires eight further native engines; MG09 retains its
+migration; MG01 still requires six further native engines; MG09 retains its
 broader method contracts. MG10 remains open because compact byte blocks and
 notification policies do not implement the proposed normalized entity-version
 history records. PG01/PG02/DB02 retain their explicitly authorized database

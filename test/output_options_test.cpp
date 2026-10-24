@@ -764,3 +764,19 @@ TEST(output_options, java_native_engine_selector_is_explicit_and_strict) {
   EXPECT_TRUE(writer::read_output_options(fixture.write("[java]\nmanaged_engine=true\n")).java.managed_engine);
   EXPECT_THROW(writer::read_output_options(fixture.write("[java]\nmanaged_engine=maybe\n")), std::invalid_argument);
 }
+
+// Matching JavaScript and declaration SDKs require their own explicit managed selections.
+TEST(output_options, javascript_typescript_managed_selectors_are_independent_and_strict) {
+  configuration_file fixture;
+  const auto options = writer::read_output_options(fixture.write(
+      "[js]\nmanaged_token_codecs=true\nmanaged_engine=false\n"
+      "[typescript]\nmanaged_token_codecs=false\nmanaged_engine=true\n"));
+  EXPECT_TRUE(options.js.managed_token_codecs);
+  EXPECT_FALSE(options.js.managed_engine);
+  EXPECT_FALSE(options.typescript_managed_token_codecs);
+  EXPECT_TRUE(options.typescript_managed_engine);
+  EXPECT_FALSE(writer::output_options{}.js.managed_engine);
+  EXPECT_FALSE(writer::output_options{}.typescript_managed_engine);
+  EXPECT_THROW(writer::read_output_options(fixture.write("[js]\nmanaged_engine=invalid\n")), std::invalid_argument);
+  EXPECT_THROW(writer::read_output_options(fixture.write("[typescript]\nmanaged_token_codecs=invalid\n")), std::invalid_argument);
+}

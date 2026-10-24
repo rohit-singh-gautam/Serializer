@@ -120,11 +120,11 @@ struct portable_options {
   std::map<std::string, class_auto_size_options> class_auto_sizes{};
   xml_options xml{};
   output_protocols protocols{output_protocols::all};
-  bool managed_token_codecs{false}; // Python codec records only; no native managed engine.
+  bool managed_token_codecs{false}; // Explicit native managed wire records without a state engine.
   std::string managed_id_type{"uint32"};
   persistent_id_encoding managed_id_encoding{persistent_id_encoding::compact_varint};
   bool managed_separate_values{false};
-  bool managed_engine{false}; // Python native owning snapshot profile, requiring generated metadata.
+  bool managed_engine{false}; // Native owning snapshot profile, requiring generated metadata.
 };
 
 struct output_options {
@@ -145,6 +145,8 @@ struct output_options {
 
   bool python_managed_token_codecs{false};
   bool python_managed_engine{false};
+  bool typescript_managed_token_codecs{false};
+  bool typescript_managed_engine{false};
 };
 
 // Apply a common native codec selection to all output backends; XML remains independent.

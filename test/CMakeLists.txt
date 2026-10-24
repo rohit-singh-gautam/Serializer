@@ -73,6 +73,7 @@ add_executable(core_serializer_test
   output_options_test.cpp
   java_writer_test.cpp
   portable_writer_test.cpp
+  javascript_managed_writer_test.cpp
 )
 serializer_generate(TARGET core_serializer_test
   SCHEMAS ${schemas}
@@ -799,7 +800,25 @@ if(Python3_Interpreter_FOUND)
   find_program(serializer_compression_node NAMES node)
   find_file(serializer_compression_typescript_cli NAMES tsc
     PATHS "${CMAKE_SOURCE_DIR}/editors/vscode/node_modules/typescript/bin" NO_DEFAULT_PATH)
+  if(serializer_compression_node)
+    add_test(NAME javascript_managed_engine_runtime_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_managed_engine_test.py"
+        --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_managed_engine_runtime"
+        --node "${serializer_compression_node}")
+    set_tests_properties(javascript_managed_engine_runtime_test PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
+  endif()
   if(serializer_compression_node AND serializer_compression_typescript_cli)
+    add_test(NAME javascript_managed_engine_generated_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_managed_engine_generated_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_managed_engine_generated"
+        --node "${serializer_compression_node}" --tsc "${serializer_compression_typescript_cli}")
+    set_tests_properties(javascript_managed_engine_generated_test PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
+    add_test(NAME managed_token_javascript_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/managed_token_javascript_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/managed_token_javascript"
+        --node "${serializer_compression_node}" --tsc "${serializer_compression_typescript_cli}"
+        ${managed_token_exchange_arguments})
+    set_tests_properties(managed_token_javascript_test PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
     add_test(NAME serializer_compression_javascript
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_compression_test.py"
         --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_compression"

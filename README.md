@@ -54,6 +54,12 @@ managed additions. Both editor packages are **2.0.21**.
 [MG07 and MG08 acceptance](docs/verification/verification-managed-completions-2026-10-24.md)
 closes allocator-aware payload hooks and the supported managed representation contract.
 
+JavaScript and TypeScript have explicit [native owning SDK profiles](docs/managed/javascript_native_runtime.md).
+Pair the ESM module with strict declarations for immutable byte snapshots, callback
+transactions, typed identities, bounded linear history and exact authority/client
+receipts. The [actual SDK replay](docs/verification/verification-javascript-managed-runtime-2026-10-24.md)
+records Windows journals and the limits of Node-free memory checks.
+
 Java has independent [token-only and native engine profiles](docs/managed/java_native_runtime.md).
 Select `java.managed_engine = true` for finite concrete owning graphs with detached
 immutable reads, transactions, identities, bounded history/journals and exact

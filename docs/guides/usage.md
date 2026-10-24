@@ -39,8 +39,12 @@ scalar indexes once, then call `registry().find_by()` or `find_unique()` with th
 generated descriptor. Uniqueness is validated before accepted state changes.
 Use `native_database<Root>` explicitly for bounded whole-root durable operations;
 its immutable `read()` pins do not perform hidden I/O or lazy loading.
-[Python and Java token codecs](../managed/token_codecs.md) are independently
-opt-in and provide wire exchange. The separate `python.managed_engine = true`
+[Python/Java/JavaScript/TypeScript token codecs](../managed/token_codecs.md) are independently
+opt-in and provide wire exchange. For native JavaScript/TypeScript state, pair the `js.managed_engine = true`
+ESM implementation with `typescript.managed_engine = true` declarations and
+follow the [supported SDK profile](../managed/javascript_native_runtime.md).
+Native Windows journals require local-volume and same-host writer preconditions.
+The separate `python.managed_engine = true`
 profile emits [native Python managed metadata and runtime](../managed/python_native_runtime.md)
 for concrete owning records. The selected Windows generated SDK profile passes
 the [dated language replay](../verification/verification-managed-languages-2026-10-24.md);

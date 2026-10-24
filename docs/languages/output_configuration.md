@@ -48,6 +48,8 @@ and the [CMake variants helper](../guides/cmake_integration.md#generate-several-
 | --- | --- | --- |
 | `[output] language` | `cpp` | Select supported backends listed above, individually or as a comma-separated list. |
 | `[output] include_mode` | `separate` for C++; `inline` for native backends | `separate` emits C++ dependency headers or supported C/Rust/Python/Swift/Kotlin source bundles; `inline` keeps the combined entry output. See [layouts](../guides/compiler_backend_updates.md#native-separate-sources). |
+| `[js] managed_token_codecs` / `[typescript] managed_token_codecs` | `false` | Emit native managed wire records or matching typed declarations; no state engine. See [wire scope](../managed/token_codecs.md#javascript-and-typescript-wire-record-profiles). |
+| `[js] managed_engine` / `[typescript] managed_engine` | `false` | Emit paired native ESM/strict declaration [owning managed SDKs](../managed/javascript_native_runtime.md); implies token codecs. |
 | `[python] managed_token_codecs` | `false` | Emit concrete Python managed wire records and checked typed-token envelopes, without a native managed engine; see [scope and ID policies](../managed/token_codecs.md). |
 | `[python] managed_engine` | `false` | Emit the opt-in native managed engine and generated schema descriptors; includes typed-token codecs. See the [qualified profile and restrictions](../managed/python_native_runtime.md). |
 | `[output] protocols` | `all` | Select `all` native codecs or `binary_none` for every selected backend; XML remains independently opt-in. |

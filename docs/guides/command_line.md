@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **2.31.0**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **2.34.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -13,6 +13,8 @@ version; requests for newer releases or a different major version are rejected.
 Use `EXACT` to require a specific release.
 
 For the current package, request `find_package(Serializer 2.0 CONFIG REQUIRED)`;
+require `2.34` for [native managed profiles](../managed/language_bindings.md) and
+[local scalar indexes](../schema/indexes.md);
 require `2.31` for [named managed generic self binding](../schema/named_managed_references.md);
 require `2.23` for generic `serialize_as` results, native branch merging and generated
 C++ Protobuf fixed arrays;
@@ -272,6 +274,8 @@ values, and repeated non-repeatable options are errors.
 | `--java.output_buffer_reuse` | | `true` or `false` (default); add [Java caller-owned output windows](../languages/java.md#caller-owned-output-windows) |
 | `--java.nio_output_buffer_reuse` | | `true` or `false` (default); independently add [heap/direct Java NIO windows](../languages/java.md#caller-owned-nio-buffers) |
 | `--java.stream_output` | | `true` or `false` (default); add [synchronous native stream/channel output](compiler_backend_updates.md#java-streams-channels-and-packed-buffers) |
+| `--python.managed_token_codecs`, `--java.managed_token_codecs`, `--js.managed_token_codecs`, `--typescript.managed_token_codecs` | | `true` or `false` (default); select [wire-record profiles](../managed/token_codecs.md), independently of state engines |
+| `--python.managed_engine`, `--java.managed_engine`, `--js.managed_engine`, `--typescript.managed_engine` | | `true` or `false` (default); select the corresponding [native owning profile](../managed/language_bindings.md), including its token codecs |
 | `--js.naming`, `--go.naming`, `--csharp.naming` | | `profile` or `preserve` |
 | `--go.package` | | Go package name, default `generated` |
 | `--csharp.namespace` | | C# namespace, default `SerializerGenerated`; empty clears it |

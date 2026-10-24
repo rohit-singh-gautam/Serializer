@@ -120,7 +120,7 @@ TEST(managed_lowering, python_token_codecs_require_explicit_selection) {
   EXPECT_NE(generated.find("class ManagedReference:"), std::string::npos);
   EXPECT_NE(generated.find("managed_class_id = 101"), std::string::npos);
   EXPECT_NE(generated.find("ManagedReference._read(input, 101, 4, True)"), std::string::npos);
-  EXPECT_THROW(writer::portable::generate(source, "js", "Schema", options), std::invalid_argument);
+  EXPECT_THROW(writer::portable::generate(source, "go", "Schema", options), std::invalid_argument);
   // Lowering never modifies declarations reused by another backend.
   EXPECT_TRUE(static_cast<const serializer::class_node&>(*source.front()).supports_managed());
 }
@@ -159,5 +159,5 @@ TEST(managed_lowering, python_native_engine_emits_exact_descriptors_and_rejects_
                          "class item managed { public transient uint32 cache; }"}) {
     EXPECT_THROW(writer::portable::generate(parse("serializer version 1.20.0; " + std::string{text}), "python", "Schema", options), std::invalid_argument) << text;
   }
-  EXPECT_THROW(writer::portable::generate(source, "js", "Schema", options), std::invalid_argument);
+  EXPECT_THROW(writer::portable::generate(source, "go", "Schema", options), std::invalid_argument);
 }

@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer's schema compiler and generated runtimes into applications. Use for schemas and release migration, CMake generation, native codecs, caller-owned Java array/NIO output windows, streams/channels, fixed-scalar Java packed buffers, C++ bit fields, native dependency layouts, pinned OPC signatures, Python/Java managed-token wire records, native Python/Java managed profiles, local schema indexes, native durable storage, portable behavior, owner-bound defaults and bindings, callable availability, arrays/generics, borrowed/shared/weak references and typed field addresses, XML/XSD, schema-local ordered XML/package profiles and identity contracts, restricted HTML, document profiles, bounded compression, ZIP/OPC packages, rebuildable caches, or C++ managed identity, transactions, registries, indexes, history, journals, collaboration and persistence. Review the installed version's complete supported feature set and apply every capability relevant to the user's contract; preserve APIs and wire identities, and qualify unsupported combinations."
+description: "Integrate Serializer's schema compiler and generated runtimes into applications. Use for schemas and release migration, CMake generation, native codecs, caller-owned Java array/NIO output windows, streams/channels, fixed-scalar Java packed buffers, C++ bit fields, native dependency layouts, pinned OPC signatures, managed-token wire records, native Python/Java/JavaScript/TypeScript managed profiles, local schema indexes, native durable storage, portable behavior, owner-bound defaults and bindings, callable availability, arrays/generics, borrowed/shared/weak references and typed field addresses, XML/XSD, schema-local ordered XML/package profiles and identity contracts, restricted HTML, document profiles, bounded compression, ZIP/OPC packages, rebuildable caches, or C++ managed identity, transactions, registries, indexes, history, journals, collaboration and persistence. Review the installed version's complete supported feature set and apply every capability relevant to the user's contract; preserve APIs and wire identities, and qualify unsupported combinations."
 ---
 
 # Serializer Integration
@@ -10,6 +10,15 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 The [MG07/MG08 acceptance record](../../../docs/verification/verification-managed-completions-2026-10-24.md)
 qualifies the supported resource-domain and representation contracts; retain
 the explicit unsupported-profile and unexecuted-platform boundaries.
+
+For native JavaScript/TypeScript managed state, select `js.managed_engine = true`
+and the matching `typescript.managed_engine = true` declaration profile. Pair
+`.mjs`/`.d.mts` output with the same identity and codec settings. Use
+`managedSchema(Root)` and synchronous callbacks returning `undefined`; keep
+read copies separate from opaque pins. Follow the [native SDK contract](../../../docs/managed/javascript_native_runtime.md)
+for optional post-ID references, nominal target typing, exact receipts and
+Windows local-volume journal leases. Node-free VM tests do not qualify a browser
+or other-host native durability. Retain the documented unsupported profiles.
 
 For native Java managed state, explicitly select `java.managed_engine = true`
 and bind `managedSchema(Root.class)` to `ManagedStore`. Follow the

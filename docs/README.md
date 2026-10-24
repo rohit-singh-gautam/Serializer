@@ -38,7 +38,7 @@ The [feature-status reference](project/feature_status.md) distinguishes implemen
 behavior from proposals. Unfinished requirements are consolidated in
 [the central backlog](pending.md); completed IDs and their evidence are in the
 [implemented feature catalog](project/completed_requirements.md). Design documents
-retain rationale and contracts. C++ has the full managed runtime; explicit Python and Java native profiles
+retain rationale and contracts. C++ has the full managed runtime; explicit Python, Java and [JavaScript/TypeScript](managed/javascript_native_runtime.md) native profiles
 provide scoped ownership, history, journal and acceptance contracts. Other
 languages retain their documented managed-record exchange boundaries. Managed design documents retain their
 individual implementation boundaries. Design specifications and dated reports

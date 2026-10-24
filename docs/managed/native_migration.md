@@ -8,7 +8,8 @@ across renamed generated types; unsupported formats require an explicit converte
 or rejection. Managed Save/raw-model conversion is a separate operation.
 
 Native managed engines also exist in the qualified
-[Python](python_native_runtime.md) and [Java](java_native_runtime.md) profiles.
+[Python](python_native_runtime.md), [Java](java_native_runtime.md) and
+[JavaScript/TypeScript](javascript_native_runtime.md) profiles.
 Their formats and capabilities do not automatically implement the C++ migration,
 history or collaboration contracts. The remaining ports are active work in
 [MG01](../pending.md#managed-state-and-storage).

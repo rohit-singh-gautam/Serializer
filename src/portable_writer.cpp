@@ -46,6 +46,15 @@ namespace {
 constexpr std::string_view js_runtime =
 #include "js_runtime.inc"
     ;
+constexpr std::string_view javascript_managed_reference_runtime =
+#include "javascript_managed_reference_runtime.inc"
+    ;
+constexpr std::string_view javascript_managed_engine_runtime =
+#include "javascript_managed_engine_runtime.inc"
+    ;
+constexpr std::string_view javascript_managed_engine_declarations =
+#include "javascript_managed_engine_declarations.inc"
+    ;
 constexpr std::string_view js_compression_runtime =
 #include "js_compression_runtime.inc"
     ;
@@ -403,6 +412,7 @@ class emitter {
   std::string go_package_prefix{};
   std::string csharp_package_prefix{};
   std::map<const syntax_node*, std::string> names{};
+  const managed_lowering* managed_model{};
   std::map<std::string, std::size_t> wire_names{};
   std::set<std::string> globals{"ReadPolicy",   "STRICT",   "COMPATIBLE",    "FLEXIBLE",
                                 "Protocol",     "Limits",   "DefaultLimits", "SrlWriter",
@@ -461,6 +471,10 @@ class emitter {
   }
   // Map schema scalar storage to native types.
   std::string type(const rohit::serializer::type_name& value) const {
+    if (value.is_managed_reference()) {
+      return "ManagedReference<" + type(value.arguments.front()) + ", " +
+          (options.managed_id_type == "uint64" ? "bigint" : "number") + ">";
+    }
     if (value.is_optional()) {
       const auto inner = type(value.arguments.front());
       return choose("([] | [" + inner + "])", "*" + inner, "System.ValueTuple<" + inner + ">?");
@@ -519,6 +533,9 @@ class emitter {
   }
   // Construct a fresh schema default.
   std::string initial(const rohit::serializer::type_name& value) const {
+    if (value.is_managed_reference()) {
+      return std::string{"new ManagedReference(0n, 0n, 0n, "} + (options.managed_id_type == "uint64" ? "0n)" : "0)");
+    }
     if (value.is_optional()) { return choose("[]", "nil", "null"); }
     if (value.is_sequence()) { return choose("[]", "make(" + type(value) + ", 0)", "new " + type(value) + "()"); }
     if (value.is_associative()) { return choose("new Map()", "make(" + type(value) + ")", "new " + type(value) + "()"); }
@@ -797,6 +814,7 @@ class emitter {
       }
       std::set<std::string> fields{"encode", "decode", "write", "read",        "Encode",
                                    "Decode", "Read",   "Write", names.at(node)};
+      if (managed_model) { fields.insert("__srlManagedBrand"); }
       std::set<std::string> xml_methods{};
       if (options.xml.enabled) {
         if (language == target::go) {
@@ -951,6 +969,7 @@ class emitter {
   // Emit a scalar read expression, optionally merging an ordinary nested field.
   std::string read_value(const rohit::serializer::type_name& value, bool collection,
                          const std::string& previous = {}) const {
+    if (value.is_managed_reference()) { return "srlManagedRead(input, " + managed_arguments(value) + ")"; }
     if (value.is_optional() || value.is_sequence() || value.is_associative()) {
       const auto suffix = value.is_optional() ? "Optional" : value.is_sequence() ? "Array" : "Map";
       const auto& inner = value.arguments.back();
@@ -1008,6 +1027,9 @@ class emitter {
   // Write a scalar directly with explicit wire width and enum context.
   void write_value(const rohit::serializer::type_name& value, const std::string& expression,
                    bool collection) {
+    if (value.is_managed_reference()) {
+      statement("srlManagedWrite(output, " + expression + ", " + managed_arguments(value) + ")"); return;
+    }
     if (value.is_optional()) {
       const auto present = choose(expression + ".length === 1", expression + " != nil", expression + ".HasValue");
       if (language == target::js) {
@@ -1361,7 +1383,9 @@ class emitter {
                                                             : expression;
         const auto method = value.compact == compact_encoding::prefix ? "compactPrefix"
                                                                      : "compactVarint";
-        statement("output." + std::string{method} + (value.compact_strict ? "(" : "Lenient(") +
+        const bool managed_identity = managed_model && value.display_name == "persistent_id" &&
+            value.id == constants::variable_four_byte_max;
+        statement("output." + std::string{method} + ((value.compact_strict || managed_identity) ? "(" : "Lenient(") +
                   converted + ", " + std::to_string(width(item.name)) + ")");
       } else {
         write_value(item, expression, false);
@@ -2733,6 +2757,15 @@ class emitter {
          " owns its fields; concurrent mutation during encoding is unsupported.");
     open(choose("export class " + identifier, "type " + identifier + " struct",
                 "public sealed " + std::string(value.functions.empty() ? "" : "partial ") + "class " + identifier));
+    if (managed_model && language == target::typescript) {
+      line("private readonly __srlManagedBrand: void;");
+    }
+    if (managed_model) {
+      if (const auto tag = managed_model->class_ids.find(&value); tag != managed_model->class_ids.end()) {
+        line(language == target::typescript ? "static readonly MANAGED_CLASS_ID: bigint;" :
+            "static get MANAGED_CLASS_ID() { return " + std::to_string(tag->second) + "n; }");
+      }
+    }
     if (value.magic_field && language != target::go) {
       const auto& magic = *value.magic_field;
       const bool visible = value.magic_access == access_type::public_access;
@@ -2973,6 +3006,9 @@ class emitter {
                            "read" + identifier + "(input, New" + identifier + "())",
                            identifier + ".Read(input, new " + identifier + "())"));
     statement("input.finish()");
+    if (language == target::js && managed_model) {
+      statement("srlManagedVisit" + identifier + "(result, null, false)");
+    }
     if (language == target::go) {
       condition("input.err != nil");
       statement("return nil, input.err");
@@ -3066,11 +3102,14 @@ class emitter {
     reference_fields_ = false;
   }
 
+#include "javascript_managed_writer.hpp"
+
 public:
   // Bind immutable generation policy for one compilation unit.
-  emitter(target language, const portable_options& options, std::string_view unit_name)
+  emitter(target language, const portable_options& options, std::string_view unit_name,
+          const managed_lowering* lowered = nullptr)
       : language{language}, options{options}, xml_schema_{options.xml},
-        unit{name(unit_name, true, options.rename_identifiers)} {}
+        unit{name(unit_name, true, options.rename_identifiers)}, managed_model{lowered} {}
   // Validate all declarations before returning complete native source.
   std::string generate(const std::vector<std::unique_ptr<syntax_node>>& values) {
     if (options.xml.enabled) {
@@ -3113,6 +3152,14 @@ public:
         }
       } else if (language == target::csharp) {
         for (const auto identifier : csharp_xml_identifiers) { globals.emplace(identifier); }
+      }
+    }
+    if (managed_model) {
+      for (const auto identifier : {"WeakMap", "WeakSet", "Set", "Reflect", "Symbol", "Promise", "AggregateError",
+          "ArrayBuffer", "SharedArrayBuffer", "ManagedReference", "ManagedError", "ManagedIndeterminate", "ManagedDocument",
+          "ManagedToken", "ManagedOptions", "ManagedSchema", "ManagedSnapshot", "ManagedEdit", "ManagedStore", "ManagedProposal",
+          "ManagedReceipt", "ManagedAuthority", "ManagedClient", "managedSchema", "managedReference", "managedToken"}) {
+        globals.insert(identifier);
       }
     }
     if (language == target::csharp) {
@@ -3266,6 +3313,8 @@ public:
     } else if (language == target::js) {
       source += behavior::preambles(values, "js");
       source += js_runtime;
+      if (managed_model) { source += javascript_managed_reference_runtime; }
+      if (options.managed_engine) { source += javascript_managed_engine_runtime; }
       source += js_compression_support(globals, false);
       if (!packages.empty()) { source += javascript_package_support(globals, false); }
       if (options.xml.enabled) { source += xml_binding::js_runtime(); }
@@ -3284,6 +3333,13 @@ public:
       line("  constructor(maxBytes?: number, maxStringBytes?: number, maxElements?: number, "
            "maxDepth?: number, readPolicy?: number);");
       line("}");
+      if (managed_model) {
+        line("export declare class ManagedReference<T, Id extends number | bigint = number | bigint> {");
+        line("private readonly _target: (value: T) => T; readonly documentHigh: bigint; readonly documentLow: bigint;");
+        line("readonly classId: bigint; readonly objectId: Id; constructor(documentHigh: bigint, documentLow: bigint, classId: bigint, objectId: Id);");
+        line("validate(expectedClassId: bigint, idBytes: 4 | 8): void; }");
+      }
+      if (options.managed_engine) { source += javascript_managed_engine_declarations; }
       source += js_compression_support(globals, true);
       if (!packages.empty()) { source += javascript_package_support(globals, true); }
       if (options.xml.enabled) { source += xml_binding::js_declarations(); }
@@ -3301,6 +3357,7 @@ public:
         object(static_cast<const class_node&>(*node));
       }
     }
+    if (managed_model) { managed_metadata(); }
     if (language == target::js && options.xml.enabled) {
       for (std::size_t index{}; index < xml_inventories_.size(); ++index) {
         const auto& inventory = *xml_inventories_[index];
@@ -3396,11 +3453,15 @@ static std::string generate_impl(const std::vector<std::unique_ptr<syntax_node>>
   validate_bit_field_output(statements, false);
   behavior::require_callable_backend(statements, language);
   if (options.managed_token_codecs || options.managed_engine) {
-    if (language != "python" || options.managed_separate_values || options.xml.enabled || !options.class_comparisons.empty() ||
+    if ((language != "python" && language != "js" && language != "typescript") || options.managed_separate_values || options.xml.enabled || !options.class_comparisons.empty() ||
         !options.class_auto_sizes.empty()) {
-      throw std::invalid_argument{"Managed token codecs currently support Python native codecs without XML or computed helpers"};
+      throw std::invalid_argument{"Managed token codecs require supported native Python/JavaScript/TypeScript outputs without separate values, XML or computed helpers"};
     }
     managed_lowering lowered{statements, options.managed_id_type, true, options.managed_id_encoding};
+    if (language == "js" || language == "typescript") {
+      return behavior::finalize_mappings(emitter{language == "js" ? target::js : target::typescript,
+          options, unit_name, &lowered}.generate(lowered.statements));
+    }
     native::schema model{lowered.statements};
     model.source_files = source_files;
     model.protocols = options.protocols;

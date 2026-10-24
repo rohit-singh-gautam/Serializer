@@ -89,6 +89,10 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'\0', "python.managed_engine", "true|false", "Opt in to the native Python owning snapshot engine."},
     {'\0', "java.managed_token_codecs", "true|false", "Opt in to Java managed wire records without native engines."},
     {'\0', "java.managed_engine", "true|false", "Opt in to the native Java owning snapshot engine."},
+    {'\0', "js.managed_token_codecs", "true|false", "Opt in to JavaScript managed wire records."},
+    {'\0', "js.managed_engine", "true|false", "Opt in to the native JavaScript owning snapshot engine."},
+    {'\0', "typescript.managed_token_codecs", "true|false", "Opt in to typed managed wire declarations."},
+    {'\0', "typescript.managed_engine", "true|false", "Opt in to strict native managed SDK declarations."},
     {'\0', "swift.output", "Schema.swift", "Swift source output; repeat per configuration.", true},
     {'\0', "kotlin.output", "Schema.kt", "Kotlin source output; repeat per configuration.", true},
     {'\0', "c.output", "schema.h", "C11 source output; repeat per configuration.", true},
@@ -245,7 +249,8 @@ void apply_output_overrides(rohit::serializer::writer::output_options& options,
     }
     options.python_managed_token_codecs = value == "true";
   }
-  for (const auto* key : {"java.managed_token_codecs", "java.managed_engine", "python.managed_engine"}) {
+  for (const auto* key : {"java.managed_token_codecs", "java.managed_engine", "python.managed_engine", "js.managed_token_codecs",
+                          "js.managed_engine", "typescript.managed_token_codecs", "typescript.managed_engine"}) {
     if (!arguments.contains(key)) { continue; }
     const auto& value = cli::first(arguments, key);
     if (value != "true" && value != "false") {
@@ -253,6 +258,10 @@ void apply_output_overrides(rohit::serializer::writer::output_options& options,
     }
     if (std::string_view{key} == "java.managed_token_codecs") { options.java.managed_token_codecs = value == "true"; }
     else if (std::string_view{key} == "java.managed_engine") { options.java.managed_engine = value == "true"; }
+    else if (std::string_view{key} == "js.managed_token_codecs") { options.js.managed_token_codecs = value == "true"; }
+    else if (std::string_view{key} == "js.managed_engine") { options.js.managed_engine = value == "true"; }
+    else if (std::string_view{key} == "typescript.managed_token_codecs") { options.typescript_managed_token_codecs = value == "true"; }
+    else if (std::string_view{key} == "typescript.managed_engine") { options.typescript_managed_engine = value == "true"; }
     else { options.python_managed_engine = value == "true"; }
   }
   if (arguments.contains("managed.id_encoding")) {
@@ -839,6 +848,19 @@ int main(const int argc, const char* argv[]) {
           const auto& language = request.language;
           auto settings = language == "go" ? options.go : language == "csharp" ? options.csharp :
                           language == "kotlin" ? options.kotlin : options.js;
+          if (language != "js" && language != "typescript" && language != "python") {
+            settings.managed_token_codecs = false;
+            settings.managed_engine = false;
+          }
+          if (language == "typescript") {
+            settings.managed_token_codecs = options.typescript_managed_token_codecs;
+            settings.managed_engine = options.typescript_managed_engine;
+          }
+          if (language == "js" || language == "typescript") {
+            settings.managed_id_type = options.cpp.managed_id_type;
+            settings.managed_id_encoding = options.cpp.managed_id_encoding;
+            settings.managed_separate_values = options.cpp.managed_separate_values;
+          }
           if (language == "python") {
             settings.managed_token_codecs = options.python_managed_token_codecs;
             settings.managed_engine = options.python_managed_engine;

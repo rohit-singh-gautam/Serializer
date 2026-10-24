@@ -20,8 +20,8 @@ Status: design collection with an implemented C++ managed interface. Read the
 [implemented C++ API](cpp_runtime.md) for schema generation, typed editors, identity,
 all three transaction forms, snapshot history, synchronous file journals, and exact limitations. Selectors,
 exclusions and built-in authorization policies remain proposals. The explicit
-Python and Java native engine profiles have their own narrower owning/runtime
-contracts and generated SDK qualification; the other eight non-C++ engines
+Python, Java and JavaScript/TypeScript native engine profiles have their own narrower owning/runtime
+contracts and generated SDK qualification; the other six non-C++ engines
 remain work in progress. ID-free payload layouts/codecs are retained in opt-in separate-values mode. The walkthrough schema
 remains a separate illustrative data model.
 
@@ -34,9 +34,10 @@ remains a separate illustrative data model.
 | [Typed state registries](state_registry.md) | Pinned typed lookup, generated field/base paths, custom keys, transactional adoption and optional ordered/hash indexes. |
 | [Schema indexes](../schema/indexes.md) | Local C++ scalar declarations, automatic uniqueness and typed immutable matches. |
 | [Native embedded database](native_database.md) | Bounded whole-root prepare/accept/recover, native identity and exact retry outcomes. |
-| [Python/Java managed token codecs](token_codecs.md) | Opt-in wire records and typed tokens, independently of native managed engines. |
+| [Managed token codec profiles](token_codecs.md) | Opt-in wire records and typed tokens, independently of native managed engines. |
 | [Python native managed runtime](python_native_runtime.md) | Explicit generated owning metadata, immutable snapshots, transactions, bounded history, native journals and authority/client retry contracts. |
 | [Java native managed runtime](java_native_runtime.md) | Explicit generated owning metadata, private byte snapshots, transactions, bounded history, native journals and exact receipts. |
+| [JavaScript/TypeScript native managed SDK](javascript_native_runtime.md) | Paired ESM/strict declarations, nominal typed references, immutable byte pins, callback transactions, bounded linear history, Windows journals and exact receipts. |
 | [Managed implementation checkpoint](../verification/verification-managed-state-2026-10-24.md) | Per-parent execution evidence, remaining local gates and deferred database-dependent work. |
 | [Typed managed entity references](../design/managed_entity_references.md) | C++ typed tokens/class tags, reference-aware import, editable reconciliation, isolated previews and strict collaborative identity requirements/qualification. |
 | [State-framework examples](state_enhancements.md) | Implemented schema behavior and managed-state features, with concrete application examples and backend limits. |

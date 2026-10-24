@@ -1,5 +1,21 @@
 # Migrating to the snake_case Serializer API
 
+## JavaScript and TypeScript managed SDKs in 2.34.0
+
+Ordinary output and existing schema headers remain compatible. Select
+`js.managed_engine = true` and matching `typescript.managed_engine = true`
+declarations explicitly to adopt the [native owning SDK](docs/managed/javascript_native_runtime.md).
+Generate the ESM module and declarations with identical width/encoding/protocol
+settings; uint64 identities use BigInt rather than rounded Number values.
+Token-only selection remains separate from the state engine.
+
+Native journals use a separately versioned JavaScript container and do not load
+C++/Python/Java journals or C++ Save envelopes. Unknown formats reject. This
+profile has no journal migration/rebaseline or automatic history conversion;
+keep source artifacts when a host defines an explicit future conversion. Its
+Windows local-volume writer and resource bounds remain distinct from browser
+memory execution or a process heap ceiling. No schema-language change is needed.
+
 ## XML authoring and declaration import in 2.34.0
 
 Use language `1.24.0` in each file declaring schema-local ordered XML or package

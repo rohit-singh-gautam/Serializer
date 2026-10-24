@@ -1,9 +1,10 @@
 # Managed token codec profiles
 
-Python and Java's explicit token-only profiles pass actual generated SDK and
-C++ exchange qualification, as recorded below. Neither token-only mode supplies a
-native managed engine. The separate [Python](python_native_runtime.md) and
-[Java](java_native_runtime.md) native engine options include these wire codecs
+Python, Java and JavaScript/TypeScript's explicit token-only profiles pass actual
+generated SDK and C++ exchange qualification, as recorded below. Token-only modes
+do not supply native managed engines. The separate [Python](python_native_runtime.md),
+[Java](java_native_runtime.md) and [JavaScript/TypeScript](javascript_native_runtime.md)
+native engine options include these wire codecs
 and have their own supported profiles and qualification.
 
 ## Python wire-record profile
@@ -114,3 +115,34 @@ round-tripped through the matching four C++ exchange targets. Microsoft OpenJDK
 17.0.18 compiled the SDKs with `--release 17 -Xlint:all -Werror`. The independent
 runtime-only probe is superseded by these actual generated SDK results; see the
 [verification record](../verification/verification-managed-languages-2026-10-24.md).
+
+## JavaScript and TypeScript wire-record profiles
+
+Select `js.managed_token_codecs = true` and the matching
+`typescript.managed_token_codecs = true` declarations explicitly, through CLI
+flags or the respective INI sections. Both default to false. Generate paired
+`model.mjs`/`model.d.mts` outputs with the same `managed.id_type` and
+`managed.id_encoding`; engine selection is independent and implies token codecs.
+
+Managed records retain `persistentId`. Immutable `ManagedReference<T, Id>`
+envelopes carry `documentHigh`, `documentLow`, `classId` and `objectId`; eligible
+classes expose `MANAGED_CLASS_ID`. Document halves and class tags are BigInts.
+Object IDs use exact uint32 Numbers or uint64 BigInts. Optional absence/presence
+uses the ordinary empty/single-element array representation.
+
+All four native codecs retain existing C++ framing. Only the object ID uses
+compact encoding; scope/class metadata remains fixed-width uint64 in binary.
+Encoding validates native types and ranges before scalar coercion. Decoding
+requires all keyed envelope fields exactly once and rejects unknown metadata,
+even under flexible ordinary JSON policies. Frozen exact reference instances
+prevent subtype validator replacement. TypeScript nominal brands distinguish
+named targets even when their fields are identical. Decoding still does not
+establish target liveness, document membership, ownership or permission.
+
+The [actual SDK replay](../verification/verification-javascript-managed-runtime-2026-10-24.md)
+passes **5,309 token checks** in four width/encoding profiles, strict TypeScript
+consumers, four independent C++ profiles and 64 exchanged messages. Token-only
+artifacts do not contain `ManagedStore`. Their finite public owning profile
+retains explicit inheritance/generic/behavior/cache/index/variant/XML/separate
+storage restrictions; the [native SDK](javascript_native_runtime.md) has its own
+history, concurrency and native-journal qualification.

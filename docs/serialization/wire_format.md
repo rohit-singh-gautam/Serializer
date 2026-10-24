@@ -8,8 +8,9 @@ Import never overwrites different existing source or infers identity renames.
 
 Compiler/runtime **2.34.0** keeps existing payload protocols unchanged. Language
 **1.24.0** local index declarations add validation and derived access paths without
-new payload fields or IDs. Opt-in [Python managed token codecs](../managed/token_codecs.md)
+new payload fields or IDs. Opt-in [Python, Java, JavaScript and TypeScript managed token codecs](../managed/token_codecs.md)
 use the existing exact C++ managed envelope and configured object-ID encoding.
+Token exchange does not establish native engine journal or Save interoperability.
 The [native database log](../managed/native_database.md) is a separately versioned
 checksummed storage container around native managed save envelopes; it is not a
 new application codec or an automatic conversion of existing journal files.

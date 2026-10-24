@@ -6,8 +6,11 @@ implemented. Python now has a native engine runtime and generated descriptor
 integration: 25 Windows runtime tests and 281 actual generated SDK checks pass
 within its documented supported profile. The [native Java engine](java_native_runtime.md)
 passes 188 standalone checks, 528 actual generated SDK checks, six process-crash
-boundaries and writer exclusion including hard-link aliases. Native engines for
-JavaScript, TypeScript, Go, C#, Rust, Swift, Kotlin and C remain unimplemented.
+boundaries and writer exclusion including hard-link aliases. The paired
+[JavaScript/TypeScript native SDK](javascript_native_runtime.md) passes 384
+actual generated runtime checks, 96 strict TypeScript rejection controls and
+native Windows journal/crash checks. Native engines for Go, C#, Rust, Swift,
+Kotlin and C remain unimplemented.
 These remaining engines are required separately from portable token codecs.
 
 Current C++ representation: managed schema classes carry `persistent_id` directly
@@ -26,8 +29,9 @@ storage policies are supported. Other-language generation rejects managed
 annotations by default. The explicit [Python native engine profile](python_native_runtime.md)
 adds runtime ownership, immutable reads, transactions, identities, linear history,
 journal recovery and authority/client acceptance. Its qualified generated profile
-has explicit restrictions. Explicit [Python and Java token codec modes](token_codecs.md)
-emit wire records without activating those native engines; both modes pass
+has explicit restrictions. Java and JavaScript/TypeScript owning profiles have
+their own boundaries. Explicit [managed token codec modes](token_codecs.md)
+emit wire records without activating their native engines; these modes pass
 generated SDK and C++ exchange qualification.
 The broader sketches below are not the exact C++ API or output. See
 [state enhancements](state_enhancements.md), the [design index](README.md) and
@@ -37,9 +41,9 @@ The broader sketches below are not the exact C++ API or output. See
 | --- | --- | --- |
 | Ordinary models/codecs and payload revision metadata | Implemented | Implemented within each backend's documented type support |
 | Schema method declarations/native blocks/portable expressions | Implemented | Selected language code and the supported portable subset; see [state enhancements](state_enhancements.md) |
-| Managed editors/history/journal/collaboration/runtime updates | Implemented | Qualified restricted Python engine with callback edits, linear history, journal and authority/client; typed generated editors and other native engines remain separate work |
-| Managed public nonvirtual multiple inheritance | Generated checked base editors and identities | Python native engine rejects inheritance; token-only records have their documented scope |
-| Typed managed-reference envelopes | Checked native token codecs and registry resolution | Explicit Python and Java wire-record modes qualified; other outputs reject |
+| Managed editors/history/journal/collaboration/runtime updates | Implemented | Qualified restricted Python, Java and JavaScript/TypeScript engines with callback edits, linear history, journals and authority/client; richer editors/history and six other native engines remain separate work |
+| Managed public nonvirtual multiple inheritance | Generated checked base editors and identities | Qualified non-C++ native profiles reject inheritance; token-only records have their documented scope |
+| Typed managed-reference envelopes | Checked native token codecs and registry resolution | Explicit Python/Java/JavaScript/TypeScript wire-record modes qualified; other outputs reject |
 
 Functions and codecs alone do not supply transaction ownership, immutable pins,
 identity allocation, journal recovery or collaboration conflict semantics. Each
