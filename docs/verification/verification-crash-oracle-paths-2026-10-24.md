@@ -35,3 +35,25 @@ README and the integration skill were reviewed. Public usage and production
 behavior did not change, so their instructions and release versions are unchanged.
 This record does not claim power-loss durability or qualify Windows-mounted WSL
 appended-journal discard behavior.
+
+## Native Linux executable/report separation
+
+The full native Linux CTest run exposes a separate launcher-path collision:
+all eight crash helpers have no executable suffix, while their registered report
+directories use the same path. Python fails `mkdir` with `FileExistsError` before
+launching the helper. Windows' `.exe` suffix avoids that collision.
+
+The registered CMake report directories now end in `_oracle`, leaving helper
+target names, runtime code and protocol behavior unchanged. All eight unchanged
+frozen GCC helpers/oracles replay successfully with distinct native report paths:
+**1,896 semantic checks, 696 scenarios and 3,768 fresh processes**, including
+appended and sidecar modes. This is an executed failure/replay, not an inferred
+storage success from the initial launcher failure.
+
+`linux-crash-replays.json` records every actual command, exit code, elapsed time
+and log hash beneath ignored `out/qualification-2026-10-24/`; its SHA-256 is
+`291ce227828c423181cf1401d1145c34329a43e7613e29e64d2a84e708de82c8`.
+The original serial-suite failure remains in `linux-build-test-link-path.log`.
+Per-profile reports and useful native builds are retained on the exclusively
+owned native temporary filesystem. The final patched CMake replay uses the
+new report-directory registration.
