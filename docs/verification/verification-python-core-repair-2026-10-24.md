@@ -79,7 +79,7 @@ its independent output-oracle SHA-256 is
 `dd0f06ed7cdc36643be1cd554b660d691569392565d1646bc9cabefe34d1908b`.
 
 Native Linux repaired-compiler results and current Python measurement/parity
-supplements are recorded in the final release qualification record. Core XSD
+supplements are recorded in the [final release qualification record](verification-qualification-distribution-2026-10-24.md). Core XSD
 admission does not validate geometry, application references, required vocabulary
 understanding or arbitrary package/domain rules. Other pending XML/package
 parents remain unchanged. Both editor packages remain compatible at 2.0.19;

@@ -114,6 +114,9 @@ nil/presence, maps, variants, mixed, identity, inheritance and lifecycle contrac
 from silently entering an unsupported tree path. Existing namespace-token
 behavior is unchanged. Native fields, APIs and JSON/binary identities stay
 unchanged; see the [migration notes](../../../migration.md#python-core-xml-routing-repair-in-2331).
+Consult the [current platform and SDK record](../../../docs/verification/verification-qualification-distribution-2026-10-24.md)
+before relying on a host/provider combination; strict generated-C failures and
+diagnostic SDK subsets retain their explicit scope.
 For editor qualification, use the [current execution record](../../../docs/verification/verification-editor-hosts-2026-10-24.md).
 Editor 2.0.19 maps marked generated declarations even without an optional VS Code
 language grammar. Open a schema, use a workspace containing schema sources, or

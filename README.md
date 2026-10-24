@@ -278,6 +278,9 @@ Release **2.33.1** backports the established Python Core owning-tree routing
 repair from main. Regenerate affected XML codecs; complete-graph checks keep
 token-only contracts on their required path. Native APIs, schema versions and
 JSON/binary identities are unchanged. See the [migration notes](migration.md#python-core-xml-routing-repair-in-2331).
+The [current qualification record](docs/verification/verification-qualification-distribution-2026-10-24.md)
+separates four-toolchain builds, provider and SDK results, current patch replays,
+measurements and outstanding bugs.
 
 Release **2.21.0** adds [C++ OPC core-property adapters](docs/serialization/core_properties.md),
 [complete-candidate managed authorization](docs/managed/authorization.md), explicit

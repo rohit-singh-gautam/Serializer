@@ -847,13 +847,15 @@ partial-failure behavior.
 Link `Serializer::runtime` even when using pre-generated headers.
 
 The examples below describe the current source API. The
-[latest four-toolchain verification](../verification/verification-toolchains-2026-10-07.md) records
-full default C++ builds and tests on Windows x64 (MSVC and clang-cl) and Ubuntu
-WSL2 x64 (GCC and Clang), using Release with a C++20 baseline and managed records,
-SIMD, and all compression backends enabled. See the
-[earlier verification record](../verification/verification-2026-09-17.md) for its generated fixtures,
-examples, and configurations. Documentation snippets are not all separate executable
-tests. [Qualification](../../qualification/README.md) describes how to reproduce and
+[current qualification record](../verification/verification-qualification-distribution-2026-10-24.md)
+records Release C++23 builds on Windows x64 (MSVC and clang-cl) and Ubuntu WSL2
+x64 (GCC and Clang), installed consumers, provider combinations and actual SDK
+exchanges. Its full-suite results, focused patch replays and outstanding strict-C
+failure are listed separately. The
+[7 October record](../verification/verification-toolchains-2026-10-07.md) retains
+the earlier C++20 profile; it does not describe the current minimum.
+Documentation snippets are not all separate executable tests.
+[Qualification](../../qualification/README.md) describes how to reproduce and
 extend validation.
 
 ## 1. Define a schema
