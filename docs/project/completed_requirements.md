@@ -3,7 +3,7 @@
 [Feature list](feature_status.md) · [Pending work](../pending.md) ·
 [Ownership decisions](application_responsibilities.md#disposed-requirements)
 
-This feature catalog contains **825 implemented requirement records**, including
+This feature catalog contains **826 implemented requirement records**, including
 the 816 records moved out of the pending backlog on 2026-10-23. Each stable ID retains its capability scope,
 dependencies and original verification links. Completion applies to the stated
 backend, profile and dated checks; it does not close a broader parent requirement
@@ -18,10 +18,11 @@ The three closed application/maintainer ownership decisions remain in their
 separate reference; they are not implemented product features. Historical work-unit
 estimates are omitted here because this is a feature/evidence catalog.
 
-## Editor host qualification
+## Qualification and distribution
 
 | ID | Implemented capability and recorded verification | Dependencies |
 | --- | --- | --- |
+| <a id="qa03"></a>QA03 | Reproducible Windows measurements execute all eleven SDKs: 132 native operation profiles/660 wall samples, identical ordinary native bytes and XML-disabled controls; 80 C++ timing and 80 requested-allocation profiles; six-format generated-Python/provider baselines; 1,056 independently inspected functional archives and 220 timed stored/deflated ZIP/OPC archives. Reviewable CSVs retain wall/CPU, distinct memory categories, encoded/generated size and exact hashes. Startup/I/O, provider policies and shared-host limits are explicit in the [native](../verification/verification-native-baselines-2026-10-24.md) and [package](../verification/verification-package-baselines-2026-10-24.md) records. This workload/profile gate does not imply a broader XML/package feature, isolated speed threshold or hard physical memory cap. | — |
 | <a id="qa04"></a>QA04 | Matching 2.0.19 packages build and validate. Current Windows VS Code and installed Visual Studio hosts exercise all eleven actual generated outputs, native declaration/definition/type-definition actions, reversed selections, transitive includes and unsaved source offsets. Real CMake/C++ caller navigation passes 117 checks; fresh compiler mapping passes 50,713 checks, unit/providers 166 and the .NET resolver 1,548. Marked generated declarations remain navigable without optional VS Code grammars while authored plain-text navigation stays untouched. Installed assembly identity, package hashes, initial failures, deployment/cache refresh and exact platform limits are in the [execution record](../verification/verification-editor-hosts-2026-10-24.md#qa04-actual-editor-hosts-and-matching-distribution-payloads). | — |
 
 ## C++ build minimum
