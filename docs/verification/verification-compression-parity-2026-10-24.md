@@ -47,3 +47,15 @@ claim nested XML/OPC context coverage, other hosts/providers, a performance
 threshold, physical provider memory limits or interruption inside an opaque
 provider call. README and the integration skill were reviewed; usage and
 compiler/runtime release versions are unchanged by this qualification-tool update.
+
+## Focused 2.33.1 release replay
+
+The final repaired compiler repeats the complete Windows inventory with two
+workers: **all eleven SDKs, 15,400 decisions, 2,904 owning exchanges, 264 independent
+frames, 792 encode bounds, 25 C++ controls and all 17 mandatory lifecycle suites
+pass**. This fresh execution takes **1,061.425 seconds** on the shared host.
+The complete report is `compression-parity-final.json`, SHA-256
+`d77e2b5e6a51b982e7754d6846a6c91ef25a1e47a79865227b99f70ac9b9e545`.
+Its actual MSVC compiler SHA-256 is
+`638013f749c6c909b69a6566c49bca4792e594f0399d73cd91fe8df9fe8d2cf8`.
+The original one-worker 2.33.0 report remains separate and unchanged.
