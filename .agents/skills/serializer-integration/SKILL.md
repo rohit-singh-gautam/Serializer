@@ -7,6 +7,13 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 
 [Documentation index](../../../docs/README.md)
 
+Check the [managed representation matrix](../../../docs/managed/representation_contracts.md)
+before selecting C++ storage/codecs. Use unpacked owning records and distinct
+public base occurrences. Direct native identity cannot map into Protobuf's field
+domain; explicitly separated values preserve the existing wrapper mapping.
+Packed/views, recursive owning storage and ambiguous inheritance retain explicit
+rejections. Consult the dated compiler/runtime evidence for the selected profile.
+
 For native immutable generation publication, use
 [`replace_file_generation`](../../../docs/serialization/file_generations.md)
 after syncing the replacement, then sync affected parents. Retained readers keep

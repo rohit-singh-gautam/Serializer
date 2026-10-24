@@ -46,6 +46,11 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+The [managed representation contract](docs/managed/representation_contracts.md)
+defines owning storage/editor support and explicit packed/view/recursive limits.
+Direct managed Protobuf rejects before identity lowering; separate-value wrappers
+preserve their existing mapping. See the [executed compiler/wrapper matrix](docs/verification/verification-managed-representations-2026-10-24.md).
+
 Compiler/runtime **2.34.0** adds explicit
 [pinned file-generation replacement](docs/serialization/file_generations.md),
 preserving old native readers while a target name selects its replacement.

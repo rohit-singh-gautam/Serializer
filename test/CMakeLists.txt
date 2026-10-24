@@ -100,6 +100,22 @@ endif()
 add_test(NAME file_generation_test COMMAND file_generation_test)
 
 if(SERIALIZER_BUILD_MANAGED)
+  foreach(managed_protobuf_profile IN ITEMS separate32_fixed separate32_compact separate64_fixed separate64_compact)
+    add_executable(managed_protobuf_${managed_protobuf_profile}_test managed_protobuf_test.cpp)
+    serializer_generate(TARGET managed_protobuf_${managed_protobuf_profile}_test
+      SCHEMAS resources/managed_protobuf.serializer
+      CONFIG "resources/managed_protobuf_${managed_protobuf_profile}.ini"
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_protobuf_${managed_protobuf_profile}")
+    target_link_libraries(managed_protobuf_${managed_protobuf_profile}_test PRIVATE
+      Serializer::managed GTest::gtest_main)
+    if(MSVC)
+      target_compile_options(managed_protobuf_${managed_protobuf_profile}_test PRIVATE /W4 /WX)
+    else()
+      target_compile_options(managed_protobuf_${managed_protobuf_profile}_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME managed_protobuf_${managed_protobuf_profile}_test
+      COMMAND managed_protobuf_${managed_protobuf_profile}_test)
+  endforeach()
   add_executable(cache_attributes_test cache_attributes_test.cpp)
   serializer_generate(TARGET cache_attributes_test SCHEMAS resources/cache_attributes.serializer
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/cache_attributes")

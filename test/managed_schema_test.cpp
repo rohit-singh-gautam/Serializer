@@ -194,6 +194,85 @@ TEST(managed_schema, rejects_unsupported_backends_and_shapes) {
   }
 }
 
+// Reject direct native identity early while preserving the existing separated Protobuf mapping.
+TEST(managed_schema, protobuf_rejects_managed_storage_before_identity_lowering) {
+  writer::cpp_options options;
+  options.format = false;
+  for (const bool separate : {false, true}) {
+    options.managed_separate_values = separate;
+    for (const auto width : {"uint32", "uint64"}) {
+      options.managed_id_type = width;
+      for (const auto encoding : {writer::persistent_id_encoding::fixed,
+                                  writer::persistent_id_encoding::compact_varint}) {
+        options.managed_id_encoding = encoding;
+        for (const auto source : {
+                 "namespace nested { class item managed { public uint32 value (1); } }",
+                 "class item managed {} class root { public managed array item values (1); }",
+                 "class base managed {} class root : public managed base (\"base\", 1) {}"}) {
+          SCOPED_TRACE(std::string{separate ? "separate:" : "direct:"} + width + ":" + source);
+          const auto parsed = parse_managed(source);
+          options.protobuf = false;
+          EXPECT_NO_THROW(writer::cpp::generate(parsed, options));
+          options.protobuf = true;
+          if (separate) {
+            EXPECT_NO_THROW(writer::cpp::generate(parsed, options));
+            continue;
+          }
+          try {
+            static_cast<void>(writer::cpp::generate(parsed, options));
+            FAIL() << "Unsupported managed Protobuf output was generated";
+          } catch (const std::invalid_argument& error) {
+            EXPECT_NE(std::string_view{error.what()}.find("Protobuf identity mapping is unsupported"),
+                std::string_view::npos);
+          }
+        }
+      }
+    }
+  }
+  options.protobuf = true;
+  EXPECT_NO_THROW(writer::cpp::generate(parse_managed("class ordinary { public uint32 value (1); }"), options));
+}
+
+// Every identity policy rejects unsupported reachable storage, including ordinary owned children.
+TEST(managed_schema, representation_boundary_is_consistent_across_identity_profiles) {
+  const std::vector<std::string> unsupported{
+      "class item managed packed { public uint32 value (1); }",
+      "class item managed view owning { public uint32 value (1); }",
+      "class item packed { public uint32 value (1); } class root managed { public item child (1); }",
+      "class item view owning { public uint32 value (1); } class root managed { public item child (1); }",
+      "class item managed { public array item children (1); }",
+      "class base {} class item managed : private base { public uint32 value (2); }",
+      "class base {} class item managed : protected base { public uint32 value (2); }",
+      "class metadata {} class left : public metadata {} class right : public metadata {} "
+      "class document managed : public left, public right { public uint32 value (3); }"};
+  writer::cpp_options options;
+  options.format = false;
+  for (const bool separate : {false, true}) {
+    options.managed_separate_values = separate;
+    for (const auto width : {"uint32", "uint64"}) {
+      options.managed_id_type = width;
+      for (const auto encoding : {writer::persistent_id_encoding::fixed,
+                                  writer::persistent_id_encoding::compact_varint}) {
+        options.managed_id_encoding = encoding;
+        for (const auto& source : unsupported) {
+          SCOPED_TRACE(std::string{separate ? "separate:" : "direct:"} + width + ":" + source);
+          const auto parsed = parse_managed(source);
+          EXPECT_THROW(writer::cpp::generate(parsed, options), std::invalid_argument);
+        }
+        const auto supported = parse_managed(
+            "class child managed { public uint32 value (1); } "
+            "class base { private string label (1); } "
+            "class root managed : public base (\"base_part\", 1) { "
+            "public managed array child children (2); public child ordinary (3); }");
+        EXPECT_NO_THROW(writer::cpp::generate(supported, options));
+      }
+    }
+  }
+  // Unrelated ordinary packed output preserves its existing acceptance contract.
+  EXPECT_NO_THROW(writer::cpp::generate(
+      parse_managed("class item packed { public uint32 value (1); }"), options));
+}
+
 // Public inherited field scopes and private schema data have generated checked editor access.
 TEST(managed_schema, generates_private_access_and_multiple_base_editors) {
   const auto parsed = parse_managed(

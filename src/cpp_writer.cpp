@@ -5821,6 +5821,22 @@ public:
   // Generate a complete C++ header while retaining the parsed schema and original wire names.
   void emit(rohit::type_check::output_buffer auto& out_stream,
             const std::vector<std::unique_ptr<syntax_node>>& statements) {
+    if (protobuf_enabled && !managed_separate_values) {
+      const auto require_unmanaged_protobuf = [&](const auto& self, const auto& nodes) -> void {
+        for (const auto& node : nodes) {
+          if (node->type == object_type::namespace_type) {
+            self(self, static_cast<const namespace_node&>(*node).statements);
+          } else if ((node->type == object_type::class_type || node->type == object_type::generic_definition) &&
+                     static_cast<const class_node&>(*node).supports_managed()) {
+            // Native identity uses a field ID outside Protobuf's range; no implicit remapping is valid.
+            throw std::invalid_argument{
+                "C++ managed storage requires native codecs; Protobuf identity mapping is unsupported: " +
+                node->get_full_name()};
+          }
+        }
+      };
+      require_unmanaged_protobuf(require_unmanaged_protobuf, statements);
+    }
     if (protobuf_enabled && reference_support::has_value_references(statements)) {
       throw std::invalid_argument{
           "C++ value references support native JSON/binary output; Protobuf is unsupported"};

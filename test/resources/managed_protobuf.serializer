@@ -1,0 +1,8 @@
+serializer version 1.6.0;
+
+namespace managed_protobuf_example {
+  class document managed stable_ids {
+    public uint64 number (1);
+    public string title (2);
+  }
+}
