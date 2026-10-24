@@ -11,10 +11,11 @@ or establish qualification on every platform. New records link their executed
 implementation or qualification evidence. A completed design or qualification gate
 is cataloged as such; it does not by itself claim a runtime feature.
 
-The [pending list](../pending.md) retains its tracked requirements after completion,
-marked `[x]` and linked to their evidence. Historical records archived before this
-policy remain here.
-The thirteen retained XML/package parents are [resolved separately](xml_package_backlog_resolution.md);
+The [pending list](../pending.md) contains only unfinished requirements. The
+[closed-task ledger](completed_backlog.md) preserves the 26 completed parent rows,
+their dependencies and verification links; those existing tasks do not add new
+capability records to this catalog.
+The thirteen XML/package parents are [resolved separately](xml_package_backlog_resolution.md);
 reconciled aliases and declined extensions are not additional implemented records.
 The three closed application/maintainer ownership decisions remain in their
 separate reference; they are not implemented product features. Historical work-unit

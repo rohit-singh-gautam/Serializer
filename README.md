@@ -10,10 +10,12 @@ changes into transactions, retain history, recover committed work, and coordinat
 collaborative edits through an authority.
 
 Generated codecs support multiple languages. C++ supplies the established managed
-runtime. An opt-in [Python native engine](docs/managed/python_native_runtime.md)
-adds a narrower concrete owning profile undergoing generated SDK qualification;
-other outputs still require their own managed engines. Managed wire-record
-exchange has its separate codec-only contract.
+runtime. Explicit [Python](docs/managed/python_native_runtime.md),
+[Java](docs/managed/java_native_runtime.md) and
+[JavaScript/TypeScript](docs/managed/javascript_native_runtime.md) native engines
+have qualified restricted owning profiles. Six other native engines and broader
+managed contracts remain [pending](docs/pending.md#remaining-work-at-a-glance).
+Managed wire-record exchange has its separate codec-only contract.
 
 The [application responsibility contract](docs/project/application_responsibilities.md)
 separates host authentication, policy administration, business effects and custom
@@ -24,6 +26,7 @@ separate references.
 [Project website](https://www.singh.org.in/serializer.html) ·
 [Documentation index](docs/README.md) ·
 [Pending requirements](docs/pending.md) ·
+[Completed tasks](docs/project/completed_backlog.md) ·
 [Implemented requirement catalog](docs/project/completed_requirements.md) ·
 [Serialization quick start](#get-started) ·
 [State-management quick start](docs/managed/getting_started.md) ·

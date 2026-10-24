@@ -8,7 +8,7 @@ indexes below link to the full reference and recorded verification.
 | Define models and exchange data | [C++ usage guide](guides/usage.md) | [Schema examples](schema/schema_examples.md), [language outputs](languages/README.md) |
 | Add generation to a build | [CMake integration](guides/cmake_integration.md) | [Build and generation](guides/build_and_generation.md), [compiler options](guides/command_line.md) |
 | Author an OPC-based format such as 3MF | [Current XML/OPC APIs](serialization/xml_packages.md) | [Responsibilities, requirements and restricted schema/build example](design/opc_3mf_support.md) |
-| Find unfinished or completed requirements | [Pending work](pending.md) | [Implemented feature catalog](project/completed_requirements.md), stable IDs and original verification records |
+| Find unfinished or completed requirements | [Pending work](pending.md) | [Completed tasks](project/completed_backlog.md), [feature catalog](project/completed_requirements.md), stable IDs and original verification records |
 | Evolve stored data | [Payload versioning](schema/versioning.md) | [Schema compatibility](schema/schema_evolution.md), [wire contract](serialization/wire_format.md) |
 | Edit application state with undo and recovery | [Managed-state quick start](managed/getting_started.md) | [C++ runtime](managed/cpp_runtime.md), [journaling](managed/journal.md), [local collaboration](managed/local_collaboration.md) |
 | Link named managed generic entities | [Named self-reference contract](schema/named_managed_references.md) | [Runnable cycle example](../example/managed/named_references/README.md), [typed references](design/managed_entity_references.md) |

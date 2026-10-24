@@ -7,6 +7,14 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 
 [Documentation index](../../../docs/README.md)
 
+Check the [remaining-work summary](../../../docs/pending.md#remaining-work-at-a-glance)
+before selecting a managed backend. Qualified Python, Java and JavaScript/TypeScript
+profiles have explicit limits; six other native engines, broader managed contracts
+and two reported bugs remain active alongside deferred database work.
+The pending tracker contains only unfinished tasks; use the
+[closed-task ledger](../../../docs/project/completed_backlog.md) for completed
+parent requirements and their original qualification limits.
+
 The [MG07/MG08 acceptance record](../../../docs/verification/verification-managed-completions-2026-10-24.md)
 qualifies the supported resource-domain and representation contracts; retain
 the explicit unsupported-profile and unexecuted-platform boundaries.

@@ -3,8 +3,9 @@
 The [implemented requirement catalog](completed_requirements.md) records **838
 completed capability and qualification IDs**, with their backend/profile limits
 and verification links. Historical completed sections were archived there.
-The [requirement tracker](../pending.md) retains **36 requirements: 26 closed
-and 10 unfinished (7 active and three with deferred database work)**, marking completed items `[x]` in place;
+The [pending tracker](../pending.md) contains **10 unfinished requirements:
+7 active and three with deferred database work**. The
+[closed-task ledger](completed_backlog.md) preserves the other 26 parent requirements;
 closed [ownership decisions](application_responsibilities.md#disposed-requirements)
 are recorded separately. Original records retain their dated qualification scope.
 
@@ -846,7 +847,7 @@ These names and capabilities are proposals, not implemented features.
 
 ### Other roadmap items
 
-The six [compiler/backend requirements](../pending.md#compiler-and-backend-proposals)
+The six [compiler/backend requirements](completed_backlog.md#compiler-and-backend-proposals)
 have implemented contracts in 2.34.0. See their
 [qualification and platform limits](../verification/verification-compiler-backends-2026-10-24.md).
 Other sections of the central backlog retain their independent status.

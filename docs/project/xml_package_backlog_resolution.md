@@ -1,13 +1,13 @@
 # XML and package backlog resolution
 
 Compiler/runtime **2.34.0**, schema language **1.24.0**, editors **2.0.19**.
-This resolves the thirteen retained XML/package requirements in the
-[tracker](../pending.md#xml-and-package-backlog). Closure includes implemented
+This resolves the thirteen XML/package requirements in the
+[closed-task ledger](completed_backlog.md#xml-and-package-backlog). Closure includes implemented
 work, reconciliation with completed OPC requirements, and explicit decisions
 against unbounded or unspecified extensions. It does not turn every proposed
 combination into a supported feature. Only new implemented capabilities enter the
 [implementation catalog](completed_requirements.md); reconciled parent IDs remain
-in the tracker and this ledger.
+in the closed-task documentation and this ledger.
 
 The selected package contract is **OPC fifth edition**, using the documented
 ASCII part-name, contiguous archive and complete-rewrite profile. The selected
