@@ -120,6 +120,11 @@ endif()
 add_test(NAME payload_allocator_test COMMAND payload_allocator_test)
 
 if(SERIALIZER_BUILD_MANAGED)
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME python_managed_engine_runtime_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_managed_engine_test.py")
+  endif()
   add_executable(payload_allocation_generated_test payload_allocation_generated_test.cpp)
   serializer_generate(TARGET payload_allocation_generated_test
     SCHEMAS resources/payload_allocation.serializer CONFIG resources/payload_allocation.ini
