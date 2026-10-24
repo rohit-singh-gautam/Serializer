@@ -51,6 +51,9 @@ Selected compression framing, errors and byte/history admission now pass one sha
 Compiler/runtime **2.34.0**, schema language **1.24.0**, includes the following
 managed additions. Both editor packages are **2.0.21**.
 
+[MG07 and MG08 acceptance](docs/verification/verification-managed-completions-2026-10-24.md)
+closes allocator-aware payload hooks and the supported managed representation contract.
+
 Java has independent [token-only and native engine profiles](docs/managed/java_native_runtime.md).
 Select `java.managed_engine = true` for finite concrete owning graphs with detached
 immutable reads, transactions, identities, bounded history/journals and exact

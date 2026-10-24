@@ -152,7 +152,8 @@ residency. The opt-in [payload allocation profile](payload_allocation.md) extend
 resource routing to supported generated containers and binary decoder temporaries,
 including managed construction/callbacks/history. Default generation retains the
 limits above. No profile establishes a whole-process peak bound; unsupported
-formats/representations and broader `MG07` qualification remain open.
+formats/representations and unexecuted platform/profile qualification are not
+claimed by [MG07 completion](../verification/verification-managed-completions-2026-10-24.md).
 
 The broader proposed configuration below uses standard defaults, not another schema keyword.
 In C++, use `std::pmr::memory_resource` or an adapter to it for allocation with a

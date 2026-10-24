@@ -2,15 +2,16 @@
 
 Compiler/runtime **2.34.0**, schema language **1.24.0**, worktree checkpoint.
 The [pending inventory](../pending.md#managed-state-and-storage) remains the
-source of truth for parent status. Passing subsets below do not close a parent.
+source of truth for parent status. MG07 and MG08 meet their recorded acceptance contracts; subsets of other parents
+do not close those requirements. See the [completion audit](verification-managed-completions-2026-10-24.md).
 The maintainer authorized deferral of database-dependent work on this date;
 no unfinished implementation has been classified as will not fix.
 
 | Parent | Implemented work and executed evidence | Remaining gate |
 | --- | --- | --- |
 | MG01 | Native Python: 25 runtime tests and 281 actual SDK checks across inline/included layouts. Native Java: 188 runtime and 528 actual SDK checks across eight profiles, six crash boundaries and writer exclusion including aliases. Python/Java token exchange passes 5,310/4,953 checks with independent C++ controls. See the [language replay](verification-managed-languages-2026-10-24.md). | Native engines in JavaScript, TypeScript, Go, C#, Rust, Swift, Kotlin and C; broader Python/Java profile/platform qualification. |
-| MG07 | Resource-owning C++ payload containers, binary decode scopes, managed callbacks/history and native preparation integration. Combined XML/managed generated/runtime matrix: 15/15 Windows cases pass, including keyed map decoding and foreign-scope native preparations. | Generated Linux and installed consumers; the merged compiler capability/core matrix passes 647 cases. Nine Linux standalone allocator cases already pass. |
-| MG08 | Explicit owning/packed/view/recursive/inheritance matrix and early direct-managed Protobuf rejection; existing separate-value Protobuf wrappers pass eight Windows cases. Combined XML/managed/compiler-backend matrix passes all 647 core cases. | Cross-platform generated/installed qualification. |
+| MG07 | Resource-owning C++ payload containers, binary decode scopes, managed callbacks/history and native preparation integration. Combined XML/managed generated/runtime matrix: 15/15 Windows cases pass, including keyed map decoding and foreign-scope native preparations. | Completed within the documented resource-aware native profile. Additional generated Linux/installed coverage remains unclaimed; merged core 647 passes. Nine Linux standalone allocator cases already pass. |
+| MG08 | Explicit owning/packed/view/recursive/inheritance matrix and early direct-managed Protobuf rejection; existing separate-value Protobuf wrappers pass eight Windows cases. Combined XML/managed/compiler-backend matrix passes all 647 core cases. | Completed support/rejection contract within the recorded Windows profile; broader generated Linux/installed coverage remains unclaimed. |
 | MG09 | Guarded C++ virtual/abstract/override editor dispatch, owned/borrowed arguments and typed errors: 20 Windows generated cases pass across four identity/storage profiles. | Broader portable and native-engine method contracts. |
 | MG10 | Bounded field paths, projection dependencies and immutable before/after pins: 20 Windows generated cases pass across four profiles. Compact history passes ten standalone and 24 generated Windows cases plus ten Linux kernel cases; all 24 retention/latency workloads execute. See the [measured scope](verification-compact-history-2026-10-24.md). | Generated Linux/installed replay and normalized entity-version history. Transactions still process complete roots; exported history retains complete snapshots. |
 | PG01 | Immutable derived uint64 page indexes: 40 generated/runtime cases, external-run corruption checks, four process crash boundaries and three Windows file-generation tests pass. | Deferred: dirty authoritative-page mutation/writeback and incremental database recovery. |

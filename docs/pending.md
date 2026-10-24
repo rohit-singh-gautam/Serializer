@@ -1,10 +1,10 @@
 # Pending requirements across Serializer
 
-This list tracks **34 requirements: 20 closed and 14 unfinished
-(11 active and three with deferred database work)**. Keep completed items in this file and mark their
+This list tracks **34 requirements: 22 closed and 12 unfinished
+(9 active and three with deferred database work)**. Keep completed items in this file and mark their
 state `[x]`; do not delete their rows or sections when they are completed.
 The [implemented feature catalog](project/completed_requirements.md) retains
-**832 IDs and verification records**, including historical items archived before
+**834 IDs and verification records**, including historical items archived before
 this tracking policy. The [feature list](project/feature_status.md)
 summarizes supported capabilities. The three closed ownership decisions live in
 [application responsibilities](project/application_responsibilities.md#disposed-requirements),
@@ -41,18 +41,19 @@ scope; new schema-index and database implementation may build on this minimum.
 
 ## Managed state and storage
 
-These two managed sections retain ten unfinished parent requirements. Current Windows
+These two managed sections retain ten parent requirements: **MG07 and MG08 are
+completed**, and eight remain unfinished. See the [acceptance audit](verification/verification-managed-completions-2026-10-24.md). Current Windows
 qualification includes guarded C++ dispatch, field/dependency notifications and
 separate-value Protobuf wrappers; see the [executed matrix](verification/verification-managed-dispatch-notifications-2026-10-24.md).
 The [managed state checkpoint](verification/verification-managed-state-2026-10-24.md)
 maps all eight storage parents to implemented evidence and their remaining gates.
-Those passing slices leave their broader parent requirements open. The current
+Passing subsets of the other eight parents leave those requirements open. The current
 Windows checkpoint also qualifies allocation-aware payloads, native generation
 migration and immutable persistent derived indexes; see the
 [database](verification/verification-native-database-2026-10-24.md) and
 [index](verification/verification-paged-index-2026-10-24.md) records. Broader
 compiler, platform and capability qualification remains active. These are not
-completed parent items.
+additional completed parent items.
 
 The [combined storage/index specification](design/database_storage_requirements.md)
 defines standalone native indexing, native database authority, independent
@@ -66,8 +67,8 @@ Native indexing can proceed independently of database paging work.
 | State | ID | Estimate | Remaining requirement and acceptance gate | Dependencies |
 | --- | --- | --- | --- | --- |
 | [ ] | MG01 | — | **Active subsystem — [GitHub #1](https://github.com/rohit-singh-gautam/Serializer/issues/1).** Implement native managed engines for every non-C++ output: Java, JavaScript, TypeScript, Go, C#, Rust, Python, Swift, Kotlin and C. Require ownership, immutable reads, transactions, identity, history, journals and collaboration under each native lifetime/error/concurrency contract; token codecs alone do not close this requirement. [Language bindings](managed/language_bindings.md). | MR03 codecs before native engine exchange |
-| [ ] | MG07 | — | Provide allocator-aware payload containers/decoding and hard peak-allocation hooks; distinguish admission estimates from measured process peaks; [Ownership/allocation](managed/history.md#ownership-and-custom-allocation), [state enhancements](managed/state_enhancements.md). | — |
-| [ ] | MG08 | — | Define supported managed packed/view/recursive/Protobuf and broader inheritance/editor contracts, preserving explicit rejection until real code and qualification exist; [C++ runtime](managed/cpp_runtime.md), [generics](schema/generics.md), [state enhancements](managed/state_enhancements.md). | — |
+| [x] | MG07 | — | **Completed.** Resource-owning C++ payload containers, exact clone/decode, generated owning native binary domains and managed callback/history propagation provide hard requested-byte resource hooks. Current/peak domain counters remain distinct from resident admission and process RSS. The [qualified profile and acceptance evidence](verification/verification-managed-completions-2026-10-24.md#mg07-allocator-aware-payloads-and-hard-allocation-hooks) records supported shapes, explicit exclusions, 15 Windows runtime/generated cases and nine Linux kernel cases; additional platform/profile coverage is separate. | — |
+| [x] | MG08 | — | **Completed.** The [managed representation/editor matrix](managed/representation_contracts.md) defines supported owning direct/separate storage, identities, private fields and distinct public bases, with explicit packed/view/recursive/ambiguous inheritance rejection. Direct managed Protobuf rejects before lowering; separate wrappers preserve golden bytes in four regenerated profiles. [Acceptance evidence](verification/verification-managed-completions-2026-10-24.md#mg08-supported-representation-and-editor-boundaries) includes 647 merged core cases and eight managed Protobuf cases, with unexecuted host/profile coverage stated separately. | — |
 | [ ] | MG09 | — | Complete virtual/abstract/override edit dispatch and portable owned/borrowed method or typed-error contracts. Existing same-tag/identity variant field merging and selective collaboration Undo/Redo have [Windows/Linux qualification](verification/verification-managed-variants-2026-10-24.md), cataloged as MG09a; this does not close the broader method contract. See [State enhancements](managed/state_enhancements.md#remaining-work). | — |
 | [ ] | MG10 | — | Extend projection/dependency notification policies and compact nested identity/history records where proposed; measure retained/deleted-entity costs and edit latency; [Identity/history](managed/history.md), [data structures](managed/data_structures.md). | — |
 | [ ] | PG01 | — | **Database remainder deferred — [GitHub #2](https://github.com/rohit-singh-gautam/Serializer/issues/2).** The [immutable derived uint64 disk index](managed/paged_index.md) implements bounded external construction, page/cache pins, source binding, corruption checks and atomic generation replacement. Dirty authoritative-page mutation/writeback and incremental database recovery remain deferred until the native database page authority is implemented; [Paged indexing](design/paged_indexing.md). | DB02 incremental page authority |

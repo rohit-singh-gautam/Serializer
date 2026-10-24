@@ -3,7 +3,7 @@
 [Feature list](feature_status.md) · [Pending work](../pending.md) ·
 [Ownership decisions](application_responsibilities.md#disposed-requirements)
 
-This feature catalog contains **832 implemented requirement records**, including
+This feature catalog contains **834 implemented requirement records**, including
 the 816 records moved out of the pending backlog on 2026-10-23. Each stable ID retains its capability scope,
 dependencies and original verification links. Completion applies to the stated
 backend, profile and dated checks; it does not close a broader parent requirement
@@ -25,6 +25,15 @@ estimates are omitted here because this is a feature/evidence catalog.
 | ID | Implemented capability and recorded verification | Dependencies |
 | --- | --- | --- |
 | <a id="cpp01"></a>CPP01 | Compiler/runtime 2.30.1 requires C++23 across compiler, runtime, managed/generated consumers, provider targets and installed exports. Public language/library admission, explicit older-mode rejection, synchronized usage/migration guidance and Windows MSVC/clang-cl plus Linux GCC/Clang installed-consumer qualification preserve APIs, schemas and wire identities. Explicit GCC/Clang C++26 configuration and installed consumers retain the newer mode; [executed scope and limits](../verification/verification-cpp23-2026-10-23.md). | — |
+
+## Managed allocation and representation contracts in 2.34
+
+Completion follows the [retained acceptance contracts and executed evidence](../verification/verification-managed-completions-2026-10-24.md), with unsupported combinations and additional platform qualification explicit.
+
+| ID | Implemented capability and recorded verification | Dependencies |
+| --- | --- | --- |
+| <a id="mg07"></a>MG07 | Resource-owning C++ payload strings/vectors/maps, exact clone/decode, generated direct owning native binary resource propagation and hard concurrent requested-byte hooks. Current/peak resource accounting is distinct from resident admission and process RSS. Fifteen Windows kernel/generated cases and nine Linux kernel cases pass; excluded profiles reject. | — |
+| <a id="mg08"></a>MG08 | Defined owning direct/separate identity/editor support and explicit packed/view/recursive/inheritance rejection. Direct managed Protobuf rejects before lowering; existing separated wrappers preserve exact bytes in four regenerated profiles. The merged 647-case core and eight managed Protobuf cases pass within the recorded Windows scope. | — |
 
 ## Compiler and backend contracts in 2.34
 

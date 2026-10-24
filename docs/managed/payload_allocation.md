@@ -5,8 +5,9 @@ containers independently of generated record selection and managed stores.
 
 The runtime, generated direct owning records and managed-store integration pass
 **15/15 Windows checks** in the recorded MSVC 19.51 C++23 Release profile. Compiler
-capability checks and broader qualification are still in progress; this checkpoint
-does not mark MG07 complete or claim a whole-process memory ceiling.
+capability checks pass in the merged 647-case core. [MG07 is complete for this
+contract](../verification/verification-managed-completions-2026-10-24.md); additional
+platform/profile coverage remains separate. No whole-process memory ceiling is claimed.
 
 The opt-in `cpp.payload_allocator = true` profile selects resource-owning strings,
 vectors and ordered maps. Default generation keeps its existing standard types,

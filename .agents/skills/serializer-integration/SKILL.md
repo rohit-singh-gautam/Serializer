@@ -7,6 +7,10 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 
 [Documentation index](../../../docs/README.md)
 
+The [MG07/MG08 acceptance record](../../../docs/verification/verification-managed-completions-2026-10-24.md)
+qualifies the supported resource-domain and representation contracts; retain
+the explicit unsupported-profile and unexecuted-platform boundaries.
+
 For native Java managed state, explicitly select `java.managed_engine = true`
 and bind `managedSchema(Root.class)` to `ManagedStore`. Follow the
 [Java profile](../../../docs/managed/java_native_runtime.md) for detached reads,

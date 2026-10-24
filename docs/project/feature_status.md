@@ -1,12 +1,17 @@
 # Features and implementation status
 
-The [implemented requirement catalog](completed_requirements.md) records **832
+The [implemented requirement catalog](completed_requirements.md) records **834
 completed capability and qualification IDs**, with their backend/profile limits
 and verification links. Historical completed sections were archived there.
-The [requirement tracker](../pending.md) retains **34 requirements: 20 closed
-and 14 unfinished (11 active and three with deferred database work)**, marking completed items `[x]` in place;
+The [requirement tracker](../pending.md) retains **34 requirements: 22 closed
+and 12 unfinished (9 active and three with deferred database work)**, marking completed items `[x]` in place;
 closed [ownership decisions](application_responsibilities.md#disposed-requirements)
 are recorded separately. Original records retain their dated qualification scope.
+
+The managed acceptance audit completes **MG07** allocator-aware payloads/hard
+resource-domain hooks and **MG08** supported representation/editor/Protobuf
+boundaries. See [executed contracts and remaining parents](../verification/verification-managed-completions-2026-10-24.md);
+additional Linux/generated/installed qualification is not claimed by that closure.
 
 Compiler/runtime **2.34.0**, language **1.24.0**, adds schema-local ordered XML and
 package profiles, supported ordered/list declaration import and bounded Python
