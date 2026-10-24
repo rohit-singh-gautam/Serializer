@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: 0BSD
 """Qualify actual generated JS/TS ordinary HTML against independent HTML parsers."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -14,6 +15,7 @@ from html_interop_test import trace, tree_trace
 
 ROOT=Path(__file__).resolve().parent.parent
 FIXTURES=[
+    '<P>H<SUB title="index">2</SUB>O; x<SUP>2<em>nd</em></SUP> &amp; y<sub><sup>n</sup></sub></P>',
     '<DIV hidden class=card><P>A&nbsp;&amp; B<br><IMG src="x.png" alt=picture></P></DIV>',
     '<section><h1 title="A &quot;quote&quot;">Title</h1><p>Unicode: λ 🙂</p></section>',
     '<ul>\n<li>first <b>bold</b></li><li><a href="a?x=1&amp;y=2">link</a></li></ul>',
@@ -71,7 +73,9 @@ class javascript_html_test(unittest.TestCase):
     def test_closed_subset_rejects_browser_recovery_and_injection(self):
         """Reject foreign/raw-text content, implied closes, malformed entities and unsupported attributes."""
         self.run_node('''
-        for(const source of ['<!DOCTYPE html>','<svg></svg>','<script>x</script>','<p><div>x</div></p>',
+        for(const source of ['<sub><div>x</div></sub>','<sup><p>x</p></sup>','<sub/>','<sup>unclosed',
+          '<sub onclick=x>x</sub>',
+          '<!DOCTYPE html>','<svg></svg>','<script>x</script>','<p><div>x</div></p>',
           '<ul><span>x</span></ul>','<ul>text</ul>','<li>x</li>','<a><a>x</a></a>','<span/>','<p>unclosed',
           '<br></br>','<p hidden=wrong>x</p>','<p title>x</p>','<p onclick="x">x</p>','<p id=x ID=y>x</p>',
           '<p>&copy;</p>','<p>&amp</p>','<p>&#0;</p>','<p>&#xD800;</p>','<p>&#x110000;</p>',
@@ -125,6 +129,12 @@ def main():
         javascript_html_test.directory=directory;javascript_html_test.typescript=modules/'typescript/bin/tsc'
         result=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(javascript_html_test))
         if not result.wasSuccessful():raise SystemExit(1)
+        report={'status':'passed','tests':result.testsRun,'fixtures':len(FIXTURES),
+                'compiler_sha256':hashlib.sha256(args.compiler.resolve().read_bytes()).hexdigest(),
+                'generated_sha256':{path.name:hashlib.sha256(path.read_bytes()).hexdigest()
+                                    for path in (directory/'html.mjs',directory/'html.d.mts')},
+                'typescript':json.loads((modules/'typescript/package.json').read_text(encoding='utf-8'))['version']}
+        (build/'verification.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
 
 
 if __name__=='__main__':

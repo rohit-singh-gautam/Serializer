@@ -31,9 +31,9 @@ class HtmlEvent:
 
 class Html:
     """Parse and write the shared explicitly balanced HTML fragment subset."""
-    _tags = frozenset('div p span b i strong em a ul ol li section article h1 h2 h3 h4 h5 h6 br hr img small s u code blockquote nav'.split())
+    _tags = frozenset('div p span b i strong em a ul ol li section article h1 h2 h3 h4 h5 h6 br hr img small s u code blockquote nav sub sup'.split())
     _void = frozenset(('br', 'hr', 'img'))
-    _phrasing = frozenset('span b i strong em a br img small s u code'.split())
+    _phrasing = frozenset('span b i strong em a br img small s u code sub sup'.split())
     _space = ' \t\r\n\f'
     _name = _re.compile(r'[A-Za-z0-9-]+')
     _entities = {'amp': '&', 'lt': '<', 'gt': '>', 'quot': '"', 'apos': "'", 'nbsp': '\xa0'}

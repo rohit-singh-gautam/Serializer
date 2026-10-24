@@ -365,11 +365,26 @@ wrapper.payload = payload
                     with self.assertRaisesRegex(ValueError, 'token-compatible'):
                         model.decode_xml(b'<root/>')
 
+    def test_html_shared_profile_matches_independent_token_and_tree_oracles(self):
+        """Replay the same closed-profile vocabulary corpus as the other generated SDKs."""
+        from javascript_html_test import FIXTURES
+        from mobile_html_test import INVALID
+        from html_interop_test import trace, tree_trace
+        for source in FIXTURES:
+            with self.subTest(source=source):
+                output = self.module.Html.write_fragment(self.module.Html.parse_fragment(source.encode())).decode()
+                self.assertEqual(trace(source), trace(output))
+                self.assertEqual(tree_trace(source), tree_trace(output))
+        for source in INVALID:
+            with self.subTest(invalid=source):
+                with self.assertRaises(ValueError):
+                    self.module.Html.parse_fragment(source.encode())
+
     def test_html_is_independent_of_xml_and_matches_html_parser(self):
         """Handle ordinary HTML void/unquoted/Boolean syntax with the approved shared subset."""
         from html.parser import HTMLParser
         module = self.module
-        source = b'<DIV hidden class=sample><p>A&amp;B<br>tail&nbsp;&#128512;</p><img src="image.png" alt=sample></DIV>'
+        source = b'<DIV hidden class=sample><p>A&amp;B<br>tail&nbsp;&#128512; H<SUB>2</SUB>O x<SUP>2</SUP></p><img src="image.png" alt=sample></DIV>'
         with mock.patch.object(module, '_xml_parse', side_effect=AssertionError('HTML used XML')):
             events = module.Html.parse_fragment(source)
             output = module.Html.write_fragment(events)
@@ -394,7 +409,8 @@ wrapper.payload = payload
         self.assertEqual(original.trace, canonical.trace)
         self.assertIn(b'<br>', output)
         self.assertIn(b' hidden', output)
-        for invalid in (b'<p><div>x</div></p>', b'<script>x</script>', b'<p>x', b'<p/>',
+        for invalid in (b'<sub><div>x</div></sub>', b'<sup><p>x</p></sup>', b'<sub/>', b'<sup>unclosed',
+                        b'<p><div>x</div></p>', b'<script>x</script>', b'<p>x', b'<p/>',
                         b'<li>x</li>', b'<p>&copy;</p>', b'<!DOCTYPE html><p>x</p>',
                         b'<a href=x href=y></a>', b'<p hidden=false></p>', b'<p>&#128;</p>'):
             with self.subTest(invalid=invalid):

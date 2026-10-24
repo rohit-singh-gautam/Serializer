@@ -87,6 +87,7 @@ def main():
                         help="Also require the independently installed lxml HTML fragment-tree oracle")
     options = parser.parse_args()
     fixtures = [
+        '<P>H<SUB title="index">2</SUB>O; x<SUP>2<em>nd</em></SUP> &amp; y<sub><sup>n</sup></sub></P>',
         "<DIV hidden class=card><P>A&nbsp;&amp; B<br><IMG src='x.png' alt=picture></P></DIV>",
         '<section><h1 title="A &quot;quote&quot;">Title</h1><p>Unicode: \u03bb \U0001f642</p></section>',
         '<ul>\n<li>first <b>bold</b></li><li><a href="a?x=1&amp;y=2">link</a></li></ul>',

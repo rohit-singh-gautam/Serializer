@@ -14,6 +14,8 @@ spec=importlib.util.spec_from_file_location('serializer_mobile_html_sdk',ROOT/'e
 sdk=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sdk)
 INVALID=[
+    '<sub><div>x</div></sub>','<sup><p>x</p></sup>','<sub/>','<sup>unclosed',
+    '<sub onclick=x>x</sub>',
     '<!DOCTYPE html>','<svg></svg>','<script>x</script>','<p><div>x</div></p>',
     '<ul><span>x</span></ul>','<ul>text</ul>','<li>x</li>','<a><a>x</a></a>','<span/>','<p>unclosed',
     '<br></br>','<p hidden=wrong>x</p>','<p title>x</p>','<p onclick="x">x</p>','<p id=x ID=y>x</p>',
@@ -111,6 +113,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--compiler',required=True,type=Path);parser.add_argument('--build',required=True,type=Path)
     parser.add_argument('--language',default='kotlin,swift');parser.add_argument('--wsl-languages',default='')
+    parser.add_argument('--kotlinc',type=Path,help='Explicit installed SDK; invoke its compiler JAR directly')
     parser.add_argument('--python-dependencies',type=Path)
     parser.set_defaults(cpp_library=None,executable=None,sanitize=False)
     args=parser.parse_args()
@@ -137,7 +140,16 @@ def main():
         filename,content=('Main.kt',KOTLIN) if language=='kotlin' else ('main.swift',SWIFT)
         (directory/filename).write_text(content,encoding='utf-8')
         for path in paths:Path(str(path)+'.'+language+'.html').unlink(missing_ok=True)
-        launch=runner.build(language,'html_fragments',args.build/language,directory)
+        if language=='kotlin' and args.kotlinc:
+            home=args.kotlinc.resolve(strict=True).parent.parent
+            jar=runner.path(language,args.build/language/'main.jar')
+            sdk.run(runner.command(language,'java','-Xmx2g','-cp',runner.path(language,home/'lib/kotlin-compiler.jar'),
+                'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler','-kotlin-home',runner.path(language,home),
+                '-jvm-target','17','-Werror',runner.path(language,args.build/language/'Schema.kt'),
+                runner.path(language,directory/'Main.kt'),'-include-runtime','-d',jar))
+            launch=runner.command(language,'java','-jar',jar)
+        else:
+            launch=runner.build(language,'html_fragments',args.build/language,directory)
         sdk.run([*launch,*(runner.path(language,path) for path in paths)])
         for index,path in enumerate(paths):
             output=Path(str(path)+'.'+language+'.html')

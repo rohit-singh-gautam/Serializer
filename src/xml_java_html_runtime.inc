@@ -28,8 +28,8 @@ public static final class HtmlEvent {
 }
 /** Explicitly balanced approved HTML only; browser recovery and URL sanitization are outside this contract. */
 public static final class Html {
-  private static final java.util.Set<String> TAGS=java.util.Set.of("div","p","span","b","i","strong","em","a","ul","ol","li","section","article","h1","h2","h3","h4","h5","h6","br","hr","img","small","s","u","code","blockquote","nav");
-  private static final java.util.Set<String> VOIDS=java.util.Set.of("br","hr","img"),PHRASING=java.util.Set.of("span","b","i","strong","em","a","br","img","small","s","u","code");
+  private static final java.util.Set<String> TAGS=java.util.Set.of("div","p","span","b","i","strong","em","a","ul","ol","li","section","article","h1","h2","h3","h4","h5","h6","br","hr","img","small","s","u","code","blockquote","nav","sub","sup");
+  private static final java.util.Set<String> VOIDS=java.util.Set.of("br","hr","img"),PHRASING=java.util.Set.of("span","b","i","strong","em","a","br","img","small","s","u","code","sub","sup");
   private static final String SPACE=" \t\r\n\f";
   /** Describe the precise supported subset without advertising general HTML5 parsing. */
   public static String supportedSubset(){return "UTF-8 HTML fragments; explicit balanced approved flow/phrasing/list tags; br/hr/img void tags; ASCII case-insensitive names; quoted/unquoted and hidden Boolean attributes; amp/lt/gt/quot/apos/nbsp and numeric references; comments omitted; no doctype, implied closes, raw text, foreign content or browser recovery";}

@@ -38,7 +38,7 @@ static inline void srl_html_events_free(srl_html_events* events) {
 static inline bool srl_html_empty_name(const char* name) { return !name || !*name; }
 /* Resolve only approved lowercase names to immutable metadata, never an arbitrary tag vocabulary. */
 static inline const char* srl_html_tag(const char* name) {
-  static const char* const names[] = {"div","p","span","b","i","strong","em","a","ul","ol","li","section","article","h1","h2","h3","h4","h5","h6","br","hr","img","small","s","u","code","blockquote","nav"};
+  static const char* const names[] = {"div","p","span","b","i","strong","em","a","ul","ol","li","section","article","h1","h2","h3","h4","h5","h6","br","hr","img","small","s","u","code","blockquote","nav","sub","sup"};
   if (!name) { return NULL; }
   for (size_t index=0; index<sizeof(names)/sizeof(names[0]); ++index) { if (strcmp(name,names[index])==0) { return names[index]; } }
   return NULL;
@@ -47,7 +47,7 @@ static inline const char* srl_html_tag(const char* name) {
 static inline bool srl_html_void(const char* name) { return name && (strcmp(name,"br")==0 || strcmp(name,"hr")==0 || strcmp(name,"img")==0); }
 /* Identify phrasing elements whose accepted children cannot require browser rearrangement. */
 static inline bool srl_html_phrasing(const char* name) {
-  static const char* const names[] = {"span","b","i","strong","em","a","br","img","small","s","u","code"};
+  static const char* const names[] = {"span","b","i","strong","em","a","br","img","small","s","u","code","sub","sup"};
   for (size_t index=0; index<sizeof(names)/sizeof(names[0]); ++index) { if (strcmp(name,names[index])==0) { return true; } } return false;
 }
 /* Recognize only fixed HTML ASCII whitespace, including form feed. */

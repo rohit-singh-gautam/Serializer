@@ -24,8 +24,8 @@ public sealed class HtmlEvent {
 }
 // Parse explicitly balanced approved HTML only; this contract supplies neither browser recovery nor URL sanitization.
 public static class Html {
-  private static readonly System.Collections.Generic.HashSet<string> Tags=new("div p span b i strong em a ul ol li section article h1 h2 h3 h4 h5 h6 br hr img small s u code blockquote nav".Split(' '),System.StringComparer.Ordinal);
-  private static readonly System.Collections.Generic.HashSet<string> Voids=new(new[]{"br","hr","img"},System.StringComparer.Ordinal),Phrasing=new("span b i strong em a br img small s u code".Split(' '),System.StringComparer.Ordinal);
+  private static readonly System.Collections.Generic.HashSet<string> Tags=new("div p span b i strong em a ul ol li section article h1 h2 h3 h4 h5 h6 br hr img small s u code blockquote nav sub sup".Split(' '),System.StringComparer.Ordinal);
+  private static readonly System.Collections.Generic.HashSet<string> Voids=new(new[]{"br","hr","img"},System.StringComparer.Ordinal),Phrasing=new("span b i strong em a br img small s u code sub sup".Split(' '),System.StringComparer.Ordinal);
   private static readonly System.Text.UTF8Encoding Encoding=new(false,true);
   private const string Space=" \t\r\n\f";
   // Describe exact supported syntax without advertising general HTML5 parsing.

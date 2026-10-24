@@ -36,12 +36,12 @@ impl Html {
             "li"=>Some("li"),"section"=>Some("section"),"article"=>Some("article"),"h1"=>Some("h1"),
             "h2"=>Some("h2"),"h3"=>Some("h3"),"h4"=>Some("h4"),"h5"=>Some("h5"),"h6"=>Some("h6"),
             "br"=>Some("br"),"hr"=>Some("hr"),"img"=>Some("img"),"small"=>Some("small"),"s"=>Some("s"),
-            "u"=>Some("u"),"code"=>Some("code"),"blockquote"=>Some("blockquote"),"nav"=>Some("nav"),_=>None}
+            "u"=>Some("u"),"code"=>Some("code"),"blockquote"=>Some("blockquote"),"nav"=>Some("nav"),"sub"=>Some("sub"),"sup"=>Some("sup"),_=>None}
     }
     /// Identify only the approved void elements; they still have paired semantic start/end events.
     fn void(value:&str)->bool { matches!(value,"br"|"hr"|"img") }
     /// Identify phrasing elements whose accepted children cannot require browser rearrangement.
-    fn phrasing(value:&str)->bool { matches!(value,"span"|"b"|"i"|"strong"|"em"|"a"|"br"|"img"|"small"|"s"|"u"|"code") }
+    fn phrasing(value:&str)->bool { matches!(value,"span"|"b"|"i"|"strong"|"em"|"a"|"br"|"img"|"small"|"s"|"u"|"code"|"sub"|"sup") }
     /// Recognize the fixed HTML ASCII whitespace set, including form feed.
     fn space(value:u8)->bool { matches!(value,b' '|b'\t'|b'\r'|b'\n'|12) }
     /// Reject unsupported control scalars without applying XML-specific character rules.

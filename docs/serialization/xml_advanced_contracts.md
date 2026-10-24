@@ -254,8 +254,15 @@ std::string normalize_fragment(std::string_view source) {
 }
 ```
 
-The approved subset has 28 explicit flow/phrasing/list tags and the `br`, `hr`,
-`img` void tags. Names fold ASCII case; quoted/unquoted attributes and the
+Compiler/runtime **2.34.0** extends the approved subset with `sub` and `sup` as
+phrasing containers. They preserve explicit nesting and admit only the existing
+global attributes; block children, self-closing nonvoid syntax and implicit
+closes reject. The complete closed vocabulary contains these **30 tags**:
+`div`, `p`, `span`, `b`, `i`, `strong`, `em`, `a`, `ul`, `ol`, `li`, `section`,
+`article`, `h1`–`h6`, `br`, `hr`, `img`, `small`, `s`, `u`, `code`, `blockquote`,
+`nav`, `sub` and `sup`. Only `br`, `hr` and `img` are void.
+
+Names fold ASCII case; quoted/unquoted attributes and the
 `hidden` boolean attribute use HTML syntax. An explicit small attribute/entity
 inventory, UTF-8, balanced content and resource bounds are enforced. Comments
 are omitted. `supported_subset()` describes the runtime boundary.
