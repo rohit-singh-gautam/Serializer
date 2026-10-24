@@ -62,10 +62,12 @@ endif()
 # Application support is permissively licensed and contains no schema compiler code.
 add_library(serializer_runtime
   src/native_database.cpp
+  include/rohit/native_database.hpp
+  include/rohit/native_database_file.hpp
   src/paged_index.cpp
   include/rohit/paged_index_file.hpp
-  include/rohit/native_database_file.hpp
-  include/rohit/native_database.hpp
+  include/rohit/paged_index.hpp
+  include/rohit/native_database_index.hpp
   src/cache.cpp
   include/rohit/cache.hpp
   include/rohit/cache_codec.hpp
@@ -548,6 +550,7 @@ if(SERIALIZER_BUILD_MANAGED)
   add_library(Serializer::managed ALIAS serializer_managed)
   serializer_generate(TARGET serializer_managed SCHEMAS schemas/managed_records.serializer
     schemas/collaboration_records.serializer
+    schemas/paged_index_records.serializer
     CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/schemas/runtime_records.ini"
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed/include/rohit"
     CODING_STANDARD serializer)
@@ -590,15 +593,18 @@ if(SERIALIZER_INSTALL)
     install(TARGETS serializer_managed EXPORT SerializerTargets)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/managed/include/rohit/managed_records.hpp"
       "${CMAKE_CURRENT_BINARY_DIR}/managed/include/rohit/collaboration_records.hpp"
+      "${CMAKE_CURRENT_BINARY_DIR}/managed/include/rohit/paged_index_records.hpp"
       DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/rohit")
     install(FILES schemas/managed_records.serializer schemas/collaboration_records.serializer
+      schemas/paged_index_records.serializer
       DESTINATION "${CMAKE_INSTALL_DATADIR}/Serializer/schemas")
   endif()
   # Install record-dependent APIs only when their generated dependencies are available.
   set(serializer_disabled_header_patterns)
   if(NOT SERIALIZER_BUILD_MANAGED)
     foreach(header IN ITEMS managed.hpp managed_identity_allocation.hpp managed_editable.hpp managed_registry.hpp managed_delta.hpp collaboration_history.hpp collaboration_sessions.hpp
-        managed_collaboration.hpp managed_collaboration_hooks.hpp managed_local_collaboration.hpp managed_migration.hpp native_database.hpp)
+        managed_collaboration.hpp managed_collaboration_hooks.hpp managed_local_collaboration.hpp managed_migration.hpp
+        native_database.hpp paged_index.hpp native_database_index.hpp)
       list(APPEND serializer_disabled_header_patterns PATTERN "${header}" EXCLUDE)
     endforeach()
   endif()

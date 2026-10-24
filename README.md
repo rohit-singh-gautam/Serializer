@@ -46,6 +46,11 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+The [immutable disk index](docs/managed/paged_index.md) bounds external
+construction and its shared page cache. Bind every generation to the exact
+document, schema, definition, epoch, revision and source digest. Native database
+wrappers retain that eager source; they do not introduce lazy model authority.
+
 Language 1.24 adds [local managed scalar indexes](docs/schema/indexes.md):
 ordered/hash lookup and optional type-scoped uniqueness. Queries pin their source
 snapshot; uniqueness validates complete candidates before publication. Database

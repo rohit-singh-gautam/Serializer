@@ -1,0 +1,34 @@
+// SPDX-FileCopyrightText: 2024-2026 Rohit Jairaj Singh <rohit@singh.org.in>
+// SPDX-License-Identifier: 0BSD
+serializer version 1;
+
+// Derived index metadata is independent of user payload identities and authoritative journals.
+namespace rohit {
+  namespace managed {
+    namespace page_records {
+      class source_binding stable_ids {
+        public uint32 format_version (1);
+        public uint64 document_high (2);
+        public uint64 document_low (3);
+        public uint64 authority_epoch (4);
+        public uint64 source_revision (5);
+        public array[32] uint8 schema_digest (6);
+        public array[32] uint8 definition_digest (7);
+        public array[32] uint8 source_digest (8);
+      }
+
+      class index_manifest stable_ids {
+        public uint32 format_version (1);
+        public uint32 comparator_version (2);
+        public uint64 page_bytes (3);
+        public uint64 page_count (4);
+        public uint64 root_page (5);
+        public uint64 depth (6);
+        public uint64 entries (7);
+        public uint64 generation_high (8);
+        public uint64 generation_low (9);
+        public array uint8 binding (10);
+      }
+    }
+  }
+}

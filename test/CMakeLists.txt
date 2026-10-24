@@ -121,7 +121,7 @@ add_test(NAME payload_allocator_test COMMAND payload_allocator_test)
 
 if(SERIALIZER_BUILD_MANAGED)
   foreach(index_profile IN ITEMS direct32 direct64 separate32 separate64)
-    add_executable(schema_indexes_${index_profile}_test schema_indexes_test.cpp)
+    add_executable(schema_indexes_${index_profile}_test schema_indexes_test.cpp paged_index_test.cpp)
     set(index_config)
     if(NOT index_profile STREQUAL "direct32")
       set(index_config CONFIG "resources/cache_${index_profile}.ini")
@@ -1328,6 +1328,13 @@ if(SERIALIZER_BUILD_MANAGED)
     target_compile_options(native_database_allocation_failure_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME native_database_allocation_failure_test COMMAND native_database_allocation_failure_test)
+  add_executable(paged_index_crash_helper paged_index_crash_helper.cpp)
+  target_link_libraries(paged_index_crash_helper PRIVATE Serializer::managed)
+  if(MSVC)
+    target_compile_options(paged_index_crash_helper PRIVATE /W4 /WX)
+  else()
+    target_compile_options(paged_index_crash_helper PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
   if(MSVC)
     target_compile_options(native_database_crash_helper PRIVATE /W4 /WX)
   else()
@@ -1352,6 +1359,11 @@ if(SERIALIZER_BUILD_MANAGED)
         --helper "$<TARGET_FILE:native_database_crash_helper>"
         --build "${CMAKE_CURRENT_BINARY_DIR}/native_database_crash_test")
     set_tests_properties(native_database_crash_test PROPERTIES TIMEOUT 300)
+    add_test(NAME paged_index_crash_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/paged_index_crash_test.py"
+        --helper "$<TARGET_FILE:paged_index_crash_helper>"
+        --build "${CMAKE_CURRENT_BINARY_DIR}/paged_index_crash")
+    set_tests_properties(paged_index_crash_test PROPERTIES TIMEOUT 300)
       add_test(NAME cache_crash_test
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/cache_crash_test.py"
           --cache-helper "$<TARGET_FILE:cache_crash_helper>"

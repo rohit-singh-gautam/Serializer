@@ -7,6 +7,13 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 
 [Documentation index](../../../docs/README.md)
 
+For derived uint64 disk lookup, use the
+[paged index](../../../docs/managed/paged_index.md) with a complete source binding.
+Retain the exact immutable source and query pins; reject stale, foreign or corrupt
+generations before returning results. Configure external-run, temporary-file,
+page/cache and cursor budgets. Native database wrappers pin whole eager roots;
+they supply no lazy authoritative values or automatic persistent placement.
+
 For standalone C++ managed scalar lookup, use language 1.24
 [index declarations](../../../docs/schema/indexes.md). Choose ordered/unordered
 and optional unique keys at local/inherited placement. Query the generated field
