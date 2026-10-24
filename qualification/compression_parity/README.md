@@ -16,6 +16,7 @@ python -B qualification/compression_parity_qualification.py \
   --compiler /path/to/immutable/serializer \
   --config out/compression-sdk-config.json \
   --build out/compression-parity \
+  --jobs 1 \
   --output out/compression-parity.json
 ```
 
@@ -25,6 +26,12 @@ provider path. The example uses Windows tool names. Import the native developer
 environment first; Swift also needs its matching `SDKROOT` and runtime/toolchain
 directories on `PATH`. The tested SDKs and provider artifacts belong in the dated
 proof, rather than in machine-specific tracked paths.
+
+`--jobs` accepts one or two workers (default two) and controls the C++ native
+build and independent lifecycle runners. Select one when sharing the host;
+SDK/runtime internal threads remain governed by their own environment settings.
+The evidence records the selected worker limit; corpus and exchange counts are
+identical in both modes.
 
 The driver requires every requested SDK and provider. It generates actual owning
 models, compiles the adapters, validates producer output independently, runs every
