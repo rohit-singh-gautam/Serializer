@@ -1779,7 +1779,6 @@ if(SERIALIZER_WITH_XML)
   target_link_libraries(package_relocation_sdk PRIVATE Serializer::runtime)
   add_executable(package_pipeline_sdk package_pipeline_test.cpp)
   serializer_generate(TARGET package_pipeline_sdk SCHEMAS resources/package_pipeline.serializer
-    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/package_pipeline.ini"
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/package_pipeline")
   target_link_libraries(package_pipeline_sdk PRIVATE Serializer::runtime)
   file(READ "${CMAKE_CURRENT_SOURCE_DIR}/resources/package_pipeline.serializer" pipeline_binary_schema)
@@ -2306,6 +2305,17 @@ if(SERIALIZER_WITH_XML)
     add_test(NAME xsd_import_cli_test
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xsd_import_cli_test.py"
         "$<TARGET_FILE:serializer>" "${CMAKE_CURRENT_BINARY_DIR}")
+    add_test(NAME xml_schema_local_package_python
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_pipeline_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --language python --schema-local
+        --build "${CMAKE_CURRENT_BINARY_DIR}/schema_local_package_python")
+    add_test(NAME xml_core_python_regression
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_3mf_core_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/core_python_regression")
+    add_test(NAME xml_schema_local_ordered_python
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_ordered_portable_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --language python --schema-local
+        --build "${CMAKE_CURRENT_BINARY_DIR}/schema_local_ordered_python")
     add_test(NAME xml_schema_tools_test
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_schema_tools_test.py"
         "$<TARGET_FILE:serializer>")

@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -129,6 +130,8 @@ struct xml_schema_binding {
 struct xml_authoring_options {
   std::optional<std::string> namespace_uri{};
   std::optional<std::string> root{};
+  std::optional<std::string> ordered{};
+  std::map<std::string, std::string> ordered_children{};
   std::optional<xml_field_placement> scalar_placement{};
   std::optional<xml_unknown_policy> unknown{};
   std::optional<xml_schema_binding> schema{};

@@ -66,6 +66,26 @@ std::vector<const rohit::serializer::class_node*> model_classes(
 }
 } // namespace
 
+// Named groups and repeated heterogeneous complex branches import without duplicated payload arrays.
+TEST(xsd_import, ordered_complex_groups_import_with_schema_local_mapping) {
+  import_directory files;
+  const auto path = files.write("model.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+    <xs:complexType name="Left"><xs:simpleContent><xs:extension base="xs:string"/></xs:simpleContent></xs:complexType>
+    <xs:complexType name="Right"><xs:attribute name="id" type="xs:unsignedInt" use="required"/></xs:complexType>
+    <xs:group name="Pair"><xs:sequence><xs:element name="left" type="Left"/><xs:element name="right" type="Right"/></xs:sequence></xs:group>
+    <xs:element name="model"><xs:complexType><xs:group ref="Pair" minOccurs="2" maxOccurs="3"/></xs:complexType></xs:element>
+  </xs:schema>)");
+  const auto imported = binding::import_xsd(path, {"models", "model", "model.xsd"});
+  EXPECT_NE(imported.schema_text.find("serializer version 1.24.0;"), std::string::npos);
+  EXPECT_NE(imported.schema_text.find("ordered(\"xsd_items\")"), std::string::npos);
+  EXPECT_NE(imported.schema_text.find("ordered_child("), std::string::npos);
+  const auto parsed = rohit::serializer::parser::parse_file(files.write("model.serializer", imported.schema_text));
+  const auto options = binding::effective_options(parsed.statements, {});
+  for (const auto language : owning_xml_backends) {
+    EXPECT_NO_THROW(binding::validate_options(parsed.statements, options, language)) << language;
+  }
+}
+
 TEST(xsd_import, emits_parseable_stable_id_source_with_inline_mapping_and_pinned_dependency) {
   import_directory files;
   const auto path = files.write("model.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:import" targetNamespace="urn:import" elementFormDefault="qualified"><xs:complexType name="Item"><xs:attribute name="id" type="xs:unsignedInt" use="required"/></xs:complexType><xs:element name="order"><xs:complexType><xs:sequence><xs:element name="item" type="t:Item" maxOccurs="unbounded"/></xs:sequence><xs:attribute name="label" type="xs:string"/></xs:complexType></xs:element></xs:schema>)");
@@ -149,6 +169,51 @@ TEST(xsd_import, fixed_lexical_lists_import_as_typed_arrays_without_repeated_xml
   EXPECT_FALSE(contract.fields.front().repeated);
   EXPECT_EQ(contract.fields.front().facets.length, 12U);
   EXPECT_EQ(contract.fields.front().facets.list_item_kind, "double");
+}
+
+TEST(xsd_import, named_inline_and_union_list_items_reuse_bound_scalar_contracts) {
+  import_directory files;
+  const auto path = files.write("model.xsd", R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+    <xs:simpleType name="Amount"><xs:restriction base="xs:unsignedInt"><xs:minInclusive value="2"/><xs:maxInclusive value="7"/></xs:restriction></xs:simpleType>
+    <xs:simpleType name="Amounts"><xs:list itemType="Amount"/></xs:simpleType>
+    <xs:simpleType name="Pair"><xs:restriction base="Amounts"><xs:length value="2"/></xs:restriction></xs:simpleType>
+    <xs:simpleType name="Either"><xs:union memberTypes="xs:QName xs:unsignedInt"/></xs:simpleType>
+    <xs:simpleType name="Selections"><xs:list itemType="Either"/></xs:simpleType>
+    <xs:element name="model"><xs:complexType>
+      <xs:attribute name="amounts" type="Pair" use="required"/>
+      <xs:attribute name="names" use="required"><xs:simpleType><xs:list><xs:simpleType><xs:restriction base="xs:QName"/></xs:simpleType></xs:list></xs:simpleType></xs:attribute>
+      <xs:attribute name="choices" type="Selections"/>
+    </xs:complexType></xs:element></xs:schema>)");
+  const auto imported = binding::import_xsd(path, {"models", {}, "model.xsd"});
+  EXPECT_NE(imported.schema_text.find("array[2] uint32 xsd_amounts"), std::string::npos);
+  EXPECT_NE(imported.schema_text.find("array string xsd_names"), std::string::npos);
+  EXPECT_NE(imported.schema_text.find("optional<array<string>> xsd_choices"), std::string::npos);
+  const auto parsed = rohit::serializer::parser::parse_file(files.write("model.serializer", imported.schema_text));
+  const auto options = binding::effective_options(parsed.statements, {});
+  const auto contract = binding::schema{options}.bind(*model_classes(parsed).front());
+  ASSERT_EQ(contract.fields.size(), 3U);
+  EXPECT_EQ(contract.fields[0].facets.length, 2U);
+  EXPECT_EQ(contract.fields[0].facets.list_item_kind, "unsignedInt");
+  ASSERT_EQ(contract.fields[0].facets.list_item_facets.size(), 1U);
+  EXPECT_EQ(contract.fields[0].facets.list_item_facets.front().min_inclusive, "2");
+  EXPECT_EQ(contract.fields[1].facets.list_item_kind, "QName");
+  ASSERT_EQ(contract.fields[2].facets.list_item_facets.size(), 1U);
+  ASSERT_EQ(contract.fields[2].facets.list_item_facets.front().union_members.size(), 2U);
+  for (const auto language : owning_xml_backends) {
+    EXPECT_NO_THROW(binding::validate_options(parsed.statements, options, language)) << language;
+  }
+}
+
+TEST(xsd_import, nested_and_cyclic_list_items_reject_without_source_publication) {
+  import_directory files;
+  for (const auto declaration : {
+      R"(<xs:simpleType name="Items"><xs:list itemType="xs:unsignedInt"/></xs:simpleType><xs:simpleType name="Invalid"><xs:list itemType="Items"/></xs:simpleType>)",
+      R"(<xs:simpleType name="Invalid"><xs:list itemType="Invalid"/></xs:simpleType>)"}) {
+    const auto path = files.write("model.xsd",
+        std::string{R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">)"} + declaration +
+        R"(<xs:element name="model"><xs:complexType><xs:attribute name="value" type="Invalid"/></xs:complexType></xs:element></xs:schema>)");
+    EXPECT_THROW((void)binding::import_xsd(path), std::invalid_argument);
+  }
 }
 
 TEST(xsd_import, adding_an_earlier_field_does_not_renumber_existing_native_identities) {

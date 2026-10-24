@@ -25,9 +25,9 @@ export class HtmlEvent {
 
 // Parse and write the approved HTML contract; neither operation implements general HTML5 recovery or URL sanitization.
 export class Html {
-  static #tags=new Set('div p span b i strong em a ul ol li section article h1 h2 h3 h4 h5 h6 br hr img small s u code blockquote nav'.split(' '));
+  static #tags=new Set('div p span b i strong em a ul ol li section article h1 h2 h3 h4 h5 h6 br hr img small s u code blockquote nav sub sup'.split(' '));
   static #voids=new Set(['br','hr','img']);
-  static #phrasing=new Set('span b i strong em a br img small s u code'.split(' '));
+  static #phrasing=new Set('span b i strong em a br img small s u code sub sup'.split(' '));
   static #entities=new Map([['amp','&'],['lt','<'],['gt','>'],['quot','"'],['apos',"'"],['nbsp','\u00a0']]);
   // Describe the supported syntax without advertising a general browser parser or sanitizer.
   static supportedSubset() {

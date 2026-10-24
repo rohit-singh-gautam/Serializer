@@ -703,9 +703,9 @@ opaque parts and links after editing; finalization revalidates their targets.
 The runtime writes `[Content_Types].xml` and scoped `.rels` automatically.
 Applications do not define Serializer schemas for these infrastructure files.
 Package declarations do not add geometry or format-specific validation. Python
-uses the same declarations with the API below. Other-language package generation
-rejects explicitly; baseline XML generation across all outputs remains available
-independently.
+uses the same declarations with the API below. The current owning package
+facades cover all eleven outputs; see [generated pipelines](#generated-package-pipelines)
+for the shared profile contract and backend-specific ownership APIs.
 
 ## Declarative Python package profiles
 
@@ -886,6 +886,16 @@ cumulative contexts; process-memory/performance qualification retains its separa
 measured scope.
 
 ## Generated package pipelines
+
+With compiler/runtime **2.34.0**, a language **1.24.0** part can also declare
+`requires_type(true|false)`, `vocabularies("uri", ...)` and
+`target_mode(internal|external|both)` directly. These use the same metadata and
+validation as the INI profile, with no additional model storage. An inventory
+contains 1–1,024 unique nonempty URIs without whitespace. Existing package INI
+profiles remain explicit overrides; invalid final codec/target/source combinations
+reject even when no INI overrides are supplied. Every declaring file must opt into
+the new language version. The generated runtime selection and reference contracts
+below apply to all eleven owning outputs.
 
 Version 2.28 supports generated profiles in all eleven outputs with XML, native
 JSON and BINARY_NONE codecs and stored/DEFLATE compression. Schema `codec(...)`,

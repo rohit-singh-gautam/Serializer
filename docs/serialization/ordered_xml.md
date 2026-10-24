@@ -9,6 +9,26 @@ records. See [OPC-R04](../project/completed_requirements.md#opc-and-3mf-requirem
 
 ## Schema and mapping
 
+With compiler/runtime **2.34.0** and language **1.24.0**, the owner can select this
+same contract in its schema:
+
+```serializer
+class job {
+  xml(ordered("steps"), ordered_child("motion", "{urn:jobs}motion"),
+      ordered_child("pause", "{urn:jobs}pause"));
+  public array<step> steps(1);
+}
+```
+
+`ordered_child` selects a variant branch's expanded child name. Omit it to retain
+the existing record-name/default-namespace behavior. The variant member is
+`value`; the existing INI `ordered.variant` selector can explicitly select another
+member. These settings are class-local and never inherited as namespace defaults.
+Duplicate, empty and unknown selections reject. A conflicting INI ordered field
+or child name rejects instead of silently changing the schema contract. Identical
+selections remain accepted. Runtime storage, bounds and failure semantics are the
+same as the configuration form below.
+
 Use an ordinary fragment record with one owning variant of at least two ordinary
 record alternatives. Select its array explicitly
 in the generator configuration:
@@ -117,8 +137,12 @@ an unbound fixed array exports its exact extent. Fixed storage bound to an XSD
 requires that same exact grammar extent for export. Native variants are owning
 record alternatives; wildcard/all content, nil child alternatives and text branches
 require their separate mappings. Existing flat arrays cannot supply cross-array
-order and continue to reject grouped binding. Declaration import of these new
-ordered layouts remains a separate schema-authoring capability.
+order and continue to reject grouped binding. In 2.34.0 declaration import emits
+this explicit schema-local layout for supported grouped/repeated complex record
+branches. It retains one variant array and the pinned XSD grammar, with no second
+set of payload arrays or order trace. Scalar/nil/wildcard/all ordered branches and
+recursive owning storage still reject; at least two distinct record alternatives
+are required. Existing representable flat imports keep their original layout.
 
 The [original C++ verification](../verification/verification-ordered-xml-2026-10-21.md)
 and [portable verification](../verification/verification-ordered-xml-2026-10-22.md)

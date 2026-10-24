@@ -347,9 +347,13 @@ def execute(args):
     """Compile selected native SDKs and compare original child order and expanded names."""
     languages = args.language.split(',')
     source = args.build / 'model.serializer'
-    source.write_text(MODEL, encoding='utf-8')
+    model = MODEL
+    if args.schema_local:
+        model = model.replace('1.21.0', '1.24.0').replace('class root {', 'class root { xml(ordered("items"));').replace(
+            'class fixed {', 'class fixed { xml(ordered("items"));')
+    source.write_text(model, encoding='utf-8')
     config = args.build / 'options.ini'
-    config.write_text(CONFIG, encoding='utf-8')
+    config.write_text('[xml]\nenabled=true\n' if args.schema_local else CONFIG, encoding='utf-8')
     command = [args.compiler, '--input', source, '--config', config, '--go.package', 'main', '--kotlin.package=']
     if args.grouped_xsd:
         xsd = args.build / 'ordered.xsd'
@@ -447,6 +451,7 @@ def main():
     parser.add_argument('--libxml2-prefix', type=Path)
     parser.add_argument('--wsl-languages', default='')
     parser.add_argument('--grouped-xsd', action='store_true')
+    parser.add_argument('--schema-local', action='store_true')
     parser.set_defaults(cpp_library=None, cpp_executable=None, executable=None, sanitize=False)
     args = parser.parse_args()
     args.compiler, args.build = args.compiler.resolve(), args.build.resolve()

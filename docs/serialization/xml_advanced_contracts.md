@@ -210,9 +210,13 @@ identity. Opaque managed-reference and durable-address tokens remain unsupported
 for XML. Borrowed/view projections are synchronous output-only and require live
 owner storage; decode into an owning model. Digest projection represents exact
 hexadecimal bytes with checked algorithm/extent and does not recompute a digest.
-The 2.12 token guide qualifies non-C++ concrete generics and Go/Python owning
-inheritance. C++ template/inherited mappings and remaining revision/projection
-codecs retain their separate backend tasks.
+The current [token guide](xml_tokens.md) defines concrete owning generics,
+supported private/multiple owning inheritance and revision/magic/digest metadata
+across eleven outputs, plus concrete C++ template mappings. Consult its exact
+combined-graph gates; data projection does not supply a native managed engine,
+persistent managed identity, arbitrary mapped-view decoding or owning cycles.
+The [XML resolution ledger](../project/xml_package_backlog_resolution.md#xml-b14)
+records those exclusions and deferred dependencies.
 
 ## Document profiles and dispatch metadata
 
@@ -254,8 +258,15 @@ std::string normalize_fragment(std::string_view source) {
 }
 ```
 
-The approved subset has 28 explicit flow/phrasing/list tags and the `br`, `hr`,
-`img` void tags. Names fold ASCII case; quoted/unquoted attributes and the
+Compiler/runtime **2.34.0** extends the approved subset with `sub` and `sup` as
+phrasing containers. They preserve explicit nesting and admit only the existing
+global attributes; block children, self-closing nonvoid syntax and implicit
+closes reject. The complete closed vocabulary contains these **30 tags**:
+`div`, `p`, `span`, `b`, `i`, `strong`, `em`, `a`, `ul`, `ol`, `li`, `section`,
+`article`, `h1`–`h6`, `br`, `hr`, `img`, `small`, `s`, `u`, `code`, `blockquote`,
+`nav`, `sub` and `sup`. Only `br`, `hr` and `img` are void.
+
+Names fold ASCII case; quoted/unquoted attributes and the
 `hidden` boolean attribute use HTML syntax. An explicit small attribute/entity
 inventory, UTF-8, balanced content and resource bounds are enforced. Comments
 are omitted. `supported_subset()` describes the runtime boundary.

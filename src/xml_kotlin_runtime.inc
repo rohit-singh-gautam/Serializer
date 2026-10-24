@@ -26,8 +26,9 @@ data class XmlLimits(val maxBytes: Int = 16777216, val maxNodes: Int = 100000,
         result.srlPackageVocabularies = srlPackageVocabularies
         result.srlPackageContext = SrlXmlBudget.Operation({ poll() }, { kind, count, field ->
             try { parent?.charge(kind,count,field) } catch (failure: kotlin.Throwable) {
-                if (firstFailure == null) firstFailure = failure
-                throw firstFailure!!
+                val original = firstFailure ?: failure
+                firstFailure = original
+                throw original
             }
         }, { message, field ->
             poll()

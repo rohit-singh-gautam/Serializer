@@ -13,8 +13,17 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.21.0;` for new schemas; earlier 1.x language releases
-through `1.20.0` remain supported.
+Use `serializer version 1.24.0;` for new schemas; earlier compatible 1.x language
+releases remain supported, including the original `1` alias for `1.0.0`.
+
+Language `1.24.0` adds class-local `xml(ordered("items"))` and
+`ordered_child("branch", "{namespace}local")` mappings, plus package-role
+`target_mode(internal|external|both)`, `requires_type(true|false)` and
+`vocabularies("uri", ...)`. These select the existing
+[ordered XML](../serialization/ordered_xml.md) and
+[package pipeline](../serialization/xml_packages.md#generated-package-pipelines)
+contracts without adding model fields. Each declaring file, including an
+included file, must select `1.24.0` to use these settings.
 
 Language `1.21.0` adds [package policies and scalar application keys/references](../serialization/package_application_contracts.md).
 Each declaring file selects its own required language version, including includes.

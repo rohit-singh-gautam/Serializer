@@ -1068,7 +1068,7 @@ xml_options effective_options(const std::vector<std::unique_ptr<syntax_node>>& s
   bool authored{};
   bool package{};
   const auto declared = [](const xml_authoring_options& value) {
-    return value.namespace_uri || value.root || value.scalar_placement || value.unknown || value.schema;
+    return value.namespace_uri || value.root || value.ordered || value.scalar_placement || value.unknown || value.schema;
   };
   const auto scan = [&](auto&& self, const auto& nodes) -> void {
     for (const auto& node : nodes) {
@@ -1078,6 +1078,22 @@ xml_options effective_options(const std::vector<std::unique_ptr<syntax_node>>& s
         self(self, space.statements);
       } else if (node->type == object_type::class_type || node->type == object_type::generic_definition) {
         const auto& owner = static_cast<const class_node&>(*node);
+        if (owner.xml.ordered) {
+          auto& contracts = options.classes[owner.get_full_name()].contracts;
+          const auto selected = contracts.find("ordered");
+          if (contracts.contains("mixed") ||
+              (selected != contracts.end() && selected->second != *owner.xml.ordered)) {
+            throw std::invalid_argument{"Configured XML content conflicts with schema-local ordered selection"};
+          }
+          contracts["ordered"] = *owner.xml.ordered;
+          for (const auto& [branch, name] : owner.xml.ordered_children) {
+            const auto key = "ordered.child." + branch;
+            if (contracts.contains(key) && contracts.at(key) != name) {
+              throw std::invalid_argument{"Configured XML child conflicts with schema-local ordered selection"};
+            }
+            contracts[key] = name;
+          }
+        }
         authored = authored || declared(owner.xml) || std::any_of(owner.member_list.begin(),
             owner.member_list.end(), [](const auto& field) { return field.xml.has_value(); });
       } else if (node->type == object_type::package_type) { package = true; }
@@ -1264,6 +1280,21 @@ record schema::bind(const class_node& source, bool include_declarations) const {
     mapping.text = selected.text;
     mapping.wrappers = selected.wrappers;
     mapping.contracts = selected.contracts;
+  }
+  if (source.xml.ordered) {
+    const auto selected = mapping.contracts.find("ordered");
+    if (mapping.contracts.contains("mixed") ||
+        (selected != mapping.contracts.end() && selected->second != *source.xml.ordered)) {
+      throw std::invalid_argument{"Configured XML content conflicts with schema-local ordered selection"};
+    }
+    mapping.contracts["ordered"] = *source.xml.ordered;
+    for (const auto& [branch, name] : source.xml.ordered_children) {
+      const auto key = "ordered.child." + branch;
+      if (mapping.contracts.contains(key) && mapping.contracts.at(key) != name) {
+        throw std::invalid_argument{"Configured XML child conflicts with schema-local ordered selection"};
+      }
+      mapping.contracts[key] = name;
+    }
   }
   validate_xml_contract_options(mapping);
   if (!bundle_ && declared_schema) {

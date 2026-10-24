@@ -46,9 +46,9 @@ public struct HtmlEvent {
 
 // Parse and write explicitly balanced approved HTML; browser recovery and URL sanitization are outside this contract.
 public enum Html {
-    private static let tags=Set("div p span b i strong em a ul ol li section article h1 h2 h3 h4 h5 h6 br hr img small s u code blockquote nav".split(separator:" ").map(String.init))
+    private static let tags=Set("div p span b i strong em a ul ol li section article h1 h2 h3 h4 h5 h6 br hr img small s u code blockquote nav sub sup".split(separator:" ").map(String.init))
     private static let voids: Set<String>=["br","hr","img"]
-    private static let phrasing=Set("span b i strong em a br img small s u code".split(separator:" ").map(String.init))
+    private static let phrasing=Set("span b i strong em a br img small s u code sub sup".split(separator:" ").map(String.init))
     private static let headings: Set<String>=["h1","h2","h3","h4","h5","h6"]
     private static let ordinaryAttributes: Set<String>=["id","class","title","lang","dir","hidden"]
     private static let entities=["amp":"&","lt":"<","gt":">","quot":"\"","apos":"'","nbsp":"\u{a0}"]

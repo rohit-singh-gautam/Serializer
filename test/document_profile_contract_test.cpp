@@ -13,6 +13,40 @@
 namespace writer = rohit::serializer::writer;
 namespace schema = rohit::serializer;
 
+// Authored profiles must pass the complete codec/target checks even with no configuration overrides.
+TEST(document_profile_contract, schema_local_profiles_share_configured_validation) {
+  const std::string prefix = R"(serializer version 1.24.0;
+    class model { public uint32 value; }
+    package archive { part main : model { name("/main.xml"); content_type("application/xml");
+      relationship("urn:main"); requires_type(true); vocabularies("urn:first","urn:second"); }
+    part links : bytes { name(dynamic); content_type(dynamic); relationship("urn:link");
+      target_mode(both); occurs(0,unbounded); } })";
+  const auto nodes = schema::parser::parse(rohit::make_constant_stream(prefix.data(), prefix.size()));
+  const auto& package = static_cast<const schema::package_node&>(*nodes.back());
+  const auto configured = writer::package_codegen::configure_package(package, {});
+  EXPECT_TRUE(configured.parts[0].requires_type);
+  EXPECT_EQ(configured.parts[0].vocabularies, (std::vector<std::string>{"urn:first", "urn:second"}));
+  EXPECT_EQ(configured.parts[1].target_mode, "both");
+  auto invalid = configured.parts;
+  invalid[0].codec = "json";
+  schema::package_node bad{"bad", nullptr};
+  bad.parts = invalid;
+  EXPECT_THROW((void)writer::package_codegen::configure_package(bad, {}), std::invalid_argument);
+  bad.parts = configured.parts;
+  bad.parts[1].part_name = "/fixed.bin";
+  EXPECT_THROW((void)writer::package_codegen::configure_package(bad, {}), std::invalid_argument);
+  for (const auto setting : {"target_mode(other)", "requires_type(yes)",
+      "vocabularies(\"\")", "vocabularies(\"urn:a\",\"urn:a\")", "vocabularies(\"two words\")"}) {
+    const std::string text = std::string{R"(serializer version 1.24.0; package bad { part data : bytes {
+      name(dynamic); content_type(dynamic); relationship("urn:link"); )"} + setting + "; } }";
+    EXPECT_THROW(schema::parser::parse(rohit::make_constant_stream(text.data(), text.size())), std::exception);
+  }
+  for (const auto version : {"1;", "1.20.0;", "1.23.0;"}) {
+    const auto text = std::string{"serializer version "} + version + prefix.substr(prefix.find(';') + 1U);
+    EXPECT_THROW(schema::parser::parse(rohit::make_constant_stream(text.data(), text.size())), std::exception);
+  }
+}
+
 // Existing schema package syntax compiles expected-type/vocabulary metadata without a grammar change.
 TEST(document_profile_contract, package_roles_derive_typed_dispatch_and_compression_defaults) {
   constexpr std::string_view text =

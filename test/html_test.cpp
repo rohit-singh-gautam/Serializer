@@ -9,6 +9,17 @@
 
 namespace html = rohit::serializer::html;
 
+// Subscript and superscript tags retain nesting, escaping and ordinary case folding.
+TEST(html, subscript_and_superscript_use_the_closed_phrasing_contract) {
+  const auto events = html::parse_fragment(
+      "<P>H<SUB title='index'>2</SUB>O; x<SUP>2<em>nd</em></SUP> &amp; y<sub><sup>n</sup></sub></P>");
+  EXPECT_EQ(html::write_fragment(events),
+      "<p>H<sub title=\"index\">2</sub>O; x<sup>2<em>nd</em></sup> &amp; y<sub><sup>n</sup></sub></p>");
+  for (const auto* invalid : {"<sub><div>x</div></sub>", "<sup><p>x</p></sup>", "<sub/>", "<sup>unclosed"}) {
+    EXPECT_THROW((void)html::parse_fragment(invalid), std::invalid_argument);
+  }
+}
+
 // HTML case-folding, unquoted/boolean attributes and void tags differ from XML by design.
 TEST(html, ordinary_html_subset_round_trips) {
   const auto events = html::parse_fragment(

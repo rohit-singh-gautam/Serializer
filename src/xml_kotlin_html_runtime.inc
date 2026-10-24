@@ -15,9 +15,9 @@ data class HtmlEvent(val kind: String, val name: String = "", val attributes: Li
 
 // Parse and write only explicitly balanced approved HTML; no browser recovery or URL sanitization is implied.
 object Html {
-    private val tags = "div p span b i strong em a ul ol li section article h1 h2 h3 h4 h5 h6 br hr img small s u code blockquote nav".split(' ').toSet()
+    private val tags = "div p span b i strong em a ul ol li section article h1 h2 h3 h4 h5 h6 br hr img small s u code blockquote nav sub sup".split(' ').toSet()
     private val voids = setOf("br","hr","img")
-    private val phrasing = "span b i strong em a br img small s u code".split(' ').toSet()
+    private val phrasing = "span b i strong em a br img small s u code sub sup".split(' ').toSet()
     private val entities = mapOf("amp" to "&", "lt" to "<", "gt" to ">", "quot" to "\"", "apos" to "'", "nbsp" to "\u00a0")
     private const val space = " \t\r\n\u000c"
     // Explain the exact contract rather than advertising a general-purpose HTML5 parser.

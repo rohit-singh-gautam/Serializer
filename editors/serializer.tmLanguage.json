@@ -2446,7 +2446,7 @@
         { "include": "#comments" },
         { "include": "#strings" },
         { "include": "#xml_authoring_group" },
-        { "name": "storage.modifier.serializer", "match": "\\b(?:namespace|scalars|root|unknown|name|wrapper)\\b(?=\\s*\\()" },
+        { "name": "storage.modifier.serializer", "match": "\\b(?:namespace|scalars|root|ordered|ordered_child|unknown|name|wrapper)\\b(?=\\s*\\()" },
         { "name": "constant.other.xml.serializer", "match": "\\b(?:attribute|element|text|reject|skip|preserve|list|qname|prefix_list)\\b" }
       ]
     },
@@ -2499,7 +2499,7 @@
           ]
         },
         {
-          "begin": "\\b(name|content_type|relationship|source|compression|codec|occurs|id|policy|key|reference)\\s*(\\()",
+          "begin": "\\b(name|content_type|relationship|source|compression|codec|occurs|id|policy|key|reference|target_mode|requires_type|vocabularies)\\s*(\\()",
           "beginCaptures": {
             "1": { "name": "storage.modifier.serializer" },
             "2": { "name": "punctuation.section.group.serializer" }
@@ -2509,7 +2509,7 @@
             { "include": "#comments" },
             { "include": "#strings" },
             { "name": "constant.numeric.serializer", "match": "\\b[0-9]+\\b" },
-            { "name": "constant.other.package.serializer", "match": "\\b(?:dynamic|unbounded|deflate|stored|xml|bytes|json|binary_none|fixed|defaults)\\b" },
+            { "name": "constant.other.package.serializer", "match": "\\b(?:dynamic|unbounded|deflate|stored|xml|bytes|json|binary_none|fixed|defaults|internal|external|both|true|false)\\b" },
             { "name": "variable.other.member.serializer", "match": "\\b[A-Za-z_][A-Za-z_0-9]*\\b" }
           ]
         }

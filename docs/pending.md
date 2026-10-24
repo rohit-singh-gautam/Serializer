@@ -1,10 +1,10 @@
 # Pending requirements across Serializer
 
-This list tracks **34 requirements: one completed and 33 unfinished
-(29 active and four deferred)**. Keep completed items in this file and mark their
+This list tracks **34 requirements: 14 closed and 20 unfinished
+(16 active and four deferred)**. Keep completed items in this file and mark their
 state `[x]`; do not delete their rows or sections when they are completed.
 The [implemented feature catalog](project/completed_requirements.md) retains
-**824 IDs and verification records**, including historical items archived before
+**826 IDs and verification records**, including historical items archived before
 this tracking policy. The [feature list](project/feature_status.md)
 summarizes supported capabilities. The three closed ownership decisions live in
 [application responsibilities](project/application_responsibilities.md#disposed-requirements),
@@ -15,7 +15,9 @@ their issues below. Deferral means unimplemented and outside the active batch.
 Native storage support is active `DB02`; third-party database engines and sink
 adapters are outside scope. Dependencies may refer to completed IDs in the
 feature catalog. Keep partial parent requirements open even when a narrower
-implementation or qualification record is complete.
+implementation or qualification record is complete. Explicit scope dispositions
+and reconciliation of duplicate parents are documented separately from newly
+implemented capabilities.
 
 ## First priority: C++23 minimum
 
@@ -82,18 +84,26 @@ qualification does not close the broader SC02 requirement below.
 
 ### XML and package requirement tasks
 
-| State | ID | Estimate | Remaining requirement and acceptance gate | Dependencies |
+All **13 items are closed** for the selected contracts. The
+[resolution ledger](project/xml_package_backlog_resolution.md) distinguishes new
+implementation, completed OPC work and explicit scope decisions. Generic owning
+XML/package support covers eleven outputs; the selected full **3MF Core 1.4 graph
+is C++/Python only**, with the documented OPC fifth-edition profile. Dependencies
+in other sections are deferred from this batch and retain their existing states.
+Historical verification records retain their original source/platform scope.
+
+| State | ID | Estimate | Completed contract or disposition | Dependencies deferred outside this section |
 | --- | --- | --- | --- | --- |
-| [ ] | XML-B01 | — | Broaden schema-first XML vocabulary and ambiguous-association tooling. | — |
-| [ ] | XML-B02 | — | Extend declaration import to additional XSD content-model, identity, chameleon and pattern combinations; qualify schema migration automation beyond the supported subset. | — |
-| [ ] | XML-B03 | — | Implement equivalent rich XSD/XML emitters beyond C++/Python and qualify broader numeric, QName, content-model and provider combinations. | — |
-| [ ] | XML-B04 | — | Owning package facades exist in all eleven outputs (OPC-R07). Complete declarative payload references, target-mode/profile/runtime selection and broader corpus/performance qualification before closing this parent. | — |
-| [ ] | XML-B07 | — | Qualify additional platforms/provider combinations, broad performance and complete selected OPC/3MF profiles. | — |
-| [ ] | XML-B08 | — | XML performance: Broaden tree-free token coverage and qualify provider/platform and retained-tree helper costs; measure CPU, memory, encoded size and generated-code size on reproducible workloads. | — |
-| [ ] | XML-B09 | — | XML vocabulary: Extend combinations of presence/nil, ordered fragments, maps/variants and positioned extensions; qualify bounded foreign retention, grouped/repeated heterogeneous choices and broader mixed content. | — |
-| [ ] | XML-B10 | — | XSD compilation: Extend facets/derivations, multiple-typed-branch/grouped choices and scalar/pattern/identity/local-bundle combinations; qualify union/QName boundaries and explicit unsupported-graph capability gates. | — |
-| [ ] | XML-B14 | — | Model coverage: Broaden concrete generic, owning inheritance, revision/magic and digest combinations; define supported managed/view and recursive/combined graph contracts. | — |
-| [ ] | XML-B15 | — | Referenced XML output: Broaden stress/resource and ownership qualification without duplicate owning payloads; define any durable field-address XML contract before enabling it. | — |
-| [ ] | XML-B18 | — | ZIP extensions: Broaden large-archive, stress and provider coverage; qualify ZIP64/spooling, peak-memory and cancellation boundaries in every backend; unsupported features reject explicitly. | — |
-| [ ] | XML-B19 | — | Typed profiles: Extend C++/Python declarations with pipeline/runtime selection, vocabulary profiles and generated payload reference checks before publication; implement equivalent contracts in other backends. | — |
-| [ ] | XML-B24 | — | HTML: Broaden restricted HTML adapters only under an explicit supported contract; keep arbitrary HTML and unrestricted mixed-content XHTML outside that contract. | — |
+| [x] | XML-B01 | — | **Closed.** Schema-first association/evolution tools and new schema-local ordered mapping complete the supported authoring workflow. Ambiguous associations require explicit selection. [Evidence and limits](project/xml_package_backlog_resolution.md#xml-b01). | — |
+| [x] | XML-B02 | — | **Closed.** Supported local/chameleon bundles, identity/pattern combinations, reviewed evolution and new ordered/list declaration imports are complete. Arbitrary automatic historical conversion is declined. [Evidence and limits](project/xml_package_backlog_resolution.md#xml-b02). | MIG03 |
+| [x] | XML-B03 | — | **Closed.** Rich generic XML mappings have eleven-output parity. Full combined Core 1.4 support is scoped to C++/Python; the other nine retain explicit capability errors. [Evidence and limits](project/xml_package_backlog_resolution.md#xml-b03). | QA01 |
+| [x] | XML-B04 | — | **Closed.** Owning package profiles, references, envelope selection and selected corpus/resource contracts are implemented across eleven outputs, including the new schema-local replay. [Evidence and limits](project/xml_package_backlog_resolution.md#xml-b04). | QA01/QA02/QA03 |
+| [x] | XML-B07 | — | **Closed.** The documented OPC fifth-edition profile and Core 1.4 C++/Python profile are qualified within their recorded corpus/resource boundaries. Broader edition/platform/provider and signature claims are excluded. [Evidence and limits](project/xml_package_backlog_resolution.md#xml-b07). | QA01/QA02; OPC-OPT02 |
+| [x] | XML-B08 | — | **Closed.** Admitted token graphs and reproducible CPU/memory/XML/generated-size measurements are complete. Token/tree tradeoffs and provider/process limits are explicit. [Evidence and limits](project/xml_package_backlog_resolution.md#xml-b08). | MG07; QA01/QA03 |
+| [x] | XML-B09 | — | **Closed.** Supported presence/nil, ordered/mixed, map/variant and positioned foreign-retention contracts are implemented and bounded. Arbitrary interleaving without native storage remains rejected. [Evidence and limits](project/xml_package_backlog_resolution.md#xml-b09). | — |
+| [x] | XML-B10 | — | **Closed.** Supported facet/derivation, scalar/list/union/QName, pattern/identity and local-bundle combinations are implemented, with grouped-choice import and explicit unsupported-graph gates. Unrestricted XSD/XPath is excluded. [Evidence and limits](project/xml_package_backlog_resolution.md#xml-b10). | — |
+| [x] | XML-B14 | — | **Closed.** Concrete owning generic/inheritance and lifecycle XML contracts are implemented. Managed projections are data-only; borrowed output and recursive/combined graphs retain their explicit capability boundaries. [Evidence and limits](project/xml_package_backlog_resolution.md#xml-b14). | MG01/MG08; BE03 |
+| [x] | XML-B15 | — | **Closed.** Eleven-output borrowed XML stress/lifetime/resource checks avoid duplicate owning payloads. Durable field-address XML is deliberately disabled pending a separately selected identity contract. [Evidence and limits](project/xml_package_backlog_resolution.md#xml-b15). | BE03/MG08/MR03 |
+| [x] | XML-B18 | — | **Closed.** Selected ZIP64, bounded source/spooling, metadata, large-operation cancellation/publication and recovery contracts are qualified. Unsupported encryption/split/interleaving and process-memory limits remain explicit. [Evidence and limits](project/xml_package_backlog_resolution.md#xml-b18). | MG07; QA01/QA03 |
+| [x] | XML-B19 | — | **Closed.** Schema-local codec/compression, target modes and vocabulary/type inventories complete existing owning profile/runtime/reference contracts in eleven outputs: 176 inputs and 88 independently inspected archives. [Evidence and limits](project/xml_package_backlog_resolution.md#xml-b19). | — |
+| [x] | XML-B24 | — | **Closed.** The explicit 30-tag restricted HTML profile, including sub/sup phrasing containers, passes all eleven actual SDKs and independent readers. Arbitrary HTML and unrestricted XHTML are excluded. [Evidence and limits](project/xml_package_backlog_resolution.md#xml-b24). | — |

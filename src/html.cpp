@@ -12,10 +12,10 @@
 
 namespace rohit::serializer::html {
 namespace {
-constexpr std::array<std::string_view, 28> tags{
+constexpr auto tags = std::to_array<std::string_view>({
     "div", "p",       "span",    "b",  "i",  "strong", "em",         "a",  "ul", "ol",
     "li",  "section", "article", "h1", "h2", "h3",     "h4",         "h5", "h6", "br",
-    "hr",  "img",     "small",   "s",  "u",  "code",   "blockquote", "nav"};
+    "hr",  "img",     "small",   "s",  "u",  "code",   "blockquote", "nav", "sub", "sup"});
 
 // Recognize the HTML ASCII whitespace set, independent of the host locale.
 bool space(char value) {
@@ -44,7 +44,7 @@ bool is_void(std::string_view name) {
 bool phrasing(std::string_view name) {
   return name == "span" || name == "b" || name == "i" || name == "strong" || name == "em" ||
          name == "a" || name == "br" || name == "img" || name == "small" || name == "s" ||
-         name == "u" || name == "code";
+         name == "u" || name == "code" || name == "sub" || name == "sup";
 }
 // A closed subset rejects content that an independent HTML parser would implicitly rearrange.
 void validate_child(const std::vector<std::string>& open, std::string_view child) {

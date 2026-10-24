@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer's schema compiler and generated runtimes into applications. Use for schemas and release migration, CMake generation, native codecs, caller-owned Java array/NIO output windows, portable behavior, owner-bound defaults and bindings, callable availability, arrays/generics, borrowed/shared/weak references and typed field addresses, XML/XSD and identity contracts, restricted HTML, document profiles, bounded compression, ZIP/OPC packages, rebuildable caches, or C++ managed identity, transactions, registries, indexes, history, journals, collaboration and persistence. Review the installed version's complete supported feature set and apply every capability relevant to the user's contract; preserve APIs and wire identities, and qualify unsupported combinations."
+description: "Integrate Serializer's schema compiler and generated runtimes into applications. Use for schemas and release migration, CMake generation, native codecs, caller-owned Java array/NIO output windows, portable behavior, owner-bound defaults and bindings, callable availability, arrays/generics, borrowed/shared/weak references and typed field addresses, XML/XSD, schema-local ordered XML/package profiles and identity contracts, restricted HTML, document profiles, bounded compression, ZIP/OPC packages, rebuildable caches, or C++ managed identity, transactions, registries, indexes, history, journals, collaboration and persistence. Review the installed version's complete supported feature set and apply every capability relevant to the user's contract; preserve APIs and wire identities, and qualify unsupported combinations."
 ---
 
 # Serializer Integration
@@ -41,6 +41,12 @@ completed capability IDs and original evidence live in the
 [implemented feature catalog](../../../docs/project/completed_requirements.md).
 Check exact backend/profile scope and dated evidence before claiming completion;
 completed slices do not close broader pending parents.
+The [XML/package resolution ledger](../../../docs/project/xml_package_backlog_resolution.md)
+records the explicit closure of thirteen XML/package parents, including OPC
+reconciliation and excluded extensions. Use its selected OPC fifth-edition
+profile; the full Core 1.4 combined graph is C++/Python only. Other outputs retain
+capability rejection for that graph. Dependencies outside that section keep their
+existing status; reconciliation is not new implementation evidence.
 Apply the [application ownership contract](../../../docs/project/application_responsibilities.md):
 keep authentication/principal binding, policy storage/administration, business
 side effects, custom historical layout interpretation and authorized publication
@@ -82,6 +88,46 @@ and AGENTS.md. Apply it when loaded as a skill or read directly from a supplied
 checkout; direct use does not require copying the skill into the consuming project.
 
 ## Use the full framework
+
+Compiler/runtime **2.34.0** also extends the closed HTML fragment adapter to
+thirty tags, including explicitly balanced `sub` and `sup` phrasing containers.
+Use only their ordinary global attributes and the existing byte/event/depth/text
+limits. Generate the opted-in native SDK or use C++ `<rohit/html.hpp>`; the HTML
+adapter is separate from XML/XHTML and adds no schema-language syntax. Arbitrary
+HTML, browser recovery and unrestricted mixed-content XHTML remain outside this
+contract. Read the [complete tag and adapter contract](../../../docs/serialization/xml_advanced_contracts.md#html-is-a-separate-fragment-adapter).
+
+Python advanced ordered/token graphs in this release can retain bounded lexical
+namespace scopes for record attributes, including QName/list/union values without
+scalar defaults/fixed values or owner extension storage. Pure namespace mappings
+keep their established tree adapter. Scalar child/text scopes and broader default/
+extension combinations retain their capability gates. Consult the
+[executed scope and performance measurements](../../../docs/verification/verification-xml-authoring-2026-10-24.md)
+before selecting a combined graph or claiming lower CPU/process-memory costs.
+The full Python Core graph retains its safe owning-tree adapter. Chunk input
+requires token-compatible storage; do not force tree fallback for mixed, presence,
+map/variant, inheritance or lifecycle graphs whose storage requires token codecs.
+
+For compiler/runtime **2.34.0** and schema language **1.24.0**, select ordered XML
+beside the owner: `xml(ordered("items"), ordered_child("branch", "{uri}local"));`.
+Keep one owning variant array; the pinned XSD supplies repeated/grouped occurrence
+grammar. Matching INI selections remain valid; conflicting fields/child names
+reject. Import now supports named/inline/union atomic lists and selected ordered
+complex groups without duplicating payload arrays. Review imports in fresh files;
+flat existing storage and old headers retain their meanings. Scalar/nil/wildcard/
+all/mixed-text ordered imports and recursive owning models remain gated. See the
+[ordered contract](../../../docs/serialization/ordered_xml.md) and
+[import guide](../../../docs/serialization/xsd_tooling.md#import-declarations-from-xsd).
+
+Declare package `target_mode(internal|external|both)`, `requires_type(true|false)`
+and `vocabularies("uri", ...)` directly in a language-1.24 part, or retain explicit
+INI overrides. All eleven owning outputs use the same compiled contract and
+existing runtime codec/compression selectors. External targets remain inert byte
+references and never trigger fetching. Invalid final codec/target/source profiles
+reject even without INI configuration. Read the
+[generated pipeline contract](../../../docs/serialization/xml_packages.md#generated-package-pipelines).
+Use the resolution ledger above for closed XML/package parents and explicitly
+deferred dependencies; retain the exact backend/profile qualification limits.
 
 For fixed-XSD extension content in 2.28.0, use the
 [generated wildcard contract](../../../docs/serialization/xml_tokens.md#xsd-wildcards-and-positioned-extensions-in-2280).

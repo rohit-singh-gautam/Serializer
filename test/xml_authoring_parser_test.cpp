@@ -3,6 +3,7 @@
 #include <rohit/serializer_creator.hpp>
 #include <rohit/stream.hpp>
 #include "../src/package_writer.hpp"
+#include "../src/xml_schema.hpp"
 
 #include <gtest/gtest.h>
 
@@ -50,6 +51,48 @@ public:
   }
 };
 } // namespace
+
+// Schema-local ordered selection feeds the same bounded contract as the legacy configuration.
+TEST(xml_authoring_parser, ordered_storage_is_local_versioned_and_conflict_checked) {
+  const std::string body = R"(
+    class left { public string text xml(text); }
+    class right { public uint32 id xml(attribute); }
+    class fragment { public variant(left=first,right=second) value; }
+    class model { xml(ordered("items"), ordered_child("first","{urn:test}a"),
+      ordered_child("second","{urn:test}b")); public array<fragment> items; })";
+  const auto nodes = parse_authoring("serializer version 1.24.0;" + body);
+  namespace binding = serializer::writer::xml_binding;
+  auto options = binding::effective_options(nodes, {});
+  EXPECT_TRUE(options.enabled);
+  const auto contract = binding::schema{options}.bind(
+      static_cast<const serializer::class_node&>(*nodes.back()));
+  ASSERT_TRUE(contract.mixed);
+  EXPECT_TRUE(contract.mixed->element_only);
+  ASSERT_EQ(contract.mixed->children.size(), 2U);
+  EXPECT_EQ(contract.mixed->children[0].qualified_name, (serializer::xml::name{"a", "urn:test"}));
+  for (const auto language : {"cpp", "python", "c", "rust", "js", "typescript", "java", "csharp", "go", "kotlin", "swift"}) {
+    EXPECT_NO_THROW(binding::validate_options(nodes, options, language)) << language;
+  }
+  options.classes["model"].contracts["ordered"] = "other";
+  EXPECT_THROW((void)binding::effective_options(nodes, options), std::invalid_argument);
+  for (const auto version : {"1;", "1.20.0;", "1.23.0;"}) {
+    EXPECT_THROW(parse_authoring(std::string{"serializer version "} + version + body), std::exception);
+  }
+  for (const auto invalid : {"ordered(\"\")", "ordered(\"items\"),ordered(\"items\")",
+      "ordered_child(\"first\",\"a\")", "ordered(\"items\"),ordered_child(\"first\",\"a\"),ordered_child(\"first\",\"b\")"}) {
+    EXPECT_THROW(parse_authoring(std::string{"serializer version 1.24.0; class model { xml("} +
+        invalid + "); public uint32 value; }"), std::exception);
+  }
+  authoring_directory files;
+  files.write("old.serializer", "serializer version 1.23.0;" + body);
+  EXPECT_THROW(serializer::parser::parse_file(files.write("entry.serializer",
+      "serializer version 1.24.0; include old;")), std::exception);
+  files.write("profile.serializer", R"(serializer version 1.23.0;
+    package archive { part links : bytes { name(dynamic); content_type(dynamic);
+      relationship("urn:link"); target_mode(both); } })");
+  EXPECT_THROW(serializer::parser::parse_file(files.write("profile_entry.serializer",
+      "serializer version 1.24.0; include profile;")), std::exception);
+}
 
 // Sparse defaults and explicit overrides retain names, IDs and public field storage.
 TEST(xml_authoring_parser, namespace_class_defaults_and_field_overrides) {

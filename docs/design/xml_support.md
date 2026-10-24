@@ -1,6 +1,15 @@
 # XML and package support design
 
 Status: implementation specification and remaining requirements, **2026-10-21**.
+
+The 2.34.0 implementation adds language-1.24 schema-local ordered XML and package
+profile settings, named/inline/union list declaration import, and supported ordered
+complex-group import. The [resolution ledger](../project/xml_package_backlog_resolution.md)
+closes the thirteen XML/package rows against selected implemented contracts,
+completed OPC evidence and explicit exclusions. Broader allocator, managed/view
+and qualification dependencies remain in their own tracker sections. Consult the
+implemented guides for the selected contracts rather than interpreting the
+historical specification below as a completed feature inventory.
 Compiler/runtime **2.18.0**, schema language **1.21.0**. See the
 [implemented API and exact subset](../serialization/xml_packages.md),
 [generated-language examples](../../example/xml/README.md) and the

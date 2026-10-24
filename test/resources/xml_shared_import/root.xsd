@@ -5,9 +5,24 @@
     <xs:complexType>
       <xs:sequence>
         <xs:element name="item" type="Item" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="schedule" minOccurs="0">
+          <xs:complexType>
+            <xs:choice minOccurs="2" maxOccurs="3">
+              <xs:sequence><xs:element name="price" type="Price"/><xs:element name="item" type="Item"/></xs:sequence>
+              <xs:sequence><xs:element name="item" type="Item"/><xs:element name="price" type="Price"/></xs:sequence>
+            </xs:choice>
+          </xs:complexType>
+        </xs:element>
       </xs:sequence>
       <xs:attribute name="id" type="xs:unsignedLong" use="required"/>
       <xs:attribute name="label" type="xs:string"/>
+      <xs:attribute name="samples" type="AmountPair"/>
+      <xs:attribute name="selections" type="Selections"/>
+      <xs:attribute name="codes">
+        <xs:simpleType><xs:list><xs:simpleType><xs:restriction base="xs:string">
+          <xs:pattern value="[A-Z]{2}"/>
+        </xs:restriction></xs:simpleType></xs:list></xs:simpleType>
+      </xs:attribute>
     </xs:complexType>
   </xs:element>
 </xs:schema>
