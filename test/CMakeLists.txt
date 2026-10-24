@@ -786,6 +786,13 @@ if(Python3_Interpreter_FOUND)
   endif()
   find_package(Java 17 COMPONENTS Runtime Development QUIET)
   if(Java_FOUND)
+    if(SERIALIZER_BUILD_MANAGED)
+      add_test(NAME java_managed_engine_runtime_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/java_managed_engine_test.py"
+          --build "${CMAKE_CURRENT_BINARY_DIR}/java_managed_engine_runtime"
+          --java "${Java_JAVA_EXECUTABLE}" --javac "${Java_JAVAC_EXECUTABLE}")
+      set_tests_properties(java_managed_engine_runtime_test PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
+    endif()
     add_test(NAME serializer_java_output_buffer
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/java_output_buffer_test.py"
         --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/java_output_buffer"
