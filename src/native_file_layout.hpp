@@ -129,8 +129,11 @@ std::vector<cpp::generated_file> native_files(const parser::parsed_schema& schem
         "    globals().update({name: value for name, value in bindings.items() if not name.startswith('__')})\n"
         "    globals()['__all__'] = [name for name in globals() if not name.startswith('__')]\n"
         "__all__ = [name for name in globals() if not name.startswith('__')]\n"});
-    root = source_notice(root_index) + "from __future__ import annotations\nfrom " + package +
-        " import runtime as _srl_runtime\nfrom " + package + ".runtime import *\n";
+    root = source_notice(root_index) + "from __future__ import annotations\n"
+        "from importlib import import_module as _srl_import_module\n"
+        "_srl_prefix = (__package__ + '.' if __package__ else '') + '" + package + "'\n"
+        "_srl_runtime = _srl_import_module(_srl_prefix + '.runtime')\n"
+        "globals().update({name: getattr(_srl_runtime, name) for name in _srl_runtime.__all__})\n";
   }
   std::map<std::size_t, std::string> modules;
   std::size_t previous_fragment = sources.size();
@@ -183,8 +186,9 @@ std::vector<cpp::generated_file> native_files(const parser::parsed_schema& schem
             "\ndef _srl_bind(bindings):\n    globals().update({name: value for name, value in bindings.items() if not name.startswith('__')})\n"
             "__all__ = [name for name in globals() if not name.startswith('__')]\n"});
         const auto alias = "_srl_module_" + std::to_string(part_index);
-        root += "\n_srl_runtime._srl_publish(globals())\nfrom " + package + "." + module +
-            " import *\nimport " + package + "." + module + " as " + alias + "\n";
+        root += "\n_srl_runtime._srl_publish(globals())\n" + alias +
+            " = _srl_import_module(_srl_prefix + '." + module + "')\n"
+            "globals().update({name: getattr(" + alias + ", name) for name in " + alias + ".__all__})\n";
         python_links += alias + "._srl_bind(globals())\n";
         previous_fragment = source_index;
         append_fragment = true;

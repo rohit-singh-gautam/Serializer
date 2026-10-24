@@ -5,6 +5,7 @@ import argparse
 import importlib.util
 import os
 from pathlib import Path
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -72,6 +73,11 @@ def main():
                 examples.run(runner.command(language, 'java', '-jar', jar))
         else:
             examples.run(runner.build(language, 'native_file_layout', directory, source))
+        if language == 'python':
+            examples.run([sys.executable, '-c',
+                "import importlib, sys; sys.path.insert(0, sys.argv[1]); "
+                "model = importlib.import_module('python.schema'); "
+                "assert model.LayoutRoot().label == 'fileprivate value'", args.build])
         if '"fileprivate value"' not in output.read_text(encoding='utf-8'):
             raise AssertionError('Splitting changed an authored string default')
         print('PASS: ' + language + ' dependency layout, direct construction, defaults and wire round trips', flush=True)
