@@ -75,6 +75,8 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 20));
   const packageReferenceContract = language !== null && (Number(language[1]) > 1 ||
     (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 21));
+  const indexContract = language !== null && (Number(language[1]) > 1 ||
+    (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 24));
   const tokens: Token[] = [...code.matchAll(/[A-Za-z_][A-Za-z_0-9]*|::|[^\s]/g)]
     .map(match => ({ text: match[0], start: match.index!, end: match.index! + match[0].length }));
   const result: SourceIndex = { symbols: [], includes: [], schemaBindings: [], references: [], members: [], memberReferences: [], callables: [] };
@@ -102,6 +104,19 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     const maximumTypeDepth = 128;
     if (depth >= maximumTypeDepth) { return start + 1; }
     const token = tokens[start]?.text;
+    if (token === 'index' && indexContract) {
+      let operand = start + 1;
+      if (tokens[operand]?.text === '(') {
+        ++operand;
+        while (operand < tokens.length && ![')', ';', '}'].includes(tokens[operand].text)) { ++operand; }
+        return tokens[operand]?.text === ')' ? typeReference(operand + 1, depth + 1) : operand;
+      }
+      const next = qualified(operand);
+      // A field whose ordinary type is named index still has only its field name after it.
+      if (next && /^[A-Za-z_]\w*$/.test(tokens[next.next]?.text ?? '')) {
+        return typeReference(operand, depth + 1);
+      }
+    }
     if (token === 'cache' && language !== null && Number(language[1]) === 1 && Number(language[2] ?? 0) >= 22) {
       let operand = start + 1;
       if (tokens[operand]?.text === '(') {

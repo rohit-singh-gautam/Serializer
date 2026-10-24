@@ -1,3 +1,14 @@
+# 2.0.21
+
+- Support schema language 1.24.0 local managed scalar indexes in compiler/runtime 2.34.0.
+- Preserve qualified enum type navigation, selection boundaries, transitive includes, unsaved changes and ordinary types named index.
+- Add ordered and unique index snippets; keep unsupported database/composite placement explicit.
+- Retain schema-local ordered XML and package profile support after integrating the XML branch.
+
+# 2.0.20
+
+- Combine the compiler/backend and XML/package language 1.24 editor profiles.
+
 # 2.0.19
 
 - Support schema language 1.24.0 ordered XML and package profile metadata with compiler/runtime 2.34.0.
@@ -351,10 +362,6 @@
 - Retain optional `instantiate` and concrete-field contracts for cross-language generation; C++ templates no longer require them.
 
 # Changelog
-
-## 2.0.20
-
-- Combine the compiler/backend and XML/package language 1.24 editor profiles.
 
 ## 2.0.19
 

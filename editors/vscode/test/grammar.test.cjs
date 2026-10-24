@@ -27,6 +27,22 @@ test('language 1.24 bit-field qualifiers retain the field declaration and follow
   const scope = word => results[2].find(token => token.startIndex <= lines[2].indexOf(word) && token.endIndex > lines[2].indexOf(word)).scopes.at(-1);
   assert.equal(scope('bits'), 'storage.modifier.serializer');
   assert.equal(scope('3'), 'constant.numeric.serializer');
+});
+
+test('language 1.24 index declarations retain metadata and enum type scopes', async () => {
+  const grammar = await loadGrammar();
+  const lines = ['serializer version 1.24.0;', 'class model managed {',
+    'public index(ordered, on = local) lib::category first (1);',
+    'public index(unordered, unique) uint64 key (2);',
+    'public index string title (3);', '}'];
+  let state = INITIAL;
+  const tokens = lines.map(line => { const result = grammar.tokenizeLine(line, state); state = result.ruleStack; return result.tokens; });
+  const scope = (line, word) => tokens[line].find(token => token.startIndex <= lines[line].indexOf(word) && token.endIndex > lines[line].indexOf(word)).scopes.at(-1);
+  assert.equal(scope(2, 'index'), 'storage.modifier.serializer');
+  assert.equal(scope(2, 'category'), 'entity.name.type.serializer');
+  assert.equal(scope(3, 'index'), 'storage.modifier.serializer');
+  assert.equal(scope(4, 'index'), 'storage.modifier.serializer');
+  assert.equal(scope(4, 'string'), 'support.type.serializer');
   assert.equal(state.depth, 1);
 });
 

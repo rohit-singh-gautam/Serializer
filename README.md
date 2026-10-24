@@ -114,7 +114,7 @@ XML selection and package vocabulary/type/target-mode settings in all eleven
 owning outputs. XSD declaration import now retains named/inline/union list-item
 constraints and imports supported grouped/repeated complex choices into one
 ordered variant array. Existing imports retain their layout and language header
-unless they use the new ordered storage. Both editor packages are **2.0.20**.
+unless they use the new ordered storage. Both editor packages are **2.0.21**.
 See [ordered XML](docs/serialization/ordered_xml.md),
 [XSD import](docs/serialization/xsd_tooling.md#import-declarations-from-xsd)
 and [package profiles](docs/serialization/xml_packages.md#generated-package-pipelines).
@@ -134,7 +134,7 @@ stream/channel output and fixed-scalar packed buffers. C++ OPC signatures use a
 Windows provider with explicitly pinned signing certificates and reported coverage.
 See the [compiler/backend contracts](docs/guides/compiler_backend_updates.md) and
 [qualification status](docs/verification/verification-compiler-backends-2026-10-24.md).
-Both editor packages are **2.0.20**. Existing declared language contracts and wire
+Both editor packages are **2.0.21**. Existing declared language contracts and wire
 formats remain independent of these additions.
 
 Compiler/runtime **2.33.0** adds independently opt-in Java heap/direct
@@ -434,7 +434,7 @@ Release **2.17.0** adds [generated package policies and application references](
 Generated [C](docs/languages/c_packages.md), [Rust](docs/languages/rust_packages.md)
 and [Swift](docs/languages/swift_packages.md) outputs now provide bounded owning
 ZIP/OPC facades, typed loading, preservation and staged Save. Both editor packages
-are **2.0.20** and recognize language **1.24.0** bit fields and generic calls,
+are **2.0.21** and recognize language **1.24.0** bit fields and generic calls,
 **1.23.0** named self-reference contracts,
 **1.22.0** cache fields and earlier package declarations.
 Version 2.28 composes C/Rust XML document companions with typed package roles.

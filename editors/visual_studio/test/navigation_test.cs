@@ -21,6 +21,11 @@ internal static class NavigationTest {
         Console.WriteLine("Visual Studio native bundle navigation passed: " + checks + " checks.");
         return 0;
       }
+      if (args.Length > 2 && args[2] == "--indexes-only") {
+        CheckIndexNavigation(repository, live, ref checks);
+        Console.WriteLine("Visual Studio native index navigation passed: " + checks + " checks.");
+        return 0;
+      }
       if (args.Length > 2 && args[2] == "--named-self-only") {
         CheckNamedSelfNavigation(repository, generated, ref checks);
         Console.WriteLine("Visual Studio named managed self navigation passed: " + checks +
@@ -815,6 +820,50 @@ internal static class NavigationTest {
       }
     }
     Require(fieldLanguages.Count == 11, "inherited generic field declarations in every output language with unsaved schema edits");
+  }
+
+  /// <summary>Resolve indexed enum types through live includes without exposing index metadata as types.</summary>
+  private static void CheckIndexNavigation(string repository, Dictionary<string, string> live, ref int checks) {
+    var directory = Path.Combine(repository, "out", "extension-tests", "indexes");
+    var model = Path.Combine(directory, "model.serializer");
+    var middle = Path.Combine(directory, "middle.serializer");
+    var common = Path.Combine(directory, "common.serializer");
+    var source = "serializer version 1.24.0; include middle; namespace app { class model managed { " +
+      "public index(ordered, on = local) lib::category first (1); " +
+      "public index(unordered, unique, on = inherit) lib::category second (2); " +
+      "public index lib::category third (3); public lib::index ordinary (4); } }";
+    var declarations = "serializer version 1.24.0; namespace lib { enum category { ready; } class index {} }";
+    live[model] = source;
+    live[middle] = "include common;";
+    live[common] = declarations;
+    foreach (var name in new[] { "lib::category", "lib::index" }) {
+      var kind = name == "lib::category" ? "enum " : "class ";
+      var expected = declarations.IndexOf(kind + name.Substring(5), StringComparison.Ordinal) + kind.Length;
+      for (var start = source.IndexOf(name, StringComparison.Ordinal); start >= 0;
+           start = source.IndexOf(name, start + name.Length, StringComparison.Ordinal)) {
+        for (var cursor = start; cursor <= start + name.Length; ++cursor) {
+          foreach (var definition in new[] { false, true }) {
+            var target = NavigationRunner.Resolve(model, cursor, definition, directory, live, CancellationToken.None);
+            Require(target.Length == 1 && target[0].file == common && target[0].start == expected,
+              "indexed enum and ordinary index types preserve qualified boundaries and transitive includes");
+            ++checks;
+          }
+        }
+      }
+    }
+    live[model] = source.Replace("lib::category first", "lib::index first");
+    var edited = NavigationRunner.Resolve(model, live[model].IndexOf("lib::index", StringComparison.Ordinal),
+      true, directory, live, CancellationToken.None);
+    Require(edited.Length == 1 && edited[0].start == declarations.IndexOf("class index", StringComparison.Ordinal) + "class ".Length,
+      "indexed field navigation observes unsaved type edits");
+    ++checks;
+    foreach (var version in new[] { "1", "1.23.0", "1.24.0" }) {
+      live[model] = "serializer version " + version + "; include common; namespace lib { class model { public index value (1); } }";
+      var ordinary = NavigationRunner.Resolve(model, live[model].IndexOf("index value", StringComparison.Ordinal),
+        false, directory, live, CancellationToken.None);
+      Require(ordinary.Length == 1 && ordinary[0].file == common, "ordinary types named index preserve navigation");
+      ++checks;
+    }
   }
 
   /// <summary>Exercise cache type positions through the actual Visual Studio Jint/path adapter.</summary>

@@ -469,5 +469,15 @@
       "public uint8 ${1:flags} (${2:1}) bits(${3:3}) {0};"
     ],
     "description": "Unsigned C++ owning native bit-field storage; requires schema language 1.24.0; wire width remains uint8."
+  },
+  "Ordered managed index": {
+    "prefix": "index-ordered",
+    "body": "public index(ordered) ${1:string} ${2:title} (${3:1});",
+    "description": "Declare a local ordered managed scalar index; requires C++ and schema language 1.24.0"
+  },
+  "Unique managed index": {
+    "prefix": "index-unique",
+    "body": "public index(unordered, unique) ${1:uint64} ${2:key} (${3:1});",
+    "description": "Declare a local unique managed scalar index checked before acceptance; requires C++ and schema language 1.24.0"
   }
 }

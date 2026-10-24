@@ -206,6 +206,9 @@
     "schema_contents": {
       "patterns": [
         {
+          "include": "#index_declaration"
+        },
+        {
           "include": "#class_identity"
         },
         {
@@ -3019,6 +3022,52 @@
         },
         {
           "include": "#type_name"
+        }
+      ]
+    },
+    "index_declaration": {
+      "patterns": [
+        {
+          "match": "\\b(public|protected|private)\\s+(index)(?=\\s*(?:\\(|(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*\\s+[A-Za-z_]\\w*))",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.serializer"
+            },
+            "2": {
+              "name": "storage.modifier.serializer"
+            }
+          }
+        },
+        {
+          "begin": "(?<=\\bindex)\\s*(\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.section.group.serializer"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.group.serializer"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "name": "constant.language.serializer",
+              "match": "\\b(ordered|unordered|unique|on|local|inherit)\\b"
+            },
+            {
+              "name": "keyword.operator.serializer",
+              "match": "="
+            },
+            {
+              "name": "punctuation.separator.serializer",
+              "match": ","
+            }
+          ]
         }
       ]
     }
