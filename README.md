@@ -46,6 +46,12 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+The [bounded eager native database](docs/managed/native_database.md) owns one
+managed root, durable exact retries and a prepared acceptance boundary. Native
+migration publishes a validated new epoch while retaining a recoverable source
+generation. Paging, persistent database placement and broader migration remain
+separate requirements; see the recorded platform and recovery limits.
+
 Select [`store_options::compact_history`](docs/managed/compact_history.md) to
 share unchanged retained history blocks. Generated Windows profiles preserve
 default Save bytes; [measured retention and latency](docs/verification/verification-compact-history-2026-10-24.md)

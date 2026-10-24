@@ -63,6 +63,7 @@ endif()
 add_library(serializer_runtime
   src/native_database.cpp
   include/rohit/native_database_file.hpp
+  include/rohit/native_database.hpp
   src/cache.cpp
   include/rohit/cache.hpp
   include/rohit/cache_codec.hpp
@@ -595,7 +596,7 @@ if(SERIALIZER_INSTALL)
   set(serializer_disabled_header_patterns)
   if(NOT SERIALIZER_BUILD_MANAGED)
     foreach(header IN ITEMS managed.hpp managed_identity_allocation.hpp managed_editable.hpp managed_registry.hpp managed_delta.hpp collaboration_history.hpp collaboration_sessions.hpp
-        managed_collaboration.hpp managed_collaboration_hooks.hpp managed_local_collaboration.hpp managed_migration.hpp)
+        managed_collaboration.hpp managed_collaboration_hooks.hpp managed_local_collaboration.hpp managed_migration.hpp native_database.hpp)
       list(APPEND serializer_disabled_header_patterns PATTERN "${header}" EXCLUDE)
     endforeach()
   endif()

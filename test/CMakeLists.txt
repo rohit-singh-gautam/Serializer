@@ -1280,6 +1280,7 @@ if(SERIALIZER_BUILD_MANAGED)
   endif()
   add_test(NAME managed_profile_test COMMAND managed_profile_test)
   add_executable(managed_direct_test managed_direct_test.cpp managed_journal_test.cpp
+    native_database_test.cpp
     managed_journal_delta_test.cpp managed_journal_document_test.cpp journal_document_codec_test.cpp
     managed_document_journal_test.cpp managed_document_collaboration_test.cpp managed_sidecar_test.cpp)
   serializer_generate(TARGET managed_direct_test
@@ -1292,6 +1293,28 @@ if(SERIALIZER_BUILD_MANAGED)
     target_compile_options(managed_direct_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME managed_direct_test COMMAND managed_direct_test)
+  add_executable(native_database_crash_helper native_database_crash_helper.cpp)
+  serializer_generate(TARGET native_database_crash_helper
+    SCHEMAS ../example/managed/ledger/ledger.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/native_database_crash")
+  target_link_libraries(native_database_crash_helper PRIVATE Serializer::managed)
+  add_executable(native_database_allocation_failure_test native_database_allocation_failure_test.cpp)
+  serializer_generate(TARGET native_database_allocation_failure_test
+    SCHEMAS ../example/managed/ledger/ledger.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/native_database_allocation")
+  target_link_libraries(native_database_allocation_failure_test PRIVATE Serializer::managed)
+  if(MSVC)
+    target_compile_definitions(native_database_allocation_failure_test PRIVATE _ITERATOR_DEBUG_LEVEL=0)
+    target_compile_options(native_database_allocation_failure_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(native_database_allocation_failure_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME native_database_allocation_failure_test COMMAND native_database_allocation_failure_test)
+  if(MSVC)
+    target_compile_options(native_database_crash_helper PRIVATE /W4 /WX)
+  else()
+    target_compile_options(native_database_crash_helper PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
   add_executable(managed_journal_crash_helper managed_journal_crash_helper.cpp)
   serializer_generate(TARGET managed_journal_crash_helper
     SCHEMAS ../example/managed/ledger/ledger.serializer
@@ -1306,6 +1329,11 @@ if(SERIALIZER_BUILD_MANAGED)
   endif()
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)
+    add_test(NAME native_database_crash_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_database_crash_test.py"
+        --helper "$<TARGET_FILE:native_database_crash_helper>"
+        --build "${CMAKE_CURRENT_BINARY_DIR}/native_database_crash_test")
+    set_tests_properties(native_database_crash_test PROPERTIES TIMEOUT 300)
       add_test(NAME cache_crash_test
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/cache_crash_test.py"
           --cache-helper "$<TARGET_FILE:cache_crash_helper>"

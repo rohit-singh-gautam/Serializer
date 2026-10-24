@@ -7,6 +7,16 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 
 [Documentation index](../../../docs/README.md)
 
+For bounded eager durable C++ roots, select
+[`native_database<Root>`](../../../docs/managed/native_database.md). Prepare
+against the exact epoch/revision and canonical request bytes, then accept
+durably. Keep external effects outside edits; uncertain writes fence mutation
+until reopen. Native migration requires an identity-preserving converter, a
+new epoch and an absent archive path. Preserve the source generation through
+publication and coordinate archive retention explicitly. A restored archive
+needs an externally established epoch and allocation watermark. Review current
+eager-memory, platform and recovery limits; this API supplies no lazy authority.
+
 For repeated C++ history, consider explicit
 [`compact_history`](../../../docs/managed/compact_history.md) retention. It
 shares exact immutable byte blocks while keeping existing Save formats and
