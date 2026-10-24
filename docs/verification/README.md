@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [Managed native SDK editors](verification-managed-native-editors-2026-10-24.md) | Editors 2.0.22: 170 shared tests, 1,158 generated JavaScript/TypeScript navigation checks, 560 native Visual Studio checks, 110 index controls and both validated packages. |
 | [Restricted HTML profile](verification-html-profile-2026-10-24.md) | XML-B24: closed 30-tag vocabulary, all eleven actual SDKs, shared negative corpus, independent token/tree readers and native parity. |
 | [XML authoring and typed profiles](verification-xml-authoring-2026-10-24.md) | XML-B19: language 1.24 schema-local settings, eleven-SDK package corpus; ordered/list imports, bounded Python namespace tokens, CPU/memory/size measurements and synchronized editor packages. The resolution ledger records the selected-contract closure of all thirteen XML/package rows. |
 | [Compiler and backend contracts](verification-compiler-backends-2026-10-24.md) | SC02/SC03/BE01/BE02/BE03/OPC-OPT02: language 1.24 defaults/generic calls/bit fields, five native dependency layouts, Java sinks/packed buffers, actual Windows/Linux mapped views and independently validated Windows signatures; matching editors 2.0.19. |

@@ -16,6 +16,12 @@ internal static class NavigationTest {
       var text = File.ReadAllText(model).Replace("serializer version 1;", "serializer version 1.0.0;");
       var live = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [model] = text };
       var checks = 0;
+      if (args.Length > 2 && args[2] == "--managed-native-only") {
+        CheckManagedNativeNavigation(repository, generated, ref checks);
+        Console.WriteLine("Visual Studio managed JavaScript/TypeScript navigation passed: " + checks +
+          " checks, original 256 MiB interpreter limit.");
+        return 0;
+      }
       if (args.Length > 2 && args[2] == "--compiler-backends-only") {
         CheckNativeBundles(Path.GetFullPath(Path.Combine(repository, "out/extension-tests/native-bundle-adapter")), generated, live, ref checks);
         Console.WriteLine("Visual Studio native bundle navigation passed: " + checks + " checks.");
@@ -980,6 +986,39 @@ internal static class NavigationTest {
           Require(back.Length == 1 && back[0].file == schema && back[0].start == field,
             "copied self fields retain their generic declaration provenance");
           ++checks;
+        }
+      }
+    }
+  }
+
+  /// <summary>Check real managed ESM/declaration outputs, including identically shaped named types.</summary>
+  private static void CheckManagedNativeNavigation(string repository, string generated, ref int checks) {
+    var schema = Path.GetFullPath(Path.Combine(repository, "test/resources/javascript_managed_engine.serializer"));
+    var source = File.ReadAllText(schema);
+    var live = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [schema] = source };
+    var declarations = Regex.Matches(source, @"\bclass\s+([A-Za-z_]\w*)\b").Cast<Match>()
+      .Concat(Regex.Matches(source, @"\bpublic\b[^\r\n;]*?\b([A-Za-z_]\w*)\s+\(\d+\)").Cast<Match>())
+      .Select(match => match.Groups[1]).ToArray();
+    Require(declarations.Length > 0, "managed SDK schema declarations exist");
+    var directories = Directory.GetDirectories(generated);
+    Require(directories.Length == 2, "both managed identity/protocol profiles exist");
+    foreach (var directory in directories) {
+      foreach (var declaration in declarations) {
+        foreach (var cursor in new[] { declaration.Index, declaration.Index + declaration.Length }) {
+          var targets = NavigationRunner.Resolve(schema, cursor, true, directory, live, CancellationToken.None);
+          Require(targets.Length == 2 && targets.Any(target => target.file.EndsWith(".mjs", StringComparison.Ordinal)) &&
+              targets.Any(target => target.file.EndsWith(".d.mts", StringComparison.Ordinal)),
+            "managed schema declaration reaches both generated SDKs: " + declaration.Value);
+          ++checks;
+          foreach (var target in targets) {
+            foreach (var endpoint in new[] { target.start, target.end }) {
+              var origin = NavigationRunner.Resolve(target.file, endpoint, false, directory, live, CancellationToken.None);
+              Require(origin.Length == 1 && string.Equals(origin[0].file, schema, StringComparison.OrdinalIgnoreCase) &&
+                  origin[0].start == declaration.Index,
+                "managed generated declaration retains exact source ownership: " + declaration.Value);
+              ++checks;
+            }
+          }
         }
       }
     }

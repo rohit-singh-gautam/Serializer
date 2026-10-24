@@ -1,3 +1,9 @@
+# 2.0.22
+
+- Correct native managed engine scope in the README and Marketplace payload.
+- Distinguish explicit owning Python/Java/JavaScript/TypeScript profiles from token-only output and remaining backend work.
+- Keep the C++ cache/storage and proposed capability-selector boundaries explicit.
+
 # 2.0.21
 
 - Support schema language 1.24.0 local managed scalar indexes in compiler/runtime 2.34.0.
