@@ -1,5 +1,11 @@
 # Wire format and decoding contract
 
+Compiler/runtime 2.34 and language 1.24 add schema-local XML/package selections.
+Existing native model layouts and all native codec bytes are unchanged. A new
+ordered XSD import uses an explicit variant-array model; converting an existing
+flat model into that representation requires a reviewed native layout migration.
+Import never overwrites different existing source or infers identity renames.
+
 Compiler/runtime 2.33's opt-in Java NIO output API is a caller-storage transport
 for the same native wire bytes. Position/limit windows, direct storage and size
 backpatches do not add framing or change byte order, IDs or payload revisions.

@@ -1,5 +1,17 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.34.0**, language **1.24.0**, permits ordered XML and package
+profile selection directly in schemas. Use
+[ordered variant storage](../serialization/ordered_xml.md) for heterogeneous
+group order and [declaration import](../serialization/xsd_tooling.md#import-declarations-from-xsd)
+for supported pinned XSD graphs. Package `target_mode`, `requires_type` and
+`vocabularies` settings use the existing generated pipeline in all eleven outputs;
+see [the full contract](../serialization/xml_packages.md#generated-package-pipelines).
+For HTML, use the separate
+[closed fragment adapter](../serialization/xml_advanced_contracts.md#html-is-a-separate-fragment-adapter).
+Its 2.34.0 profile adds `sub`/`sup` to the shared thirty-tag vocabulary without
+adding XML namespaces, browser recovery or a schema-language construct.
+
 Compiler/runtime **2.33.0** adds an independent Java `nio_output_buffer_reuse`
 option for heap/direct ByteBuffer output. Read the [cursor, storage and failure
 contract](../languages/java.md#caller-owned-nio-buffers) before reusing buffers;

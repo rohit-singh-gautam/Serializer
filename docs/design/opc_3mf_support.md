@@ -104,6 +104,16 @@ treated as implemented by this example.
 
 ## Generic framework status and remaining requirements
 
+Compiler/runtime 2.34.0 and language 1.24.0 make existing package target modes,
+expected-type selection and vocabulary inventories schema-local in all eleven
+owning outputs. Existing INI overrides and runtime envelope selection remain
+available. This authoring addition does not extend the chosen OPC/3MF edition,
+geometry semantics, signature/trust support or platform qualification. The
+[current resolution ledger](../project/xml_package_backlog_resolution.md) selects
+the documented OPC fifth-edition profile and Core 1.4 combined graph for
+**C++/Python only**, and records the disposition of all thirteen XML/package rows.
+Generic supported XML and owning package facades continue to cover eleven outputs.
+
 The authoritative status, remaining requirements and completion evidence for
 **OPC-R01–OPC-R13** are consolidated in
 [the central pending backlog](../project/completed_requirements.md#opc-and-3mf-requirements).

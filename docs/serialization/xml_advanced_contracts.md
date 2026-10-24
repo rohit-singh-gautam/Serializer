@@ -210,9 +210,13 @@ identity. Opaque managed-reference and durable-address tokens remain unsupported
 for XML. Borrowed/view projections are synchronous output-only and require live
 owner storage; decode into an owning model. Digest projection represents exact
 hexadecimal bytes with checked algorithm/extent and does not recompute a digest.
-The 2.12 token guide qualifies non-C++ concrete generics and Go/Python owning
-inheritance. C++ template/inherited mappings and remaining revision/projection
-codecs retain their separate backend tasks.
+The current [token guide](xml_tokens.md) defines concrete owning generics,
+supported private/multiple owning inheritance and revision/magic/digest metadata
+across eleven outputs, plus concrete C++ template mappings. Consult its exact
+combined-graph gates; data projection does not supply a native managed engine,
+persistent managed identity, arbitrary mapped-view decoding or owning cycles.
+The [XML resolution ledger](../project/xml_package_backlog_resolution.md#xml-b14)
+records those exclusions and deferred dependencies.
 
 ## Document profiles and dispatch metadata
 

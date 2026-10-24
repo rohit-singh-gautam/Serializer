@@ -1,5 +1,25 @@
 # Migrating to the snake_case Serializer API
 
+## XML authoring and declaration import in 2.34.0
+
+Use language `1.24.0` in each file declaring schema-local ordered XML or package
+profile settings. Existing headers, INI mappings and generated native APIs retain
+their contracts. Schema-local ordered child mappings and INI selections may agree;
+conflicting selections reject before publication. Package INI profiles retain
+their existing explicit override behavior.
+
+Regenerate XML outputs to use these new authoring settings. Importing a previously
+unsupported grouped complex XSD creates one owning variant array with its pinned
+occurrence grammar. Generate to a fresh `.serializer` file and review native IDs,
+alternative order and positional layout before adopting it. Existing flat imports
+remain flat; no automatic application-data conversion is performed. Named, inline
+and union scalar-list items reuse their bound facets and namespace identities.
+Managed, recursive owning and durable field-address XML remain explicitly gated.
+The independent HTML fragment adapter additionally accepts explicitly balanced
+`sub` and `sup` phrasing containers. Regenerate native SDKs to obtain that expanded
+closed profile. Existing accepted fragments retain their canonical spelling;
+arbitrary HTML, style/script content and unrestricted XHTML remain outside it.
+
 ## Opt-in Java NIO output in 2.33.0
 
 Enable `[java] nio_output_buffer_reuse = true` or its CLI override when generating

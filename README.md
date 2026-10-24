@@ -46,6 +46,24 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Compiler/runtime **2.34.0**, schema language **1.24.0**, adds schema-local ordered
+XML selection and package vocabulary/type/target-mode settings in all eleven
+owning outputs. XSD declaration import now retains named/inline/union list-item
+constraints and imports supported grouped/repeated complex choices into one
+ordered variant array. Existing imports retain their layout and language header
+unless they use the new ordered storage. Both editor packages are **2.0.19**.
+See [ordered XML](docs/serialization/ordered_xml.md),
+[XSD import](docs/serialization/xsd_tooling.md#import-declarations-from-xsd)
+and [package profiles](docs/serialization/xml_packages.md#generated-package-pipelines).
+The closed [HTML fragment profile](docs/serialization/xml_advanced_contracts.md#html-is-a-separate-fragment-adapter)
+also admits `sub` and `sup` phrasing containers; its other syntax and resource
+boundaries remain explicit.
+The [qualification record](docs/verification/verification-xml-authoring-2026-10-24.md)
+closes XML-B19. The [resolution ledger](docs/project/xml_package_backlog_resolution.md)
+closes all thirteen XML/package rows, including the independently qualified HTML
+profile and reconciliation with completed OPC work. Full Core 1.4 is C++/Python
+only; excluded features and dependencies outside this batch remain explicit.
+
 Compiler/runtime **2.33.0** adds independently opt-in Java heap/direct
 `ByteBuffer` output with `java.nio_output_buffer_reuse = true`. A successful encode
 advances the caller's position; failures preserve its cursor while confining any
@@ -240,7 +258,8 @@ Release **2.22.0** adds native C++
 [Pack-IRI addressing](docs/serialization/pack_iri.md) and explicit
 [ZIP physical metadata replay](docs/serialization/zip_metadata.md).
 Package Save follows the documented complete-rewrite contract. Targeted evidence
-does not establish completion of the broader [OPC/3MF backlog](docs/pending.md).
+retains its dated scope; the [current resolution ledger](docs/project/xml_package_backlog_resolution.md)
+records the selected OPC/3MF contract and exclusions.
 The [mandatory fifth-edition OPC metadata qualification](docs/verification/verification-opc-metadata-2026-10-21.md)
 covers URI/IRI syntax, infrastructure encodings, Relationships compatibility and
 Annex B consumption across all eleven outputs.

@@ -246,6 +246,22 @@ represented. A field's inline namespace override can explicitly be empty.
 
 ## Import declarations from XSD
 
+In **2.34.0**, named, inline and union atomic list-item declarations reuse the
+bounded scalar resolver. Their item facets, fixed lengths and QName namespace
+identities remain on the pinned XSD binding. Nested list items and cyclic aliases
+reject; lexical lists remain distinct from repeated XML elements.
+
+Previously unrepresentable grouped/repeated sequence/choice graphs with at least
+two nonnil complex-record alternatives can import into one owning variant array.
+Named groups expand through their defining document's namespace context. Repeated
+expanded names select one alternative only when their complex type is identical;
+conflicting types reject. Generated source selects language **1.24.0** and includes
+class-local ordered/child mappings. The XSD supplies exact occurrence grammar in
+both directions. Scalar, wildcard, `all`, mixed-text and recursive owning ordered
+branches remain gated. The existing flat import form keeps language **1.20.0**
+and its established field identities/layout. Review a fresh import before adopting
+new storage; this is not automatic native-data migration.
+
 ```powershell
 serializer --import-xsd schemas/order.xsd --namespace orders --root order --output build/imported/order.serializer --depfile build/imported/order.serializer.d
 serializer --input build/imported/order.serializer --language cpp --output build/generated/order.hpp
@@ -277,8 +293,9 @@ records the complete pinned XSD graph. Import is separate from ordinary
 
 The [automatic and optional hand-authored examples](../../example/xsd/README.md)
 generate and compile the same primitive contract in all eleven languages. Rich
-C++/Python feature checks and other-backend rejection are separate from that baseline;
-an imported model is not an OPC package or a 3MF conformance claim.
+C++/Python runtime checks and the selected eleven-output generation checks remain
+separate from arbitrary graph/SDK qualification; an imported model is not an OPC
+package or a 3MF conformance claim.
 
 ## Review XSD evolution
 
