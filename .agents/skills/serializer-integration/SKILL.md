@@ -97,7 +97,7 @@ remain unavailable for that storage representation. Use a supported explicit
 ordered mapping when direct token traversal is required. Follow the
 [legacy tree checks](../../../docs/verification/verification-legacy-cpp-wildcards-2026-10-22.md).
 
-The current compiler/runtime release is **2.32.0**, with schema language
+The current compiler/runtime release is **2.32.1**, with schema language
 **1.23.0**. Release 2.31.0 requires a C++23 compiler and matching standard library
 with `std::byteswap` and `std::span`. Source builds reject an explicit standard
 below 23; public CMake targets propagate `cxx_std_23` to generated and managed
@@ -107,6 +107,9 @@ packages are 2.0.17. Existing valid schemas retain their headers and payload rev
 use language 1.23 for new named managed self bindings. See the
 [named binding contract](../../../docs/schema/named_managed_references.md) and
 [runnable example](../../../example/managed/named_references/README.md).
+Patch 2.32.1 preserves embedded Java source-token bounds on older MSVC hosts;
+emitted Java remains byte-identical and existing generated files need no migration.
+See the [build qualification](../../../docs/verification/verification-java-runtime-literals-2026-10-24.md).
 Patch 2.28.1 restores strict GNU compilation of XML metadata,
 declaration prefixes and large embedded runtime literals without changing
 generated contracts or application integration.

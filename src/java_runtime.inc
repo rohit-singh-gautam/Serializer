@@ -124,7 +124,8 @@ private static final class Writer {
       }
     }
   }
-  /** Bound output to an exclusive caller-owned window; failed writes may leave its prefix changed. */
+)java"
+R"java(  /** Bound output to an exclusive caller-owned window; failed writes may leave its prefix changed. */
   private static final class FixedBuffer extends SizeBuffer {
     private final int start;
     private final int end;

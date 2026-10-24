@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [Java runtime literal bounds](verification-java-runtime-literals-2026-10-24.md) | Compiler 2.32.1 source-token repair, unchanged emitted Java, initial full-suite failure and subsequent qualification. |
 | [Java caller-owned output windows](verification-java-output-buffer-2026-10-24.md) | BE02a: compiler/runtime 2.32.0 opt-in Java output windows, Windows/Linux SDKs, ownership/failure bounds, allocation measurements, installed examples and matching editors. |
 | [Portable literal resource repair](verification-portable-literals-2026-10-24.md) | SC02d: compiler 2.31.2 iterative backend recognition, Windows/Linux controls, all-eleven SDK matrix, large profiles and byte-identical generation. |
 | [Integer-default resource repair](verification-integer-defaults-2026-10-24.md) | SC02c: compiler 2.31.1 constant-stack recognition, Linux crash controls, preserved spelling/positions, atomic outputs and installed consumers. |

@@ -1,5 +1,13 @@
 # Migrating to the snake_case Serializer API
 
+## Java runtime source-token bounds in 2.32.1
+
+The source build splits one embedded Java runtime literal to retain the existing
+16,380-byte per-token bound used for older Visual Studio hosts. Concatenated
+runtime contents and generated Java remain unchanged. Existing generated files,
+schema headers and payload revisions need no migration. Both editor packages
+remain 2.0.17; see the [executed build checks](docs/verification/verification-java-runtime-literals-2026-10-24.md).
+
 ## Opt-in Java output windows in 2.32.0
 
 Enable `[java] output_buffer_reuse = true` or

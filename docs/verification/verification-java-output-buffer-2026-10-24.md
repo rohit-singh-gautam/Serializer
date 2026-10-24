@@ -43,7 +43,7 @@ BE02 packed/stream/channel/native-acceleration requirement remains open.
 | Shared / fresh editor checks | **164 tests** and **50,713** fresh bidirectional checks pass, all eleven outputs with Java output-window overloads enabled |
 | Native Visual Studio adapter | **1,600** checks pass under the unchanged 256 MiB interpreter limit; interactive-host qualification remains separate |
 | Matching 2.0.17 packages | Both VSIX packages rebuild and validate through `./make.ps1 extension`; no installation or publication |
-| Full Windows release suite | Running against the frozen 2.32.0 source; this row is not a completed full-suite claim |
+| Initial full Windows release suite | **314/315 pass** in **1,645.70 s** against 2.32.0 (`dfa8b46`); the runtime-literal inventory fails because its first Java token is 69 bytes over the older-MSVC bound. [The 2.32.1 source repair](verification-java-runtime-literals-2026-10-24.md) preserves emitted bytes; the original run remains a failed gate. |
 
 The native-body compatibility fixture initially used profile naming, which is
 unsupported for opaque Java code. Its corrected `naming = preserve` case passes;
@@ -82,6 +82,12 @@ observations with normal JVM/host variation, not a general speed guarantee.
 The allocation counter measures the encoding thread's requested JVM allocation;
 it excludes retained caller storage, native/JIT/other-thread allocation and
 whole-process peaks. Temporary UTF-8/writer/iteration allocations remain.
+
+The generated source for the maintained fixture is **260,659 bytes** with the
+2.31.2 baseline, **263,560 bytes** with 2.32.0 ordinary APIs and **276,352 bytes**
+with output windows enabled. Both hosts produce the same sizes under the oracle
+profile. These are generated UTF-8 source bytes, including the fixture's included
+declarations; they do not measure compiled class size or retained JVM memory.
 
 Reproducible drivers, baseline compilers, logs, wire hashes, SDK output and raw
 measurement reports remain under ignored `out/build/java-buffer-overnight/`.

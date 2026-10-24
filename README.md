@@ -46,6 +46,11 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Compiler/runtime **2.32.1** repairs the embedded Java runtime source-token bound
+for older MSVC hosts while preserving emitted Java bytes. Schema language **1.23.0**
+and editor packages **2.0.17** stay unchanged; see the
+[build qualification](docs/verification/verification-java-runtime-literals-2026-10-24.md).
+
 Compiler/runtime **2.32.0** adds opt-in Java caller-owned output windows for all
 four native codecs and readonly projections. Set `java.output_buffer_reuse = true`
 and encode into an exclusive byte-array window, receiving the written byte count.
@@ -243,7 +248,7 @@ Regenerate Python package facades for cancellation checks after Save hooks:
 pre-publication cancellation preserves the old file; a failure after replacement
 reports `publication_uncertain` with the complete new archive retained.
 
-The current compiler and runtime release is **2.32.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.32.1**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.23.0**;
