@@ -83,4 +83,10 @@ void sync_parent_directory(const std::filesystem::path& path);
 void publish_file(const std::filesystem::path& source, const std::filesystem::path& target,
                   bool replace);
 
+// Atomically replace a generation while existing readers retain the old native file object.
+// Requires a platform/filesystem supporting replacement of pinned generations; no copy fallback.
+// The source must be synced; caller syncs both affected parents before acknowledging durability.
+void replace_file_generation(const std::filesystem::path& source,
+                             const std::filesystem::path& target);
+
 } // namespace rohit

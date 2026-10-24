@@ -90,6 +90,15 @@ endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
 
+add_executable(file_generation_test file_generation_test.cpp)
+target_link_libraries(file_generation_test PRIVATE Serializer::runtime GTest::gtest_main)
+if(MSVC)
+  target_compile_options(file_generation_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(file_generation_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME file_generation_test COMMAND file_generation_test)
+
 if(SERIALIZER_BUILD_MANAGED)
   add_executable(cache_attributes_test cache_attributes_test.cpp)
   serializer_generate(TARGET cache_attributes_test SCHEMAS resources/cache_attributes.serializer

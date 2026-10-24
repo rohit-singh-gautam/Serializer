@@ -46,6 +46,11 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Compiler/runtime **2.34.0** adds explicit
+[pinned file-generation replacement](docs/serialization/file_generations.md),
+preserving old native readers while a target name selects its replacement.
+Existing publication APIs and wire formats retain their contracts.
+
 Compiler/runtime **2.33.0** adds independently opt-in Java heap/direct
 `ByteBuffer` output with `java.nio_output_buffer_reuse = true`. A successful encode
 advances the caller's position; failures preserve its cursor while confining any

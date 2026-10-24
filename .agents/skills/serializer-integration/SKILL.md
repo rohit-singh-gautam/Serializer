@@ -7,6 +7,12 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 
 [Documentation index](../../../docs/README.md)
 
+For native immutable generation publication, use
+[`replace_file_generation`](../../../docs/serialization/file_generations.md)
+after syncing the replacement, then sync affected parents. Retained readers keep
+their original native file object. Unsupported platform/volume capabilities fail;
+the host still supplies the durable acceptance/recovery protocol.
+
 For rebuildable data, review the [owning C++ cache contract](../../../docs/design/cache_attributes.md)
 and [usage example](../../../docs/guides/usage.md#rebuildable-c-cache-fields).
 Language 1.22.0 accepts `cache` and `cache(priority = 200)`; omitted priority is `0`
@@ -97,7 +103,7 @@ remain unavailable for that storage representation. Use a supported explicit
 ordered mapping when direct token traversal is required. Follow the
 [legacy tree checks](../../../docs/verification/verification-legacy-cpp-wildcards-2026-10-22.md).
 
-The current compiler/runtime release is **2.33.0**, with schema language
+The current compiler/runtime release is **2.34.0**, with schema language
 **1.23.0**. Release 2.31.0 requires a C++23 compiler and matching standard library
 with `std::byteswap` and `std::span`. Source builds reject an explicit standard
 below 23; public CMake targets propagate `cxx_std_23` to generated and managed

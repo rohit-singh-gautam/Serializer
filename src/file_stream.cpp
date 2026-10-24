@@ -367,7 +367,7 @@ void file_stream::sync() {
 // Persist directory entries as well as file contents on POSIX filesystems.
 void sync_parent_directory(const std::filesystem::path& path) {
 #ifdef _WIN32
-  // Publication uses MoveFileExW with WRITE_THROUGH on the same volume; no portable directory fsync.
+  // Publication uses write-through moves/rename handles; Windows has no portable directory fsync.
   static_cast<void>(path);
 #else
   const auto parent = path.parent_path().empty() ? std::filesystem::path{"."} : path.parent_path();
@@ -410,6 +410,53 @@ void publish_file(const std::filesystem::path& source, const std::filesystem::pa
     // The new name is authoritative; a leftover staging link is harmless.
     ::unlink(source.c_str());
   }
+#endif
+}
+
+// Use explicit generation replacement rather than invalidating old readers or copying file bytes.
+void replace_file_generation(const std::filesystem::path& source,
+                             const std::filesystem::path& target) {
+#if defined(_WIN32) && defined(FILE_RENAME_FLAG_POSIX_SEMANTICS)
+  const auto absolute_target = std::filesystem::absolute(target);
+  const detail::native_file_path native_source{source}, native_target{absolute_target};
+  const auto& name = native_target.get().native();
+  constexpr auto header_bytes = offsetof(FILE_RENAME_INFO, FileName);
+  constexpr auto maximum_bytes = std::numeric_limits<DWORD>::max();
+  if (name.size() > (maximum_bytes - header_bytes) / sizeof(wchar_t) - 1U) {
+    throw std::length_error{"Native generation replacement path exceeds Windows limit"};
+  }
+  const auto name_bytes = name.size() * sizeof(wchar_t);
+  const auto total_bytes = header_bytes + name_bytes + sizeof(wchar_t);
+  // Byte-array new supplies alignment for this implicit-lifetime Windows variable-length record.
+  const auto storage = std::make_unique<std::byte[]>(std::max(total_bytes, sizeof(FILE_RENAME_INFO)));
+  auto* information = reinterpret_cast<FILE_RENAME_INFO*>(storage.get());
+  information->Flags = FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS;
+  information->RootDirectory = nullptr;
+  information->FileNameLength = static_cast<DWORD>(name_bytes);
+  std::copy(name.begin(), name.end(), information->FileName);
+  // Win32 path conversion needs an owned terminator independently of the record's byte length.
+  information->FileName[name.size()] = L'\0';
+  // Sharing retains already open source writers and old-generation readers. WRITE_THROUGH
+  // applies to rename metadata; the caller has already flushed the complete replacement data.
+  const auto handle = CreateFileW(native_source.c_str(), DELETE | FILE_READ_ATTRIBUTES,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+      FILE_FLAG_WRITE_THROUGH, nullptr);
+  if (handle == INVALID_HANDLE_VALUE) { io_error("Open native generation replacement"); }
+  // No throwing C++ work occurs between native handle acquisition and release.
+  const auto replaced = SetFileInformationByHandle(handle, FileRenameInfoEx, information,
+      static_cast<DWORD>(total_bytes));
+  const auto error = replaced ? ERROR_SUCCESS : GetLastError();
+  CloseHandle(handle);
+  if (!replaced) {
+    SetLastError(error);
+    io_error("Replace pinned file generation");
+  }
+#elif defined(_WIN32)
+  static_cast<void>(source);
+  static_cast<void>(target);
+  throw std::runtime_error{"Pinned generation replacement requires a Windows 10 SDK target"};
+#else
+  publish_file(source, target, true);
 #endif
 }
 
