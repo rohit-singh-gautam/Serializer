@@ -95,3 +95,22 @@ isolated earlier-release speed-regression threshold.
 
 README and the integration skill were reviewed. Runtime usage, APIs, schema
 syntax and wire behavior are unchanged; no compiler/runtime release bump is needed.
+
+## Repaired Python 2.33.1 supplement
+
+After the focused Core tree repair, a fresh current Python benchmark repeats all
+three workloads. All **12 native protocol size/hash controls** and **three XML
+document size/hash controls** match the frozen 2.33.0 baseline exactly. Native-only
+generated source remains **62,789 bytes**, SHA-256
+`73a0c02c89a950757ccfb6eee4cb0343a4e4120ba9aa0e7de273c935e356ffbe`.
+XML-enabled source is **270,288 bytes**, an increase of **580 bytes** for guarded
+tree admission. The other ten XML generators retain exact baseline bytes.
+
+The fresh report is `final-python-xml-benchmark/verification.json`, SHA-256
+`7e2a1e704d43dbe9d7f333a7940f6ee94da4e5ad8d779473c56a4d91fb1c7b9f`.
+All six Python compression formats also pass their actual provider baselines in
+`final-python-compression-benchmark.json`, SHA-256
+`855825d5808b52e2a1b29a22a66d62f5c5c3fc80c8f7485c19696b79c656e951`.
+Its native-only generated size remains **62,313 bytes** for that separate schema.
+These current repaired-Python measurements supplement the preserved eleven-SDK
+baseline above; they do not relabel its compiler image or erase its raw samples.
