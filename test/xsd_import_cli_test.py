@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Check real XSD import publication, dependencies and optional authored binding."""
 from pathlib import Path
+import importlib.util
 import re
 import subprocess
 import sys
@@ -151,6 +152,87 @@ def ambiguous_associations(compiler, root):
     assert 'left.xsd' in depfile.read_text(encoding='utf-8')
 
 
+def restricted_list_imports(compiler, root):
+    """Generate every owning output and execute imported restricted/union lists in Python."""
+    directory = root / 'restricted-lists'
+    directory.mkdir()
+    fixture = Path(__file__).resolve().parent / 'resources' / 'xml_shared_import' / 'root.xsd'
+    source = directory / 'lists.serializer'
+    invoke(compiler, '--import-xsd', fixture, '--namespace', 'imports', '--root', 'order',
+           '--output', source)
+    extensions = {'cpp': 'hpp', 'c': 'h', 'rust': 'rs', 'python': 'py', 'js': 'js',
+                  'typescript': 'd.mts', 'java': 'java', 'csharp': 'cs', 'go': 'go',
+                  'kotlin': 'kt', 'swift': 'swift'}
+    for language, extension in extensions.items():
+        arguments = ['--input', source, '--language', language,
+                     '--output', directory / ('lists.' + extension)]
+        if language == 'cpp':
+            arguments += ['--cpp.format', 'false']
+        invoke(compiler, *arguments)
+    spec = importlib.util.spec_from_file_location('imported_restricted_lists', directory / 'lists.py')
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        model = module.ImportsXsdOrder
+        assert module._xml_token_capable(model), 'Imported ordered/namespace graph lacks a token codec'
+        def reject_tree(*args, **kwargs):
+            """Ensure the combined namespace/ordered profile never falls back to a document tree."""
+            raise AssertionError('Unexpected whole-tree XML parser')
+        module._xml_parse = reject_tree
+        value = model.decode_xml(b"<order xmlns:p='urn:item' id='1' samples='2 8' "
+                                 b"selections='p:item 7' codes='AB CD'/>")
+        assert value.xsd_samples == ([2, 8],)
+        assert value.xsd_codes == (['AB', 'CD'],)
+        assert len(value.xsd_selections[0]) == 2
+        restored = model.decode_xml(value.encode_xml())
+        assert restored.xsd_samples == value.xsd_samples
+        assert restored.xsd_codes == value.xsd_codes
+        document = "<order xmlns:p='urn:Ω' id='1' selections='p:item 7'/>".encode()
+        chunked = model.decode_xml_chunks((document[index:index + 1] for index in range(len(document))))
+        assert chunked.xsd_selections == (['p:item', '7'],)
+        assert 'urn:Ω'.encode() in chunked.encode_xml()
+        # One element and two three-entry namespace snapshots: the namespace ledger,
+        # rather than element count, distinguishes these exact/one-tight admissions.
+        model.decode_xml(document, module.Limits(max_elements=6))
+        try:
+            model.decode_xml(document, module.Limits(max_elements=5))
+        except ValueError as error:
+            assert 'namespace retention' in str(error)
+        else:
+            raise AssertionError('Namespace snapshot exceeded its entry budget')
+        assert model.decode_xml(document).xsd_selections == chunked.xsd_selections
+        grouped = model.decode_xml(b"<order id='1'><schedule><price>2</price>"
+            b"<item name='a'><price>3</price></item><item name='b'><price>4</price></item>"
+            b"<price>5</price></schedule></order>")
+        assert len(grouped.xsd_schedule[0].xsd_items) == 4
+        assert len(model.decode_xml(grouped.encode_xml()).xsd_schedule[0].xsd_items) == 4
+        grouped.xsd_schedule[0].xsd_items.pop()
+        try:
+            grouped.encode_xml()
+        except (ValueError, TypeError):
+            pass
+        else:
+            raise AssertionError('Edited imported ordered group published invalid XML')
+        for attributes in ("samples='1 2'", "samples='2 9'", "samples='2'",
+                           "samples='2 3 4'", "selections='missing:item'",
+                           "selections='-1'", "codes='AB bad'", "codes='A'"):
+            try:
+                model.decode_xml(('<order id="1" ' + attributes + '/>').encode())
+            except (ValueError, TypeError):
+                continue
+            raise AssertionError('Imported list constraint accepted ' + attributes)
+        value.xsd_samples[0][0] = 1
+        try:
+            value.encode_xml()
+        except (ValueError, TypeError):
+            pass
+        else:
+            raise AssertionError('Edited restricted list published invalid XML')
+    finally:
+        sys.modules.pop(spec.name, None)
+
+
 def main():
     """Import twice, protect manual edits and compile both authoring workflows."""
     compiler = str(Path(sys.argv[1]).resolve())
@@ -200,6 +282,7 @@ def main():
         assert not (generated / "invalid.serializer").exists()
         evolution_imports(compiler, root)
         ambiguous_associations(compiler, root)
+        restricted_list_imports(compiler, root)
     print("XSD CLI imports, staged stable identities, protected files and exact ambiguity failures passed")
 
 

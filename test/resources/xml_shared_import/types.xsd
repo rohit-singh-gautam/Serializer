@@ -6,6 +6,18 @@
       <xs:maxExclusive value="9"/>
     </xs:restriction>
   </xs:simpleType>
+  <xs:simpleType name="Amounts">
+    <xs:list itemType="Amount"/>
+  </xs:simpleType>
+  <xs:simpleType name="AmountPair">
+    <xs:restriction base="Amounts"><xs:length value="2"/></xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="Selection">
+    <xs:union memberTypes="xs:QName xs:unsignedInt"/>
+  </xs:simpleType>
+  <xs:simpleType name="Selections">
+    <xs:list itemType="Selection"/>
+  </xs:simpleType>
   <xs:complexType name="Price">
     <xs:simpleContent>
       <xs:extension base="Amount">

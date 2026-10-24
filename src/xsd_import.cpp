@@ -136,6 +136,7 @@ class importer {
   std::map<const xml::element*, model> models_{};
   std::set<std::string> class_names_{};
   std::vector<const xml::element*> order_{};
+  bool ordered_language_{};
 
   // Resolve one global declaration uniquely across the pinned bundle.
   declaration find(std::string_view kind, const xml::name& name) const {
@@ -178,55 +179,18 @@ class importer {
     return found->second;
   }
 
-  // Detect a lexical scalar list separately from repeated XML element occurrences.
+  // Reuse the bounded scalar resolver for builtin, named and inline atomic/union list items.
+  // XSD facets and namespace identities remain on the bound declaration, not duplicate fields.
   std::optional<std::pair<std::string, std::optional<std::size_t>>> list_type(
       const xml::element& source) const {
-    using result_type = std::optional<std::pair<std::string, std::optional<std::size_t>>>;
-    std::set<declaration_key> active;
-    const auto visit = [&](auto&& self, const xml::element& node) -> result_type {
-      const auto& kind = node.qualified_name.local;
-      if (kind == "list") {
-        const auto item = resolve(node, attribute(node, "itemType"));
-        if (item.namespace_uri != xsd_namespace) {
-          throw std::invalid_argument{"Imported typed lists require builtin scalar items"};
-        }
-        auto item_node = node;
-        item_node.attributes = {{{"type", ""}, "xs:" + item.local}};
-        item_node.namespace_bindings["xs"] = std::string{xsd_namespace};
-        item_node.children.clear();
-        return std::pair{scalar(item_node), std::optional<std::size_t>{}};
-      }
-      result_type result;
-      for (const auto& child : node.children) {
-        if (child.qualified_name.local == "simpleType" || child.qualified_name.local == "restriction" ||
-            child.qualified_name.local == "list") { result = self(self, child); }
-      }
-      if (!result) {
-        const auto type_text = attribute(node, kind == "restriction" ? "base" : "type");
-        if (!type_text.empty()) {
-          const auto type = resolve(node, type_text);
-          if (type.namespace_uri == xsd_namespace && type.local == "NMTOKENS") {
-            result = std::pair{std::string{"string"}, std::optional<std::size_t>{}};
-          } else if (type.namespace_uri != xsd_namespace) {
-            if (!active.emplace(type.namespace_uri, type.local).second) {
-              throw std::invalid_argument{"Cyclic imported XSD list alias"};
-            }
-            result = self(self, *find("simpleType", type).second);
-          }
-        }
-      }
-      if (result && kind == "restriction") {
-        for (const auto& child : node.children) {
-          if (child.qualified_name.local == "length") {
-            result->second = count(attribute(child, "value"), 0U);
-          }
-        }
-      }
-      return result;
-    };
-    return visit(visit, source);
+    const auto resolved = resolve_scalar_type(bundle_, source);
+    if (resolved.facets.list_item_kind.empty()) { return std::nullopt; }
+    auto item_node = source;
+    item_node.attributes = {{{"type", ""}, "xs:" + resolved.facets.list_item_kind}};
+    item_node.namespace_bindings["xs"] = std::string{xsd_namespace};
+    item_node.children.clear();
+    return std::pair{scalar(item_node), resolved.facets.length};
   }
-
   // Register a deterministic record identity before traversing its dependencies.
   model& register_model(declaration value, xml::name root) {
     auto [found, inserted] = models_.try_emplace(value.second);
@@ -261,6 +225,112 @@ class importer {
     std::set<std::string> names;
     std::set<std::uint32_t> ids;
     std::string fields;
+    std::string ordered_metadata;
+    std::string fragment;
+    // Select new ordered storage only for graphs that previously had no representable flat import.
+    const auto needs_ordered = [&](auto&& self, const xml::element& node,
+                                   const schema_bundle::document* document,
+                                   std::size_t depth) -> bool {
+      if (depth > xml::limits{}.max_depth) { throw std::length_error{"XSD import particle depth exceeded"}; }
+      const auto& kind = node.qualified_name.local;
+      if (kind == "group") {
+        if (count(attribute(node, "minOccurs")) != 1U || attribute(node, "maxOccurs") == "unbounded" ||
+            count(attribute(node, "maxOccurs")) != 1U) { return true; }
+        const auto selected = resolve_model_group(bundle_, *document, node);
+        return self(self, *selected.node, selected.owner, depth + 1U);
+      }
+      if (kind != "sequence" && kind != "choice" && kind != "all") { return false; }
+      if (kind != "choice" && (count(attribute(node, "minOccurs")) != 1U ||
+          attribute(node, "maxOccurs") == "unbounded" || count(attribute(node, "maxOccurs")) != 1U)) { return true; }
+      if (kind == "choice") {
+        const auto known = std::count_if(node.children.begin(), node.children.end(),
+            [](const auto& child) { return child.qualified_name.local == "element"; });
+        const bool repeated = attribute(node, "maxOccurs") == "unbounded" ||
+            count(attribute(node, "maxOccurs")) != 1U ||
+            std::any_of(node.children.begin(), node.children.end(), [](const auto& child) {
+              return child.qualified_name.local == "any" || attribute(child, "maxOccurs") == "unbounded" ||
+                  count(attribute(child, "maxOccurs")) != 1U;
+            });
+        if ((repeated && known > 1) || std::any_of(node.children.begin(), node.children.end(),
+            [](const auto& child) {
+              const auto& child_kind = child.qualified_name.local;
+              return child_kind == "sequence" || child_kind == "choice" || child_kind == "group";
+            })) { return true; }
+      }
+      return std::any_of(node.children.begin(), node.children.end(), [&](const auto& child) {
+        return self(self, child, document, depth + 1U);
+      });
+    };
+    const bool ordered = std::any_of(content.children.begin(), content.children.end(),
+        [&](const auto& component) {
+          return needs_ordered(needs_ordered, *component.node, component.owner, 0U);
+        });
+    if (ordered) {
+      if (content.mixed) { throw std::invalid_argument{"Imported mixed groups require ordered text storage"}; }
+      std::map<declaration_key, std::pair<std::string, const xml::element*>> alternatives;
+      std::string branches;
+      // Flatten names, not occurrences: the pinned XSD supplies the complete ordered group grammar.
+      const auto collect = [&](auto&& self, const xml::element& node,
+                               const schema_bundle::document* document, std::size_t depth) -> void {
+        if (depth > xml::limits{}.max_depth) { throw std::length_error{"XSD ordered import depth exceeded"}; }
+        const auto& kind = node.qualified_name.local;
+        if (kind == "attribute" || kind == "anyAttribute" || kind == "annotation") { return; }
+        if (kind == "group") {
+          const auto selected = resolve_model_group(bundle_, *document, node);
+          self(self, *selected.node, selected.owner, depth + 1U);
+        } else if (kind == "element") {
+          auto selected = declaration{document, &node};
+          const auto reference = attribute(node, "ref");
+          if (!reference.empty()) { selected = find("element", resolve(node, reference)); }
+          const auto& element = *selected.second;
+          if (true_attribute(element, "nillable")) {
+            throw std::invalid_argument{"Ordered imported XSD alternatives require nonnil record children"};
+          }
+          const auto type = complex(*selected.first, element);
+          if (!type.second) {
+            throw std::invalid_argument{"Ordered imported XSD alternatives require complex record children"};
+          }
+          const auto local = attribute(element, "name");
+          const auto form = attribute(element, "form");
+          const bool qualified = !reference.empty() || form == "qualified" ||
+              (form.empty() && attribute(selected.first->root, "elementFormDefault") == "qualified");
+          const auto uri = qualified ? selected.first->target : std::string{};
+          const declaration_key key{uri, std::string{local}};
+          if (const auto previous = alternatives.find(key); previous != alternatives.end()) {
+            if (previous->second.second != type.second) {
+              throw std::invalid_argument{"Ordered imported XML name has conflicting complex types"};
+            }
+            return;
+          }
+          auto& child = register_model(type, {attribute(*type.second, "name").empty() ?
+              std::string{local} : std::string{attribute(*type.second, "name")}, type.first->target});
+          compile(child);
+          const auto branch = identifier(local) + '_' + std::to_string(stable_id('{' + uri + '}' + std::string{local}));
+          if (!branches.empty()) { branches += ','; }
+          branches += child.name + '=' + branch;
+          ordered_metadata += ", ordered_child(" + quote(branch) + ',' + quote('{' + uri + '}' + std::string{local}) + ')';
+          alternatives.emplace(key, std::pair{branch, type.second});
+        } else if (kind == "sequence" || kind == "choice") {
+          for (const auto& child : node.children) { self(self, child, document, depth + 1U); }
+        } else { throw std::invalid_argument{"Unsupported ordered imported XSD particle: " + kind}; }
+      };
+      for (const auto& component : content.children) {
+        collect(collect, *component.node, component.owner, 0U);
+      }
+      if (alternatives.size() < 2U) {
+        throw std::invalid_argument{"Ordered imported XSD storage requires at least two record alternatives"};
+      }
+      const auto fragment_name = value.name + "_ordered_fragment";
+      if (!class_names_.insert(fragment_name).second) {
+        throw std::invalid_argument{"Imported ordered fragment name collision"};
+      }
+      fragment = "  class " + fragment_name + " stable_ids {\n    public variant(" + branches + ") value (1);\n  }\n\n";
+      const auto id = stable_id("#ordered");
+      ids.insert(id);
+      names.insert("xsd_items");
+      fields = "    public array<" + fragment_name + "> xsd_items (" + std::to_string(id) + ");\n";
+      ordered_language_ = true;
+    }
     const auto emit = [&](const xml::element& occurrence, bool is_attribute, bool in_choice,
                           bool text, const schema_bundle::document* defining_owner,
                           bool repeated_choice = false) {
@@ -382,6 +452,7 @@ class importer {
       const auto& child = *component.node;
       const auto* defining_owner = component.owner;
       const auto& kind = child.qualified_name.local;
+      if (ordered && (kind == "sequence" || kind == "choice" || kind == "group")) { continue; }
       if (kind == "sequence" || kind == "choice" || kind == "all") {
         particles(particles, child, false, defining_owner);
       }
@@ -418,8 +489,9 @@ class importer {
         throw std::invalid_argument{"Unsupported imported XSD complex content: " + kind};
       }
     }
-    value.text = "  class " + value.name + " stable_ids {\n    xml(root(" + quote(value.root.local) +
-        "), namespace(" + quote(value.root.namespace_uri) + "));\n" + fields + "  }\n";
+    value.text = fragment + "  class " + value.name + " stable_ids {\n    xml(root(" + quote(value.root.local) +
+        "), namespace(" + quote(value.root.namespace_uri) + ')' +
+        (ordered ? ", ordered(\"xsd_items\")" + ordered_metadata : std::string{}) + ");\n" + fields + "  }\n";
     value.state = 2U;
     order_.push_back(complex_node);
   }
@@ -469,7 +541,8 @@ public:
     if (roots.empty()) { throw std::invalid_argument{"No selected XSD global complex root"}; }
     for (auto* value : roots) { compile(*value); }
     std::string result{"// Generated from a checked local XSD bundle; regenerate after contract changes.\n"};
-    result += "serializer version 1.20.0;\n\nnamespace " + options_.namespace_name + " {\n";
+    result += std::string{"serializer version "} + (ordered_language_ ? "1.24.0" : "1.20.0") +
+        ";\n\nnamespace " + options_.namespace_name + " {\n";
     result += "  using schema " + quote(schema_location) + ";\n\n";
     for (const auto* node : order_) { result += models_.at(node).text + '\n'; }
     return result + "}\n";
