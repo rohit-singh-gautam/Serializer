@@ -9,9 +9,11 @@ exchanging data. For editable C++ applications, add the managed runtime to group
 changes into transactions, retain history, recover committed work, and coordinate
 collaborative edits through an authority.
 
-Generated codecs support multiple languages. Native history, journaling, and
-collaboration engines currently run in C++; other languages can exchange managed
-wire records but do not have equivalent native managed engines.
+Generated codecs support multiple languages. C++ supplies the established managed
+runtime. An opt-in [Python native engine](docs/managed/python_native_runtime.md)
+adds a narrower concrete owning profile undergoing generated SDK qualification;
+other outputs still require their own managed engines. Managed wire-record
+exchange has its separate codec-only contract.
 
 The [application responsibility contract](docs/project/application_responsibilities.md)
 separates host authentication, policy administration, business effects and custom
@@ -45,6 +47,9 @@ separate references.
 Selected compression framing, errors and byte/history admission now pass one shared corpus across all eleven outputs: 15,400 decisions, 2,904 owning exchanges and independent standard-frame checks. The [qualification record](docs/verification/verification-compression-parity-2026-10-20.md) identifies the actual compiler/runtime captures, provider deployments and scope.
 
 ## Releases and supported outputs
+
+Compiler/runtime **2.34.0**, schema language **1.24.0**, includes the following
+managed additions. Both editor packages are **2.0.21**.
 
 Java has independent [token-only and native engine profiles](docs/managed/java_native_runtime.md).
 Select `java.managed_engine = true` for finite concrete owning graphs with detached
@@ -90,6 +95,11 @@ share unchanged retained history blocks. Generated Windows profiles preserve
 default Save bytes; [measured retention and latency](docs/verification/verification-compact-history-2026-10-24.md)
 keep resident admission, routed allocations and process memory distinct.
 
+Managed/storage redesign may change formats or APIs where required. Version
+changed contracts and document conversion or explicit rejection; retaining
+a recoverable source file protects publication without requiring permanent
+historical-format readers. See [native upgrades](docs/managed/native_database.md#native-migration-and-rebaseline).
+
 Opt-in [bounded dependency notifications](docs/managed/edit_dispatch_and_notifications.md)
 prepare stable field paths and immutable before/after pins before acceptance.
 Projection filters can select affected identities and paths while preserving
@@ -105,10 +115,12 @@ defines owning storage/editor support and explicit packed/view/recursive limits.
 Direct managed Protobuf rejects before identity lowering; separate-value wrappers
 preserve their existing mapping. See the [executed compiler/wrapper matrix](docs/verification/verification-managed-representations-2026-10-24.md).
 
-Compiler/runtime **2.34.0** adds explicit
-[pinned file-generation replacement](docs/serialization/file_generations.md),
-preserving old native readers while a target name selects its replacement.
-Existing publication APIs and wire formats retain their contracts.
+[Pinned file-generation replacement](docs/serialization/file_generations.md)
+preserves old native readers across atomic publication. Current managed profiles
+have scoped [verification records](docs/verification/verification-managed-state-2026-10-24.md).
+Database placement, persistent authority indexes, paging, lazy loading and broader
+non-C++ native engines remain in the [pending requirements](docs/pending.md).
+
 Compiler/runtime **2.34.0**, schema language **1.24.0**, adds schema-local ordered
 XML selection and package vocabulary/type/target-mode settings in all eleven
 owning outputs. XSD declaration import now retains named/inline/union list-item

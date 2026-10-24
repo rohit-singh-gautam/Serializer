@@ -47,7 +47,9 @@ and the [CMake variants helper](../guides/cmake_integration.md#generate-several-
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `[output] language` | `cpp` | Select supported backends listed above, individually or as a comma-separated list. |
-| `[output] include_mode` | `separate` | C++ schema include layout: `separate` emits dependency headers; `inline` keeps the combined entry header. |
+| `[output] include_mode` | `separate` for C++; `inline` for native backends | `separate` emits C++ dependency headers or supported C/Rust/Python/Swift/Kotlin source bundles; `inline` keeps the combined entry output. See [layouts](../guides/compiler_backend_updates.md#native-separate-sources). |
+| `[python] managed_token_codecs` | `false` | Emit concrete Python managed wire records and checked typed-token envelopes, without a native managed engine; see [scope and ID policies](../managed/token_codecs.md). |
+| `[python] managed_engine` | `false` | Emit the opt-in native managed engine and generated schema descriptors; includes typed-token codecs. See the [qualified profile and restrictions](../managed/python_native_runtime.md). |
 | `[output] protocols` | `all` | Select `all` native codecs or `binary_none` for every selected backend; XML remains independently opt-in. |
 | `[cpp] protocols` | Inherit `[output] protocols` | Override native codec selection for C++ alone. |
 | `[cpp] coding_standard` | `serializer` | Select a profile from the table below. |
@@ -55,6 +57,9 @@ and the [CMake variants helper](../guides/cmake_integration.md#generate-several-
 | `[cpp] protobuf` | `false` | Generate direct Protobuf binary, ProtoJSON, and TextProto codecs; validate the [compatible schema subset](../serialization/protobuf.md). |
 | `[java] output_buffer_reuse` | `false` | Add [caller-owned output-window encoding](java.md#caller-owned-output-windows); preserve existing method sets unless opted in. |
 | `[java] nio_output_buffer_reuse` | `false` | Independently add [heap/direct NIO output](java.md#caller-owned-nio-buffers); default method sets remain unchanged. |
+| `[java] managed_token_codecs` | `false` | Emit concrete Java managed wire records and checked `ManagedReference<T>` envelopes; no native managed engine. See [qualified scope and C++ exchange](../managed/token_codecs.md#java-wire-record-profile). |
+| `[java] managed_engine` | `false` | Emit the explicit [native Java owning engine](../managed/java_native_runtime.md) and generated schema factory; implies token codecs. |
+| `[cpp] payload_allocator` | `false` | Select resource-owning containers for the qualified [native binary payload profile](../managed/payload_allocation.md). |
 | `[xml] enabled` | `false` | Generate the optional typed XML mapping for every selected output. |
 | `[xml] xsd` | Unset | Fixed standalone XSD build input, relative to this INI file; unsupported constructs fail generation. |
 | `[xml] runtime_xsd` | `false` | Permit an explicitly supplied prepared runtime validator. |

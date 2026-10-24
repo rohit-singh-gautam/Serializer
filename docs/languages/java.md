@@ -147,6 +147,18 @@ have no wire representation. Big-endian output, borrowed views, explicit SIMD,
 and native acceleration are not implemented. Caller-owned output storage is an
 explicit opt-in described below.
 
+## Native managed profiles
+
+Compiler/runtime 2.34 adds independent `java.managed_token_codecs = true`
+[wire records](../managed/token_codecs.md#java-wire-record-profile) and
+`java.managed_engine = true` [native owning state](../managed/java_native_runtime.md).
+The engine profile implies token lowering and supplies generated schema
+factories, detached immutable reads, transactions, identities, bounded linear
+history, journals and exact authority/client receipts. It accepts a narrower
+concrete unpacked graph than ordinary codecs. Default output remains ordinary
+owning models; token-only output does not activate an engine. Review the
+profile restrictions and actual Java 17 SDK qualification before adoption.
+
 ## Caller-owned output windows
 
 Enable the generation option in an INI file:

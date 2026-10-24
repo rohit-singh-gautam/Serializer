@@ -13,7 +13,9 @@ Schema language 1.6.0 adds behavior and runtime-field declarations. `managed`
 class/member/base declarations generate storage, conversions, identity traversal
 and typed editors. C++ inherited authorization rules and a complete-candidate
 publication gate are described in [authorization](authorization.md); schema feature
-selectors and other-language managed engines remain proposals. Unsupported selections are rejected.
+selectors and broader other-language engine contracts remain proposals. The
+separate [Python/Java profiles](language_bindings.md) have narrower owning/native
+contracts. Unsupported selections are rejected.
 See [state enhancements](state_enhancements.md) for the complete support boundary.
 
 The [collaboration runtime](collaboration_runtime.md) now wraps this store with
@@ -624,10 +626,15 @@ outstanding immutable pins; `resident_bytes()` reports the estimate.
 `allocation_resource` supplies root/control-block allocations, while standard model
 containers keep their allocators. Admission accounting does not provide a hard
 allocator peak bound for decoder temporaries, allocator metadata or native resources.
+The explicit [payload allocation profile](payload_allocation.md) additionally routes
+supported owning binary payload containers and decoder temporaries through a
+retained resource. Managed callbacks, baseline rebinding and history restoration
+select that domain. Its requested-byte ceiling excludes process RSS and unrelated
+metadata/allocations; default generated containers retain the boundary above.
 No benchmarked speedup is claimed.
 See [state enhancements](state_enhancements.md) for delta and budget contracts.
 
-Feature selectors (`managed(...)`), arbitrary `exclude(...)` policies, custom allocator
+Feature selectors (`managed(...)`), arbitrary `exclude(...)` policies, broader allocator
 propagation, fine-grained owned-variant merging,
 background checkpoints, generated permission-policy fields and other-language managed engines
 remain unimplemented. Packed/view and recursive editors, virtual/repeated-ancestor

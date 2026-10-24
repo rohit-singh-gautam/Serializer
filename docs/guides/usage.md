@@ -12,6 +12,40 @@ For HTML, use the separate
 Its 2.34.0 profile adds `sub`/`sup` to the shared thirty-tag vocabulary without
 adding XML namespaces, browser recovery or a schema-language construct.
 
+For allocator-bound C++ payloads, explicitly select `cpp.payload_allocator = true`
+and follow [payload allocation](../managed/payload_allocation.md). The supported
+owning direct binary profile captures resource ownership and selects the store's
+domain during construction, transaction callbacks, decoding and Undo/Redo.
+It bounds requested bytes routed through that resource; ordinary generated
+containers and whole-process RSS retain their separate contracts.
+See [edit dispatch and dependency notifications](../managed/edit_dispatch_and_notifications.md)
+for guarded behavior and stable field changes. Native database preparations expose
+these details before durability. For migration, retain the create-only old log,
+choose a strictly newer epoch and use [native migration/rebaseline](../managed/native_database.md#native-migration-and-rebaseline).
+When restoring an older native archive, retain external epoch/allocation metadata
+and provide the known allocation floor; an old archive cannot discover later IDs.
+The [paged derived index](../managed/paged_index.md) binds disk entries to exact
+source revisions; it does not make authoritative root values lazy.
+
+
+Compiler/runtime **2.34.0** adds [schema-declared local managed indexes](../schema/indexes.md)
+under language **1.24.0** and the opt-in
+[native embedded database](../managed/native_database.md). Declare supported
+scalar indexes once, then call `registry().find_by()` or `find_unique()` with the
+generated descriptor. Uniqueness is validated before accepted state changes.
+Use `native_database<Root>` explicitly for bounded whole-root durable operations;
+its immutable `read()` pins do not perform hidden I/O or lazy loading.
+[Python and Java token codecs](../managed/token_codecs.md) are independently
+opt-in and provide wire exchange. The separate `python.managed_engine = true`
+profile emits [native Python managed metadata and runtime](../managed/python_native_runtime.md)
+for concrete owning records. The selected Windows generated SDK profile passes
+the [dated language replay](../verification/verification-managed-languages-2026-10-24.md);
+other platforms and profiles require their own qualification. Token-only
+generation does not activate it. The independent `java.managed_engine = true`
+profile supplies [native Java managed state](../managed/java_native_runtime.md)
+through `managedSchema(Root.class)` and `ManagedStore<Root>`, with its own
+qualified concrete graph, identity, history, journal and receipt bounds.
+
 Compiler/runtime **2.33.0** adds an independent Java `nio_output_buffer_reuse`
 option for heap/direct ByteBuffer output. Read the [cursor, storage and failure
 contract](../languages/java.md#caller-owned-nio-buffers) before reusing buffers;

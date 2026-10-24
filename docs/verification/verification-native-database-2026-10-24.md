@@ -72,4 +72,7 @@ keys. The current converter preserves every exact live type key.
 
 GCC 15.2 compiles the physical log implementation in the later Linux kernel build;
 this is compilation evidence, not Linux native-engine runtime qualification.
-The compiler/backend merge `dacd81e` requires a further combined replay.
+After compiler/backend merge `dacd81e`, the combined native build and all 22
+selected CTest targets pass in 39.77 seconds, including the 16 native database
+cases, allocation-denied publication and all seven native acceptance/migration
+process-crash boundaries. Evidence: `out/build/compiler-merge-native`.

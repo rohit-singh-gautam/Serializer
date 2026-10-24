@@ -18,6 +18,7 @@ representation must fail before output publication.
 | Private/protected or unsupported virtual base layout | Rejected. Private schema fields themselves remain supported through generated friends. |
 | C++ Protobuf with direct managed storage | Rejected before identity lowering. Direct native metadata uses field ID `1073741823`, beyond Protobuf's legal field-number domain; no silent remapping occurs. |
 | C++ Protobuf with separate managed storage | Preserves the existing wrapper mapping: identity field `1`, value field `2`. Normal Protobuf schema restrictions apply; this does not select Protobuf as the managed Save/journal format. |
+| Non-C++ output | Managed declarations reject by default. Explicit Python/Java token profiles provide wire records only; their separate native engines have narrower owning/qualification contracts. None inherits this C++ representation matrix automatically. |
 
 The early rejection applies to direct storage, both identity widths, both native
 identity encodings, nested namespace declarations, inferred managed roots and

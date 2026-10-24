@@ -16,7 +16,8 @@ id_encoding = compact_varint
 
 Default Java output remains ordinary owning codecs. Engine selection implies
 token lowering and requires direct, unpacked, finite concrete owning records.
-Inheritance, generic definitions, behavior, indexes, caches, lifecycle fields,
+Inheritance, generic definitions, behavior, indexes, caches, variants,
+transient/magic fields, lifecycle fields,
 computed/exposed helpers, XML, packages and separated-value storage require their
 own contracts and reject in this profile. Even unrelated packed classes reject
 when the engine is selected; ordinary Java packed output remains available

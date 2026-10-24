@@ -6,6 +6,20 @@ ordered XSD import uses an explicit variant-array model; converting an existing
 flat model into that representation requires a reviewed native layout migration.
 Import never overwrites different existing source or infers identity renames.
 
+Compiler/runtime **2.34.0** keeps existing payload protocols unchanged. Language
+**1.24.0** local index declarations add validation and derived access paths without
+new payload fields or IDs. Opt-in [Python managed token codecs](../managed/token_codecs.md)
+use the existing exact C++ managed envelope and configured object-ID encoding.
+The [native database log](../managed/native_database.md) is a separately versioned
+checksummed storage container around native managed save envelopes; it is not a
+new application codec or an automatic conversion of existing journal files.
+Native migration publishes a new baseline in that same storage container with an
+explicitly newer epoch and selected destination schema; the archived log retains
+its original wire bytes and outcomes. Allocator-bound payload containers and
+managed edit adapters do not change application codec bytes. The derived
+[paged-index format](../managed/paged_index.md) has its own generated manifest and
+checksummed pages; it never replaces authoritative model identities or payloads.
+
 Compiler/runtime 2.33's opt-in Java NIO output API is a caller-storage transport
 for the same native wire bytes. Position/limit windows, direct storage and size
 backpatches do not add framing or change byte order, IDs or payload revisions.

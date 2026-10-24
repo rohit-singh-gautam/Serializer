@@ -12,8 +12,10 @@ bare `managed` declarations, generated storage/conversions/editors, central ID t
 configuration, all three transaction forms, linear/tree snapshots, and memory
 save/load. Generated transient fields, publication callbacks and scoped
 root/control-block allocation hooks are implemented. Arbitrary `exclude(...)`,
-capability selectors, field-specific notification policies, allocator-aware
-payload containers and optimized entity/delta storage remain proposals. Use the
+capability selectors and optimized entity/delta storage remain proposals.
+Opt-in [payload allocation domains](payload_allocation.md) and
+[field/dependency notifications](edit_dispatch_and_notifications.md) have narrower
+implemented contracts with their own qualification status. Use the
 runtime guide for exact generated names and currently available APIs.
 
 See the [design index](README.md), [concrete data structures](data_structures.md),
@@ -146,8 +148,11 @@ native store hook retains its shared owner automatically.
 `peak_reserved_bytes()` is a reservation high-water mark, including failed
 upstream attempts. Reservations roll back when upstream throws. These counters
 exclude upstream metadata, bypassing allocations, decoder temporaries and process
-residency. This does not provide allocator-aware generated decoding or a hard
-whole-process peak bound, so the broader `MG07` gate remains open.
+residency. The opt-in [payload allocation profile](payload_allocation.md) extends
+resource routing to supported generated containers and binary decoder temporaries,
+including managed construction/callbacks/history. Default generation retains the
+limits above. No profile establishes a whole-process peak bound; unsupported
+formats/representations and broader `MG07` qualification remain open.
 
 The broader proposed configuration below uses standard defaults, not another schema keyword.
 In C++, use `std::pmr::memory_resource` or an adapter to it for allocation with a

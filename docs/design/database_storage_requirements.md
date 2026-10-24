@@ -9,9 +9,17 @@ supported storage boundary. MongoDB and other third-party database engines,
 drivers and sink adapters are outside this design; cloud file/object providers
 remain separately qualified storage transports rather than database engines.
 It consolidates the previous schema-index design and durable-adapter requirements.
-All new `storage(...)`, `index(...)`, query and adapter syntax below is illustrative,
-not currently accepted grammar or implemented APIs. Existing API examples are
-explicitly identified. Compiler/runtime 2.30.1 implements the C++23 build minimum;
+Compiler/runtime 2.34.0 implements the initial
+[local scalar index subset](../schema/indexes.md) under language 1.24.0 and the
+explicit [bounded eager native database API](../managed/native_database.md).
+The current worktree additionally implements bounded prepared change details,
+identity-preserving native generation migration, and
+[revision-bound immutable disk indexes](../managed/paged_index.md); their latest
+execution/qualification status is recorded in the linked guides. Immutable
+secondary pages do not implement dirty authoritative-page writeback or lazy roots.
+The broader `storage(...)`, placement, composite/query-planning and lazy adapter
+syntax below remains illustrative. Existing API examples are explicitly
+identified. Compiler/runtime 2.30.1 implements the C++23 build minimum;
 see its [qualification record](../verification/verification-cpp23-2026-10-23.md).
 This design does not establish database, cloud or benchmark qualification.
 
@@ -24,8 +32,11 @@ is complete; new schema-index and database work must retain this baseline.
 Use [the central pending backlog](../pending.md#managed-state-and-storage) as the
 sole unfinished-work inventory. Completed IDs and evidence live in the
 [implemented feature catalog](../project/completed_requirements.md).
-Database storage combines active DB02 with deferred PG01, PG02 and MIG03; native
-schema indexing can ship independently without a database.
+Database storage combines DB02 with PG01, PG02 and MIG03. The remaining
+database placement, incremental page authority and lazy-loading portions are
+deferred in the central backlog; implemented eager storage and migration retain
+their recorded limits. Native schema indexing ships independently without a
+database.
 Existing MG02/MG03 activation/authorization remains implemented only within its
 documented boundaries. New syntax, placement, adapters and toolchain changes
 require qualified implementation and release evidence.
@@ -96,7 +107,10 @@ steps in the release notes. Existing public APIs, schema identities and wire
 formats remain unchanged. A toolchain upgrade alone does not require a
 schema-language or payload revision bump. New schema syntax follows its own
 versioning and editor qualification. Release numbering follows repository policy;
-this document does not authorize an automatic major-version increase.
+the C++23 minimum alone does not require a major-version increase. Breaking
+managed/storage redesign is separately permitted when required; version those
+contracts and document explicit conversion or rejection, as described by
+[native migration](../managed/native_database.md#native-migration-and-rebaseline).
 
 A combined application build must select one Serializer source revision and one
 compatible runtime/generator/generated-header set, including dependencies used by

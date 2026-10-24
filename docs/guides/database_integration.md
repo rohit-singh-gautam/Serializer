@@ -1,8 +1,10 @@
 # Native database storage and standalone indexing
 
-Status: existing native registry guidance plus proposed native database integration.
-Serializer currently provides generated codecs and C++ managed state; the new
-schema placement, query and lazy database APIs remain unimplemented. Native
+Status: implemented bounded eager native storage and standalone scalar indexes,
+with broader native database integration still proposed. Compiler/runtime 2.34.0
+provides [local schema indexes](../schema/indexes.md) and the explicitly selected
+[native_database API](../managed/native_database.md). Data/index database placement,
+persistent secondary indexes and lazy database APIs remain unimplemented. Native
 support is tracked as **DB02 / [GitHub #6](https://github.com/rohit-singh-gautam/Serializer/issues/6)**
 in [the central backlog](../pending.md#managed-state-and-storage).
 
@@ -18,7 +20,8 @@ publication and native engine acceptance. Compiler/runtime 2.30.1 implements the
 C++23 minimum independently of database support. See the
 [migration](../../migration.md#c23-minimum-in-2301) and
 [qualification record](../verification/verification-cpp23-2026-10-23.md).
-The database APIs remain unimplemented.
+The bounded whole-root API has a separate [verification record](../verification/verification-native-database-2026-10-24.md);
+its limits do not establish the full design's acceptance gates.
 
 ## Current native workflow
 
@@ -115,6 +118,6 @@ migration and keep allocator/reference/epoch domains explicit.
   transport or codec round trip alone establishes no database engine capability.
 
 The [C++23 build qualification](../verification/verification-cpp23-2026-10-23.md)
-passes independently of database support. This guide claims no database
-implementation, database crash qualification or performance benchmark. Use the
-specification and backlog for requirements, and dated records for executed evidence.
+passes independently of database support. Use the bounded engine's linked guide
+and verification record for implemented APIs and executed checks. The broader
+placement/paging/deployment requirements remain in the specification and backlog.

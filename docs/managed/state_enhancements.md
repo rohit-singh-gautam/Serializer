@@ -246,6 +246,10 @@ opaque native code cannot supply automatic allocation metadata. Generated
 containers, decoder temporaries, user callback allocations, authority
 retention and client outbox metadata keep their existing allocators/limits. A hard
 allocator-wide ceiling needs allocator-aware containers and decoding.
+The opt-in [payload allocation profile](payload_allocation.md) now provides that
+routing for supported concrete unpacked direct binary records, including managed
+callbacks and history decoding. It enforces requested bytes in the selected
+resource domain, without establishing a process-wide memory bound.
 
 ## Fixed arrays across ordinary backends
 
@@ -276,10 +280,12 @@ The current additive C++ slices provide [inherited authorization](authorization.
 and a [bounded PMR request resource](history.md#runtime-allocation-resources).
 Authorization uses the complete publication candidate, including current-policy
 history navigation and separate trusted replication. Policy administration remains
-host-owned; generated payload decoding still uses standard container allocators.
+host-owned. Default generated payload decoding keeps standard container allocators;
+the opt-in [allocation profile](payload_allocation.md) supplies a narrower supported
+binary container/decoder contract.
 Application context/policy administration is an explicit will-not-fix responsibility.
-Other-language engines, proposed schema selector syntax and allocator-aware payload
-decoding remain separate from the implemented C++ profile contract.
+Other-language engines, proposed schema selector syntax and broader allocator-aware
+formats/representations remain separate from the implemented C++ profile contract.
 
 Unfinished managed/storage requirements, including native **DB02**, are in
 [the central backlog](../pending.md#managed-state-and-storage). Completed IDs and
@@ -294,7 +300,10 @@ Undo/Redo. Tag/identity replacements remain atomic. All four Windows/Linux
 identity/storage profiles pass the [variant qualification](../verification/verification-managed-variants-2026-10-24.md),
 including conflict retries, journal recovery and later-author protection.
 Alternative handles are conservatively invalidated by a whole-value replacement.
-Managed edit methods support ordinary dispatch; virtual/abstract/override edit
-contracts are rejected. Ordinary behavior interfaces remain available. Method parameters/results use
-existing backend ownership and error conventions. Extensions to these contracts
-are tracked under **MG09**.
+Language `1.24.0` adds guarded C++ managed virtual/abstract/override edit
+interfaces, with exact-owner adapters, borrowed implementation lifetimes and
+transaction rollback on implementation exceptions. Optional bounded field-path
+notifications support dependency filtering while retaining immutable before/after
+roots. See [edit dispatch and notifications](edit_dispatch_and_notifications.md)
+for the implemented boundaries and qualification tests. Compact entity history,
+polymorphic owning storage and other-language managed engines remain separate work.

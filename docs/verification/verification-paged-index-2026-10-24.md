@@ -83,3 +83,8 @@ incremental update/catch-up, automatic source-file retirement, backup/compaction
 string/composite key support or lazy authoritative record/history engine is
 claimed. The sort/merge/cache limits bound controlled library resources and do
 not turn the existing eager owning root into a larger-than-RAM document.
+
+After compiler/backend merge `dacd81e`, regenerated bindings pass all 40 paged
+and 56 local-index cases again, with four process-crash boundaries and the native
+database controls. All 22 selected CTest targets pass in 39.77 seconds. Evidence:
+`out/build/compiler-merge-native`, including per-executable GTest JSON.

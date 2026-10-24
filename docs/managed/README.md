@@ -19,8 +19,10 @@ and undo/deletion never renumber survivors. Explicit member boundaries still app
 Status: design collection with an implemented C++ managed interface. Read the
 [implemented C++ API](cpp_runtime.md) for schema generation, typed editors, identity,
 all three transaction forms, snapshot history, synchronous file journals, and exact limitations. Selectors,
-exclusions, built-in authorization policies, and other-language runtimes remain
-proposals. ID-free payload layouts/codecs are retained in opt-in separate-values mode. The walkthrough schema
+exclusions and built-in authorization policies remain proposals. The explicit
+Python and Java native engine profiles have their own narrower owning/runtime
+contracts and generated SDK qualification; the other eight non-C++ engines
+remain work in progress. ID-free payload layouts/codecs are retained in opt-in separate-values mode. The walkthrough schema
 remains a separate illustrative data model.
 
 | Document | Read it for |
@@ -30,6 +32,12 @@ remains a separate illustrative data model.
 | [Implemented C++ runtime](cpp_runtime.md) | Optional build target, generated storage and typed editors, all three transaction forms, snapshot history, bounded save/load, and remaining work. |
 | [Native branch merging](branch_merging.md) | Typed conflict policies, two-parent retained ancestry, first-parent Undo and native Save/journal recovery; collaboration integration remains pending. |
 | [Typed state registries](state_registry.md) | Pinned typed lookup, generated field/base paths, custom keys, transactional adoption and optional ordered/hash indexes. |
+| [Schema indexes](../schema/indexes.md) | Local C++ scalar declarations, automatic uniqueness and typed immutable matches. |
+| [Native embedded database](native_database.md) | Bounded whole-root prepare/accept/recover, native identity and exact retry outcomes. |
+| [Python/Java managed token codecs](token_codecs.md) | Opt-in wire records and typed tokens, independently of native managed engines. |
+| [Python native managed runtime](python_native_runtime.md) | Explicit generated owning metadata, immutable snapshots, transactions, bounded history, native journals and authority/client retry contracts. |
+| [Java native managed runtime](java_native_runtime.md) | Explicit generated owning metadata, private byte snapshots, transactions, bounded history, native journals and exact receipts. |
+| [Managed implementation checkpoint](../verification/verification-managed-state-2026-10-24.md) | Per-parent execution evidence, remaining local gates and deferred database-dependent work. |
 | [Typed managed entity references](../design/managed_entity_references.md) | C++ typed tokens/class tags, reference-aware import, editable reconciliation, isolated previews and strict collaborative identity requirements/qualification. |
 | [State-framework examples](state_enhancements.md) | Implemented schema behavior and managed-state features, with concrete application examples and backend limits. |
 | [Paged indexing](../design/paged_indexing.md) | Proposed mostly-disk indexes, safe customer delegation and existing database approaches. |
@@ -95,3 +103,8 @@ wire format. Feature-specific state may be omitted where the backend supports it
 identity, ownership validation, transaction atomicity, and enforced permissions
 remain part of the managed foundation. See the
 [current usage guide](../guides/usage.md) for implemented Serializer functionality.
+
+Current managed implementation work also covers [payload allocation](payload_allocation.md),
+[guarded edit dispatch and dependency notifications](edit_dispatch_and_notifications.md),
+and [revision-bound paged derived indexes](paged_index.md). Each guide separates
+implemented contracts from pending execution/qualification.

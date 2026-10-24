@@ -4,7 +4,7 @@ The [implemented requirement catalog](completed_requirements.md) records **832
 completed capability and qualification IDs**, with their backend/profile limits
 and verification links. Historical completed sections were archived there.
 The [requirement tracker](../pending.md) retains **34 requirements: 20 closed
-and 14 unfinished (10 active and four deferred)**, marking completed items `[x]` in place;
+and 14 unfinished (11 active and three with deferred database work)**, marking completed items `[x]` in place;
 closed [ownership decisions](application_responsibilities.md#disposed-requirements)
 are recorded separately. Original records retain their dated qualification scope.
 
@@ -160,7 +160,7 @@ coverage and verification. Proposals are not delivery commitments.
 | XML and XSD | XML support enabled by default; generated owning mappings across all outputs, richer C++/Python fixed-XSD subsets and explicit prepared validation; [usage and backend scope](../serialization/xml_packages.md). |
 | Streams and compression | C++ stream adapters, whole-message helpers and composable whole-object compression streams; [compression](../serialization/compression.md). General backend parity remains pending. |
 | ZIP and OPC | ZIP32/ZIP64 and generated owning OPC profiles in all eleven outputs under backend-specific contracts, bounded spooling, metadata, preservation, canonical ordering and staged Save; [package APIs](../serialization/xml_packages.md#plain-zip-and-opc). Broader XML graphs, dynamic-role/profile selection, corpus and performance gates remain pending. |
-| Managed application state | C++ identity, transactions, snapshot history, journals, collaboration and typed registries; [managed index](../managed/README.md). Other outputs exchange records without native managed engines. |
+| Managed application state | C++ identity, transactions, snapshot history, journals, collaboration and typed registries; [managed index](../managed/README.md). Python/Java have [qualified native owning profiles](../managed/language_bindings.md); the other eight outputs retain separate engine requirements. |
 | Builds and examples | CLI/INI generation, CMake integration, standalone examples and native Go projects; [build guide](../guides/build_and_generation.md) and [examples](../../example/README.md). |
 | Editors | Visual Studio and VS Code schema editing and navigation; [editor index](../editors/README.md). |
 
@@ -173,8 +173,8 @@ coverage and verification. Proposals are not delivery commitments.
 | Reusable document-file profiles | [Proposed profile](../design/xml_support.md#reusable-document-file-profiles): complete saved files, side-channel-only history/recovery and independent external/internal codecs. Current native C++ formats remain unchanged. |
 | Compression parity | Whole-object stream wrappers across outputs with exact framing, limits and optional providers. Incremental records/object serialization are not required. |
 | Format parity | C++-only Protobuf APIs still need equivalent general backend support. Native `binary_none`-only selection already covers every output. C++ constant evaluation and borrowed native views remain language-specific. |
-| Mostly-disk indexes | [Paged indexing](../design/paged_indexing.md): bounded page cache and later lazy storage. Not implemented. |
-| Database adapters | [Integration guidance](../guides/database_integration.md): storage mappings and a proposed sink boundary; no repository adapter is implemented. |
+| Mostly-disk indexes | [Immutable derived uint64 indexes](../managed/paged_index.md) have bounded construction and page-cache pins. Dirty authoritative pages and lazy storage remain deferred database work. |
+| Native database storage | [Bounded eager engine](../managed/native_database.md): explicit prepared transactions, native durable log, immutable snapshots and exact retries; paging and persistent secondary indexes remain separate. |
 | Broader managed capabilities | [Proposals below](#proposals-and-future-work): schema feature selectors, broader authorization/distributed behavior and native managed engines for other outputs. |
 | Default validation and bit fields | Language 1.24 checked scalar defaults and C++ owning unsigned bit fields; [contract](../guides/compiler_backend_updates.md#scalar-defaults-and-native-bit-fields). |
 
@@ -362,8 +362,9 @@ precise changed-ID notifications, navigation, migration, verified snapshot patch
 opt-in bounded delta journal frames and conservative resident admission accounting. General
 fixed arrays now have exact-length codecs and independent defaults in all eleven
 ordinary outputs. See [runnable document examples and remaining work](../managed/state_enhancements.md)
-and [behavior generation](../schema/behavior.md). Native managed engines outside C++ remain
-unimplemented; codecs and behavior declarations do not supply those engines.
+and [behavior generation](../schema/behavior.md). Those older features did not supply non-C++ engines. Release 2.34 adds
+qualified Python/Java native owning profiles; codecs and behavior declarations
+alone do not activate them.
 
 Compiler/runtime 1.13 also adds opt-in [class-specific record equality and ordering](../schema/record_comparisons.md)
 across all eleven outputs, with scalar/record portable restrictions and unchanged wire formats.
@@ -541,7 +542,8 @@ examples](../../example/README.md) for self-contained example folders.
 The [managed wire examples](../../example/managed/multilanguage/README.md) qualify
 history, journal-baseline, collaboration, and opaque-session records across
 language codecs. These are record-exchange tests, not ports of the managed runtime;
-native managed engines outside C++ remain unimplemented.
+the separate Python/Java native engine profiles have their own qualification
+and are not established by those exchange examples.
 Kotlin accepts the contextual property name `field`, used by collaboration records,
 while preserving its wire spelling and field ID.
 
@@ -552,12 +554,14 @@ The [native database integration guide](../guides/database_integration.md) and
 describe standalone native indexing and a native structured-document engine,
 local/database data authority, index placement and explicit snapshot loading.
 Third-party database engines/sink adapters are outside scope. Native database
-and lazy client/storage APIs remain proposed under DB02; no engine qualification
-follows from codec support or this documentation.
+placement and lazy client/storage APIs remain proposed under DB02. The initial
+[bounded eager engine](../managed/native_database.md) and
+[local scalar indexes](../schema/indexes.md) have explicit implementation scopes;
+qualification follows their executed records rather than codec support alone.
 
-[Paged indexing](../design/paged_indexing.md) researches disk indexes and proposes a bounded
-page-cache sidecar followed by optional lazy model/history storage. Neither is
-implemented. Current identity tables and whole-root history remain in memory;
+[Paged indexing](../design/paged_indexing.md) separates implemented immutable
+derived indexes from proposed authoritative pages and lazy model/history storage.
+Current identity tables and whole-root history remain in memory;
 resident admission accounting does not provide a hard process-memory ceiling.
 
 ## Implemented C++ managed features

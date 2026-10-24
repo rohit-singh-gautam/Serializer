@@ -95,7 +95,9 @@ assigned and before validation or the first history snapshot. Its callback-scope
 A token writes `{document_high, document_low, class_id, object_id}` through the
 four native C++ codecs, with no target pointer or ownership. Decoding checks the
 envelope/type; complete document loading checks live membership after all objects
-exist. Other-language managed-reference generation currently rejects explicitly.
+exist. Explicit [Python/Java token codec generation](../managed/token_codecs.md)
+exchanges these envelopes independently of their native engine options; other
+generated outputs retain their explicit capability gates.
 
 Required references cannot be transient or omitted from a codec when resetting
 that field would leave a required token invalid. Use optional presence for an

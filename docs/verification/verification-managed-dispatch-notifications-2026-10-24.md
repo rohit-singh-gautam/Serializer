@@ -30,3 +30,10 @@ remain to be qualified against the final sources.
 The same first run found allocator accounting, Windows pinned-file replacement
 and temporary path-fixture failures in other target groups. Those failures remain
 recorded in the complete log; this report does not claim the entire run passed.
+
+The later compiler/backend merge regenerates and rebuilds all four dispatch and
+notification profiles. All 20 dispatch and 20 notification cases pass again;
+the selected 22-target native run passes in 39.77 seconds. The full merged core
+suite separately passes 647 cases. Evidence: `out/build/compiler-merge-native`
+and `out/build/python-managed-separate-core.json`. Broader portable/native-engine
+contracts and generated Linux/installed qualification remain separate gates.

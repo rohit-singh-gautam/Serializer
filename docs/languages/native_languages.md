@@ -56,7 +56,11 @@ Kotlin defaults to the unnamed package; `--kotlin.package=` clears a configured
 package. INI configuration supports `[kotlin]` / `package = example.models`.
 The contextual property name `field` is supported, including in collaboration
 records; generated accesses use `this.field` and preserve the schema wire key.
-Rust, Python, Swift, and C need no backend-specific INI section. The new targets
+Rust, Swift, and C need no backend-specific INI section. Python's optional
+`[python] managed_token_codecs = true` selects the explicit
+[managed wire-record contract](../managed/token_codecs.md), without a native engine.
+The separate `[python] managed_engine = true` selects its
+[qualified native owning profile](../managed/python_native_runtime.md). The new targets
 use their native naming conventions; configurable naming profiles are currently
 provided only by the earlier backends. Place one generated schema module in
 each consumer module/compilation unit: independently generated files embed

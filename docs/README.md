@@ -38,16 +38,18 @@ The [feature-status reference](project/feature_status.md) distinguishes implemen
 behavior from proposals. Unfinished requirements are consolidated in
 [the central backlog](pending.md); completed IDs and their evidence are in the
 [implemented feature catalog](project/completed_requirements.md). Design documents
-retain rationale and contracts. Native managed engines currently run in C++; other
-languages can exchange managed records. Managed design documents retain their
+retain rationale and contracts. C++ has the full managed runtime; explicit Python and Java native profiles
+provide scoped ownership, history, journal and acceptance contracts. Other
+languages retain their documented managed-record exchange boundaries. Managed design documents retain their
 individual implementation boundaries. Design specifications and dated reports
 should be read with the current API guides and the versions they identify.
 
 The [combined storage/index requirements](design/database_storage_requirements.md)
 cover standalone indexing and optional durable databases, C++23 minimum
 qualification, local/database data and index placement, incremental storage and
-security-sensitive acceptance. They connect to the existing deferred backlog;
-they do not describe currently supported schema/query/database APIs.
+security-sensitive acceptance. They connect to the active pending backlog;
+the initial [local index subset](schema/indexes.md) and
+[bounded eager database API](managed/native_database.md) have separate implementation guides.
 
 Use the [runnable example catalog](../example/README.md) for complete consumers.
 Release information and the project quick start are in the [project overview](../README.md).
@@ -60,3 +62,8 @@ current usage contracts. When moving a document, update relative links, fragment
 repository paths, and GitHub links throughout the repository, including examples
 and the integration skill. Preserve the tracked illustrative
 [managed walkthrough schema](managed/walkthrough.serializer) alongside its guide.
+
+Managed implementation guides also cover [payload allocation](managed/payload_allocation.md),
+[edit dispatch and notifications](managed/edit_dispatch_and_notifications.md),
+and [revision-bound disk indexes](managed/paged_index.md), with their own
+qualification checkpoints.

@@ -1,6 +1,6 @@
 interface:
   display_name: "Serializer Integration"
-  short_description: "Use Serializer schemas, native layouts, Java sinks, OPC signatures and state"
+  short_description: "Use Serializer codecs, layouts, signatures and managed storage"
 
 policy:
   allow_implicit_invocation: true

@@ -20,6 +20,40 @@ The independent HTML fragment adapter additionally accepts explicitly balanced
 closed profile. Existing accepted fragments retain their canonical spelling;
 arbitrary HTML, style/script content and unrestricted XHTML remain outside it.
 
+## Local indexes and native storage in 2.34.0
+
+Managed/storage redesign may introduce breaking formats or APIs when required.
+Version changed contracts and document explicit conversion or unsupported-version
+rejection. Source-generation retention is crash protection through publication;
+it does not require keeping historical-format readers indefinitely. Schema
+language versions change when language syntax or semantics change.
+
+Existing schemas, generated APIs and payload protocols remain compatible.
+Select language `1.24.0` in every file declaring a new `index` field modifier;
+older headers reject that feature. The initial native C++ contract supports
+ordered/unordered scalar keys, optional uniqueness and local/inherited placement.
+See the [schema contract](docs/schema/indexes.md) before adding constraints to
+existing documents: all accepted snapshots must satisfy them.
+
+The [native database](docs/managed/native_database.md) is an explicitly selected
+bounded whole-root engine with its own versioned log, not an automatic conversion
+of existing journals. Preserve the database file and its stable writer-lock
+companion. Native `migrate<DestinationRoot>` prepares an identified destination,
+retains the old log at a create-only archive path, and changes to a strictly newer
+authority epoch under the original writer lock. Old-epoch retries stay in the
+archive; recovery never reruns conversion. See the [native migration contract](docs/managed/native_database.md#native-migration-and-rebaseline)
+for pending qualification and journal/history limits. Persistent index placement
+and lazy authoritative storage remain separate requirements. Enable Python token exchange explicitly
+with `python.managed_token_codecs = true`; see the
+[wire-only contract](docs/managed/token_codecs.md). Both editor packages are 2.0.21.
+
+Opt-in `cpp.payload_allocator = true` changes native string/vector/map types and
+adds retained allocation bindings; regenerate every declaration sharing those
+types. Default schemas keep existing APIs and bytes. See [payload allocation](docs/managed/payload_allocation.md)
+for supported binary/direct owning profiles, resource-domain bounds and pending
+qualification. Language 1.24 guarded [edit dispatch](docs/managed/edit_dispatch_and_notifications.md)
+adds checked behavior adapters without making persisted payloads polymorphic.
+
 ## Opt-in Java NIO output in 2.33.0
 
 Enable `[java] nio_output_buffer_reuse = true` or its CLI override when generating

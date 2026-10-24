@@ -1,10 +1,11 @@
 # Typed state registries
 
-For proposed automatic schema declarations, `find_by`, duplicate result ranges,
-composite queries and date/time indexing, see the
-[combined storage/index specification](../design/database_storage_requirements.md).
-It also defines local versus database data authority and independent index
-placement. Those additions are not implemented; this guide describes existing APIs.
+Compiler/runtime 2.34.0 and language 1.24.0 add
+[schema-declared local scalar indexes](../schema/indexes.md), automatic uniqueness,
+`find_by`, `find_unique` and immutable duplicate result ranges. The
+[combined storage/index specification](../design/database_storage_requirements.md)
+retains proposed composite queries, richer key families and independent database
+placement; those broader contracts remain separate from this implementation.
 
 Compiler/runtime **1.16.0** provides optional generated C++ managed registries.
 The registry extends generated C++ managed identities without replacing their
@@ -254,7 +255,7 @@ silently report absence. See the [paged indexing proposal](../design/paged_index
 | Bounded decoding and unchanged codecs | Used for existing load/recovery and imports. |
 | Custom identity policy replacing persistent_id | Not applicable: custom-key bindings retain current uint32/uint64 managed identity. |
 | Disk paging and lazy model/history storage | Unavailable; separate design and fault qualification are required. |
-| Other-language managed registries | Unavailable: native managed engines currently run in C++. |
+| Other-language managed registries | The C++ typed query registry remains separate from Python/Java native-engine descriptors and exact token resolution; other engines remain unimplemented. |
 | Application algorithms and arbitrary callbacks in schemas | Not applicable: application behavior remains host-owned. |
 
 Qualification is recorded with the [implementation checklist](../../SerializerTODO.md).

@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer's schema compiler and generated runtimes into applications. Use for schemas and release migration, CMake generation, native codecs, caller-owned Java array/NIO output windows, streams/channels, fixed-scalar Java packed buffers, C++ bit fields, native dependency layouts, pinned OPC signatures, portable behavior, owner-bound defaults and bindings, callable availability, arrays/generics, borrowed/shared/weak references and typed field addresses, XML/XSD, schema-local ordered XML/package profiles and identity contracts, restricted HTML, document profiles, bounded compression, ZIP/OPC packages, rebuildable caches, or C++ managed identity, transactions, registries, indexes, history, journals, collaboration and persistence. Review the installed version's complete supported feature set and apply every capability relevant to the user's contract; preserve APIs and wire identities, and qualify unsupported combinations."
+description: "Integrate Serializer's schema compiler and generated runtimes into applications. Use for schemas and release migration, CMake generation, native codecs, caller-owned Java array/NIO output windows, streams/channels, fixed-scalar Java packed buffers, C++ bit fields, native dependency layouts, pinned OPC signatures, Python/Java managed-token wire records, native Python/Java managed profiles, local schema indexes, native durable storage, portable behavior, owner-bound defaults and bindings, callable availability, arrays/generics, borrowed/shared/weak references and typed field addresses, XML/XSD, schema-local ordered XML/package profiles and identity contracts, restricted HTML, document profiles, bounded compression, ZIP/OPC packages, rebuildable caches, or C++ managed identity, transactions, registries, indexes, history, journals, collaboration and persistence. Review the installed version's complete supported feature set and apply every capability relevant to the user's contract; preserve APIs and wire identities, and qualify unsupported combinations."
 ---
 
 # Serializer Integration
@@ -59,6 +59,9 @@ new epoch and an absent archive path. Preserve the source generation through
 publication and coordinate archive retention explicitly. A restored archive
 needs an externally established epoch and allocation watermark. Review current
 eager-memory, platform and recovery limits; this API supplies no lazy authority.
+Use `database_migration_options.minimum_allocated_id` when restoring an older
+archive. `allocated_id()` provides the retained watermark. Prepared `changes()`,
+`before()` and `after()` expose bounded immutable details before append.
 
 For repeated C++ history, consider explicit
 [`compact_history`](../../../docs/managed/compact_history.md) retention. It
@@ -89,6 +92,21 @@ For native immutable generation publication, use
 after syncing the replacement, then sync affected parents. Retained readers keep
 their original native file object. Unsupported platform/volume capabilities fail;
 the host still supplies the durable acceptance/recovery protocol.
+
+For breaking managed/storage upgrades, select explicit source/destination
+contract versions and a qualified converter, or reject unsupported input
+versions clearly. Retain a recoverable source generation through publication;
+this does not require permanent historical-format readers. Change the schema
+language version only when language syntax or semantics change. Follow
+[native migration](../../../docs/managed/native_database.md#native-migration-and-rebaseline)
+for the current implementation and archive-retention boundary.
+
+For Python or Java exchange of managed payloads and typed-reference envelopes,
+explicitly enable the selected backend's `managed_token_codecs = true`; choose
+the same identity width/encoding as C++. Follow the
+[wire-only contract](../../../docs/managed/token_codecs.md). Decoded tokens do
+not establish target liveness, ownership or permission; codec-only selection
+does not activate a managed engine.
 
 For rebuildable data, review the [owning C++ cache contract](../../../docs/design/cache_attributes.md)
 and [usage example](../../../docs/guides/usage.md#rebuildable-c-cache-fields).
@@ -126,9 +144,11 @@ do not reclassify an unsupported Serializer feature as application responsibilit
 
 Serializer — **State Framework** combines multi-language generated codecs and
 schema evolution with C++ application-state management. Choose ordinary generated
-models for data exchange or the managed runtime for editable C++ models. Native
-managed engines outside C++ remain unimplemented; exchanging managed wire records
-does not provide those engines. See the
+models for data exchange or a supported managed runtime for editable models.
+C++ supplies the established managed runtime; the explicit Python engine has a
+narrower concrete owning contract with generated SDK qualification in progress.
+Other non-C++ managed engines remain implementation work. Exchanging managed
+wire records alone does not provide those engines. See the
 [positioning and scope reference](../../../docs/project/product_positioning.md).
 
 Implement the user's requested Serializer integration using the version present
