@@ -563,6 +563,10 @@ output_options read_output_options(const std::filesystem::path& file) {
         result.python_managed_token_codecs = read_bool(value);
       } else if (section == "python" && key == "managed_engine") {
         result.python_managed_engine = read_bool(value);
+      } else if (section == "java" && key == "managed_token_codecs") {
+        result.java.managed_token_codecs = read_bool(value);
+      } else if (section == "java" && key == "managed_engine") {
+        result.java.managed_engine = read_bool(value);
       } else if (section == "managed" && key == "id_type") {
         if (value != "uint32" && value != "uint64") {
           throw std::invalid_argument{"managed.id_type must be uint32 or uint64"};

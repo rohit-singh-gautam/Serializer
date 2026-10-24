@@ -87,6 +87,8 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'\0', "python.output", "schema.py", "Python source output; repeat per configuration.", true},
     {'\0', "python.managed_token_codecs", "true|false", "Opt in to Python managed wire records without native engines."},
     {'\0', "python.managed_engine", "true|false", "Opt in to the native Python owning snapshot engine."},
+    {'\0', "java.managed_token_codecs", "true|false", "Opt in to Java managed wire records without native engines."},
+    {'\0', "java.managed_engine", "true|false", "Opt in to the native Java owning snapshot engine."},
     {'\0', "swift.output", "Schema.swift", "Swift source output; repeat per configuration.", true},
     {'\0', "kotlin.output", "Schema.kt", "Kotlin source output; repeat per configuration.", true},
     {'\0', "c.output", "schema.h", "C11 source output; repeat per configuration.", true},
@@ -236,13 +238,21 @@ void apply_output_overrides(rohit::serializer::writer::output_options& options,
       throw std::invalid_argument{"managed.id_type must be uint32 or uint64"};
     }
   }
-  for (const auto* key : {"python.managed_token_codecs", "python.managed_engine"}) {
+  if (arguments.contains("python.managed_token_codecs")) {
+    const auto& value = cli::first(arguments, "python.managed_token_codecs");
+    if (value != "true" && value != "false") {
+      throw std::invalid_argument{"python.managed_token_codecs must be true or false"};
+    }
+    options.python_managed_token_codecs = value == "true";
+  }
+  for (const auto* key : {"java.managed_token_codecs", "java.managed_engine", "python.managed_engine"}) {
     if (!arguments.contains(key)) { continue; }
     const auto& value = cli::first(arguments, key);
     if (value != "true" && value != "false") {
       throw std::invalid_argument{std::string{key} + " must be true or false"};
     }
-    if (std::string_view{key} == "python.managed_token_codecs") { options.python_managed_token_codecs = value == "true"; }
+    if (std::string_view{key} == "java.managed_token_codecs") { options.java.managed_token_codecs = value == "true"; }
+    else if (std::string_view{key} == "java.managed_engine") { options.java.managed_engine = value == "true"; }
     else { options.python_managed_engine = value == "true"; }
   }
   if (arguments.contains("managed.id_encoding")) {
@@ -819,8 +829,12 @@ int main(const int argc, const char* argv[]) {
       } else {
         std::string contents{};
         if (request.language == "java") {
+          auto settings = options.java;
+          settings.managed_id_type = options.cpp.managed_id_type;
+          settings.managed_id_encoding = options.cpp.managed_id_encoding;
+          settings.managed_separate_values = options.cpp.managed_separate_values;
           contents = writer::java::generate_schema(schema, request.destination.stem().string(),
-                                                   options.java);
+                                                   settings);
         } else {
           const auto& language = request.language;
           auto settings = language == "go" ? options.go : language == "csharp" ? options.csharp :

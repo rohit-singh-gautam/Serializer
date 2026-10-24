@@ -103,6 +103,12 @@ struct java_options {
   bool output_buffer_reuse{false}; // Opt in to caller-owned output-window encode overloads.
   bool nio_output_buffer_reuse{false}; // Opt in to caller-owned heap/direct ByteBuffer windows.
   bool stream_output{false}; // Opt in to bounded, synchronous native stream/channel output.
+
+  bool managed_token_codecs{false}; // Native wire records only; no Java managed engine.
+  std::string managed_id_type{"uint32"};
+  persistent_id_encoding managed_id_encoding{persistent_id_encoding::compact_varint};
+  bool managed_separate_values{false};
+  bool managed_engine{false}; // Explicit native Java owning snapshot engine and generated traversal.
 };
 
 // Native naming and module configuration for portable owning backends.
@@ -136,6 +142,7 @@ struct output_options {
   include_mode includes{include_mode::separate};
   output_protocols protocols{output_protocols::all};
   include_mode native_includes{include_mode::inline_output}; // Preserve established native CLI defaults.
+
   bool python_managed_token_codecs{false};
   bool python_managed_engine{false};
 };

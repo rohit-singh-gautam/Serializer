@@ -139,3 +139,85 @@ TEST(java_writer, rejects_unsupported_and_colliding_declarations) {
   EXPECT_THROW(emit_java("class account {}", options), std::invalid_argument);
 }
 } // namespace
+
+// Typed token output is explicit, preserves source ASTs and emits full unsigned Java class tags.
+TEST(java_writer, managed_token_codecs_require_explicit_selection) {
+  using options_type = rohit::serializer::writer::java_options;
+  constexpr std::string_view source = "serializer version 1.20.0; class item managed class_id(18446744073709551615) {} "
+      "class envelope { public managed_ref<item> target; public array managed_ref<item> links; }";
+  EXPECT_THROW(emit_java(source), std::invalid_argument);
+  options_type options;
+  options.managed_token_codecs = true;
+  const auto generated = emit_java(source, options);
+  EXPECT_NE(generated.find("ManagedReference<Schema.Item>"), std::string::npos);
+  EXPECT_NE(generated.find("MANAGED_CLASS_ID = 0xffffffffffffffffL"), std::string::npos);
+  EXPECT_NE(generated.find("ManagedReference.read(in, 0xffffffffffffffffL, java.lang.Integer.BYTES, true)"), std::string::npos);
+  options.managed_id_type = "uint64";
+  options.managed_id_encoding = rohit::serializer::writer::persistent_id_encoding::fixed;
+  EXPECT_NE(emit_java(source, options).find("java.lang.Long.BYTES, false"), std::string::npos);
+  options.managed_separate_values = true;
+  EXPECT_THROW(emit_java(source, options), std::invalid_argument);
+  options.managed_separate_values = false;
+  EXPECT_THROW(emit_java("class ManagedReference {}", options), std::invalid_argument);
+  EXPECT_THROW(emit_java("class item managed {}", options, "ManagedReference"), std::invalid_argument);
+}
+
+// Native engine selection binds actual generated codecs, unsigned IDs and occurrence participation.
+TEST(java_writer, managed_engines_emit_explicit_generated_metadata) {
+  using namespace rohit::serializer::writer;
+  constexpr std::string_view schema =
+      "serializer version 1.20.0; class leaf managed class_id(701) { public string text; } "
+      "class branch managed class_id(702) { public managed array leaf leaves; } "
+      "class graph managed class_id(703) { public branch ordinary; public managed array branch branches; "
+      "public optional<managed_ref<leaf>> selected; }";
+  java_options options;
+  options.managed_token_codecs = true;
+  EXPECT_EQ(emit_java(schema, options).find("class ManagedStore"), std::string::npos);
+  options.managed_token_codecs = false;
+  options.managed_engine = true;
+  options.protocols = output_protocols::all;
+  const auto source = emit_java(schema, options);
+  EXPECT_NE(source.find("class ManagedStore"), std::string::npos);
+  EXPECT_NE(source.find("ManagedSchema<T> managedSchema"), std::string::npos);
+  EXPECT_NE(source.find("java.lang.Integer.toUnsignedLong(value.persistentId)"), std::string::npos);
+  EXPECT_NE(source.find("managedVisit(value.ordinary, visitor, false)"), std::string::npos);
+  EXPECT_NE(source.find("managedVisit(occurrence0, visitor, participating)"), std::string::npos);
+  EXPECT_NE(source.find(":BINARY_INTEGER:branch=702:graph=703:leaf=701"), std::string::npos);
+  EXPECT_NE(source.find(".decode(data, Protocol.BINARY_INTEGER)"), std::string::npos);
+  options.managed_id_type = "uint64";
+  options.managed_id_encoding = persistent_id_encoding::fixed;
+  options.protocols = output_protocols::binary_none;
+  const auto wide = emit_java(schema, options);
+  EXPECT_NE(wide.find("() -> value.persistentId, id -> value.persistentId = id"), std::string::npos);
+  EXPECT_NE(wide.find(":fixed:BINARY_NONE:"), std::string::npos);
+  EXPECT_EQ(wide.find("Integer.toUnsignedLong(value.persistentId)"), std::string::npos);
+  EXPECT_EQ(emit_java("class graph {}").find("ManagedSchema"), std::string::npos);
+}
+
+// Unsupported graph contracts fail only for engine selection; token/default profiles retain acceptance.
+TEST(java_writer, managed_engines_reject_unqualified_profiles_and_helper_collisions) {
+  using namespace rohit::serializer::writer;
+  java_options options;
+  options.managed_engine = true;
+  EXPECT_NE(emit_java("class root managed {}", options).find("class ManagedStore"), std::string::npos);
+  for (const auto schema : {
+      "class base {} class root managed : public base {}",
+      "class root managed { public transient uint32 value; }",
+      "class root managed {} class ordinary packed { public uint32 value; }",
+      "class ManagedStore {} class root managed {}",
+      "namespace ManagedScope { class root managed {} }"}) {
+    EXPECT_THROW(emit_java(schema, options), std::invalid_argument) << schema;
+  }
+  // Built-in recursion fails in the shared parser before backend capability validation can run.
+  for (const auto schema : {
+      "class root managed { public optional<root> cycle; }",
+      "class root managed {} class unrelated { public optional<unrelated> cycle; }"}) {
+    EXPECT_THROW(emit_java(schema, options), rohit::serializer::exception::bad_member_type) << schema;
+  }
+  EXPECT_THROW(emit_java("class root managed {}", options, "ManagedToken"), std::invalid_argument);
+  options.managed_separate_values = true;
+  EXPECT_THROW(emit_java("class root managed {}", options), std::invalid_argument);
+  options.managed_separate_values = false;
+  options.xml.enabled = true;
+  EXPECT_THROW(emit_java("class root managed {}", options), std::invalid_argument);
+}

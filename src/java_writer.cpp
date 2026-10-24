@@ -20,6 +20,7 @@
 #include "xml_portable_extension_writer.hpp"
 #include "xml_portable_declarations_writer.hpp"
 #include "java_package_writer.hpp"
+#include "managed_lowering.hpp"
 #include <rohit/serializer_creator.hpp>
 
 #include <algorithm>
@@ -46,6 +47,14 @@ constexpr std::string_view runtime_source =
 constexpr std::string_view stream_runtime_source =
 #include "java_stream_runtime.inc"
     ;
+
+constexpr std::string_view managed_reference_runtime_source =
+#include "java_managed_reference_runtime.inc"
+    ;
+constexpr std::string_view managed_engine_runtime_source =
+#include "java_managed_engine_runtime.inc"
+    ;
+const std::map<const class_node*, std::uint64_t> no_managed_class_ids{};
 constexpr std::string_view xml_declarations_runtime_source =
 #include "xml_java_declarations_runtime.inc"
     ;
@@ -229,6 +238,8 @@ std::string width(std::string_view name) {
 // Accumulate and validate a complete compilation unit before publishing it.
 class emitter {
   const java_options& options;
+  const std::map<const class_node*, std::uint64_t>& managed_class_ids;
+  const managed_lowering* managed_model;
   std::string outer;
   std::string package_name{};
   behavior::checked_helpers arithmetic_helpers{};
@@ -867,6 +878,9 @@ class emitter {
     for (const auto& node : nodes) {
       if (node->type == object_type::generic_definition || node->type == object_type::native_code) { continue; }
       const auto name = node->type == object_type::function_type ? field(node->name) : type_name(node->name);
+      if (options.managed_engine && (name.starts_with("Managed") || name == "managedSchema" || name == "managedVisit")) {
+        throw std::invalid_argument{"Java declaration collides with native managed runtime: " + name};
+      }
       if (options.xml.enabled && is_xml_package_name(name)) {
         throw std::invalid_argument{"Java XML package name collision: " + name};
       }
@@ -891,8 +905,24 @@ class emitter {
     }
   }
 
+  // Preserve full unsigned class tags as Java hexadecimal long bits, including the high bit.
+  std::string class_id_literal(std::uint64_t value) const {
+    std::array<char, 2 * sizeof(value)> digits{};
+    const auto converted = std::to_chars(digits.data(), digits.data() + digits.size(), value, 16);
+    return "0x" + std::string{digits.data(), converted.ptr} + "L";
+  }
+
+  // Bind one phantom target to the C++ class tag and selected native identity width/encoding.
+  std::string managed_arguments(const rohit::serializer::type_name& value) const {
+    const auto* target = static_cast<const class_node*>(value.arguments.front().resolved_node);
+    return class_id_literal(managed_class_ids.at(target)) + ", " +
+        (options.managed_id_type == "uint64" ? "java.lang.Long.BYTES" : "java.lang.Integer.BYTES") + ", " +
+        (options.managed_id_encoding == persistent_id_encoding::compact_varint ? "true" : "false");
+  }
+
   // Resolve a fully qualified generated Java type to avoid shadowing by schema fields.
   std::string type(const rohit::serializer::type_name& value, bool boxed = false) const {
+    if (value.is_managed_reference()) { return "ManagedReference<" + type(value.arguments.front()) + ">"; }
     if (value.is_optional()) { return "java.util.Optional<" + type(value.arguments.front(), true) + ">"; }
     if (value.is_sequence()) { return "java.util.List<" + type(value.arguments.front(), true) + ">"; }
     if (value.is_associative()) { return "java.util.NavigableMap<" + type(value.arguments[0], true) + ", " + type(value.arguments[1], true) + ">"; }
@@ -903,8 +933,8 @@ class emitter {
 
   // Allocate outer arrays before a digest value's byte dimension.
   std::string array_initial(const rohit::serializer::type_name& value, const std::string& count) const {
-    if (value.is_optional() || value.is_sequence() || value.is_associative()) {
-      const auto erased = value.is_optional() ? "java.util.Optional" : value.is_sequence() ? "java.util.List" : "java.util.NavigableMap";
+    if (value.is_optional() || value.is_sequence() || value.is_associative() || value.is_managed_reference()) {
+      const auto erased = value.is_managed_reference() ? "ManagedReference" : value.is_optional() ? "java.util.Optional" : value.is_sequence() ? "java.util.List" : "java.util.NavigableMap";
       return "(" + type(value) + "[]) new " + erased + "[" + count + "]";
     }
     return value.is_digest() ? "new byte[" + count + "][]" : "new " + type(value) + "[" + count + "]";
@@ -912,6 +942,7 @@ class emitter {
 
   // Construct a fresh schema default for a single value.
   std::string initial(const rohit::serializer::type_name& value) const {
+    if (value.is_managed_reference()) { return "new ManagedReference<>(0, 0, 0, 0)"; }
     if (value.is_optional()) { return "java.util.Optional.empty()"; }
     if (value.is_sequence()) { return "new java.util.ArrayList<>()"; }
     if (value.is_associative()) {
@@ -1083,6 +1114,7 @@ class emitter {
   // Build a direct scalar read expression with context-sensitive enum representation.
   std::string read_value(const rohit::serializer::type_name& value, const std::string& reader,
                          bool collection) const {
+    if (value.is_managed_reference()) { return "ManagedReference.read(" + reader + ", " + managed_arguments(value) + ")"; }
     if (value.is_optional()) {
       return "srlReadOptional(" + reader + ", () -> " + read_value(value.arguments.front(), reader, collection) + ")";
     }
@@ -1130,7 +1162,9 @@ class emitter {
   // Emit a scalar write without reflection or a generic object dispatch table.
   void write_value(const rohit::serializer::type_name& value, const std::string& expression,
                    bool collection) {
-    if (value.is_optional()) {
+    if (value.is_managed_reference()) {
+      line(expression + ".write(out, " + managed_arguments(value) + ");");
+    } else if (value.is_optional()) {
       line("out.beginOptional(" + expression + ".isPresent());");
       line("if (" + expression + ".isPresent()) {");
       ++level;
@@ -1365,7 +1399,7 @@ class emitter {
       if (item.is_optional()) {
         element_width = "1";
       } else if (item.type == object_type::primitive && item.name != "string" && !item.is_digest() &&
-                 !item.is_sequence() && !item.is_associative()) {
+                 !item.is_sequence() && !item.is_associative() && !item.is_managed_reference()) {
         element_width = item.name == "bool" || item.name == "char" ? "1"
                         : item.name == "float"                     ? "4"
                         : item.name == "double"                    ? "8"
@@ -2156,7 +2190,7 @@ class emitter {
     if (std::any_of(value.member_list.begin(), value.member_list.end(), [](const auto& field) {
           const auto& item = field.type_name_list.front();
           return field.modifier == member::modifier_type::array &&
-                 (item.is_optional() || item.is_sequence() || item.is_associative());
+                 (item.is_optional() || item.is_sequence() || item.is_associative() || item.is_managed_reference());
         })) {
       // Java cannot create arrays of parameterized types; the emitted cast preserves the API.
       line("@SuppressWarnings({\"unchecked\", \"rawtypes\"})");
@@ -2177,6 +2211,11 @@ class emitter {
       line("java.nio.ByteBuffer cursor = source.duplicate(); byte[] bytes = new byte[PACKED_SIZE_BYTES]; cursor.get(bytes);");
       line(name + " result = decode(bytes, Protocol.BINARY_NONE); source.position(cursor.position()); return result;");
       --level; line("}");
+    }
+    if (const auto found = managed_class_ids.find(&value); found != managed_class_ids.end()) {
+      if (fields.contains("MANAGED_CLASS_ID")) { throw std::invalid_argument{"Java managed class ID helper collision"}; }
+      line("/** Exact native class tag; interpreting a token does not establish target liveness. */");
+      line("public static final long MANAGED_CLASS_ID = " + class_id_literal(found->second) + ";");
     }
     if (value.magic_field) {
       const auto& magic = *value.magic_field;
@@ -2552,17 +2591,193 @@ class emitter {
     }
   }
 
+  // Detect only shapes whose owning occurrences or typed envelopes need runtime traversal.
+  static bool managed_shape(const rohit::serializer::type_name& value) {
+    if (value.is_managed_reference()) { return true; }
+    if (value.is_optional() || value.is_sequence() || value.is_associative()) {
+      return managed_shape(value.arguments.back());
+    }
+    return value.resolved_node && value.resolved_node->type == object_type::class_type;
+  }
+
+  // Follow generated storage rather than reflecting over user field names or traversing token targets.
+  void managed_visit_shape(const rohit::serializer::type_name& value,
+                           const std::string& expression, const std::string& participating,
+                           std::size_t& next_variable) {
+    if (!managed_shape(value)) { return; }
+    if (value.is_managed_reference()) {
+      const auto variable = "reference" + std::to_string(next_variable++);
+      line("var " + variable + " = java.util.Objects.requireNonNull(" + expression + ");");
+      const auto* target = static_cast<const class_node*>(value.arguments.front().resolved_node);
+      line("visitor.reference(new ManagedDocument(" + variable + ".documentHigh, " + variable +
+          ".documentLow), " + variable + ".classId, " + variable + ".objectId, " +
+          class_id_literal(managed_class_ids.at(target)) + ");");
+    } else if (value.is_optional()) {
+      line("if (" + expression + ".isPresent()) {"); ++level;
+      managed_visit_shape(value.arguments.front(), expression + ".get()", participating, next_variable);
+      --level; line("}");
+    } else if (value.is_sequence() || value.is_associative()) {
+      const auto variable = "occurrence" + std::to_string(next_variable++);
+      line("for (var " + variable + " : " + expression + (value.is_associative() ? ".values()" : "") + ") {");
+      ++level;
+      managed_visit_shape(value.arguments.back(), variable, participating, next_variable);
+      --level; line("}");
+    } else {
+      line("managedVisit(" + expression + ", visitor, " + participating + ");");
+    }
+  }
+
+  // Validate all generated classes, including unrelated ordinary records, before enabling native engines.
+  void validate_managed_engine() const {
+    if (!options.managed_engine) { return; }
+    if (!managed_model) {
+      throw std::invalid_argument{"Java managed engines require generated ownership metadata"};
+    }
+    std::set<const class_node*> visiting;
+    std::set<const class_node*> visited;
+    const auto validate = [&](auto&& recurse, const class_node* record) -> void {
+      if (visited.contains(record)) { return; }
+      if (!visiting.insert(record).second) {
+        throw std::invalid_argument{"Java managed engines require finite acyclic owning records"};
+      }
+      if (!record->parents.empty() || record->has_magic() || record->reference ||
+          (record->attributes & class_attributes::packed) != class_attributes::none ||
+          !record->generic_name.empty() || !record->functions.empty() ||
+          !record->constructions.empty() || !record->conversions.empty() ||
+          !record->arithmetic.empty() || !record->native_blocks.empty()) {
+        throw std::invalid_argument{"Java managed engines require concrete owning records without inheritance, magic or behavior"};
+      }
+      for (const auto& item : record->member_list) {
+        if (item.transient || item.cached || item.wire_only || item.version ||
+            item.modifier == member::modifier_type::variant || item.array_exposure ||
+            item.indexing != member::index_method::none || !item.readonly_getter.empty() ||
+            !item.omitted_formats.empty() || !item.created_version.empty() ||
+            !item.obsolete_version.empty() || !item.auto_size_formats.empty()) {
+          throw std::invalid_argument{"Java managed engines require unversioned durable owning fields without variants, indexes or computed exposure"};
+        }
+        const auto validate_type = [&](auto&& check, const rohit::serializer::type_name& value) -> void {
+          if (value.is_managed_reference()) { return; }
+          if (value.resolved_node && value.resolved_node->type == object_type::class_type) {
+            recurse(recurse, static_cast<const class_node*>(value.resolved_node));
+          }
+          for (const auto& argument : value.arguments) { check(check, argument); }
+        };
+        for (const auto& value : item.type_name_list) { validate_type(validate_type, value); }
+      }
+      visiting.erase(record);
+      visited.insert(record);
+    };
+    for (const auto& [node, name] : names) {
+      static_cast<void>(name);
+      if (node->type == object_type::class_type) { validate(validate, static_cast<const class_node*>(node)); }
+    }
+  }
+
+  // Bind exact codecs, logical schema identity and participation-aware traversal to native runtime stores.
+  void managed_engine_metadata() {
+    if (!options.managed_engine) { return; }
+    std::map<std::string, const class_node*> records;
+    std::map<std::string, std::uint64_t> class_tags;
+    for (const auto& [node, name] : names) {
+      if (node->type == object_type::class_type) {
+        records.emplace(name, static_cast<const class_node*>(node));
+      }
+    }
+    for (const auto& [record, identity] : managed_class_ids) {
+      class_tags.emplace(record->get_full_name(), identity);
+    }
+    const auto protocol = std::string{options.protocols == output_protocols::binary_none ? "BINARY_NONE" : "BINARY_INTEGER"};
+    std::string manifest = ":" + protocol;
+    for (const auto& [name, identity] : class_tags) { manifest += ":" + name + "=" + std::to_string(identity); }
+    for (const auto& [name, record] : records) {
+      const auto tag = managed_class_ids.find(record);
+      line("/** Visit exact owned occurrences; an ordinary ancestor suppresses managed descendants. */");
+      line("private static void managedVisit(" + name + " value, ManagedVisitor visitor, boolean participating) {");
+      ++level;
+      const auto identity = "value." + field("persistent_id");
+      if (tag != managed_class_ids.end()) {
+        line("visitor.entity(value, " + class_id_literal(tag->second) + ", () -> " +
+            (options.managed_id_type == "uint32" ? "java.lang.Integer.toUnsignedLong(" + identity + ")" : identity) +
+            ", id -> " + identity + " = " + (options.managed_id_type == "uint32" ? "(int) id" : "id") + ", participating);");
+      } else {
+        line("visitor.entity(value, 0, () -> 0, id -> {}, false);");
+      }
+      std::size_t next_variable{};
+      for (const auto& item : record->member_list) {
+        if (tag != managed_class_ids.end() && item.display_name == "persistent_id") { continue; }
+        const auto& value = item.type_name_list.front();
+        if (!managed_shape(value)) { continue; }
+        const auto fields = managed_model->managed_fields.find(record);
+        const bool managed = fields != managed_model->managed_fields.end() && fields->second.contains(item.name);
+        const auto participating = std::string{managed ? "participating" : "false"};
+        auto expression = "value." + field(item.name);
+        if (item.modifier == member::modifier_type::array || item.modifier == member::modifier_type::map) {
+          const auto variable = "occurrence" + std::to_string(next_variable++);
+          line("for (var " + variable + " : " + expression +
+              (item.modifier == member::modifier_type::map ? ".values()" : "") + ") {");
+          ++level;
+          managed_visit_shape(value, variable, participating, next_variable);
+          --level; line("}");
+        } else {
+          managed_visit_shape(value, expression, participating, next_variable);
+        }
+      }
+      --level; line("}");
+    }
+    line("private static final int MANAGED_DEFAULT_SNAPSHOT_BYTES = 64 * 1024 * 1024;");
+    line("private static final int MANAGED_DEFAULT_ENTITIES = 1_000_000;");
+    line("/** Bind a concrete managed root with finite default snapshot/work admission limits. */");
+    line("public static <T> ManagedSchema<T> managedSchema(java.lang.Class<T> rootType) {");
+    ++level; line("return managedSchema(rootType, MANAGED_DEFAULT_SNAPSHOT_BYTES, MANAGED_DEFAULT_ENTITIES);"); --level; line("}");
+    line("/** Bind generated native codecs and ownership metadata; these bounds are not a JVM heap ceiling. */");
+    line("public static <T> ManagedSchema<T> managedSchema(java.lang.Class<T> rootType, int maxSnapshotBytes, int maxEntities) {");
+    ++level;
+    for (const auto& [name, record] : records) {
+      const auto binding = managed_model->bindings.find(record);
+      if (binding == managed_model->bindings.end()) { continue; }
+      const auto contract = "java.native.v1:" + binding->second +
+          (options.managed_id_encoding == persistent_id_encoding::compact_varint ? ":compact_varint" : ":fixed") + manifest;
+      constexpr std::size_t maximum_schema_binding_bytes = 4096;
+      if (contract.size() > maximum_schema_binding_bytes) {
+        throw std::invalid_argument{"Java managed schema/class manifest exceeds native metadata byte bound"};
+      }
+      line("if (" + name + ".class.equals(rootType)) {"); ++level;
+      line("return new ManagedSchema<>(rootType, " + quote(contract) + ", " +
+          (options.managed_id_type == "uint32" ? "java.lang.Integer.BYTES" : "java.lang.Long.BYTES") +
+          ", maxSnapshotBytes, maxEntities, new ManagedCodec<T>() {"); ++level;
+      line("/** Encode the actual generated native representation. */");
+      line("@Override public byte[] encode(T value) { return " + name + ".class.cast(value).encode(Protocol." + protocol + "); }");
+      line("/** Decode a fresh exact generated model without retained mutable aliases. */");
+      line("@Override public T decode(byte[] data) { return rootType.cast(" + name + ".decode(data, Protocol." + protocol + ")); }");
+      line("/** Traverse participating logical occurrences and typed reference envelopes. */");
+      line("@Override public void visit(T value, ManagedVisitor visitor) { managedVisit(" + name + ".class.cast(value), visitor, true); }");
+      --level; line("});");
+      --level; line("}");
+    }
+    line("throw new ManagedError(\"Root is not an explicitly managed generated class\");");
+    --level; line("}");
+  }
+
 public:
   // Retain generation settings for this compilation unit only.
-  emitter(const java_options& options, std::string_view outer_class)
-      : options{options}, outer{outer_class}, xml_contract{options.xml} {}
+  emitter(const java_options& options, std::string_view outer_class,
+          const std::map<const class_node*, std::uint64_t>& class_ids = no_managed_class_ids,
+          const managed_lowering* lowered = nullptr)
+      : options{options}, managed_class_ids{class_ids}, managed_model{lowered}, outer{outer_class}, xml_contract{options.xml} {}
 
   // Validate and generate the complete source without external formatting tools.
   std::string generate(const std::vector<std::unique_ptr<syntax_node>>& values) {
     behavior::require_callable_backend(values, "java");
     validate_identifier(outer);
+    if (options.managed_engine && outer.starts_with("Managed")) {
+      throw std::invalid_argument{"Java output filename conflicts with native managed runtime: " + outer};
+    }
     std::set<std::string> reserved{outer,    "ReadPolicy", "Protocol", "Limits",
                                          "Writer", "Reader",     "String"};
+    if (options.managed_token_codecs) {
+      if (outer == "ManagedReference") { throw std::invalid_argument{"Java output filename conflicts with managed token helper"}; }
+      reserved.insert("ManagedReference");
+    }
     if (options.xml.enabled) {
       for (const auto* helper : {"XmlExtensionLimits", "XmlExtensionOptions", "SrlXmlExtensionSlot", "SrlXmlExtensionContract", "SrlXmlForeignNode", "SrlXmlForeignChild", "SrlXmlPreserved", "SrlXmlExtensions", "XmlSchema", "XmlMapLimits", "Html", "HtmlLimits", "HtmlEvent", "HtmlAttribute", "XmlMixedLimits", "XmlIdentityLimits", "XmlDigestLimits", "srlXmlDefaultDigestBytes", "srlXmlRevisionLexical", "srlXmlHexDigit", "srlXmlDigestRead", "srlXmlDigestText", "SrlXmlIdentity", "SrlXmlIdentityScope", "SrlXmlIdentityConstraint", "SrlXmlIdentityPath", "SrlXmlIdentityField", "SrlXmlMixedBudget", "SrlXmlNode", "SrlXmlBudget", "SrlXmlFields", "SrlXmlOutput", "SrlXmlInput", "SrlXmlInputFields", "SrlXmlRule",
                                 "srlXmlName", "srlXmlTrim", "srlXmlParse", "srlXmlScalarText",
@@ -2581,6 +2796,7 @@ public:
       throw std::invalid_argument{"Java XML output filename conflicts with a runtime helper"};
     }
     register_nodes(values, outer, reserved);
+    validate_managed_engine();
     // Add the compression container without reserving previously valid schema type names.
     std::set<std::string> compression_names{outer};
     for (const auto& [node, qualified] : names) {
@@ -2714,6 +2930,8 @@ public:
       start = end + 1;
     }
     level = 1;
+    if (options.managed_token_codecs) { source += managed_reference_runtime_source; }
+    if (options.managed_engine) { source += managed_engine_runtime_source; }
     std::string compression_runtime{compression_runtime_source};
     compression_runtime.insert(compression_runtime.rfind("\n}"), deflate_validation_runtime_source);
     compression_runtime.insert(compression_runtime.rfind("\n}"), zstd_compression_runtime_source);
@@ -2777,6 +2995,7 @@ public:
       }
     }
     nodes(roots);
+    managed_engine_metadata();
     if (options.xml.enabled) {
       source += declaration_helpers(xml_codegen::portable_declaration_dispatch(xml_inventories,
           [&](const class_node& owner) { return names.at(&owner); }, quote, "java"));
@@ -2799,6 +3018,17 @@ std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements
   options.xml = xml_binding::effective_options(statements, options.xml);
   xml_binding::validate_options(statements, options.xml, "java");
   validate_bit_field_output(statements, false);
+
+  if (options.managed_engine) { options.managed_token_codecs = true; }
+  if (options.managed_token_codecs) {
+    if (options.managed_separate_values || options.xml.enabled || !options.class_comparisons.empty() ||
+        !options.class_auto_sizes.empty()) {
+      throw std::invalid_argument{"Java managed token codecs require direct native output without XML or computed helpers"};
+    }
+    managed_lowering lowered{statements, options.managed_id_type, true, options.managed_id_encoding};
+    emitter generator{options, outer_class, lowered.class_ids, &lowered};
+    return behavior::finalize_mappings(generator.generate(lowered.statements));
+  }
   require_unmanaged_backend(statements);
   auto_size::validate(statements, options.class_auto_sizes);
   comparison::validate(statements, options.class_comparisons, true);

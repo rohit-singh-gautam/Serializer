@@ -7,6 +7,14 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 
 [Documentation index](../../../docs/README.md)
 
+For native Java managed state, explicitly select `java.managed_engine = true`
+and bind `managedSchema(Root.class)` to `ManagedStore`. Follow the
+[Java profile](../../../docs/managed/java_native_runtime.md) for detached reads,
+owner-thread edits, post-ID reference initialization, bounded history/journals,
+canonical bytes and exact client receipts. Required reference inputs must already
+be wire-valid before the initial codec clone. Token-only selection does not
+activate the engine; retain the documented unsupported graph gates.
+
 For native Python managed state, select `python.managed_engine = true` and
 bind the generated `managed_schema(Root)` to `ManagedStore`. Follow the
 [Python profile](../../../docs/managed/python_native_runtime.md) for detached

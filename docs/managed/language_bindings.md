@@ -1,8 +1,14 @@
-# Managed C++ and proposed language bindings
+# Managed language bindings and remaining proposals
 
-Remaining native engine work is deferred to
-[GitHub #1](https://github.com/rohit-singh-gautam/Serializer/issues/1), retaining **MG01** in
-[the central pending backlog](../pending.md#managed-state-and-storage).
+Native engine work remains active under **MG01** in
+[the central pending backlog](../pending.md#managed-state-and-storage). C++ is
+implemented. Python now has a native engine runtime and generated descriptor
+integration: 25 Windows runtime tests and 281 actual generated SDK checks pass
+within its documented supported profile. The [native Java engine](java_native_runtime.md)
+passes 188 standalone checks, 528 actual generated SDK checks, six process-crash
+boundaries and writer exclusion including hard-link aliases. Native engines for
+JavaScript, TypeScript, Go, C#, Rust, Swift, Kotlin and C remain unimplemented.
+These remaining engines are required separately from portable token codecs.
 
 Current C++ representation: managed schema classes carry `persistent_id` directly
 by default. Separate ID-free values/storage wrappers in the illustrations below
@@ -16,8 +22,13 @@ Compiler/runtime 1.11.0 and schema language 1.6.0 implement the
 history, [native-file journals](journal.md), [collaboration](collaboration_runtime.md),
 private fields, distinct public bases, owning alternatives, concrete managed
 generics, payload lifetimes and checked transient updates. Both direct and separated
-storage policies are supported. Other-language managed engines remain proposals;
-generators reject managed annotations rather than emitting incomplete engines.
+storage policies are supported. Other-language generation rejects managed
+annotations by default. The explicit [Python native engine profile](python_native_runtime.md)
+adds runtime ownership, immutable reads, transactions, identities, linear history,
+journal recovery and authority/client acceptance. Its qualified generated profile
+has explicit restrictions. Explicit [Python and Java token codec modes](token_codecs.md)
+emit wire records without activating those native engines; both modes pass
+generated SDK and C++ exchange qualification.
 The broader sketches below are not the exact C++ API or output. See
 [state enhancements](state_enhancements.md), the [design index](README.md) and
 [data structures](data_structures.md).
@@ -26,12 +37,13 @@ The broader sketches below are not the exact C++ API or output. See
 | --- | --- | --- |
 | Ordinary models/codecs and payload revision metadata | Implemented | Implemented within each backend's documented type support |
 | Schema method declarations/native blocks/portable expressions | Implemented | Selected language code and the supported portable subset; see [state enhancements](state_enhancements.md) |
-| Managed editors/history/journal/collaboration/runtime updates | Implemented | Not implemented |
-| Managed public nonvirtual multiple inheritance | Generated checked base editors and identities | Managed generation rejected |
+| Managed editors/history/journal/collaboration/runtime updates | Implemented | Qualified restricted Python engine with callback edits, linear history, journal and authority/client; typed generated editors and other native engines remain separate work |
+| Managed public nonvirtual multiple inheritance | Generated checked base editors and identities | Python native engine rejects inheritance; token-only records have their documented scope |
+| Typed managed-reference envelopes | Checked native token codecs and registry resolution | Explicit Python and Java wire-record modes qualified; other outputs reject |
 
 Functions and codecs alone do not supply transaction ownership, immutable pins,
 identity allocation, journal recovery or collaboration conflict semantics. Each
-future language engine must implement and qualify those services under its native
+language engine must implement and qualify those services under its native
 error, lifetime, concurrency and resource contracts.
 
 The [multilanguage wire matrix](../../example/managed/multilanguage/README.md)
@@ -442,5 +454,6 @@ Future conformance checks must compare behavior and saved-record interpretation,
 not class sizes across languages. Verify disabled feature storage, unsupported
 operation errors, ordinary-versus-managed construction, atomic grouped edits,
 branch retention, ID preservation, and deterministic resource cleanup. The C++
-sketches have not been compiled and no other language binding is implemented by
-this documentation change.
+sketches have not been compiled. The concrete Python native profile and its
+verification checkpoint are documented separately above; the other-language
+store sketches remain proposals.

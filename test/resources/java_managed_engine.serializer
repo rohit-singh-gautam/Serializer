@@ -1,0 +1,29 @@
+serializer version 1.20.0;
+
+namespace engine_graph {
+  enum kind { first, second }
+  class item managed stable_ids class_id(18446744073709551615) {
+    public string label (1);
+    public optional<managed_ref<item>> next (2);
+  }
+  class branch managed stable_ids class_id(403) {
+    public managed array item leaves (1);
+  }
+  class model managed stable_ids class_id(402) {
+    public string title (1);
+    public managed array item children (2);
+    public managed map(uint32) item mapped (3);
+    public item ordinary (4);
+    public optional<managed_ref<item>> selected (5);
+    public array[2] string fixed (6);
+    public kind mode (7);
+    public optional<string> note (8);
+    public branch ordinary_branch (9);
+    public managed array branch branches (10);
+    public double precise (11);
+    public float ratio (12);
+    public bool enabled (13);
+    public int64 balance (14);
+    public digest[32] fingerprint (15);
+  }
+}

@@ -120,11 +120,26 @@ endif()
 add_test(NAME payload_allocator_test COMMAND payload_allocator_test)
 
 if(SERIALIZER_BUILD_MANAGED)
-  find_package(Python3 COMPONENTS Interpreter QUIET)
-  if(Python3_Interpreter_FOUND)
-    add_test(NAME python_managed_engine_runtime_test
-      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_managed_engine_test.py")
-  endif()
+  foreach(compact_profile IN ITEMS direct32 direct64 separate32 separate64)
+    set(compact_config)
+    if(NOT compact_profile STREQUAL "direct32")
+      set(compact_config CONFIG "resources/cache_${compact_profile}.ini")
+    endif()
+    add_executable(managed_compact_history_${compact_profile}_test managed_compact_history_test.cpp)
+    serializer_generate(TARGET managed_compact_history_${compact_profile}_test
+      SCHEMAS resources/compact_history.serializer ${compact_config}
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_compact_history_${compact_profile}")
+    target_link_libraries(managed_compact_history_${compact_profile}_test PRIVATE
+      Serializer::managed GTest::gtest_main)
+    if(MSVC)
+      target_compile_options(managed_compact_history_${compact_profile}_test PRIVATE /W4 /WX)
+    else()
+      target_compile_options(managed_compact_history_${compact_profile}_test PRIVATE
+        -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME managed_compact_history_${compact_profile}_test
+      COMMAND managed_compact_history_${compact_profile}_test)
+  endforeach()
   add_executable(payload_allocation_generated_test payload_allocation_generated_test.cpp)
   serializer_generate(TARGET payload_allocation_generated_test
     SCHEMAS resources/payload_allocation.serializer CONFIG resources/payload_allocation.ini
@@ -158,6 +173,8 @@ if(SERIALIZER_BUILD_MANAGED)
   endforeach()
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)
+    add_test(NAME python_managed_engine_runtime_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_managed_engine_test.py")
     add_test(NAME python_managed_engine_generated_test
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_managed_engine_generated_test.py"
         --compiler "$<TARGET_FILE:serializer>"
@@ -187,26 +204,6 @@ if(SERIALIZER_BUILD_MANAGED)
       target_compile_options(schema_indexes_${index_profile}_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME schema_indexes_${index_profile}_test COMMAND schema_indexes_${index_profile}_test)
-  endforeach()
-  foreach(compact_profile IN ITEMS direct32 direct64 separate32 separate64)
-    set(compact_config)
-    if(NOT compact_profile STREQUAL "direct32")
-      set(compact_config CONFIG "resources/cache_${compact_profile}.ini")
-    endif()
-    add_executable(managed_compact_history_${compact_profile}_test managed_compact_history_test.cpp)
-    serializer_generate(TARGET managed_compact_history_${compact_profile}_test
-      SCHEMAS resources/compact_history.serializer ${compact_config}
-      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_compact_history_${compact_profile}")
-    target_link_libraries(managed_compact_history_${compact_profile}_test PRIVATE
-      Serializer::managed GTest::gtest_main)
-    if(MSVC)
-      target_compile_options(managed_compact_history_${compact_profile}_test PRIVATE /W4 /WX)
-    else()
-      target_compile_options(managed_compact_history_${compact_profile}_test PRIVATE
-        -Wall -Wextra -Wpedantic -Werror)
-    endif()
-    add_test(NAME managed_compact_history_${compact_profile}_test
-      COMMAND managed_compact_history_${compact_profile}_test)
   endforeach()
   foreach(managed_contract_profile IN ITEMS direct32 direct64 separate32 separate64)
     set(managed_contract_config)
@@ -821,11 +818,22 @@ if(Python3_Interpreter_FOUND)
   find_package(Java 17 COMPONENTS Runtime Development QUIET)
   if(Java_FOUND)
     if(SERIALIZER_BUILD_MANAGED)
+      add_test(NAME managed_token_java_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/managed_token_java_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/managed_token_java"
+          --java "${Java_JAVA_EXECUTABLE}" --javac "${Java_JAVAC_EXECUTABLE}"
+          ${managed_token_exchange_arguments})
+      set_tests_properties(managed_token_java_test PROPERTIES TIMEOUT 300)
       add_test(NAME java_managed_engine_runtime_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/java_managed_engine_test.py"
           --build "${CMAKE_CURRENT_BINARY_DIR}/java_managed_engine_runtime"
           --java "${Java_JAVA_EXECUTABLE}" --javac "${Java_JAVAC_EXECUTABLE}")
       set_tests_properties(java_managed_engine_runtime_test PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
+      add_test(NAME java_managed_engine_generated_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/java_managed_engine_generated_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/java_managed_engine_generated"
+          --java "${Java_JAVA_EXECUTABLE}" --javac "${Java_JAVAC_EXECUTABLE}")
+      set_tests_properties(java_managed_engine_generated_test PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
     endif()
     add_test(NAME serializer_java_output_buffer
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/java_output_buffer_test.py"

@@ -46,6 +46,12 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Java has independent [token-only and native engine profiles](docs/managed/java_native_runtime.md).
+Select `java.managed_engine = true` for finite concrete owning graphs with detached
+immutable reads, transactions, identities, bounded history/journals and exact
+authority receipts. Java 17 generated SDK replay covers eight identity/codec
+profiles; ordinary streaming, packed and buffer APIs remain independently usable.
+
 Python has explicit [managed token codecs](docs/managed/token_codecs.md) and
 a separate [native owning engine](docs/managed/python_native_runtime.md).
 Select `python.managed_engine = true` for qualified generated metadata, immutable

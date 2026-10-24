@@ -740,3 +740,27 @@ TEST(output_options, payload_allocator_profile_is_opt_in_and_rejects_unsupported
   options.constant_evaluation = true;
   EXPECT_THROW(emit(source, options), std::invalid_argument);
 }
+
+// Independent native-engine and token-only selectors share the existing identity configuration.
+TEST(output_options, managed_output_selectors_parse_explicit_ini_values) {
+  configuration_file fixture;
+  const auto options = writer::read_output_options(fixture.write(
+      "[java]\nmanaged_token_codecs=true\nmanaged_engine=true\n[python]\nmanaged_token_codecs=false\nmanaged_engine=true\n"
+      "[managed]\nid_type=uint64\nid_encoding=fixed\n[cpp]\npayload_allocator=true\n"));
+  EXPECT_TRUE(options.java.managed_token_codecs);
+  EXPECT_TRUE(options.java.managed_engine);
+  EXPECT_TRUE(options.python_managed_engine);
+  EXPECT_FALSE(options.python_managed_token_codecs);
+  EXPECT_TRUE(options.cpp.payload_allocator);
+  EXPECT_EQ(options.cpp.managed_id_type, "uint64");
+  EXPECT_EQ(options.cpp.managed_id_encoding, writer::persistent_id_encoding::fixed);
+}
+
+// Engine activation is independent from token-only output and preserves default backend selection.
+TEST(output_options, java_native_engine_selector_is_explicit_and_strict) {
+  EXPECT_FALSE(writer::java_options{}.managed_engine);
+  configuration_file fixture;
+  EXPECT_FALSE(writer::read_output_options(fixture.write("[java]\nmanaged_engine=false\n")).java.managed_engine);
+  EXPECT_TRUE(writer::read_output_options(fixture.write("[java]\nmanaged_engine=true\n")).java.managed_engine);
+  EXPECT_THROW(writer::read_output_options(fixture.write("[java]\nmanaged_engine=maybe\n")), std::invalid_argument);
+}
