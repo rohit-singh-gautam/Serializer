@@ -351,6 +351,20 @@ wrapper.payload = payload
             with self.assertRaises(ValueError):
                 module.TokensRoot.decode_xml(b'<amount>7</amount>', schema=provider)
 
+    def test_token_only_graphs_cannot_fall_back_to_legacy_tree_methods(self):
+        """Reject unavailable advanced codecs before parsing instead of weakening their contract."""
+        for module, model in ((self.presence_module, self.presence_module.PresenceRoot),
+                              (self.containers_module, self.containers_module.ContainersMaps),
+                              (self.containers_module, self.containers_module.ContainersTypedChoice),
+                              (self.containers_module, self.containers_module.ContainersParagraph),
+                              (self.containers_module, self.containers_module.ContainersDerived)):
+            with self.subTest(model=model.__name__):
+                self.assertFalse(module._xml_tree_capable(model))
+                with mock.patch.object(module, '_xml_token_capable', return_value=False), \
+                     mock.patch.object(module, '_xml_parse', side_effect=AssertionError('Unsafe tree fallback')):
+                    with self.assertRaisesRegex(ValueError, 'token-compatible'):
+                        model.decode_xml(b'<root/>')
+
     def test_html_is_independent_of_xml_and_matches_html_parser(self):
         """Handle ordinary HTML void/unquoted/Boolean syntax with the approved shared subset."""
         from html.parser import HTMLParser

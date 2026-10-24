@@ -2284,6 +2284,9 @@ if(SERIALIZER_WITH_XML)
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/package_pipeline_test.py"
         --compiler "$<TARGET_FILE:serializer>" --language python --schema-local
         --build "${CMAKE_CURRENT_BINARY_DIR}/schema_local_package_python")
+    add_test(NAME xml_core_python_regression
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_3mf_core_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/core_python_regression")
     add_test(NAME xml_schema_local_ordered_python
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_ordered_portable_test.py"
         --compiler "$<TARGET_FILE:serializer>" --language python --schema-local

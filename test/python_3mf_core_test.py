@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import xml.etree.ElementTree as etree
 import zipfile
 
@@ -35,6 +36,14 @@ def independent_package(model):
 
 class python_3mf_core_test(unittest.TestCase):
     """Exercise schema fidelity and package discovery separately from application geometry semantics."""
+    def test_legacy_owning_tree_route_is_available_without_token_support(self):
+        """Keep the supported repeated-choice/wildcard Core contract on its bounded tree codec."""
+        self.assertTrue(self.module._xml_tree_capable(self.model_type))
+        with mock.patch.object(self.module, '_xml_token_capable', return_value=False):
+            model = self.model_type.decode_xml(self.document)
+            copy = self.model_type.decode_xml(model.encode_xml())
+        self.assertEqual(copy.xsd_metadata[0].xsd_value, 'Tetrahedron')
+
     def test_actual_core_import_edit_and_independent_package_consumer(self):
         """Discover and decode a complete tetrahedron, edit it, then inspect the written3MF independently."""
         result = self.module.CorePackageArchive.load(independent_package(self.document))

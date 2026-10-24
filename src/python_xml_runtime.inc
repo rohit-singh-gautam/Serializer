@@ -452,17 +452,46 @@ R"xmlpython(            active_context.consume('work_units', len(text))
     return ''.join(parts).encode('utf-8')
 
 )xmlpython"
-R"xmlpython(def _xml_token_capable(model, active=None):
+R"xmlpython(def _xml_token_capable(model, active=None, scoped=False):
     """Check the complete generated graph before selecting the tree-free codec."""
     if not model._xml_token_supported:
+        return False
+    if active is None:
+        scoped = _xml_token_required(model)
+        active = set()
+    if getattr(model, '_xml_token_root_namespace', False) and not scoped:
+        return False
+    if model in active:
+        return True
+    active.add(model)
+    return all(_xml_token_capable(selected(), active, scoped)
+               for item in model._xml_token_fields for selected in _xml_token_models(item)) and (
+                   model._xml_mixed is None or all(_xml_token_capable(item['model'](), active, scoped) for item in model._xml_mixed['children']))
+
+
+def _xml_tree_capable(model, active=None):
+    """Admit only complete graphs implemented by the established bounded owning-tree adapter."""
+    if not getattr(model, '_xml_tree_supported', False):
         return False
     active = set() if active is None else active
     if model in active:
         return True
     active.add(model)
-    return all(_xml_token_capable(selected(), active)
-               for item in model._xml_token_fields for selected in _xml_token_models(item)) and (
-                   model._xml_mixed is None or all(_xml_token_capable(item['model'](), active) for item in model._xml_mixed['children']))
+    return all(_xml_tree_capable(selected(), active)
+               for item in model._xml_token_fields for selected in _xml_token_models(item))
+
+
+def _xml_token_has_namespace(model, active=None):
+    """Select one shared lexical retention ledger only for graphs that need root scalar scopes."""
+    active = set() if active is None else active
+    if model in active:
+        return False
+    active.add(model)
+    return getattr(model, '_xml_token_root_namespace', False) or any(
+        _xml_token_has_namespace(selected(), active)
+        for item in model._xml_token_fields for selected in _xml_token_models(item)) or (
+            model._xml_mixed is not None and any(_xml_token_has_namespace(item['model'](), active)
+                                               for item in model._xml_mixed['children']))
 
 
 def _xml_token_models(item):
@@ -676,6 +705,8 @@ def _xml_token_values(model, item):
 )xmlpython"
 R"xmlpython(def _xml_token_encode(model, name, limits=None, context=None):
     """Traverse generated members directly into bounded escaped output tokens."""
+    if _xml_token_has_namespace(type(model)):
+        context = _xml_namespace_context(limits, context)
     writer = _XmlTokenOutput(limits, context)
     context = writer.budget.context
     def payload(item, selected, attributes=(), bindings=()):
@@ -783,6 +814,13 @@ R"xmlpython(def _xml_token_encode(model, name, limits=None, context=None):
         cursor = [0]
         attributes.extend(foreign_attributes)
         scope = dict(foreign_bindings)
+        if getattr(type(value), '_xml_token_root_namespace', False):
+            state = getattr(value, '_srl_xml_state', None)
+            scope = dict(writer.scopes[-1]) if writer.scopes else {'xml': 'http://www.w3.org/XML/1998/namespace'}
+            if state is not None:
+                if not isinstance(state, tuple) or len(state) not in (3, 4, 5) or not isinstance(state[0], dict):
+                    raise ValueError('Invalid XML lexical namespace state')
+                scope.update(_xml_scope_copy(state[0], writer.budget))
         scope.update(bindings)
         fields = tuple(item for index, item in enumerate(value._xml_token_fields) if active[index])
         _xml_choices(value, value._xml_choices, fields)
@@ -791,11 +829,19 @@ R"xmlpython(def _xml_token_encode(model, name, limits=None, context=None):
             identity = _XmlTokenIdentity(value._xml_identity, writer.budget.context, writer.budget.limits.xml_identity)
             writer.identities.append(identity)
         attributes.extend(extra_attributes)
-        for item in fields:
+        for field_index, item in enumerate(value._xml_token_fields):
+            if not active[field_index]:
+                continue
             if item['mode'] == 'attribute':
                 writer.budget.context = _xml_field_context(parent_context, item['member'])
                 for selected in _xml_token_values(value, item):
-                    attributes.append((item['name'], item['write'](selected, {}, writer.budget.context)))
+                    lexical = item['write'](selected, {}, writer.budget.context) if not item.get('namespace') else None
+                    if item.get('namespace'):
+                        raw = item['raw'](selected)
+                        rule = item['rule']()
+                        _xml_scalar_scope_open(state, field_index, 0, scope, writer.budget, rule, raw)
+                        lexical = _xml_root_scoped_lexical(raw, rule, state, field_index, scope, writer.budget)
+                    attributes.append((item['name'], lexical))
                     if attribute_contexts is not None:
                         writer.budget.context.consume('decoder_allocation_bytes', _XML_DIAGNOSTIC_CONTEXT_BYTES)
                         attribute_contexts[item['name']] = writer.budget.context
@@ -885,6 +931,11 @@ R"xmlpython(class _XmlTokenFrame:
         if self.extensions is not None:
             self.extensions.validation_limits = validation_limits
         self.model = model() if model is not None else None
+        if model is not None and getattr(model, '_xml_token_root_namespace', False):
+            context.retain_namespace(scope)
+            retained = dict(scope)
+            retained.setdefault('', '')
+            self.model._srl_xml_state = (retained, {}, [], {})
         if model is not None and model._xml_model['revision'] is not None:
             _xml_token_set(self.model, model._xml_model['revision']['member'], revision)
         self.identity = _XmlTokenIdentity(model._xml_identity, context, identity_limits) if model is not None and model._xml_identity is not None else None
@@ -924,7 +975,14 @@ R"xmlpython(class _XmlTokenFrame:
                 if not selected['optional']:
                     raise ValueError('Required XML attribute missing')
                 continue
-            self.store(index, selected['read'](value, scope, _xml_field_context(context, selected['member'])))
+            native = selected['read'](value, scope, _xml_field_context(context, selected['member']))
+            self.store(index, native)
+            if selected.get('namespace'):
+                # Keep an immutable source scope separate from editable owner presentation bindings.
+                context.retain_namespace(scope)
+                original = dict(scope)
+                original.setdefault('', '')
+                self.model._srl_xml_state[3][index, 0] = (original, selected['raw'](native))
         for key, value in attributes.items():
             if key not in known:
                 if self.extensions is None:
@@ -1260,6 +1318,8 @@ class _XmlTokenVariantFrame:
 
 def _xml_token_decode(model, root, chunks, limits=None, context=None):
     """Decode arbitrary UTF-8 slices into one candidate; publish only after exact final EOF."""
+    if _xml_token_has_namespace(model):
+        context = _xml_namespace_context(limits, context)
     budget = _XmlBudget(limits, context)
     context = budget.context
     parser = _xml_expat.ParserCreate(encoding='UTF-8', namespace_separator='\x1f')
