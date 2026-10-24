@@ -1,10 +1,10 @@
 # Pending requirements across Serializer
 
-This list tracks **34 requirements: one completed and 33 unfinished
-(29 active and four deferred)**. Keep completed items in this file and mark their
+This list tracks **34 requirements: seven completed and 27 unfinished
+(23 active and four deferred)**. Keep completed items in this file and mark their
 state `[x]`; do not delete their rows or sections when they are completed.
 The [implemented feature catalog](project/completed_requirements.md) retains
-**824 IDs and verification records**, including historical items archived before
+**830 IDs and verification records**, including historical items archived before
 this tracking policy. The [feature list](project/feature_status.md)
 summarizes supported capabilities. The three closed ownership decisions live in
 [application responsibilities](project/application_responsibilities.md#disposed-requirements),
@@ -57,17 +57,20 @@ Native indexing can proceed independently of the deferred database paging work.
 
 ## Compiler and backend proposals
 
-Completed slices such as SC02a/SC02b are cataloged separately; their
-qualification does not close the broader SC02 requirement below.
+All six requirements are complete within the defined 2.34.0 backend/provider
+profiles. See the [implemented contracts](guides/compiler_backend_updates.md),
+[executed qualification and limits](verification/verification-compiler-backends-2026-10-24.md)
+and [catalog records](project/completed_requirements.md#compiler-and-backend-contracts-in-234).
+Earlier slices such as SC02a through SC02e and BE02a/BE02b retain their historical evidence.
 
-| State | ID | Estimate | Remaining requirement and acceptance gate | Dependencies |
+| State | ID | Estimate | Requirement and acceptance gate | Dependencies |
 | --- | --- | --- | --- | --- |
-| [ ] | SC02 | — | Broaden default-value validation and define bit-field support with wire/compatibility tests. SC02c/SC02d qualify constant-stack parser/backend recognition; [SC02e](project/completed_requirements.md#sc02e) adds declaration locations to legacy/backend field-default errors while preserving acceptance and atomic output; [resource scope](verification/verification-portable-literals-2026-10-24.md). See [Feature roadmap](project/feature_status.md#other-roadmap-items). | — |
-| [ ] | SC03 | — | The 2.23.0 worktree adds generated C++ fixed-array Protobuf mapping, exact packed/unpacked/text cardinality and format-specific default retention; [mapping boundary](serialization/protobuf.md#mapping-contract). Complete generic-function calls/defaults and final SDK qualification; [Generics](schema/generics.md). | — |
-| [ ] | BE01 | — | Implement native-backend separate-file layout where currently unavailable; preserve naming, dependency includes/modules and editor navigation; [Native languages](languages/native_languages.md). | — |
-| [ ] | BE02 | — | Define and implement Java packed output and direct native-codec stream/channel or native-acceleration APIs. Opt-in caller-owned array windows and heap/direct NIO buffers are qualified as [BE02a](project/completed_requirements.md#be02a) / [BE02b](project/completed_requirements.md#be02b), with ownership/failure/resource tests; [Java output](languages/java.md#defaults-and-unsupported-schema-features). | — |
-| [ ] | BE03 | — | Qualify borrowed/mapped-view platform, lifetime, allocation and performance boundaries; broader formats require their own mapping contract; [Views](serialization/views.md). | — |
-| [ ] | OPC-OPT02 | — | Define a signature/canonicalization/trust provider and independently qualify editing/signed-package behavior before claiming signature support; [OPC design](design/opc_3mf_support.md). | — |
+| [x] | SC02 | — | **Completed.** Language 1.24 broadens scalar default validation and defines unsigned C++ owning bit-field storage, preserving scalar wire bytes and qualifying decode ranges and directional compatibility with MSVC/GCC. Unsupported backend/storage/address mappings reject explicitly. | — |
+| [x] | SC03 | — | **Completed.** Exact independent generic function/member calls and constructor/factory input defaults compile and execute with MSVC/GCC. Fixed-array Protobuf retains exact packed/unpacked/text cardinality and format-specific default rules; independent Google SDK exchanges pass. | — |
+| [x] | BE01 | — | **Completed.** C/Rust/Python/Swift/Kotlin native dependency bundles preserve declaration order, naming, includes/modules, depfiles and editor navigation. All five actual SDK consumers pass; inline defaults and existing single-string APIs remain compatible. | — |
+| [x] | BE02 | — | **Completed.** Java fixed-scalar packed buffers and opt-in direct native-codec OutputStream/channel APIs qualify wire parity, size patches, projections, caller ownership and failure bounds. Existing [BE02a](project/completed_requirements.md#be02a)/[BE02b](project/completed_requirements.md#be02b) array/NIO contracts remain independent. | — |
+| [x] | BE03 | — | **Completed.** Actual Windows/POSIX borrowed mapped views qualify platform/lifetime/aliasing, persisted fixed-size edits, bounds and measured allocation/performance boundaries. Other formats require their own mapping contract; recorded timings do not promise a universal speedup. | — |
+| [x] | OPC-OPT02 | — | **Completed.** A Windows Packaging API signature/canonicalization provider requires explicit pinned certificates and signed coverage. Independent native/.NET producers and validators qualify tampering, trust, coverage, removal/edit/resigning behavior; unsupported provider/algorithm profiles reject. | — |
 
 ## Qualification and distribution
 

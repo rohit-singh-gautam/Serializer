@@ -55,6 +55,8 @@ def main():
                 rejected = subprocess.run([str(args.probe), 'decode', protocol, str(path)], capture_output=True, timeout=30)
                 if rejected.returncode == 0:
                     raise AssertionError('Fixed array accepted a valid SDK message with the wrong cardinality')
+                if not any(reason in rejected.stderr for reason in (b'cardinality', b'Excess Protobuf fixed-array element')):
+                    raise AssertionError('SDK cardinality case failed for an unrelated reason: ' + rejected.stderr.decode())
                 checks += 1
     print(f'PASS: Google Protobuf {__version__}, {checks} independent binary/ProtoJSON/TextFormat exchanges and cardinality decisions')
 

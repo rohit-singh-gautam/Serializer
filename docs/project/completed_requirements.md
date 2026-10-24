@@ -3,7 +3,7 @@
 [Feature list](feature_status.md) · [Pending work](../pending.md) ·
 [Ownership decisions](application_responsibilities.md#disposed-requirements)
 
-This feature catalog contains **824 implemented requirement records**, including
+This feature catalog contains **830 implemented requirement records**, including
 the 816 records moved out of the pending backlog on 2026-10-23. Each stable ID retains its capability scope,
 dependencies and original verification links. Completion applies to the stated
 backend, profile and dated checks; it does not close a broader parent requirement
@@ -23,6 +23,23 @@ estimates are omitted here because this is a feature/evidence catalog.
 | ID | Implemented capability and recorded verification | Dependencies |
 | --- | --- | --- |
 | <a id="cpp01"></a>CPP01 | Compiler/runtime 2.30.1 requires C++23 across compiler, runtime, managed/generated consumers, provider targets and installed exports. Public language/library admission, explicit older-mode rejection, synchronized usage/migration guidance and Windows MSVC/clang-cl plus Linux GCC/Clang installed-consumer qualification preserve APIs, schemas and wire identities. Explicit GCC/Clang C++26 configuration and installed consumers retain the newer mode; [executed scope and limits](../verification/verification-cpp23-2026-10-23.md). | — |
+
+## Compiler and backend contracts in 2.34
+
+Completion applies to these defined backend profiles, rather than every possible
+storage, protocol, SDK or trust-provider combination. The
+[usage contracts](../guides/compiler_backend_updates.md) and
+[dated verification](../verification/verification-compiler-backends-2026-10-24.md)
+record the executed checks and explicit boundaries.
+
+| ID | Implemented capability and recorded verification | Dependencies |
+| --- | --- | --- |
+| <a id="sc02"></a>SC02 | Language 1.24 checked scalar field defaults and concrete C++ owning unsigned bit fields. Existing scalar wire widths remain unchanged; all four native codecs enforce decode ranges, unsupported address/storage/output combinations reject and compatibility reports directional value-domain changes. MSVC/GCC generated consumers pass. | SC02a–SC02e |
+| <a id="sc03"></a>SC03 | Exact typed independent generic function/member calls, substituted common arithmetic returns and independent constructor/factory defaults in generated C++. MSVC/GCC consumers and the existing fixed-array Protobuf suite pass; Google Protobuf independently exchanges binary/ProtoJSON/TextFormat and qualifies exact cardinality. | — |
+| <a id="be01"></a>BE01 | Explicit C/Rust/Python/Swift/Kotlin dependency bundles with inline compatibility defaults, complete artifact/depfile ownership and schema navigation. All five actual SDK consumers pass; entry-only inventory discovers linked fragments in both editor resolvers. | — |
+| <a id="be02"></a>BE02 | Opt-in synchronous Java native OutputStream/channel codecs and fixed-scalar packed ByteBuffer APIs. Four-format parity, size patches/projections, partial/no-progress writes, exception/sink ownership and heap/direct buffer bounds pass on real SDKs. Caller-owned array/NIO APIs retain their independent options. | BE02a, BE02b |
+| <a id="be03"></a>BE03 | Actual Windows/POSIX shared-file mapped C++ views qualify unaligned storage, borrowed lifetime/aliasing, persisted fixed-size edits, bounded failures and allocation/timing scope. Generated mapping/traversal allocates no ordinary heap storage; owning decoding is faster on the recorded workload. | — |
+| <a id="opc-opt02"></a>OPC-OPT02 | Windows Packaging API provider for RSA-SHA256/SHA256, selected canonicalization and caller-pinned DER trust with explicit per-signature coverage. Independent native/.NET producers/validators pass tampering, wrong-trust, coverage, removal and resigning checks; unsupported providers/algorithms reject. | — |
 
 ## OPC and 3MF requirements
 
