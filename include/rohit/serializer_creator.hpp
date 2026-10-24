@@ -1170,6 +1170,10 @@ inline void write(rohit::type_check::output_stream auto& output,
 }
 } // namespace writer::java
 namespace writer::portable {
+// Plan complete native source bundles; callers publish every returned artifact together.
+std::vector<cpp::generated_file> generate_files(const parser::parsed_schema& schema,
+    std::string_view language, const std::filesystem::path& destination,
+    const portable_options& options = {}, include_mode mode = include_mode::separate);
 // Generate standalone JS, Go, C#, Rust, Python, Swift, Kotlin, C, or TypeScript declarations.
 // unit_name supplies the C# outer class; unsupported features fail before publication.
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,

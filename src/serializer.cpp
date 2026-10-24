@@ -169,6 +169,7 @@ void apply_output_overrides(rohit::serializer::writer::output_options& options,
   }
   if (arguments.contains("include-mode")) {
     options.includes = writer::parse_include_mode(cli::first(arguments, "include-mode"));
+    options.native_includes = options.includes;
   }
   if (arguments.contains("language")) {
     options.language.clear();
@@ -805,8 +806,11 @@ int main(const int argc, const char* argv[]) {
               found != options.class_auto_sizes.end()) {
             settings.class_auto_sizes = found->second;
           }
-          contents = writer::portable::generate_schema(schema, language,
-              request.destination.stem().string(), settings);
+          for (auto& file : writer::portable::generate_files(schema, language,
+              request.destination, settings, options.native_includes)) {
+            artifacts.push_back({request.configuration_index, request.language, std::move(file)});
+          }
+          continue;
         }
         artifacts.push_back({request.configuration_index, request.language,
                              {request.destination, std::move(contents)}});

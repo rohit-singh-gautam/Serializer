@@ -1766,6 +1766,7 @@ public:
     --indent;
     line(")");
     for (const auto* node : model.nodes) {
+      output += model.file_marker(node);
       if (node->type == object_type::function_type) { free_function(static_cast<const function_node&>(*node)); continue; }
       if (model.xml.enabled && (model.names.at(node) == "XmlSchema" || model.names.at(node) == "Html" ||
           model.names.at(node) == "HtmlEvent" || model.names.at(node) == "HtmlAttribute" ||
@@ -1798,6 +1799,7 @@ public:
       --indent;
       line(names + ")");
     }
+    output += model.file_marker(nullptr);
     if (model.xml.enabled) {
       for (std::size_t index{}; index < model.xml_inventories.size(); ++index) {
         const auto& inventory = *model.xml_inventories[index];

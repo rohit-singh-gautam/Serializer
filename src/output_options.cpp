@@ -544,6 +544,7 @@ output_options read_output_options(const std::filesystem::path& file) {
         parse_output_languages(value);
       } else if (section == "output" && key == "include_mode") {
         result.includes = parse_include_mode(value);
+        result.native_includes = result.includes;
       } else if (section == "output" && key == "protocols") {
         result.protocols = parse_output_protocols(value);
       } else if ((section == "js" || section == "go" || section == "csharp") && key == "naming") {

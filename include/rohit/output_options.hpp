@@ -128,6 +128,7 @@ struct output_options {
   std::map<std::string, std::map<std::string, class_auto_size_options>> class_auto_sizes{};
   include_mode includes{include_mode::separate};
   output_protocols protocols{output_protocols::all};
+  include_mode native_includes{include_mode::inline_output}; // Preserve established native CLI defaults.
 };
 
 // Apply a common native codec selection to all output backends; XML remains independent.

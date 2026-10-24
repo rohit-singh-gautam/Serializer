@@ -2437,6 +2437,13 @@ if(SERIALIZER_WITH_XML)
   add_test(NAME xml_shapes_cpp COMMAND xml_shapes_cpp)
 endif()
 
+if(Python3_Interpreter_FOUND)
+  add_test(NAME native_file_layout_python
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/native_file_layout_test.py"
+      --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_file_layout"
+      --languages python)
+endif()
+
 if(WIN32)
   get_property(serializer_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
   foreach(target IN LISTS serializer_test_targets)

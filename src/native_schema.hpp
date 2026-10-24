@@ -22,6 +22,15 @@ struct schema {
   std::map<std::string, class_auto_size_options> class_auto_sizes{};
   xml_options xml{};
   output_protocols protocols{output_protocols::all};
+  std::map<std::string, std::size_t> source_files{};
+  // Mark declaration boundaries only while planning a multi-file native bundle.
+  [[nodiscard]] std::string file_marker(const syntax_node* node) const {
+    if (source_files.empty()) { return {}; }
+    const auto source = node ? (node->output_source_path.empty() ? node->source_path : node->output_source_path) : std::string{};
+    const auto found = source_files.find(source);
+    const auto index = found == source_files.end() ? source_files.size() - 1 : found->second;
+    return "\n\x1e" + std::to_string(index) + "\x1f\n";
+  }
   std::vector<std::shared_ptr<const xml_binding::declaration_inventory>> xml_inventories{};
   // Append each private validation AST once after XML options have been configured.
   void collect_xml_validators();
