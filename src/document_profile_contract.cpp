@@ -46,8 +46,8 @@ package_node configure_package(const package_node& source, const xml_options& op
   package_node result{std::string{source.name}, source.parent_namespace};
   result.parts = source.parts;
   const auto selected = options.package_profiles.find(source.get_full_name());
-  if (selected == options.package_profiles.end()) { return result; }
-  for (const auto& [key, value] : selected->second) {
+  const std::map<std::string, std::string> defaults{};
+  for (const auto& [key, value] : selected == options.package_profiles.end() ? defaults : selected->second) {
     const auto separator = key.find('.');
     const auto role_name = key.substr(0, separator);
     const auto role = std::find_if(result.parts.begin(), result.parts.end(),
@@ -96,6 +96,9 @@ package_node configure_package(const package_node& source, const xml_options& op
     } else { throw std::invalid_argument{"Unknown package profile setting: " + key}; }
   }
   for (const auto& part : result.parts) {
+    if (part.target_mode != "internal" && part.value_type) {
+      throw std::invalid_argument{"External package targets must be inert bytes-role references: " + part.name};
+    }
     if (part.codec != "xml" && (part.requires_type || !part.vocabularies.empty())) {
       throw std::invalid_argument{"Namespace/type package profiles require the XML codec: " + part.name};
     }

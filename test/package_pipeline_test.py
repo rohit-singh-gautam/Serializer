@@ -130,6 +130,7 @@ def main():
     parser.add_argument('--dotnet', default='dotnet')
     parser.add_argument('--go', default='go')
     parser.add_argument('--binary-only', action='store_true', help='Qualify positional-only generation and rejection of JSON selections')
+    parser.add_argument('--schema-local', action='store_true', help='Use authored role profiles without INI overrides')
     args = parser.parse_args()
     compiler_sha256 = hashlib.sha256(args.compiler.read_bytes()).hexdigest()
     build = args.build.resolve(); build.mkdir(parents=True, exist_ok=True)
@@ -144,7 +145,8 @@ def main():
         if bool(completed.returncode) != expect_failure:
             raise RuntimeError(stage + ': ' + completed.stdout + completed.stderr)
         return completed.stdout
-    base = [args.compiler.resolve(), '--input', ROOT / 'test/resources/package_pipeline.serializer', '--config', ROOT / 'test/resources/package_pipeline.ini']
+    profile_arguments = [] if args.schema_local else ['--config', ROOT / 'test/resources/package_pipeline.ini']
+    base = [args.compiler.resolve(), '--input', ROOT / 'test/resources/package_pipeline.serializer', *profile_arguments]
     if args.binary_only:
         # Reject a statically selected disabled native envelope before publishing generated output.
         language = 'js' if args.language in ('javascript', 'typescript') else args.language
@@ -153,7 +155,7 @@ def main():
         assert not rejected.exists()
         model = build / 'binary-only.serializer'
         model.write_text((ROOT / 'test/resources/package_pipeline.serializer').read_text().replace('codec(json);', 'codec(xml);'))
-        base = [args.compiler.resolve(), '--input', model, '--config', ROOT / 'test/resources/package_pipeline.ini', '--protocols', 'binary_none']
+        base = [args.compiler.resolve(), '--input', model, *profile_arguments, '--protocols', 'binary_none']
     if args.language == 'cpp':
         if not args.consumer:
             parser.error('C++ requires --consumer')
@@ -194,7 +196,14 @@ def main():
         run(base + ['--language', 'kotlin', '--output', build / 'Schema.kt', '--kotlin.package', 'generated'], 'generation')
         (build / 'Main.kt').write_text((ROOT / 'test/resources/package_pipeline_main.kt').read_text())
         kotlinc=Path(args.kotlinc).resolve() if Path(args.kotlinc).exists() else args.kotlinc
-        run([kotlinc, '-Werror', build / 'Schema.kt', build / 'Main.kt', '-include-runtime', '-d', build / 'consumer.jar'], 'compile')
+        command = [kotlinc]
+        if isinstance(kotlinc, Path):
+            home = kotlinc.parent.parent
+            # Invoke an explicitly selected SDK directly, avoiding batch launcher's path assumptions.
+            if (home / 'lib/kotlin-compiler.jar').is_file():
+                command = [args.java, '-Xmx2g', '-cp', home / 'lib/kotlin-compiler.jar',
+                           'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-kotlin-home', home, '-jvm-target', '17']
+        run(command + ['-Werror', build / 'Schema.kt', build / 'Main.kt', '-include-runtime', '-d', build / 'consumer.jar'], 'compile')
         launch = [args.java, '-jar', build / 'consumer.jar']
     elif args.language == 'swift':
         run(base + ['--language', 'swift', '--output', build / 'Schema.swift'], 'generation')

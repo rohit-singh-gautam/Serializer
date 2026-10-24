@@ -80,11 +80,27 @@ void parse_xml_authoring_defaults(const rohit::type_check::schema_input_buffer a
     skip_whitespace_and_comment(input);
     check_and_increase(input, '(');
     skip_whitespace_and_comment(input);
-    if (key == "namespace" || (key == "root" && class_scope)) {
-      auto& slot = key == "namespace" ? candidate.namespace_uri : candidate.root;
+    if (key == "namespace" || ((key == "root" || key == "ordered") && class_scope)) {
+      if (key == "ordered" && active_language_version < language_version{1U, 24U, 0U}) {
+        throw exception::bad_member_spec{input, "Schema-local ordered XML requires serializer version 1.24.0"};
+      }
+      auto& slot = key == "namespace" ? candidate.namespace_uri :
+          key == "ordered" ? candidate.ordered : candidate.root;
       if (slot) { throw exception::bad_member_spec{input, "Duplicate XML default: " + key}; }
       slot = parse_xml_authoring_string(input);
-      if (key == "root" && slot->empty()) { throw exception::bad_member_spec{input, "XML root name cannot be empty"}; }
+      if (key != "namespace" && slot->empty()) { throw exception::bad_member_spec{input, "XML root/ordered selection cannot be empty"}; }
+    } else if (key == "ordered_child" && class_scope) {
+      if (active_language_version < language_version{1U, 24U, 0U}) {
+        throw exception::bad_member_spec{input, "Schema-local ordered XML requires serializer version 1.24.0"};
+      }
+      auto branch = parse_xml_authoring_string(input);
+      check_and_increase(input, ',');
+      auto name = parse_xml_authoring_string(input);
+      constexpr std::size_t maximum_ordered_children{1024U};
+      if (branch.empty() || name.empty() || candidate.ordered_children.size() == maximum_ordered_children ||
+          !candidate.ordered_children.emplace(std::move(branch), std::move(name)).second) {
+        throw exception::bad_member_spec{input, "Invalid, duplicate or excessive ordered XML child selection"};
+      }
     } else if (key == "scalars") {
       if (candidate.scalar_placement) { throw exception::bad_member_spec{input, "Duplicate XML scalar placement"}; }
       candidate.scalar_placement = parse_xml_placement(input);
@@ -111,6 +127,9 @@ void parse_xml_authoring_defaults(const rohit::type_check::schema_input_buffer a
   check_and_increase(input, ')');
   skip_whitespace_and_comment(input);
   check_and_increase(input, ';');
+  if (!candidate.ordered_children.empty() && !candidate.ordered) {
+    throw exception::bad_member_spec{input, "XML ordered_child requires a schema-local ordered selection"};
+  }
   destination = std::move(candidate);
 }
 
@@ -245,6 +264,39 @@ package_part_declaration parse_package_part(const rohit::type_check::schema_inpu
           auto target = parse_identifier_impl(input);
           result.references.push_back({std::move(scope), std::move(field), std::move(target)});
         }
+      }
+    } else if (key == "target_mode" || key == "requires_type" || key == "vocabularies") {
+      if (active_language_version < language_version{1U, 24U, 0U}) {
+        throw exception::bad_member_spec{input, "Schema-local package profiles require serializer version 1.24.0"};
+      }
+      if (key == "target_mode") {
+        result.target_mode = parse_identifier_impl(input);
+        if (result.target_mode != "internal" && result.target_mode != "external" && result.target_mode != "both") {
+          throw exception::bad_member_spec{input, "Package target_mode must be internal, external or both"};
+        }
+      } else if (key == "requires_type") {
+        const auto value = parse_identifier_impl(input);
+        if (value != "true" && value != "false") {
+          throw exception::bad_member_spec{input, "Package requires_type must be true or false"};
+        }
+        result.requires_type = value == "true";
+      } else {
+        constexpr std::size_t maximum_package_vocabularies{1024U};
+        do {
+          auto value = parse_xml_authoring_string(input);
+          if (value.empty() || value.find_first_of(" \t\r\n") != std::string::npos ||
+              value.find(static_cast<char>(0x7f)) != std::string::npos ||
+              std::find(result.vocabularies.begin(), result.vocabularies.end(), value) != result.vocabularies.end()) {
+            throw exception::bad_member_spec{input, "Package vocabulary must be nonempty, unique and contain no whitespace"};
+          }
+          if (result.vocabularies.size() == maximum_package_vocabularies) {
+            throw exception::bad_member_spec{input, "Package vocabulary count exceeds its limit"};
+          }
+          result.vocabularies.push_back(std::move(value));
+          skip_whitespace_and_comment(input);
+          if (input.full() || *input != ',') { break; }
+          ++input;
+        } while (true);
       }
     } else if (key == "name" || key == "content_type") {
       auto& slot = key == "name" ? result.part_name : result.content_type;
