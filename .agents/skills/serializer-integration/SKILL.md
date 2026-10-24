@@ -7,6 +7,12 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 
 [Documentation index](../../../docs/README.md)
 
+Use the [payload allocation primitives](../../../docs/managed/payload_allocation_runtime.md)
+when manually binding owned C++ containers and exact native decoding to a shared
+resource. Retain the domain for every allocation's lifetime and distinguish
+requested-byte bounds from process memory. Generated record selection requires
+its separately qualified profile; default generated containers remain unchanged.
+
 Check the [managed representation matrix](../../../docs/managed/representation_contracts.md)
 before selecting C++ storage/codecs. Use unpacked owning records and distinct
 public base occurrences. Direct native identity cannot map into Protobuf's field

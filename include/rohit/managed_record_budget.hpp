@@ -65,7 +65,7 @@ class record_budget {
     add(work_, 1, limits_.max_work_units);
     if constexpr (std::is_arithmetic_v<Value>) {
       bytes(serializer::detail::binary_fixed_bytes<Value>);
-    } else if constexpr (std::same_as<Value, std::string> ||
+    } else if constexpr (serializer::type_check::owning_string<Value> ||
                          std::same_as<Value, std::string_view>) {
       if (item.size() > limits_.max_string_bytes) {
         throw std::length_error{"Collaboration string limit exceeded"};

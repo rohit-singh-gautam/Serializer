@@ -46,6 +46,11 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+The [resource-owning payload runtime](docs/managed/payload_allocation_runtime.md)
+provides allocator-bound strings, vectors, maps and exact native decoding.
+Resource limits measure routed allocation requests; process RSS has a separate
+contract. Existing default container APIs and codec bytes remain compatible.
+
 The [managed representation contract](docs/managed/representation_contracts.md)
 defines owning storage/editor support and explicit packed/view/recursive limits.
 Direct managed Protobuf rejects before identity lowering; separate-value wrappers

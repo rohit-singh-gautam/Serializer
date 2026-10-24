@@ -471,7 +471,7 @@ public:
       serialize_out_variable(static_cast<std::underlying_type_t<Value>>(value));
     } else if constexpr (std::integral<Value>) {
       write_integer(value);
-    } else if constexpr (std::same_as<Value, std::string> ||
+    } else if constexpr (type_check::owning_string<Value> ||
                          std::same_as<Value, std::string_view>) {
       if (value.size() > constants::variable_four_byte_max) {
         throw std::out_of_range{"Binary variable integer exceeds the 30-bit wire range"};

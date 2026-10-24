@@ -512,7 +512,7 @@ public:
   explicit map_replacement(Map& value) : destination{value} {
     if constexpr (can_reuse_nodes) {
       if (!destination.empty()) {
-        previous.emplace();
+        previous.emplace(destination.key_comp(), destination.get_allocator());
         previous->swap(destination);
       }
     } else {
@@ -828,7 +828,7 @@ protected:
   }
 
   // Validate a string before replacing storage; ordinary keys borrow the input only until dispatch.
-  std::string_view read_string(std::string& destination, bool borrow) {
+  std::string_view read_string(type_check::owning_string auto& destination, bool borrow) {
     const auto bytes = available_input();
     detail::json_string_range range;
     try {
@@ -1162,7 +1162,7 @@ public:
       value = character[0];
     } else if constexpr (std::integral<T> || std::floating_point<T>) {
       read_number(value);
-    } else if constexpr (std::same_as<T, std::string>) {
+    } else if constexpr (type_check::owning_string<T>) {
       read_string(value, false);
     } else if constexpr (std::is_enum_v<T>) {
       std::string scratch;
@@ -1607,7 +1607,7 @@ public:
       }
       before_data();
       out_stream.append_external(buffer, static_cast<std::size_t>(result.ptr - buffer));
-    } else if constexpr (std::same_as<T, std::string>) {
+    } else if constexpr (type_check::owning_string<T>) {
       write_string(value);
     } else if constexpr (std::same_as<T, std::string_view>) {
       write_string(value);
@@ -1942,7 +1942,7 @@ public:
                     "Binary floats require 32-bit or 64-bit binary IEC 559 storage");
       const auto* bytes = read_bytes(sizeof(T));
       detail::read_fixed_scalar<WireEndian>(bytes, value);
-    } else if constexpr (std::same_as<T, std::string>) {
+    } else if constexpr (type_check::owning_string<T>) {
       const auto size = serialize_in_variable();
       require_input(size);
       check_string(size);
@@ -2506,7 +2506,7 @@ public:
       }
       // Byte copying does not require the stream cursor to be aligned for wire_type.
       out_stream.append_external(&wire_value, sizeof(wire_value));
-    } else if constexpr (std::is_same_v<std::string, T> || std::is_same_v<std::string_view, T>) {
+    } else if constexpr (type_check::owning_string<T> || std::is_same_v<std::string_view, T>) {
       detail::native_output_visit(out_stream, value.size());
       if (value.size() > constants::variable_four_byte_max) {
         throw std::out_of_range{"Binary variable integer exceeds the 30-bit wire range"};
@@ -2515,7 +2515,7 @@ public:
         detail::validate_utf8(std::string_view{value});
       }
       serialize_out_variable(value.size());
-      out_stream.append(value);
+      out_stream.append(std::string_view{value});
     } else if constexpr (std::floating_point<T>) {
       static_assert(rohit::detail::endian_floating_point<T>,
                     "Binary floating-point output requires a 32-bit or 64-bit IEC 559 representation");

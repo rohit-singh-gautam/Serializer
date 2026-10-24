@@ -205,7 +205,8 @@ concept serializer_out_enabled = requires(T cls, J& serialize_protocol) {
 template <typename T>
 concept vector = requires(T t) {
   typename T::value_type;
-  requires std::is_same_v<T, std::vector<typename T::value_type>>;
+  typename T::allocator_type;
+  requires std::is_same_v<T, std::vector<typename T::value_type, typename T::allocator_type>>;
 };
 
 template <typename T>
@@ -218,7 +219,18 @@ template <typename T>
 concept map = requires(T t) {
   typename T::key_type;
   typename T::mapped_type;
-  requires std::is_same_v<T, std::map<typename T::key_type, typename T::mapped_type>>;
+  typename T::key_compare;
+  typename T::allocator_type;
+  requires std::is_same_v<T, std::map<typename T::key_type, typename T::mapped_type,
+      typename T::key_compare, typename T::allocator_type>>;
+};
+
+// Recognize owning byte strings independently of their allocator and character-traits policy.
+template <typename T>
+concept owning_string = requires {
+  typename T::traits_type;
+  typename T::allocator_type;
+  requires std::same_as<T, std::basic_string<char, typename T::traits_type, typename T::allocator_type>>;
 };
 
 } // namespace type_check
