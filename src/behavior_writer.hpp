@@ -794,15 +794,21 @@ inline std::vector<class_body_item> ordered_body(const class_node& owner) {
 // Compare schema signatures without treating a return type or dispatch modifier as an overload.
 inline std::string signature(const function_declaration& method) {
   std::string result = method.name + "(";
-  for (const auto& argument : method.parameters) { result += argument.type.get_full_name() + ","; }
+  for (const auto& argument : method.parameters) {
+    if (argument.modifier == member::modifier_type::array) {
+      result += "array[" + std::to_string(argument.fixed_extent) + "]";
+    }
+    result += argument.type.get_full_name() + (argument.const_ref ? " const_ref," : ",");
+  }
   return result + ")";
 }
 
 // Flatten behavior contracts for adapters while retaining the nearest implementation signature.
-inline std::vector<const function_declaration*> contracts(const class_node& owner) {
+inline std::vector<const function_declaration*> contracts(const class_node& owner,
+    bool include_managed_edits = false) {
   std::map<std::string, const function_declaration*> methods;
   for (const auto& base : owner.parents) {
-    for (const auto* method : contracts(*base.parent_class)) { methods.emplace(signature(*method), method); }
+    for (const auto* method : contracts(*base.parent_class, true)) { methods.emplace(signature(*method), method); }
   }
   for (const auto& method : owner.functions) {
     const auto key = signature(method);
@@ -811,7 +817,12 @@ inline std::vector<const function_declaration*> contracts(const class_node& owne
     }
   }
   std::vector<const function_declaration*> result;
-  for (const auto& [key, method] : methods) { static_cast<void>(key); result.push_back(method); }
+  for (const auto& [key, method] : methods) {
+    static_cast<void>(key);
+    if (owner.supports_managed() && method->effect == function_declaration::effect_type::edit &&
+        !include_managed_edits) { continue; }
+    result.push_back(method);
+  }
   return result;
 }
 

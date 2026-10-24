@@ -7,6 +7,13 @@ description: "Integrate Serializer's schema compiler and generated runtimes into
 
 [Documentation index](../../../docs/README.md)
 
+For virtual/abstract/override C++ managed edits, follow
+[guarded dispatch](../../../docs/managed/edit_dispatch.md). Select language 1.24
+in each declaring file and bind the exact editor adapter. Keep borrowed behavior
+implementations alive, handle typed results explicitly and reject escaped closed
+channels. Persisted payloads retain ordinary value ownership; dispatch grants no
+mutable payload alias. Broader native-engine method profiles remain separate.
+
 For derived uint64 disk lookup, use the
 [paged index](../../../docs/managed/paged_index.md) with a complete source binding.
 Retain the exact immutable source and query pins; reject stale, foreign or corrupt

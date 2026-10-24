@@ -1,0 +1,33 @@
+serializer version 1.24.0;
+
+namespace edit_dispatch_example {
+  enum edit_error {
+    empty_input
+  }
+
+  class base managed stable_ids {
+    public int64 value (1) {1};
+    public function abstract int64 adjust(int64 delta) edit;
+    public function virtual int64 reset(int64 next) edit
+      cpp { set_value(next); return get_value(); };
+    public function virtual expected<int64, edit_error> checked(string input const_ref) edit
+      cpp {
+        if (input.empty()) { return std::unexpected(edit_error::empty_input); }
+        set_value(static_cast<std::int64_t>(input.size()));
+        return get_value();
+      };
+  }
+
+  class derived managed stable_ids : public base ("base", 10) {
+    public int64 multiplier (11) {2};
+    public function override int64 adjust(int64 delta) edit
+      cpp {
+        auto inherited = base();
+        const auto result = inherited.get_value() + delta * get_multiplier();
+        inherited.set_value(result);
+        return result;
+      };
+  }
+
+  class inherited managed stable_ids : public derived ("derived", 20) {}
+}

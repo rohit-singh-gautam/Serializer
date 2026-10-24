@@ -696,6 +696,7 @@ struct function_declaration {
   bool cpp_noexcept{false}; // Author-promised nonthrowing C++ readonly native/external callable.
   std::string cpp_prefix{}; // Explicit declaration-site C++ constexpr/inline additions.
   bool automatic_constexpr_enabled{false}; // Preserve older native-body qualification contracts.
+  bool managed_dispatch_enabled{false}; // Preserve the declaring file's language 1.24 edit contract.
   bool is_static{false}; // An ordinary C++ callable has no receiver or persistent identity.
   member::modifier_type return_modifier{member::modifier_type::none};
   std::vector<dimension_expression> return_extent_expression{};

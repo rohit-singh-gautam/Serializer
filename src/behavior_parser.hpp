@@ -552,6 +552,7 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
   function_declaration result;
   result.access = access;
   result.automatic_constexpr_enabled = active_language_version >= language_version{1u, 14u, 0u};
+  result.managed_dispatch_enabled = active_language_version >= language_version{1u, 24u, 0u};
   result.source_offset = behavior_source_offset(input);
   const auto source_begin = result.source_offset;
   parse_identifier_impl(input); // function
@@ -645,11 +646,14 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
   }
   result.effect = effect == "edit" ? function_declaration::effect_type::edit :
                                    function_declaration::effect_type::readonly;
+  const bool guarded_edit_signature = result.managed_dispatch_enabled &&
+      result.effect == function_declaration::effect_type::edit &&
+      result.dispatch != function_declaration::dispatch_type::ordinary && !result.is_static;
   if ((result.is_static || result.return_modifier == member::modifier_type::array ||
        std::any_of(result.parameters.begin(), result.parameters.end(), [](const auto& parameter) {
          return parameter.const_ref || parameter.modifier == member::modifier_type::array;
        })) && (result.dispatch != function_declaration::dispatch_type::ordinary ||
-               result.effect != function_declaration::effect_type::readonly)) {
+               result.effect != function_declaration::effect_type::readonly) && !guarded_edit_signature) {
     throw exception::bad_member_spec{input, "Native callable signatures require ordinary readonly functions"};
   }
   if (!result.generic_parameters.empty() && (result.effect != function_declaration::effect_type::readonly ||
@@ -1684,8 +1688,23 @@ void validate_behavior_contracts(const rohit::type_check::schema_input_buffer au
       }
       for (const auto& method : owner.functions) {
         if (owner.supports_managed() && method.effect == function_declaration::effect_type::edit &&
-            method.dispatch != function_declaration::dispatch_type::ordinary) {
-          throw exception::bad_member_spec{input, "Managed edit dispatch requires an ordinary transaction-bound editor method"};
+            method.dispatch != function_declaration::dispatch_type::ordinary && !method.managed_dispatch_enabled) {
+          throw exception::bad_member_spec{input, "Managed edit dispatch requires serializer version 1.24.0"};
+        }
+        if (method.effect == function_declaration::effect_type::edit &&
+            method.dispatch != function_declaration::dispatch_type::ordinary &&
+            (!method.generic_parameters.empty() || method.is_static || method.guard)) {
+          throw exception::bad_member_spec{input,
+              "Dispatched edit contracts require a nonstatic nongeneric signature without callable guards"};
+        }
+        if (!owner.supports_managed() && method.effect == function_declaration::effect_type::edit &&
+            method.dispatch != function_declaration::dispatch_type::ordinary &&
+            (method.return_modifier == member::modifier_type::array ||
+             std::any_of(method.parameters.begin(), method.parameters.end(), [](const auto& parameter) {
+               return parameter.const_ref || parameter.modifier == member::modifier_type::array;
+             }))) {
+          throw exception::bad_member_spec{input,
+              "Borrowed or fixed-array dispatched edit signatures require a managed owner"};
         }
         const auto key = behavior_signature(method);
         const auto matches = inherited.find(key);
@@ -1697,6 +1716,21 @@ void validate_behavior_contracts(const rohit::type_check::schema_input_buffer au
           for (const auto* base : matches->second) {
             if (base->return_type.get_full_name() != method.return_type.get_full_name() || base->effect != method.effect) {
               throw exception::bad_member_spec{input, "Override return type/effect does not match its inherited contract: " + key};
+            }
+            if (method.effect == function_declaration::effect_type::edit) {
+              bool same_ownership = base->parameters.size() == method.parameters.size() &&
+                  base->return_modifier == method.return_modifier &&
+                  base->return_fixed_extent == method.return_fixed_extent;
+              for (std::size_t index{}; same_ownership && index < method.parameters.size(); ++index) {
+                same_ownership = same_ownership &&
+                    base->parameters[index].const_ref == method.parameters[index].const_ref &&
+                    base->parameters[index].modifier == method.parameters[index].modifier &&
+                    base->parameters[index].fixed_extent == method.parameters[index].fixed_extent;
+              }
+              if (!same_ownership) {
+                throw exception::bad_member_spec{input,
+                    "Managed edit override must preserve parameter/result ownership and fixed extents: " + key};
+              }
             }
           }
         }

@@ -46,6 +46,11 @@ Selected compression framing, errors and byte/history admission now pass one sha
 
 ## Releases and supported outputs
 
+Language 1.24 [guarded C++ edit dispatch](docs/managed/edit_dispatch.md)
+supports virtual/abstract/override contracts through checked editor adapters.
+Implementations borrow the transaction channel and preserve owned/borrowed
+argument and typed-error contracts; closed adapters reject before user code.
+
 The [immutable disk index](docs/managed/paged_index.md) bounds external
 construction and its shared page cache. Bind every generation to the exact
 document, schema, definition, epoch, revision and source digest. Native database

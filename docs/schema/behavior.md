@@ -197,8 +197,12 @@ attachments with explicit data receivers. Adapters never serialize implementatio
 An override must match an inherited return type, parameters and effect. Two bases
 contributing one signature require an explicit override. Languages without method
 overloading reject colliding names; erased target signatures are checked before
-output is published. Managed `virtual`, `abstract` or `override` **edit** methods
-are rejected: transaction editor dispatch currently supports ordinary edit methods.
+output is published. In language `1.24.0`, C++ managed `virtual`, `abstract` and
+`override` **edit** contracts use separate guarded editor interfaces and adapters.
+They preserve constructible owning payload storage and explicit base occurrences;
+see [managed edit dispatch](../managed/edit_dispatch_and_notifications.md) for
+binding, ownership, failure and unsupported-signature rules. Older language
+versions retain the ordinary managed edit dispatch restriction.
 
 ## Target-specific source and ordering
 

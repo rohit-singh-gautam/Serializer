@@ -4149,8 +4149,12 @@ void resolve_behavior_bodies(const rohit::type_check::schema_input_buffer auto& 
       if (method.return_type.is_expected() && method.return_modifier != member::modifier_type::none) {
         throw exception::bad_member_spec{input, "Expected is supported only as a direct native C++ callable result"};
       }
-      if (method.effect != function_declaration::effect_type::readonly ||
-          method.dispatch != function_declaration::dispatch_type::ordinary || method.expression ||
+      const bool guarded_edit_signature = owner.supports_managed() && method.managed_dispatch_enabled &&
+          method.effect == function_declaration::effect_type::edit &&
+          method.dispatch != function_declaration::dispatch_type::ordinary && !method.is_static &&
+          method.generic_parameters.empty() && !method.guard;
+      if (((method.effect != function_declaration::effect_type::readonly ||
+            method.dispatch != function_declaration::dispatch_type::ordinary) && !guarded_edit_signature) || method.expression ||
           std::any_of(method.bodies.begin(), method.bodies.end(), [](const auto& body) {
             return body.language != "cpp";
           })) {

@@ -2,6 +2,7 @@
 
 #include <rohit/serializer_creator.hpp>
 #include "managed_schema.hpp"
+#include "behavior_writer.hpp"
 #include "cpp_naming.hpp"
 #include "schema_version.hpp"
 
@@ -601,6 +602,24 @@ class managed_writer {
       }
       std::set<std::string> methods{"id", "access_", "payload_type", "Access",
                                     type_name(source->name + "_editor")};
+      const auto dispatched = edit_contracts(source);
+      if (!dispatched.empty()) {
+        for (const auto suffix : {"_edit_behavior", "_edit_behavior_adapter"}) {
+          class_node helper{object_type::class_type, source->name + suffix,
+              source->parent_namespace, class_attributes::none, {}};
+          if (!names.insert(full_type_name(&helper)).second) {
+            throw std::invalid_argument{"Managed edit behavior helper name collision"};
+          }
+        }
+        methods.insert(function_name("bind_edit_behavior"));
+        methods.insert("serializer_dispatch_edit");
+        for (const auto* method : dispatched) {
+          if (!method->generic_parameters.empty() || method->guard || method->is_static) {
+            throw std::invalid_argument{
+                "Managed edit behavior requires nonstatic nongeneric contracts without callable guards"};
+          }
+        }
+      }
       for (const auto& base : source->parents) {
         if (!methods.insert(base_accessor_name(base)).second) {
           throw std::invalid_argument{"Managed base editor method name collision"};
@@ -691,21 +710,128 @@ class managed_writer {
     }
   }
 
+  // Select inherited edit contracts with the nearest concrete/abstract schema signature.
+  std::vector<const function_declaration*> edit_contracts(const class_node* source) const {
+    auto result = behavior::contracts(*source, true);
+    std::erase_if(result, [](const auto* method) {
+      return method->effect != function_declaration::effect_type::edit;
+    });
+    return result;
+  }
+
+  // Render arguments with one owned transfer per wrapper and no move from a borrowed parameter.
+  std::string edit_arguments(const function_declaration& method) const {
+    std::string result;
+    for (const auto& parameter : method.parameters) {
+      if (!result.empty()) { result += ", "; }
+      const auto name = writer_.local_name(parameter.name);
+      result += parameter.const_ref ? name : "::std::move(" + name + ")";
+    }
+    return result;
+  }
+
+  // Preserve exact parameter ownership, fixed extents and qualified names in erased edit signatures.
+  void write_edit_parameters(auto& output, const function_declaration& method) {
+    for (std::size_t index{}; index < method.parameters.size(); ++index) {
+      if (index) { write_managed_text(output, ", "); }
+      const auto& parameter = method.parameters[index];
+      write_managed_text(output, writer_.behavior_parameter_type(parameter), " ",
+          writer_.local_name(parameter.name));
+    }
+  }
+
+  // Dispatch through an editor/channel, never through mutable persisted payload pointers.
+  void write_edit_behavior(auto& output, const class_node* source) {
+    const auto contracts = edit_contracts(source);
+    if (contracts.empty()) { return; }
+    const auto interface = type_name(source->name + "_edit_behavior");
+    const auto adapter = type_name(source->name + "_edit_behavior_adapter");
+    const bool abstract = std::any_of(contracts.begin(), contracts.end(), [](const auto* method) {
+      return method->dispatch == function_declaration::dispatch_type::abstract_method;
+    });
+    write_managed_text(output,
+        "// Borrowed implementations receive only an invalidatable guarded editor, never raw payload storage.\n"
+        "template <typename Editor> class ", interface, " {\npublic:\n"
+        "  virtual ~", interface, "() = default;\n");
+    for (const auto* method : contracts) {
+      write_managed_text(output, "  // Invoke this exact schema edit contract through its editor receiver.\n"
+          "  virtual ", writer_.behavior_return_type(*method), " ", function_name(method->name), "(Editor&");
+      if (!method->parameters.empty()) { write_managed_text(output, ", "); }
+      write_edit_parameters(output, *method);
+      write_managed_text(output, ") const = 0;\n");
+    }
+    write_managed_text(output, "};\n"
+        "// Own a copy of the editor channel; the implementation must outlive every adapter call.\n"
+        "template <typename Editor> class ", adapter, " {\n"
+        "  Editor receiver_;\n  const ", interface, "<Editor>* implementation_{};\npublic:\n");
+    if (!abstract) {
+      write_managed_text(output,
+          "  // Use the concrete schema implementation selected by this exact editor type.\n"
+          "  explicit ", adapter, "(Editor receiver) : receiver_{::std::move(receiver)} {}\n");
+    }
+    write_managed_text(output, "  // Borrow a live polymorphic implementation without retaining argument aliases.\n"
+        "  ", adapter, "(Editor receiver, const ", interface, "<Editor>& implementation)\n"
+        "      : receiver_{::std::move(receiver)}, implementation_{::std::addressof(implementation)} {}\n"
+        "  // Reject temporary implementations before a dangling binding can be formed.\n"
+        "  ", adapter, "(Editor, const ", interface, "<Editor>&&) = delete;\n");
+    for (const auto* method : contracts) {
+      const auto result_type = writer_.behavior_return_type(*method);
+      const auto name = function_name(method->name);
+      const auto arguments = edit_arguments(*method);
+      write_managed_text(output, "  // Reject closed transactions before invoking user code; exceptions poison the candidate.\n"
+          "  ", result_type, " ", name, "(");
+      write_edit_parameters(output, *method);
+      write_managed_text(output, ") {\n    return receiver_.serializer_dispatch_edit([&]() -> ", result_type, " {\n");
+      if (!abstract) {
+        write_managed_text(output, "      if (!implementation_) { return receiver_.", name, "(", arguments, "); }\n");
+      }
+      write_managed_text(output, "      return implementation_->", name, "(receiver_",
+          arguments.empty() ? "" : ", ", arguments, ");\n    });\n  }\n");
+    }
+    write_managed_text(output, "};\n");
+  }
+
   // Emit typed mutation methods for both entity occurrences and ordinary child values.
   void write_editor(auto& output, const class_node* source) {
     open_managed_namespace(output, source);
     const auto name = type_name(source->name + "_editor");
+    const auto contracts = edit_contracts(source);
+    const auto interface = type_name(source->name + "_edit_behavior");
+    const auto adapter = type_name(source->name + "_edit_behavior_adapter");
+    if (!contracts.empty()) {
+      write_managed_text(output, "template <typename Editor> class ", interface, ";\n"
+          "template <typename Editor> class ", adapter, ";\n");
+    }
     auto current_access = access_type::private_access;
     write_managed_text(
         output, "template <typename Access> class ", name,
         " {\n  Access access_;\n"
         "  using payload_type = typename Access::value_type;\n",
+        contracts.empty() ? "" : "  template <typename> friend class " + adapter + ";\n"
+            "  // Guard erased edit dispatch without lending mutable payload aliases.\n"
+            "  template <typename Callable> decltype(auto) serializer_dispatch_edit(Callable&& callback) const\n"
+            "      requires (!Access::is_runtime_access) { return access_.guard(::std::forward<Callable>(callback)); }\n",
         writer_.access_section(access_type::public_access, current_access),
         "  // Bind generated operations to one checked transaction path.\n  explicit ",
         name,
         "(Access access) : access_{::std::move(access)} {}\n"
         "  // Return the immutable identity only for a managed occurrence.\n"
         "  auto id() const requires Access::is_managed { return access_.id(); }\n");
+    if (!contracts.empty()) {
+      const bool abstract = std::any_of(contracts.begin(), contracts.end(), [](const auto* method) {
+        return method->dispatch == function_declaration::dispatch_type::abstract_method;
+      });
+      const auto bind = function_name("bind_edit_behavior");
+      if (!abstract) {
+        write_managed_text(output, "  // Bind the nearest concrete schema implementations to this transaction.\n"
+            "  auto ", bind, "() const requires (!Access::is_runtime_access) { return ", adapter, "<", name, ">{*this}; }\n");
+      }
+      write_managed_text(output, "  // Bind a borrowed implementation to one exact editor and its checked channel.\n"
+          "  auto ", bind, "(const ", interface, "<", name, ">& implementation) const\n"
+          "      requires (!Access::is_runtime_access) { return ", adapter, "<", name, ">{*this, implementation}; }\n"
+          "  // Temporary implementations cannot outlive a borrowed adapter.\n"
+          "  auto ", bind, "(const ", interface, "<", name, ">&&) const = delete;\n");
+    }
     if (source->supports_managed()) {
       write_managed_text(output,
           "  // Return an exact typed document identity through an opted-in managed root scope.\n"
@@ -830,11 +956,35 @@ class managed_writer {
     }
     for (const auto& method : source->functions) {
       if (method.effect == function_declaration::effect_type::edit) {
-        writer_.write_behavior_method(output, source, method, true, false, &current_access);
+        if (method.dispatch == function_declaration::dispatch_type::abstract_method) { continue; }
+        auto concrete = method;
+        // Runtime polymorphism lives in the guarded behavior interface, not template editor inheritance.
+        concrete.dispatch = function_declaration::dispatch_type::ordinary;
+        writer_.write_behavior_method(output, source, concrete, true, false, &current_access);
+      }
+    }
+    for (const auto* method : contracts) {
+      if (method->dispatch == function_declaration::dispatch_type::abstract_method ||
+          std::any_of(source->functions.begin(), source->functions.end(), [&](const auto& local) {
+            return behavior::signature(local) == behavior::signature(*method);
+          })) { continue; }
+      for (const auto& base : source->parents) {
+        const auto inherited = edit_contracts(base.parent_class);
+        if (std::none_of(inherited.begin(), inherited.end(), [&](const auto* candidate) {
+          return behavior::signature(*candidate) == behavior::signature(*method);
+        })) { continue; }
+        write_managed_text(output, writer_.access_section(method->access, current_access),
+            "  // Forward an inherited concrete edit through its checked base occurrence.\n"
+            "  ", writer_.behavior_return_type(*method), " ", function_name(method->name), "(");
+        write_edit_parameters(output, *method);
+        write_managed_text(output, ") requires (!Access::is_runtime_access) { return ", base_accessor_name(base),
+            "().", function_name(method->name), "(", edit_arguments(*method), "); }\n");
+        break;
       }
     }
     writer_.write_behavior_contract(output, source, true, &current_access);
     write_managed_text(output, "};\n");
+    write_edit_behavior(output, source);
     close_managed_namespace(output, source);
   }
 
